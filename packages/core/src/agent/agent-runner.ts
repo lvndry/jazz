@@ -124,6 +124,7 @@ import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
 import { registerBrowserAdoptionTools, registerPeerTools } from "./tools/register-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
+import { collectUnlockedToolNames } from "./tools/unlocked-tools";
 import { INTERACTIVE_TOOL_NAMES } from "./tools/user-interaction";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
@@ -822,6 +823,25 @@ function initializeAgentRun(
     const tools = Array.from(yield* toolRegistry.getToolDefinitionsFor(eagerToolNames));
     const deferredToolSummaries =
       deferredToolNames.length > 0 ? yield* toolRegistry.getToolSummaries(deferredToolNames) : [];
+
+    const restoredToolNames = collectUnlockedToolNames(history, deferredToolNames);
+    if (restoredToolNames.length > 0) {
+      const restoredDefinitions = yield* toolRegistry.getToolDefinitionsFor(restoredToolNames);
+      const definitionByName = new Map(
+        restoredDefinitions.map((definition) => [definition.function.name, definition]),
+      );
+      for (const name of restoredToolNames) {
+        const definition = definitionByName.get(name);
+        if (definition !== undefined) {
+          tools.push(definition);
+        }
+      }
+      yield* logger.debug("Restored deferred tools unlocked earlier in the conversation", {
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        restoredCount: restoredToolNames.length,
+      });
+    }
 
     // Build tool descriptions map
     const availableTools: Record<string, string> = {};

@@ -488,11 +488,12 @@ describe("AgentRunner", () => {
   function createTestLayer(overrides?: {
     readonly llm?: LLMService;
     readonly pluginRuntime?: PluginRuntimeService;
+    readonly toolRegistry?: ToolRegistry;
   }): Layer.Layer<never, never, unknown> {
     return Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, mockLogger),
       Layer.succeed(PresentationServiceTag, mockPresentationService),
-      Layer.succeed(ToolRegistryTag, mockToolRegistry),
+      Layer.succeed(ToolRegistryTag, overrides?.toolRegistry ?? mockToolRegistry),
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
       Layer.succeed(MCPServerManagerTag, mockMcpServerManager),
@@ -509,7 +510,11 @@ describe("AgentRunner", () => {
 
   function runWithTestLayers<A, E>(
     program: Effect.Effect<A, E, unknown>,
-    overrides?: { readonly llm?: LLMService; readonly pluginRuntime?: PluginRuntimeService },
+    overrides?: {
+      readonly llm?: LLMService;
+      readonly pluginRuntime?: PluginRuntimeService;
+      readonly toolRegistry?: ToolRegistry;
+    },
   ): Promise<A> {
     return Effect.runPromise(
       program.pipe(Effect.provide(createTestLayer(overrides))) as Effect.Effect<A, E, never>,
@@ -749,6 +754,73 @@ describe("AgentRunner", () => {
         { llm },
       );
       expect(requestedModels).toEqual(["Qwen/Qwen3-8B"]);
+    });
+
+    it("declares tools an earlier turn unlocked on every later run, after the eager tools", async () => {
+      const deferredDefinition = {
+        type: "function" as const,
+        function: { name: "deferred_tool", description: "A deferred tool", parameters: {} },
+      };
+      const toolRegistry = {
+        ...mockToolRegistry,
+        listAllTools: () => Effect.succeed(["tool1", "tool2", "deferred_tool"]),
+        partitionByTier: () =>
+          Effect.succeed({ eager: ["tool1", "tool2"], deferred: ["deferred_tool"] }),
+        getToolSummaries: () =>
+          Effect.succeed([{ name: "deferred_tool", summary: "A deferred tool" }]),
+        getToolDefinitionsFor: (names: readonly string[]) =>
+          Effect.succeed(
+            [...MOCK_TOOL_DEFINITIONS, deferredDefinition].filter((definition) =>
+              names.includes(definition.function.name),
+            ),
+          ),
+      } as unknown as ToolRegistry;
+      const declaredToolNames: string[][] = [];
+      const llm = {
+        ...mockLlmService,
+        createChatCompletion: (
+          _provider: string,
+          options: { tools?: { function: { name: string } }[] },
+        ) => {
+          declaredToolNames.push((options.tools ?? []).map((tool) => tool.function.name));
+          return Effect.succeed({ id: "test-completion", model: "gpt-4", content: "done" });
+        },
+      } as unknown as LLMService;
+      const unlockingTurn: ChatMessage[] = [
+        { role: "user", content: "find it" },
+        { role: "assistant", content: "found" },
+        {
+          role: "tool",
+          name: "search_tools",
+          tool_call_id: "call-1",
+          content: "{}",
+          unlockedToolNames: ["deferred_tool"],
+        },
+      ];
+
+      await runWithTestLayers(
+        AgentRunner.run({
+          ...defaultOptions,
+          stream: false,
+          maxIterations: 1,
+          conversationHistory: unlockingTurn,
+        }),
+        { llm, toolRegistry },
+      );
+      await runWithTestLayers(
+        AgentRunner.run({
+          ...defaultOptions,
+          stream: false,
+          maxIterations: 1,
+          conversationHistory: [],
+        }),
+        { llm, toolRegistry },
+      );
+
+      const [restored, fresh] = declaredToolNames;
+      expect(restored?.at(-1)).toBe("deferred_tool");
+      expect(restored?.slice(0, -1)).toEqual(fresh);
+      expect(fresh).not.toContain("deferred_tool");
     });
 
     it("records the run's live egress taint on the messages it returns", async () => {

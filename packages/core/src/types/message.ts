@@ -73,6 +73,8 @@ export interface ChatMessage {
    * For role === "tool": the id of the tool call this message responds to
    */
   tool_call_id?: string;
+  /** Deferred-tier tools this tool result unlocked, in unlock order; later runs of the conversation declare them again. */
+  unlockedToolNames?: readonly string[];
   /** A memory entry this tool result showed; counted as exposed only while these exact bytes reach a request. */
   memoryDelivery?: MemoryDelivery;
   /**
