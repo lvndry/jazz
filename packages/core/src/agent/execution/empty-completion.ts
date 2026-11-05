@@ -5,7 +5,6 @@ import { isRetryableEmptyCompletion } from "@/core/agent/run/answer-outcome";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { ChatCompletionResponse } from "@/core/types/chat";
 import { LLMRequestError } from "@/core/types/errors";
-import { recordLLMUsage, type AgentRunMetrics } from "../metrics/agent-run-metrics";
 
 export interface EmptyCompletionContext {
   readonly provider: string;
@@ -13,14 +12,19 @@ export interface EmptyCompletionContext {
   readonly agentId: string;
   readonly conversationId: string;
   readonly logger: LoggerService;
-  readonly runMetrics: AgentRunMetrics;
+  /**
+   * Called with the rejected completion before the failure, so the caller can attribute the
+   * usage it reported to the failed attempt.
+   */
+  readonly onRejected?: (completion: ChatCompletionResponse) => Effect.Effect<void>;
 }
 
 /**
  * Passes `result` through unless its completion is an empty finish worth asking again. An empty
  * finish bills no output, so it joins the transient failures the shared retry budget already
- * covers, under its own reason. The rejected response never reaches the agent loop, so its
- * request and the usage it reported are recorded here.
+ * covers, under its own reason. The rejected response never reaches the agent loop, and the
+ * usage it reported is not added to the run's own totals: the caller's failed-attempt record
+ * owns it, through `onRejected`.
  */
 export function rejectEmptyCompletion<Result extends { completion: ChatCompletionResponse }>(
   result: Result,
@@ -31,9 +35,8 @@ export function rejectEmptyCompletion<Result extends { completion: ChatCompletio
     if (!isRetryableEmptyCompletion(completion)) {
       return result;
     }
-    context.runMetrics.totalRequests += 1;
-    if (completion.usage) {
-      recordLLMUsage(context.runMetrics, completion.usage);
+    if (context.onRejected !== undefined) {
+      yield* context.onRejected(completion);
     }
     yield* context.logger.warn("Model returned an empty response, retrying", {
       reason: "empty_response",

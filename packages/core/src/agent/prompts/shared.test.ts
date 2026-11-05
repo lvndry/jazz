@@ -1,5 +1,31 @@
 import { describe, expect, it } from "bun:test";
-import { renderHarnessPrompt, type HarnessPromptOptions } from "./shared";
+import fixtures from "./harness-prompt-fixtures.json";
+import { renderHarnessPrompt, renderHarnessPromptParts, type HarnessPromptOptions } from "./shared";
+
+describe("renderHarnessPrompt output", () => {
+  it.each(fixtures)("is byte-identical to the recorded render for $name", (fixture) => {
+    expect(renderHarnessPrompt(fixture.options as HarnessPromptOptions)).toBe(fixture.expected);
+  });
+
+  it.each(fixtures)("$name: the two parts join into the same block", (fixture) => {
+    const { stable, dynamic } = renderHarnessPromptParts(fixture.options as HarnessPromptOptions);
+
+    expect(dynamic === undefined ? stable : `${stable}\n\n${dynamic}`).toBe(fixture.expected);
+  });
+
+  it("keeps the skills and deferred-tool indexes out of the stable part", () => {
+    const { stable, dynamic } = renderHarnessPromptParts({
+      hasTools: true,
+      skillsIndex: "- alpha: first",
+      deferredToolsIndex: "- beta: second",
+    });
+
+    expect(stable).not.toContain("alpha");
+    expect(stable).not.toContain("beta");
+    expect(dynamic).toContain("alpha");
+    expect(dynamic).toContain("beta");
+  });
+});
 
 const GATED_TOOLS: readonly {
   readonly flag: keyof HarnessPromptOptions;

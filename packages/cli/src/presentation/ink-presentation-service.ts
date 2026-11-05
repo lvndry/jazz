@@ -5,8 +5,14 @@
  * the Ink UI is active. See cli-renderer.ts for the non-Ink fallback path.
  */
 
+import {
+  addRetriedAttempt,
+  computeRetryWaste,
+  createRetryWasteTally,
+} from "@jazz/core/agent/metrics/failed-attempts";
 import type { CacheMissReason } from "@jazz/core/agent/metrics/prompt-cache";
 import { DEFAULT_DISPLAY_CONFIG } from "@jazz/core/agent/types";
+import { isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
   NotificationServiceTag,
@@ -74,6 +80,7 @@ import {
   EMPTY_TURN,
   formatStepBreakdown,
   formatTurnReceipt,
+  type StepStats,
   type TurnTotals,
 } from "./turn-receipt";
 import { contentFromOutput } from "../ui/document";
@@ -199,6 +206,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private hasStreamedText = false;
   /** Steps of the turn so far; closed into one receipt when the model stops calling tools. */
   private turn: TurnTotals = EMPTY_TURN;
+  /** Failed attempts since the last step; attached to the step that finally succeeds. */
+  private pendingRetries = createRetryWasteTally();
   /** Why the request now streaming differs from the previous one in what providers cache. */
   private pendingCacheReason: CacheMissReason | undefined;
 
@@ -753,6 +762,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
         return;
       }
 
+      if (event.type === "llm_attempt_failed") {
+        addRetriedAttempt(this.pendingRetries, event.usage, event.usageUnknown);
+        return;
+      }
+
       // Read before reduceEvent clears the entry on completion; the panel
       // line needs the tool name to format its result summary.
       const completedToolName =
@@ -984,10 +998,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
         ? undefined
         : event.totalDurationMs - event.metrics.firstTokenLatencyMs;
     const costUSD = this.recordStepCost(usage);
+    const retryStats = this.takeRetryStats();
     const cacheReason = this.pendingCacheReason;
     this.pendingCacheReason = undefined;
     this.turn = addStep(this.turn, {
       durationMs: event.totalDurationMs,
+      ...retryStats,
       ...(usage
         ? {
             promptTokens: usage.promptTokens,
@@ -1042,6 +1058,32 @@ export class InkStreamingRenderer implements StreamingRenderer {
     if (turn.steps.length > 1 && store.getExpandableDiff() === null) {
       store.setExpandableDiff(formatStepBreakdown(turn));
     }
+  }
+
+  /**
+   * The retried attempts since the last step, priced from the usage the provider reported for
+   * them, and the tally cleared. A cold pricing cache leaves the figure unpriced, which the
+   * receipt shows as unknown rather than zero.
+   */
+  private takeRetryStats(): Pick<StepStats, "retries" | "wastedUSD" | "wasteLowerBound"> {
+    const tally = this.pendingRetries;
+    if (tally.retryableFailures === 0) {
+      return {};
+    }
+    this.pendingRetries = createRetryWasteTally();
+    const provider = this.acc.currentProvider;
+    const model = this.acc.currentModel;
+    const pricing = provider && model ? getModelsDevMetadataSync(model, provider) : undefined;
+    const waste = computeRetryWaste(
+      tally,
+      pricing,
+      Boolean(provider && model && isZeroCostLocalModel(provider, model)),
+    );
+    return {
+      retries: waste.retries,
+      ...(waste.wastedUSD !== undefined ? { wastedUSD: waste.wastedUSD } : {}),
+      ...(waste.lowerBound ? { wasteLowerBound: true } : {}),
+    };
   }
 
   /**

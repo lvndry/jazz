@@ -753,6 +753,16 @@ function registerConfigCommands(program: Command): void {
     });
 
   configCommand
+    .command("resolved")
+    .description("Show the effective configuration and the layer each value came from")
+    .option("--json", "Print one JSON document")
+    .action(async (options: { json?: boolean }) => {
+      const { runConfigResolved } = await import("./app-layer");
+      const { configPath, debug } = cliRuntimeOptions(program);
+      await runConfigResolved({ configPath, debug, json: options.json === true });
+    });
+
+  configCommand
     .command("get <key>")
     .description("Get a configuration value (secrets redacted unless --reveal)")
     .option("--reveal", "Print secret values in full")

@@ -44,6 +44,10 @@ Equivalent non-secret configuration:
 }
 ```
 
+## When no key is configured
+
+An agent whose search provider has no key does not get `web_search` at all, so the model never spends a call on a guaranteed failure. `/info` shows `web search  no API key` with the command to run. A key you add mid-conversation takes effect on the next message, which also changes the tool list once.
+
 ## Override per agent
 
 Set `config.webSearchProvider` in an agent definition when one agent should use a different backend:

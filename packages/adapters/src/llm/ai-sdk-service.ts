@@ -135,6 +135,8 @@ import {
   resolveClaudeCodeBinary,
 } from "./claude-code";
 import { saveModelGeneratedFiles } from "./generated-files";
+import type { GoldenRecorder } from "./golden/fixture";
+import { goldenRecorderFromEnv, summarizeRequest } from "./golden/record-env";
 import { generateImageCompletion, isImageEndpointModel } from "./image-generation";
 import { llmFetch } from "./llm-fetch";
 import {
@@ -423,6 +425,7 @@ export function toCoreMessages(
   messages: ReadonlyArray<{
     role: "system" | "user" | "assistant" | "tool";
     content: string;
+    stablePrefixLength?: number;
     kind?: "summary" | "task" | "continuation" | "ephemeral";
     name?: string;
     tool_call_id?: string;
@@ -463,11 +466,22 @@ export function toCoreMessages(
   const normalizedProviderName = providerName?.toLowerCase();
   const reasoningReplay = resolveReasoningReplay(providerName, conversionOptions?.modelName);
 
+  const systemSplit = splitSystemPrompt(messages[0], normalizedProviderName);
+  let liveSystemMessage: SystemModelMessage | undefined;
+
   const result = messages.map((message, messageIndex) => {
     const role = message.role;
     const content = sanitize(message.content);
 
     if (role === "system") {
+      if (messageIndex === 0 && systemSplit !== undefined) {
+        liveSystemMessage = { role: "system", content: sanitize(systemSplit.live) };
+        return {
+          role: "system",
+          content: sanitize(systemSplit.stable),
+          providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+        } satisfies SystemModelMessage;
+      }
       const msg: SystemModelMessage = {
         role: "system",
         content,
@@ -652,8 +666,88 @@ export function toCoreMessages(
   // some single-task models answer garbage once any long instruction precedes their input.
   // The system prompt is only ever the first message, so ordinary requests skip this, and it is
   // dropped last so the breakpoint index above still lines up with `messages`.
+  if (liveSystemMessage !== undefined) {
+    return [converted[0]!, liveSystemMessage, ...converted.slice(1)];
+  }
   const first = converted[0];
   return first?.role === "system" && first.content.trim() === "" ? converted.slice(1) : converted;
+}
+
+/**
+ * Providers whose requests carry the system prompt as two blocks, the first ending at a cache
+ * breakpoint. OpenRouter and the AI gateway route to arbitrary models, some of which reject a
+ * second system message, so they keep the single prompt and its own breakpoint.
+ */
+const SPLIT_SYSTEM_PROMPT_PROVIDERS = new Set(["anthropic"]);
+
+/**
+ * Cut a system prompt at its stable prefix so the part that changes between turns can follow the
+ * cache breakpoint instead of invalidating it. `stable + live` is the original prompt. Returns
+ * undefined, meaning send one message, when the provider does not take a split or the recorded
+ * prefix no longer fits the content.
+ */
+function splitSystemPrompt(
+  message: { role: string; content: string; stablePrefixLength?: number } | undefined,
+  providerName: string | undefined,
+): { stable: string; live: string } | undefined {
+  if (
+    message?.role !== "system" ||
+    message.stablePrefixLength === undefined ||
+    providerName === undefined ||
+    !SPLIT_SYSTEM_PROMPT_PROVIDERS.has(providerName)
+  ) {
+    return undefined;
+  }
+  const prefixLength = message.stablePrefixLength;
+  if (
+    !Number.isInteger(prefixLength) ||
+    prefixLength <= 0 ||
+    prefixLength >= message.content.length
+  ) {
+    return undefined;
+  }
+  const stable = message.content.slice(0, prefixLength);
+  const live = message.content.slice(prefixLength);
+  if (stable.trim() === "" || live.trim() === "") {
+    return undefined;
+  }
+  return { stable, live };
+}
+
+/**
+ * Put a cache breakpoint on the last function tool so the tool definitions cache on their own.
+ * Anthropic orders a request tools, system, messages, so a changed system prompt would otherwise
+ * invalidate the tools too. Only the Anthropic provider reads a breakpoint from a tool: the
+ * OpenRouter provider drops tool-level options and the gateway's handling is not verified.
+ */
+export function applyToolsCacheBreakpoint(tools: ToolSet, providerName: string): ToolSet {
+  if (providerName !== "anthropic") {
+    return tools;
+  }
+  const names = Object.keys(tools);
+  let lastFunctionToolName: string | undefined;
+  for (let index = names.length - 1; index >= 0; index--) {
+    const name = names[index]!;
+    if (tools[name]?.type !== "provider") {
+      lastFunctionToolName = name;
+      break;
+    }
+  }
+  if (lastFunctionToolName === undefined) {
+    return tools;
+  }
+  const target = tools[lastFunctionToolName]!;
+  const existing = target.providerOptions ?? {};
+  return {
+    ...tools,
+    [lastFunctionToolName]: {
+      ...target,
+      providerOptions: {
+        ...existing,
+        anthropic: { ...existing["anthropic"], cacheControl: { type: "ephemeral" } },
+      },
+    },
+  };
 }
 
 const PREFIX_CACHE_PROVIDERS = new Set(["anthropic", "ai_gateway", "openrouter"]);
@@ -1963,6 +2057,8 @@ class AISDKService implements LLMService {
   private readonly modelCache = new Map<string, LanguageModel>();
   private readonly modelInfoCache = new Map<string, readonly ModelInfo[]>();
   private readonly reportedReasoningClamps = new Set<string>();
+  /** Writes a scrubbed golden fixture of every streamed model call when JAZZ_GOLDEN_RECORD is set. */
+  private goldenRecorder: GoldenRecorder | undefined;
 
   constructor(
     config: AISDKConfig,
@@ -2313,7 +2409,17 @@ class AISDKService implements LLMService {
       ),
     );
 
-    return { tools, providerNativeToolNames, toolDefinitionChars };
+    const cachedTools = applyToolsCacheBreakpoint(tools, providerName);
+    if (cachedTools !== tools) {
+      Effect.runFork(
+        this.logger.debug("Prompt cache breakpoint placed on the last tool definition", {
+          provider: providerName,
+          toolCount: Object.keys(tools).length,
+        }),
+      );
+    }
+
+    return { tools: cachedTools, providerNativeToolNames, toolDefinitionChars };
   }
 
   createChatCompletion(
@@ -2867,10 +2973,24 @@ class AISDKService implements LLMService {
 
                 const providerNativeToolNames = prepared?.providerNativeToolNames;
 
+                this.goldenRecorder ??= goldenRecorderFromEnv(
+                  providerName,
+                  options.model,
+                  [resolveProviderApiKey(providerName, this.config.llmConfig)].filter(
+                    (key): key is string => typeof key === "string",
+                  ),
+                );
+                const callRecording = this.goldenRecorder?.beginCall(
+                  summarizeRequest(options.messages, options.tools),
+                );
+
                 const processor = new StreamProcessor(
                   {
                     providerName,
                     modelName: options.model,
+                    ...(callRecording
+                      ? { observePart: (part: unknown) => callRecording.observePart(part) }
+                      : {}),
                     streamIdleTimeoutMs: this.config.llmConfig?.streamIdleTimeoutMs,
                     hasReasoningEnabled:
                       options.reasoning !== undefined && options.reasoning !== "disable",
@@ -2892,6 +3012,7 @@ class AISDKService implements LLMService {
 
                 // Process the stream and get final response
                 const finalResponse = await processor.process(result);
+                callRecording?.finish();
 
                 // `files` resolves once the stream finishes, so media a model emitted mid-answer
                 // is saved after the text has already been rendered. Awaited here rather than in

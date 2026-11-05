@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "scenario": "tool-call-result",
+  "provider": "openai",
+  "model": "gpt-4",
+  "calls": [
+    {
+      "request": {
+        "messageRoles": ["system", "user"],
+        "toolNames": ["find_skills", "load_skill", "load_skill_section", "lookup_note"],
+        "toolResults": []
+      },
+      "parts": [
+        { "type": "start" },
+        { "type": "start-step" },
+        {
+          "type": "tool-call",
+          "toolCallId": "<ID:1>",
+          "toolName": "lookup_note",
+          "input": { "title": "standup" }
+        },
+        {
+          "type": "finish-step",
+          "finishReason": "tool-calls",
+          "usage": { "inputTokens": 130, "outputTokens": 21, "totalTokens": 151 }
+        },
+        {
+          "type": "finish",
+          "finishReason": "tool-calls",
+          "totalUsage": { "inputTokens": 130, "outputTokens": 21, "totalTokens": 151 }
+        }
+      ]
+    },
+    {
+      "request": {
+        "messageRoles": ["system", "user", "assistant", "tool"],
+        "toolNames": ["find_skills", "load_skill", "load_skill_section", "lookup_note"],
+        "toolResults": [
+          { "toolName": "lookup_note", "content": "Standup notes: 10:00 every weekday, room 4." }
+        ]
+      },
+      "parts": [
+        { "type": "start" },
+        { "type": "start-step" },
+        { "type": "text-start", "id": "<ID:2>" },
+        { "type": "text-delta", "id": "<ID:2>", "text": "Your standup is at 10:00 in room 4." },
+        { "type": "text-end", "id": "<ID:2>" },
+        {
+          "type": "finish-step",
+          "finishReason": "stop",
+          "usage": { "inputTokens": 190, "outputTokens": 12, "totalTokens": 202 }
+        },
+        {
+          "type": "finish",
+          "finishReason": "stop",
+          "totalUsage": { "inputTokens": 190, "outputTokens": 12, "totalTokens": 202 }
+        }
+      ]
+    }
+  ]
+}
