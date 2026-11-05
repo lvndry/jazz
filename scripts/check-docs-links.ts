@@ -21,9 +21,6 @@ import GithubSlugger from "github-slugger";
 import matter from "gray-matter";
 import { marked, type Token, type Tokens } from "marked";
 
-/** Local-only plans; gitignored, so their links are not part of the published docs. */
-const EXCLUDED_DIRS = ["docs/superpowers"];
-
 const LINK_PATTERN = /\]\(([^)]+)\)/g;
 
 function trackedPaths(): Set<string> {
@@ -52,7 +49,6 @@ function trackedPaths(): Set<string> {
 function markdownFiles(directory: string, collected: string[] = []): string[] {
   for (const entry of readdirSync(directory)) {
     const entryPath = path.join(directory, entry);
-    if (EXCLUDED_DIRS.some((excluded) => entryPath.startsWith(excluded))) continue;
     if (statSync(entryPath).isDirectory()) {
       markdownFiles(entryPath, collected);
     } else if (entry.endsWith(".md")) {
@@ -146,9 +142,7 @@ function anchorsOfFile(file: string): ReadonlySet<string> {
 
 function main(): void {
   const tracked = trackedPaths();
-  const trackedMarkdownSources = [...tracked].filter(
-    (file) => file.endsWith(".md") && !EXCLUDED_DIRS.some((excluded) => file.startsWith(excluded)),
-  );
+  const trackedMarkdownSources = [...tracked].filter((file) => file.endsWith(".md"));
   // Untracked new files are legitimate targets on a feature branch.
   const untracked = spawnSync("git", ["ls-files", "--others", "--exclude-standard"], {
     encoding: "utf-8",

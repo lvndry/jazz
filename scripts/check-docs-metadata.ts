@@ -10,14 +10,12 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
 
-const EXCLUDED_DIRECTORIES = ["docs/superpowers", "docs/plans"];
 const MIN_DESCRIPTION_LENGTH = 50;
 const MAX_DESCRIPTION_LENGTH = 180;
 
 function markdownFiles(directory: string, collected: string[] = []): string[] {
   for (const entry of readdirSync(directory)) {
     const entryPath = path.join(directory, entry);
-    if (EXCLUDED_DIRECTORIES.some((excluded) => entryPath.startsWith(excluded))) continue;
     if (statSync(entryPath).isDirectory()) markdownFiles(entryPath, collected);
     else if (entry.endsWith(".md")) collected.push(entryPath);
   }

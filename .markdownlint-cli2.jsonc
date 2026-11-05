@@ -6,7 +6,7 @@
   // skills/ workflows/ examples/ — those are agent-facing templates where rules like
   // "fenced blocks need a language" fight the format rather than help it.
   "globs": ["docs/**/*.md", "*.md"],
-  "ignores": ["node_modules/**", "dist/**", "docs/superpowers/**"],
+  "ignores": ["node_modules/**", "dist/**"],
   "config": {
     // Prose is hard-wrapped at ~100, not 80, and tables legitimately exceed any limit.
     // Enforcing a column count on documentation produces thousands of findings and no value.
