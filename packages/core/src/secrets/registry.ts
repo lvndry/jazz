@@ -21,6 +21,7 @@ export { LLM_PROVIDER_ENV_VAR_ALIASES, LLM_PROVIDER_ENV_VARS, llmProviderEnvVars
 const WEB_SEARCH_PROVIDER_ENV_VARS: Record<string, string> = {
   brave: "BRAVE_API_KEY",
   exa: "EXA_API_KEY",
+  keenable: "KEENABLE_API_KEY",
   linkup: "LINKUP_API_KEY",
   parallel: "PARALLEL_API_KEY",
   perplexity: "PERPLEXITY_API_KEY",
