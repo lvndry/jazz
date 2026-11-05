@@ -24,6 +24,7 @@ Use these pages to answer two questions: where does a change belong, and which i
 - [Interface design](./interface-design.md): the terminal's visual language, and the rules for any case it does not cover.
 - [Conversation presentation](./presentation-documents.md): source facts, renderer projections, stream identity, and history migration.
 - [Fullscreen ownership](./fullscreen-ownership.md): navigation, content anchors, bounded layout, and disposal.
+- [Golden sessions](./golden-sessions.md): recorded model streams replayed through the real runner in CI, and how to add a scenario.
 - [Terminal rendering tests](./terminal-rendering-tests.md): native ANSI output checked against an independent terminal grid.
 - [Terminal runtime](./terminal-runtime.md): output capabilities, demand frames, cleanup, and fallback.
 - [UI performance qualification](./ui-performance-qualification.md): matched fresh-process latency and memory reproduction, complete observations, and unchanged gates.

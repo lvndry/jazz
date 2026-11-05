@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "scenario": "plain-answer",
+  "provider": "openai",
+  "model": "gpt-4",
+  "calls": [
+    {
+      "request": {
+        "messageRoles": ["system", "user"],
+        "toolNames": ["find_skills", "load_skill", "load_skill_section", "lookup_note"],
+        "toolResults": []
+      },
+      "parts": [
+        { "type": "start" },
+        { "type": "start-step" },
+        { "type": "text-start", "id": "<ID:1>" },
+        { "type": "text-delta", "id": "<ID:1>", "text": "The standup is at " },
+        { "type": "text-delta", "id": "<ID:1>", "text": "10:00 every weekday." },
+        { "type": "text-end", "id": "<ID:1>" },
+        {
+          "type": "finish-step",
+          "finishReason": "stop",
+          "usage": { "inputTokens": 120, "outputTokens": 14, "totalTokens": 134 }
+        },
+        {
+          "type": "finish",
+          "finishReason": "stop",
+          "totalUsage": { "inputTokens": 120, "outputTokens": 14, "totalTokens": 134 }
+        }
+      ]
+    }
+  ]
+}
