@@ -87,12 +87,18 @@ export function recordMisfire(
 
 function parseLine(line: string): MisfireEntry | undefined {
   const trimmed = line.trim();
-  if (trimmed.length === 0) return undefined;
+  if (trimmed.length === 0) {
+    return undefined;
+  }
   try {
     const parsed: unknown = JSON.parse(trimmed);
-    if (typeof parsed !== "object" || parsed === null) return undefined;
+    if (typeof parsed !== "object" || parsed === null) {
+      return undefined;
+    }
     const entry = parsed as MisfireEntry;
-    if (typeof entry.toolName !== "string" || typeof entry.kind !== "string") return undefined;
+    if (typeof entry.toolName !== "string" || typeof entry.kind !== "string") {
+      return undefined;
+    }
     return entry;
   } catch {
     return undefined;

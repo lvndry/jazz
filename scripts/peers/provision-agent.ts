@@ -40,7 +40,9 @@ import * as path from "node:path";
  */
 function jazzHomeDirectory(): string {
   const jazzHome = process.env["JAZZ_HOME"];
-  if (jazzHome && jazzHome.trim().length > 0) return path.resolve(jazzHome.trim());
+  if (jazzHome && jazzHome.trim().length > 0) {
+    return path.resolve(jazzHome.trim());
+  }
   const homeDir = os.homedir();
   return homeDir && homeDir.trim().length > 0
     ? path.join(homeDir, ".jazz")

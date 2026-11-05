@@ -12,9 +12,15 @@ const FALSE_WORDS: ReadonlySet<string> = new Set(["0", "false", "off", "no"]);
 /** `true`/`false` for a recognised word, undefined for unset, empty or anything else. */
 export function parseFlag(raw: string | undefined): boolean | undefined {
   const value = raw?.trim().toLowerCase();
-  if (value === undefined || value.length === 0) return undefined;
-  if (TRUE_WORDS.has(value)) return true;
-  if (FALSE_WORDS.has(value)) return false;
+  if (value === undefined || value.length === 0) {
+    return undefined;
+  }
+  if (TRUE_WORDS.has(value)) {
+    return true;
+  }
+  if (FALSE_WORDS.has(value)) {
+    return false;
+  }
   return undefined;
 }
 
@@ -25,7 +31,9 @@ export function envFlag(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   const raw = env[name];
-  if (raw === undefined || raw.trim().length === 0) return defaultOn;
+  if (raw === undefined || raw.trim().length === 0) {
+    return defaultOn;
+  }
   return !FALSE_WORDS.has(raw.trim().toLowerCase());
 }
 

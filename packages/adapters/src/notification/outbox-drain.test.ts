@@ -13,6 +13,7 @@ import {
   listOutbox,
   retryStoppedNotifications,
 } from "./outbox-drain";
+import { partialFake } from "../test-support/fakes";
 
 const homes: string[] = [];
 
@@ -33,9 +34,12 @@ const targets: readonly NotifyTarget[] = [
   { name: "desk", kind: "desktop" },
 ];
 
-const configLayer = Layer.succeed(AgentConfigServiceTag, {
-  appConfig: Effect.succeed({ notify: { targets } }),
-} as unknown as AgentConfigService);
+const configLayer = Layer.succeed(
+  AgentConfigServiceTag,
+  partialFake<AgentConfigService>({
+    appConfig: Effect.succeed({ notify: { targets } }),
+  }),
+);
 
 function drain(home: string, now: number, outcome: DeliveryOutcome, sent: string[] = []) {
   const options: DrainOptions = {

@@ -15,13 +15,19 @@ import { ToolNotFoundError } from "@jazz/core/types/errors";
 import { DEFAULT_WEBHOOK_DISCLOSURE, type WebhookConfig } from "@jazz/core/types/webhook";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { partialFake } from "./partial-fake.fixture";
 import { webhookRunOptions } from "./server";
 
 /**
  * The interesting corners of the real registry: a read-only tool at each disclosure level,
  * and two that can act.
  */
-const TOOLS: readonly { name: string; riskLevel: string; disclosure: string; egress: boolean }[] = [
+const TOOLS: readonly {
+  name: string;
+  riskLevel: Tool["riskLevel"];
+  disclosure: Tool["disclosure"];
+  egress: boolean;
+}[] = [
   { name: "web_search", riskLevel: "read-only", disclosure: "public", egress: true },
   { name: "ls", riskLevel: "read-only", disclosure: "internal", egress: false },
   { name: "read_file", riskLevel: "read-only", disclosure: "private", egress: false },
@@ -29,20 +35,20 @@ const TOOLS: readonly { name: string; riskLevel: string; disclosure: string; egr
   { name: "execute_command", riskLevel: "unknown", disclosure: "private", egress: false },
 ];
 
-const registry = {
+const registry = partialFake<ToolRegistry>({
   listTools: () => Effect.succeed(TOOLS.map((tool) => tool.name)),
   getTool: (name: string) => {
     const found = TOOLS.find((tool) => tool.name === name);
     return found === undefined
       ? Effect.fail(new ToolNotFoundError({ toolName: name }))
-      : Effect.succeed(found as unknown as Tool);
+      : Effect.succeed(partialFake<Tool>(found));
   },
-} as unknown as ToolRegistry;
+});
 
-const agentService = {
+const agentService = partialFake<AgentService>({
   getAgent: (identifier: string) =>
-    Effect.succeed({ id: identifier, name: identifier, config: {} } as unknown as Agent),
-} as unknown as AgentService;
+    Effect.succeed(partialFake<Agent>({ id: identifier, name: identifier, config: {} })),
+});
 
 const HOOK: WebhookConfig = {
   name: "hook",

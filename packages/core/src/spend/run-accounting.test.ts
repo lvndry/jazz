@@ -8,6 +8,7 @@ import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { daemonStatePath } from "@/core/daemon/daemon-state";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { OUTBOX_FILE_KIND, outboxDirectory, outboxFilePath } from "@/core/notify/outbox";
+import { partialFake } from "@/core/test-support/fakes";
 import type { AppConfig } from "@/core/types/config";
 import { readStateFile } from "@/core/utils/state-file";
 import { SPEND_LEDGER_ENV, SpendCapReachedError } from "./caps";
@@ -43,10 +44,10 @@ function input(home: string, overrides: Partial<RunAccountingInput> = {}): RunAc
     origin: { source: "workflow", name: "brief" },
     internal: false,
     unattended: true,
-    appConfig: {
+    appConfig: partialFake<AppConfig>({
       daemon: { dailyCostUSD: 1 },
       notify: { targets: TARGETS },
-    } as unknown as AppConfig,
+    }),
     freeLocalModel: false,
     home,
     ...overrides,
@@ -161,11 +162,11 @@ describe("guardRunStart", () => {
   it("applies an agent cap keyed by the agent's name, looking the name up by id", async () => {
     const home = temporaryHome();
     await spendOne(home, 1);
-    const agents = {
+    const agents = partialFake<AgentService>({
       listAgents: () => Effect.succeed([{ id: "agent", name: "inbox" }]),
-    } as unknown as AgentService;
+    });
     const capped = input(home, {
-      appConfig: { daemon: { agents: { inbox: { dailyCostUSD: 1 } } } } as unknown as AppConfig,
+      appConfig: partialFake<AppConfig>({ daemon: { agents: { inbox: { dailyCostUSD: 1 } } } }),
     });
 
     const result = await Effect.runPromise(

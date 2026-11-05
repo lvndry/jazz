@@ -71,8 +71,12 @@ const PNG = {
 } as const;
 
 function parsePngDimensions(header: Buffer): MediaDimensions | undefined {
-  if (header.length < PNG.MIN_BYTES) return undefined;
-  if (header.readUInt32BE(0) !== PNG.MAGIC) return undefined;
+  if (header.length < PNG.MIN_BYTES) {
+    return undefined;
+  }
+  if (header.readUInt32BE(0) !== PNG.MAGIC) {
+    return undefined;
+  }
   return {
     width: header.readUInt32BE(PNG.WIDTH_OFFSET),
     height: header.readUInt32BE(PNG.HEIGHT_OFFSET),
@@ -94,8 +98,12 @@ const GIF = {
 } as const;
 
 function parseGifDimensions(header: Buffer): MediaDimensions | undefined {
-  if (header.length < GIF.MIN_BYTES) return undefined;
-  if (header.toString("ascii", 0, GIF.MAGIC_LENGTH) !== GIF.MAGIC_ASCII) return undefined;
+  if (header.length < GIF.MIN_BYTES) {
+    return undefined;
+  }
+  if (header.toString("ascii", 0, GIF.MAGIC_LENGTH) !== GIF.MAGIC_ASCII) {
+    return undefined;
+  }
   return {
     width: header.readUInt16LE(GIF.WIDTH_OFFSET),
     height: header.readUInt16LE(GIF.HEIGHT_OFFSET),
@@ -151,13 +159,19 @@ function isStandaloneJpegMarker(marker: number): boolean {
 }
 
 function isJpegStartOfFrame(marker: number): boolean {
-  if (marker < JPEG.SOF_FIRST || marker > JPEG.SOF_LAST) return false;
+  if (marker < JPEG.SOF_FIRST || marker > JPEG.SOF_LAST) {
+    return false;
+  }
   return marker !== JPEG.DHT_MARKER && marker !== JPEG.JPG_MARKER && marker !== JPEG.DAC_MARKER;
 }
 
 function parseJpegDimensions(header: Buffer): MediaDimensions | undefined {
-  if (header.length < JPEG.MIN_BYTES) return undefined;
-  if (header.readUInt16BE(0) !== JPEG.SOI) return undefined;
+  if (header.length < JPEG.MIN_BYTES) {
+    return undefined;
+  }
+  if (header.readUInt16BE(0) !== JPEG.SOI) {
+    return undefined;
+  }
 
   let offset = JPEG.LENGTH_FIELD_OFFSET;
   while (offset + JPEG_SOF_FIELDS_BYTES < header.length) {
@@ -167,7 +181,9 @@ function parseJpegDimensions(header: Buffer): MediaDimensions | undefined {
       continue;
     }
     const marker = header[offset + 1];
-    if (marker === undefined) return undefined;
+    if (marker === undefined) {
+      return undefined;
+    }
 
     if (isStandaloneJpegMarker(marker)) {
       offset += JPEG.LENGTH_FIELD_OFFSET;
@@ -182,7 +198,9 @@ function parseJpegDimensions(header: Buffer): MediaDimensions | undefined {
     }
 
     const segmentLength = header.readUInt16BE(offset + JPEG.LENGTH_FIELD_OFFSET);
-    if (segmentLength < JPEG.MIN_SEGMENT_LENGTH) return undefined;
+    if (segmentLength < JPEG.MIN_SEGMENT_LENGTH) {
+      return undefined;
+    }
     offset += JPEG.LENGTH_FIELD_OFFSET + segmentLength;
   }
   return undefined;
@@ -225,8 +243,12 @@ const WEBP = {
 } as const;
 
 function parseWebpDimensions(header: Buffer): MediaDimensions | undefined {
-  if (header.length < WEBP.MIN_BYTES) return undefined;
-  if (header.toString("ascii", 0, WEBP.RIFF_END) !== WEBP.RIFF_ASCII) return undefined;
+  if (header.length < WEBP.MIN_BYTES) {
+    return undefined;
+  }
+  if (header.toString("ascii", 0, WEBP.RIFF_END) !== WEBP.RIFF_ASCII) {
+    return undefined;
+  }
   if (header.toString("ascii", WEBP.WEBP_START, WEBP.WEBP_END) !== WEBP.WEBP_ASCII) {
     return undefined;
   }
@@ -263,7 +285,9 @@ function parseWebpDimensions(header: Buffer): MediaDimensions | undefined {
  */
 export async function probeImageDimensions(filePath: string): Promise<MediaDimensions | undefined> {
   const header = await readHeader(filePath, IMAGE_HEADER_READ_BYTES);
-  if (header === null || header.length < 10) return undefined;
+  if (header === null || header.length < 10) {
+    return undefined;
+  }
 
   return (
     parsePngDimensions(header) ??
@@ -288,7 +312,9 @@ interface FfprobeResult {
  */
 export async function probeWithFfprobe(filePath: string): Promise<FfprobeResult> {
   const available = await checkExternalTool("ffprobe", "-version");
-  if (!available) return {};
+  if (!available) {
+    return {};
+  }
 
   const { spawn } = await import("node:child_process");
   return new Promise<FfprobeResult>((resolve) => {
@@ -309,7 +335,9 @@ export async function probeWithFfprobe(filePath: string): Promise<FfprobeResult>
     let stdout = "";
     child.stdout?.on("data", (chunk: Buffer) => {
       // Cap the buffer: a hostile or corrupt file should not be able to grow this unbounded.
-      if (stdout.length < 64_000) stdout += chunk.toString("utf8");
+      if (stdout.length < 64_000) {
+        stdout += chunk.toString("utf8");
+      }
     });
     child.on("error", () => resolve({}));
     child.on("close", () => {
@@ -351,12 +379,16 @@ export async function probeWithFfprobe(filePath: string): Promise<FfprobeResult>
  * must never come through here.
  */
 export async function probeWithAfinfo(filePath: string): Promise<number | undefined> {
-  if (process.platform !== "darwin") return undefined;
+  if (process.platform !== "darwin") {
+    return undefined;
+  }
   // Not `checkExternalTool`: that treats a non-zero exit as "missing", and `afinfo` exits 1 for
   // every probe form including `-h` and no arguments — so it would always read as absent. It
   // lives at a fixed path as part of the OS, so checking for the file is both correct and
   // cheaper than a spawn.
-  if (!existsSync(AFINFO_PATH)) return undefined;
+  if (!existsSync(AFINFO_PATH)) {
+    return undefined;
+  }
 
   const { spawn } = await import("node:child_process");
   return new Promise<number | undefined>((resolve) => {
@@ -366,7 +398,9 @@ export async function probeWithAfinfo(filePath: string): Promise<number | undefi
     });
     let stdout = "";
     child.stdout?.on("data", (chunk: Buffer) => {
-      if (stdout.length < 16_000) stdout += chunk.toString("utf8");
+      if (stdout.length < 16_000) {
+        stdout += chunk.toString("utf8");
+      }
     });
     child.on("error", () => resolve(undefined));
     child.on("close", () => {
@@ -407,7 +441,9 @@ export async function probeMediaShape(
   }
   if (kind === "audio") {
     const viaFfprobe = await probeWithFfprobe(filePath);
-    if (viaFfprobe.durationSeconds !== undefined) return viaFfprobe;
+    if (viaFfprobe.durationSeconds !== undefined) {
+      return viaFfprobe;
+    }
 
     const seconds = await probeWithAfinfo(filePath);
     return seconds === undefined ? {} : { durationSeconds: seconds };

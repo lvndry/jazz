@@ -84,8 +84,9 @@ export class LspTransport {
   }
   /** Tell the server a file disappeared so it drops its cached module. */
   notifyDeleted(uri: string): void {
-    if (!this.closed)
+    if (!this.closed) {
       this.notify("workspace/didChangeWatchedFiles", { changes: [{ uri, type: 3 }] });
+    }
   }
 
   currentDiagnostics(uri: string): unknown[] | undefined {
@@ -93,7 +94,9 @@ export class LspTransport {
   }
 
   private send(payload: unknown): void {
-    if (this.closed) throw new Error("language server is closed");
+    if (this.closed) {
+      throw new Error("language server is closed");
+    }
     const body = Buffer.from(JSON.stringify(payload), "utf8");
     this.child.stdin.write(`Content-Length: ${body.length}\r\n\r\n`);
     this.child.stdin.write(body);
@@ -109,18 +112,24 @@ export class LspTransport {
     signal?: AbortSignal,
     timeoutMs = REQUEST_TIMEOUT_MS,
   ): Promise<unknown> {
-    if (signal?.aborted) return Promise.reject(new Error(`${method} cancelled`));
+    if (signal?.aborted) {
+      return Promise.reject(new Error(`${method} cancelled`));
+    }
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        if (!this.closed) this.notify("$/cancelRequest", { id });
+        if (!this.closed) {
+          this.notify("$/cancelRequest", { id });
+        }
         reject(new Error(`${method} timed out`));
       }, timeoutMs);
       const abort = () => {
         clearTimeout(timer);
         this.pending.delete(id);
-        if (!this.closed) this.notify("$/cancelRequest", { id });
+        if (!this.closed) {
+          this.notify("$/cancelRequest", { id });
+        }
         reject(new Error(`${method} cancelled`));
       };
       const finish = (action: () => void) => {
@@ -150,7 +159,9 @@ export class LspTransport {
     }
     while (true) {
       const split = this.buffer.indexOf("\r\n\r\n");
-      if (split < 0) return;
+      if (split < 0) {
+        return;
+      }
       const header = this.buffer.subarray(0, split).toString("ascii");
       const match = /^content-length:\s*(\d+)\s*$/im.exec(header);
       if (!match) {
@@ -162,7 +173,9 @@ export class LspTransport {
         this.fail(new Error("LSP frame exceeds 16 MiB"));
         return;
       }
-      if (this.buffer.length < split + 4 + length) return;
+      if (this.buffer.length < split + 4 + length) {
+        return;
+      }
       const body = this.buffer.subarray(split + 4, split + 4 + length);
       this.buffer = this.buffer.subarray(split + 4 + length);
       try {
@@ -186,13 +199,16 @@ export class LspTransport {
           if (
             typeof version === "number" &&
             (version < (currentVersion ?? 0) || version < (previousVersion ?? 0))
-          )
+          ) {
             return;
+          }
           this.diagnostics.set(params.uri, {
             ...(typeof version === "number" ? { version } : {}),
             diagnostics: params.diagnostics,
           });
-          for (const listener of this.listeners.get(params.uri) ?? []) listener();
+          for (const listener of this.listeners.get(params.uri) ?? []) {
+            listener();
+          }
         }
       }
       if (message.id !== undefined) {
@@ -211,11 +227,15 @@ export class LspTransport {
       return;
     }
     const pending = this.pending.get(message.id);
-    if (!pending) return;
+    if (!pending) {
+      return;
+    }
     this.pending.delete(message.id);
-    if (message.error)
+    if (message.error) {
       pending.reject(new Error(`LSP ${message.error.code}: ${message.error.message}`));
-    else pending.resolve(message.result);
+    } else {
+      pending.resolve(message.result);
+    }
   }
 
   async waitForDiagnostics(
@@ -246,12 +266,18 @@ export class LspTransport {
     matches: (diagnostics: unknown[]) => boolean,
   ): Promise<unknown[]> {
     const current = this.diagnostics.get(uri);
-    if (current && matches(current.diagnostics)) return current.diagnostics;
-    if (signal.aborted) return current?.diagnostics ?? [];
+    if (current && matches(current.diagnostics)) {
+      return current.diagnostics;
+    }
+    if (signal.aborted) {
+      return current?.diagnostics ?? [];
+    }
     return new Promise((resolve) => {
       const finish = (force = false) => {
         const latest = this.diagnostics.get(uri)?.diagnostics ?? [];
-        if (!force && !matches(latest)) return;
+        if (!force && !matches(latest)) {
+          return;
+        }
         clearTimeout(timer);
         signal.removeEventListener("abort", abort);
         this.listeners.get(uri)?.delete(finish);
@@ -267,9 +293,13 @@ export class LspTransport {
   }
 
   private fail(error: Error): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
     this.closed = true;
-    for (const pending of this.pending.values()) pending.reject(error);
+    for (const pending of this.pending.values()) {
+      pending.reject(error);
+    }
     this.pending.clear();
     this.child.kill();
   }
@@ -279,10 +309,14 @@ export class LspTransport {
   }
 
   async close(): Promise<void> {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
     try {
       await this.request("shutdown", null, undefined, SHUTDOWN_TIMEOUT_MS);
-      if (this.closed) return;
+      if (this.closed) {
+        return;
+      }
       this.notify("exit", null);
       this.child.stdin.end();
     } catch {
@@ -296,6 +330,8 @@ export class LspTransport {
         resolve(true);
       });
     });
-    if (!exited) this.terminate();
+    if (!exited) {
+      this.terminate();
+    }
   }
 }

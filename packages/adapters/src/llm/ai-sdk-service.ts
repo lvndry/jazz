@@ -246,9 +246,8 @@ function emitToQueue(
 }
 
 function suppressStreamTextUnhandledRejections(result: StreamTextResult): void {
-  const record = result as unknown as Record<string, unknown>;
   for (const field of STREAM_TEXT_PROMISE_FIELDS) {
-    const value = record[field];
+    const value: unknown = Reflect.get(result, field);
     if (value != null && typeof (value as { then?: unknown }).then === "function") {
       void Promise.resolve(value).catch(() => {});
     }
@@ -280,7 +279,9 @@ export function mergeProviderOverridesIntoLLMConfig(
   const merged: Record<string, unknown> = { ...(baseLLMConfig ?? {}) };
   for (const [field, byProvider] of fieldsByOverride) {
     for (const [provider, value] of Object.entries(byProvider ?? {})) {
-      if (typeof value !== "string" || value.length === 0) continue;
+      if (typeof value !== "string" || value.length === 0) {
+        continue;
+      }
       const existingProviderConfig =
         merged[provider] && typeof merged[provider] === "object"
           ? (merged[provider] as Record<string, unknown>)
@@ -306,8 +307,12 @@ function parseToolArguments(input: string): Record<string, unknown> {
 function toAISDKToolChoice(
   toolChoice: ChatCompletionOptions["toolChoice"],
 ): AISDKToolChoice | undefined {
-  if (!toolChoice) return undefined;
-  if (toolChoice === "auto" || toolChoice === "none") return toolChoice;
+  if (!toolChoice) {
+    return undefined;
+  }
+  if (toolChoice === "auto" || toolChoice === "none") {
+    return toolChoice;
+  }
 
   return {
     type: "tool",
@@ -363,7 +368,9 @@ function buildAttachmentParts(
   resolved: ResolvedAttachments | undefined,
   inlineAllowed: boolean,
 ): { parts: FilePart[]; notes: string[] } {
-  if (attachments === undefined || attachments.length === 0) return { parts: [], notes: [] };
+  if (attachments === undefined || attachments.length === 0) {
+    return { parts: [], notes: [] };
+  }
 
   const parts: FilePart[] = [];
   const notes: string[] = [];
@@ -454,9 +461,9 @@ export function toCoreMessages(
   const normalizedProviderName = providerName?.toLowerCase();
   const reasoningReplay = resolveReasoningReplay(providerName, conversionOptions?.modelName);
 
-  const result = messages.map((m, messageIndex) => {
-    const role = m.role;
-    const content = sanitize(m.content);
+  const result = messages.map((message, messageIndex) => {
+    const role = message.role;
+    const content = sanitize(message.content);
 
     if (role === "system") {
       const msg: SystemModelMessage = {
@@ -491,7 +498,7 @@ export function toCoreMessages(
       // its own wire format. (`ImagePart` exists but is deprecated, and would only handle one
       // of the four.)
       const attachmentParts = buildAttachmentParts(
-        m.attachments,
+        message.attachments,
         resolvedAttachments,
         inlineAttachmentIndices.has(messageIndex),
       );
@@ -535,13 +542,13 @@ export function toCoreMessages(
         reasoningReplay.scope === "all-turns" ||
         (reasoningReplay.scope === "current-turn" && messageIndex > lastUserMessageIndex);
       if (
-        Array.isArray(m.reasoning_parts) &&
+        Array.isArray(message.reasoning_parts) &&
         normalizedProviderName &&
         replayScopeIncludesMessage
       ) {
         const skip = (reason: ReasoningPartSkipReason) =>
           conversionOptions?.onReasoningPartSkipped?.({ messageIndex, reason });
-        for (const storedPart of m.reasoning_parts as ReadonlyArray<unknown>) {
+        for (const storedPart of message.reasoning_parts as ReadonlyArray<unknown>) {
           if (typeof storedPart !== "object" || storedPart === null) {
             skip("invalid-part");
             continue;
@@ -581,8 +588,8 @@ export function toCoreMessages(
         contentParts.push({ type: "text", text: content });
       }
 
-      if (m.tool_calls && m.tool_calls.length > 0) {
-        for (const tc of m.tool_calls) {
+      if (message.tool_calls && message.tool_calls.length > 0) {
+        for (const tc of message.tool_calls) {
           const toolArgs = sanitize(tc.function.arguments);
           const toolCallPart: ToolCallPart = {
             type: "tool-call",
@@ -613,8 +620,8 @@ export function toCoreMessages(
 
       contentParts.push({
         type: "tool-result",
-        toolCallId: m.tool_call_id ?? "",
-        toolName: m.name ?? "tool",
+        toolCallId: message.tool_call_id ?? "",
+        toolName: message.name ?? "tool",
         output: { type: "text", value: content },
       });
 
@@ -673,12 +680,20 @@ export function applyConversationCacheBreakpoint(
   providerName: string | undefined,
   targetIndex: number = messages.length - 1,
 ): ModelMessage[] {
-  if (!providerName || !PREFIX_CACHE_PROVIDERS.has(providerName)) return messages;
-  if (messages.length < 2) return messages;
+  if (!providerName || !PREFIX_CACHE_PROVIDERS.has(providerName)) {
+    return messages;
+  }
+  if (messages.length < 2) {
+    return messages;
+  }
 
-  if (targetIndex < 1 || targetIndex > messages.length - 1) return messages;
+  if (targetIndex < 1 || targetIndex > messages.length - 1) {
+    return messages;
+  }
   const target = messages[targetIndex];
-  if (!target || target.role === "system") return messages;
+  if (!target || target.role === "system") {
+    return messages;
+  }
 
   const cache = cacheControlProviderOptions(providerName);
   const content = target.content;
@@ -692,11 +707,15 @@ export function applyConversationCacheBreakpoint(
     return next;
   }
 
-  if (!Array.isArray(content) || content.length === 0) return messages;
+  if (!Array.isArray(content) || content.length === 0) {
+    return messages;
+  }
 
   const parts = content.slice();
   const lastPart = parts[parts.length - 1];
-  if (lastPart === undefined || typeof lastPart !== "object") return messages;
+  if (lastPart === undefined || typeof lastPart !== "object") {
+    return messages;
+  }
 
   const existing =
     "providerOptions" in lastPart &&
@@ -1294,7 +1313,9 @@ function selectModel(
             return {
               processChunk: (parsedChunk: unknown) => {
                 const cost = orcaRouterResponseCostUSD(parsedChunk);
-                if (cost !== undefined) billedCostUSD = cost;
+                if (cost !== undefined) {
+                  billedCostUSD = cost;
+                }
               },
               buildMetadata: () =>
                 billedCostUSD === undefined ? undefined : { orcarouter: { billedCostUSD } },
@@ -1420,7 +1441,9 @@ export function buildProviderCacheFingerprint(
   providerName: ProviderName,
   llmConfig?: LLMConfig,
 ): string {
-  if (!llmConfig) return "";
+  if (!llmConfig) {
+    return "";
+  }
 
   switch (providerName) {
     case "ollama": {
@@ -1456,8 +1479,12 @@ export function buildProviderCacheFingerprint(
 function toProviderEffort(
   selection: ReasoningSelection | undefined,
 ): "disable" | "low" | "medium" | "high" | undefined {
-  if (!selection) return undefined;
-  if (selection === "disable") return "disable";
+  if (!selection) {
+    return undefined;
+  }
+  if (selection === "disable") {
+    return "disable";
+  }
   return selection === "minimal"
     ? "low"
     : selection === "xhigh" || selection === "max"
@@ -1528,7 +1555,9 @@ function buildResolvedReasoningOptions(
       };
     }
     case "anthropic.messages.extended-thinking": {
-      if (selection === "disable") return undefined;
+      if (selection === "disable") {
+        return undefined;
+      }
       return {
         anthropic: {
           thinking: {
@@ -1543,7 +1572,9 @@ function buildResolvedReasoningOptions(
       };
     }
     case "anthropic.messages.adaptive-thinking": {
-      if (selection === "disable") return undefined;
+      if (selection === "disable") {
+        return undefined;
+      }
       return {
         anthropic: {
           thinking: { type: "adaptive" },
@@ -1562,7 +1593,9 @@ function buildResolvedReasoningOptions(
         [providerName]: { reasoningEffort: selection === "disable" ? "none" : selection },
       };
     case "openai-compatible.chat.template-thinking-budget": {
-      if (selection === "disable") return undefined;
+      if (selection === "disable") {
+        return undefined;
+      }
       return {
         [providerName]: {
           chat_template_kwargs: {
@@ -1597,7 +1630,9 @@ export function buildProviderOptions(
     control,
     options.conversationId,
   );
-  if (resolved !== undefined) return resolved;
+  if (resolved !== undefined) {
+    return resolved;
+  }
   if (control && control.kind !== "unknown") {
     return buildProviderOptions(providerName, { ...options, reasoning: "disable" });
   }
@@ -1888,7 +1923,9 @@ function localRequestBaseUrl(
   modelId: string,
   llmConfig?: LLMConfig,
 ): string | undefined {
-  if (!isLocalServerProvider(provider)) return undefined;
+  if (!isLocalServerProvider(provider)) {
+    return undefined;
+  }
   return provider === "ollama"
     ? resolveOllamaRequestBaseUrl(modelId, llmConfig)
     : resolveLocalProviderBaseUrl(provider, llmConfig);
@@ -1921,7 +1958,9 @@ class AISDKService implements LLMService {
 
   private async refreshRuntimeConfigIfChanged(): Promise<void> {
     const latestRevision = Effect.runSync(this.configService.revision);
-    if (latestRevision === this.lastSeenConfigRevision) return;
+    if (latestRevision === this.lastSeenConfigRevision) {
+      return;
+    }
 
     const latest = await Effect.runPromise(this.configService.appConfig);
     const llmChanged =
@@ -2134,7 +2173,7 @@ class AISDKService implements LLMService {
 
   listProviders(): Effect.Effect<readonly LLMProviderListItem[], never> {
     const configuredProviders = getConfiguredProviders(this.config.llmConfig);
-    const configuredNames = new Set(configuredProviders.map((p) => p.name));
+    const configuredNames = new Set(configuredProviders.map((provider) => provider.name));
 
     const allProviders = Object.keys(this.providerModels)
       .filter((provider): provider is ProviderName => this.isProviderName(provider))
@@ -2209,7 +2248,9 @@ class AISDKService implements LLMService {
     }
 
     // Handle the special case for web_fetch.
-    const hasWebFetch = requestedTools.some((t) => t.function.name === "web_fetch");
+    const hasWebFetch = requestedTools.some(
+      (requestedTool) => requestedTool.function.name === "web_fetch",
+    );
     if (hasWebFetch) {
       const providerNativeWebFetch = getProviderNativeWebFetchTool(providerName);
       if (providerNativeWebFetch) {

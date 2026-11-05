@@ -27,6 +27,7 @@ import { updateForTest } from "../packages/cli/src/ui/fullscreen/test-helpers";
 import { store } from "../packages/cli/src/ui/store";
 import { REVEAL_FRAME_MS } from "../packages/cli/src/ui/text/stream-pacer";
 import { stripAnsiCodes } from "../packages/cli/src/utils/string-utils";
+import { viewAs } from "../packages/daemon/src/partial-fake.fixture";
 
 export type RendererKind = "ink" | "opentui";
 
@@ -41,8 +42,9 @@ export interface Pipeline {
 /** Validated limits prevent accidental empty samples and unbounded CI runs. */
 export function positiveLimit(name: string, fallback: number): number {
   const value = Number(process.env[name] ?? fallback);
-  if (!Number.isSafeInteger(value) || value < 1)
+  if (!Number.isSafeInteger(value) || value < 1) {
     throw new Error(`${name} must be a positive integer`);
+  }
   return value;
 }
 
@@ -101,6 +103,22 @@ function terminalInput(): PassThrough & { isTTY: boolean; setRawMode: () => Pass
   return input;
 }
 
+/**
+ * The sink as the `NodeJS.WriteStream` the renderers take. Sound for this fixture: renderers read
+ * only `write`, `isTTY`, `columns` and `rows`, which the sink provides.
+ */
+function asTerminalOutput(sink: TerminalSink): NodeJS.WriteStream {
+  return viewAs<NodeJS.WriteStream>(sink);
+}
+
+/**
+ * The input as the `NodeJS.ReadStream` the renderers take. Sound for this fixture: renderers read
+ * only the stream interface plus `isTTY`, `setRawMode`, `ref` and `unref`, which it provides.
+ */
+function asTerminalInput(input: ReturnType<typeof terminalInput>): NodeJS.ReadStream {
+  return viewAs<NodeJS.ReadStream>(input);
+}
+
 /** Mount exactly one renderer; callers must close it before mounting the next. */
 export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
   resetPipelineStore();
@@ -108,8 +126,8 @@ export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
     const output = new TerminalSink();
     const input = terminalInput();
     const renderer = await createCliRenderer({
-      stdin: input as unknown as NodeJS.ReadStream,
-      stdout: output as unknown as NodeJS.WriteStream,
+      stdin: asTerminalInput(input),
+      stdout: asTerminalOutput(output),
       width: 120,
       height: 40,
       screenMode: "alternate-screen",
@@ -154,8 +172,9 @@ export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
       const mountedAt = performance.now();
       while (!stripAnsiCodes(output.text).includes("bench-local")) {
         await paint();
-        if (performance.now() - mountedAt > 5_000)
+        if (performance.now() - mountedAt > 5_000) {
           throw new Error("OpenTUI native terminal writer never painted the model footer");
+        }
         await Bun.sleep(2);
       }
     } catch (error) {
@@ -170,8 +189,9 @@ export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
         output.columns = width;
         output.rows = height;
         updateForTest(() => renderer.resize(width, height));
-        if (renderer.width !== width || renderer.height !== height)
+        if (renderer.width !== width || renderer.height !== height) {
           throw new Error(`OpenTUI resize failed: ${renderer.width}x${renderer.height}`);
+        }
         return paint();
       },
       outputBytes: () => output.bytes,
@@ -205,9 +225,9 @@ export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
     ),
   );
   const instance = render(tree, {
-    stdout: output as unknown as NodeJS.WriteStream,
-    stderr: output as unknown as NodeJS.WriteStream,
-    stdin: input as unknown as NodeJS.ReadStream,
+    stdout: asTerminalOutput(output),
+    stderr: asTerminalOutput(output),
+    stdin: asTerminalInput(input),
     interactive: true,
     patchConsole: false,
     exitOnCtrlC: false,
@@ -240,10 +260,16 @@ export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
       instance.cleanup();
       input.destroy();
       output.destroy();
-      if (savedColumns) Object.defineProperty(process.stdout, "columns", savedColumns);
-      else delete (process.stdout as Partial<NodeJS.WriteStream>).columns;
-      if (savedRows) Object.defineProperty(process.stdout, "rows", savedRows);
-      else delete (process.stdout as Partial<NodeJS.WriteStream>).rows;
+      if (savedColumns) {
+        Object.defineProperty(process.stdout, "columns", savedColumns);
+      } else {
+        delete (process.stdout as Partial<NodeJS.WriteStream>).columns;
+      }
+      if (savedRows) {
+        Object.defineProperty(process.stdout, "rows", savedRows);
+      } else {
+        delete (process.stdout as Partial<NodeJS.WriteStream>).rows;
+      }
       resetPipelineStore();
     },
   };
@@ -258,8 +284,12 @@ export async function awaitPaint(
   const start = performance.now();
   for (;;) {
     const frame = await pipeline.paint();
-    if (frame.includes(marker)) return frame;
-    if (performance.now() - start > deadlineMs) throw new Error(`Terminal never painted ${marker}`);
+    if (frame.includes(marker)) {
+      return frame;
+    }
+    if (performance.now() - start > deadlineMs) {
+      throw new Error(`Terminal never painted ${marker}`);
+    }
     await Bun.sleep(2);
   }
 }

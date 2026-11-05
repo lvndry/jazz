@@ -45,7 +45,9 @@ async function pendingLesson(service: MemoryServiceImpl): Promise<string> {
       proposedBy: "agent-1",
     }),
   );
-  if (!result.success) throw new Error(result.message);
+  if (!result.success) {
+    throw new Error(result.message);
+  }
   return result.suggestion.id;
 }
 

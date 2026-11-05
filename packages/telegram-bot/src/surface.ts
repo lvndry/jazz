@@ -88,8 +88,12 @@ export function renderRichText(body: RichText): string {
           return block.spans
             .map((span) => {
               const escaped = escapeHtml(span.text);
-              if (span.kind === "bold") return `<b>${escaped}</b>`;
-              if (span.kind === "code") return `<code>${escaped}</code>`;
+              if (span.kind === "bold") {
+                return `<b>${escaped}</b>`;
+              }
+              if (span.kind === "code") {
+                return `<code>${escaped}</code>`;
+              }
               return escaped;
             })
             .join("");
@@ -141,7 +145,9 @@ export function telegramPieces(body: RichText): MessagePiece[] {
   const pieces: MessagePiece[] = [];
   let pending: RichText[number][] = [];
   const flush = (): void => {
-    if (pending.length === 0) return;
+    if (pending.length === 0) {
+      return;
+    }
     const html = renderRichText(pending);
     const plain = renderPlain(pending);
     const htmlChunks = splitForTelegram(html);
@@ -149,7 +155,9 @@ export function telegramPieces(body: RichText): MessagePiece[] {
     if (htmlChunks.length === 1) {
       pieces.push({ html, plain });
     } else {
-      for (const chunk of htmlChunks) pieces.push({ html: chunk, plain: chunk });
+      for (const chunk of htmlChunks) {
+        pieces.push({ html: chunk, plain: chunk });
+      }
     }
     pending = [];
   };
@@ -341,7 +349,9 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
       form.append("chat_id", String(Number.parseInt(chatId, 10)));
       // The bytes the core read from where it confined the file; the path is never reopened.
       form.append("photo", new Blob([file.bytes], { type: "image/png" }), file.filename);
-      if (caption !== undefined) form.append("caption", caption);
+      if (caption !== undefined) {
+        form.append("caption", caption);
+      }
 
       await dispatchTelegramRequest({
         method: "sendPhoto",

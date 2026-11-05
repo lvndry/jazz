@@ -194,8 +194,12 @@ export function inferFamily(hint: ModelHint): ModelFamily {
     }
     return "openai-cl100k";
   }
-  if (provider === "anthropic" || id.includes("claude")) return "anthropic";
-  if (provider === "gemini" || id.includes("gemini")) return "gemini";
+  if (provider === "anthropic" || id.includes("claude")) {
+    return "anthropic";
+  }
+  if (provider === "gemini" || id.includes("gemini")) {
+    return "gemini";
+  }
   if (
     provider === "mistral" ||
     id.includes("mistral") ||
@@ -204,8 +208,12 @@ export function inferFamily(hint: ModelHint): ModelFamily {
   ) {
     return "mistral";
   }
-  if (id.includes("llama")) return "llama";
-  if (provider === "alibaba" || id.includes("qwen")) return "qwen";
+  if (id.includes("llama")) {
+    return "llama";
+  }
+  if (provider === "alibaba" || id.includes("qwen")) {
+    return "qwen";
+  }
   if (
     provider === "moonshotai" ||
     provider === "minimax" ||
@@ -216,7 +224,9 @@ export function inferFamily(hint: ModelHint): ModelFamily {
   ) {
     return "qwen"; // Chinese-language BPE family, ratio close to qwen
   }
-  if (provider === "deepseek" || id.includes("deepseek")) return "deepseek";
+  if (provider === "deepseek" || id.includes("deepseek")) {
+    return "deepseek";
+  }
   return "unknown";
 }
 
@@ -284,12 +294,16 @@ export class TokenCounter {
    * and temporarily for OpenAI families until their encoder has loaded.
    */
   countText(text: string, hint: ModelHint): number {
-    if (text.length === 0) return 0;
+    if (text.length === 0) {
+      return 0;
+    }
     const family = inferFamily(hint);
 
     if (isTokenizerBacked(family)) {
       const cached = this.bpeCaches.get(family)?.get(text);
-      if (cached !== undefined) return cached;
+      if (cached !== undefined) {
+        return cached;
+      }
       const countTokens = gptEncoders.get(family);
       if (countTokens !== undefined) {
         try {
@@ -322,7 +336,9 @@ export class TokenCounter {
    * such string would evict everything else to hold a single entry.
    */
   private rememberBpeCount(family: ModelFamily, text: string, counted: number): void {
-    if (text.length > BPE_CACHE_MAX_CHARS) return;
+    if (text.length > BPE_CACHE_MAX_CHARS) {
+      return;
+    }
     let cache = this.bpeCaches.get(family);
     if (!cache) {
       cache = new Map<string, number>();
@@ -330,15 +346,21 @@ export class TokenCounter {
     }
     cache.set(text, counted);
     this.bpeCacheChars += text.length;
-    if (this.bpeCacheChars <= BPE_CACHE_MAX_CHARS) return;
+    if (this.bpeCacheChars <= BPE_CACHE_MAX_CHARS) {
+      return;
+    }
     // Map iterates in insertion order, so this drops the least recently added.
     for (const [otherFamily, otherCache] of this.bpeCaches) {
       for (const [key] of otherCache) {
         otherCache.delete(key);
         this.bpeCacheChars -= key.length;
-        if (this.bpeCacheChars <= BPE_CACHE_MAX_CHARS) return;
+        if (this.bpeCacheChars <= BPE_CACHE_MAX_CHARS) {
+          return;
+        }
       }
-      if (otherCache.size === 0) this.bpeCaches.delete(otherFamily);
+      if (otherCache.size === 0) {
+        this.bpeCaches.delete(otherFamily);
+      }
     }
   }
 
@@ -369,7 +391,9 @@ export class TokenCounter {
     const family = inferFamily(hint);
     const cacheable = !isTokenizerBacked(family) || gptEncoders.has(family);
     const cached = cacheable ? this.messageCache.get(msg) : undefined;
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      return cached;
+    }
 
     let tokens = MESSAGE_BASE_OVERHEAD;
     if (msg.content) {
@@ -381,7 +405,9 @@ export class TokenCounter {
       tokens += TOOL_RESULT_OVERHEAD;
     }
 
-    if (cacheable) this.messageCache.set(msg, tokens);
+    if (cacheable) {
+      this.messageCache.set(msg, tokens);
+    }
     return tokens;
   }
 
@@ -399,11 +425,15 @@ export class TokenCounter {
     let total = 0;
     for (let messageIndex = 0; messageIndex < msgs.length; messageIndex++) {
       const msg = msgs[messageIndex];
-      if (msg === undefined) continue;
+      if (msg === undefined) {
+        continue;
+      }
       total += this.countMessageText(msg, hint);
 
       const attachments = msg.attachments;
-      if (attachments === undefined || attachments.length === 0) continue;
+      if (attachments === undefined || attachments.length === 0) {
+        continue;
+      }
 
       if (inlineIndices.has(messageIndex)) {
         total += estimateAttachmentsTokens(attachments);
@@ -431,16 +461,22 @@ export class TokenCounter {
     messagesAtCallTime: readonly ChatMessage[],
     hint: ModelHint,
   ): void {
-    if (authoritativePromptTokens <= 0) return;
+    if (authoritativePromptTokens <= 0) {
+      return;
+    }
 
     let totalChars = 0;
     for (const msg of messagesAtCallTime) {
-      if (msg.content) totalChars += msg.content.length;
+      if (msg.content) {
+        totalChars += msg.content.length;
+      }
       if (msg.tool_calls && msg.tool_calls.length > 0) {
         totalChars += JSON.stringify(msg.tool_calls).length;
       }
     }
-    if (totalChars === 0) return;
+    if (totalChars === 0) {
+      return;
+    }
 
     const modelKey = this.modelKey(hint);
 
@@ -524,8 +560,12 @@ export class TokenCounter {
       if (Number.isFinite(overhead) && overhead > 0) {
         this.overheadTokens.set(model, Math.round(overhead));
       }
-      if (!Number.isFinite(ratio) || ratio < RATIO_MIN || ratio > RATIO_MAX) continue;
-      if (isTokenizerBacked(familyForModelKey(model))) continue;
+      if (!Number.isFinite(ratio) || ratio < RATIO_MIN || ratio > RATIO_MAX) {
+        continue;
+      }
+      if (isTokenizerBacked(familyForModelKey(model))) {
+        continue;
+      }
       this.calibratedRatio.set(model, ratio);
     }
   }
@@ -547,7 +587,9 @@ export class TokenCounter {
 
   private ratioFor(hint: ModelHint, family: ModelFamily): number {
     const calibrated = this.calibratedRatio.get(this.modelKey(hint));
-    if (calibrated !== undefined) return calibrated;
+    if (calibrated !== undefined) {
+      return calibrated;
+    }
     return FAMILY_DEFAULT_RATIO[family];
   }
 

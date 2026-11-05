@@ -3,11 +3,12 @@
  * requests, diagnostics, workspace edits, and denied server-initiated writes.
  */
 
-import { writeFileSync } from "node:fs";
+import { renameSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 let buffer = Buffer.alloc(0);
 let uri = "";
+const watchEvents: Array<[string, number]> = [];
 function send(value: unknown): void {
   const body = Buffer.from(JSON.stringify(value));
   process.stdout.write(`Content-Length: ${body.length}\r\n\r\n`);
@@ -18,11 +19,17 @@ process.stdin.on("data", (chunk: Buffer) => {
   buffer = Buffer.concat([buffer, chunk]);
   while (true) {
     const split = buffer.indexOf("\r\n\r\n");
-    if (split < 0) return;
+    if (split < 0) {
+      return;
+    }
     const match = /Content-Length:\s*(\d+)/i.exec(buffer.subarray(0, split).toString());
-    if (!match) throw new Error("bad frame");
+    if (!match) {
+      throw new Error("bad frame");
+    }
     const size = Number(match[1]);
-    if (buffer.length < split + 4 + size) return;
+    if (buffer.length < split + 4 + size) {
+      return;
+    }
     const message = JSON.parse(buffer.subarray(split + 4, split + 4 + size).toString()) as {
       id?: number;
       method?: string;
@@ -87,18 +94,19 @@ process.stdin.on("data", (chunk: Buffer) => {
       });
     }
     if (message.method === "workspace/didChangeWatchedFiles" && process.argv[5]) {
-      writeFileSync(
-        process.argv[5],
-        JSON.stringify({
-          events: (message.params?.["changes"] as Array<{ uri: string; type: number }>).map(
-            (entry) => [entry.uri, entry.type],
-          ),
-        }),
-      );
+      for (const entry of message.params?.["changes"] as Array<{ uri: string; type: number }>) {
+        watchEvents.push([entry.uri, entry.type]);
+      }
+      const watchLog = process.argv[5];
+      writeFileSync(`${watchLog}.tmp`, JSON.stringify({ events: watchEvents }));
+      renameSync(`${watchLog}.tmp`, watchLog);
     }
-    if (message.id === undefined || !message.method) continue;
-    if (message.method === "initialize" && process.argv[3])
+    if (message.id === undefined || !message.method) {
+      continue;
+    }
+    if (message.method === "initialize" && process.argv[3]) {
       writeFileSync(process.argv[3], "started");
+    }
     const edit = {
       changes: {
         [uri]: [

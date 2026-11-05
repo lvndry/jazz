@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ReactNode } from "react";
 import { createLayoutFixture } from "./layout-fixture";
+import { viewAs } from "../../../test-support/view-as";
 import { repaintAfterResize } from "../mount";
 import { Transcript } from "../Transcript";
 import type { Block } from "../types";
@@ -184,7 +185,7 @@ describe("native terminal oracle", () => {
       oracle.renderer.requestRender();
       await oracle.flush();
       expect(oracle.compareGrid()).toHaveLength(2);
-      const internals = oracle.renderer as unknown as { forceFullRepaintRequested: boolean };
+      const internals = viewAs<{ forceFullRepaintRequested: boolean }>(oracle.renderer);
       internals.forceFullRepaintRequested = true;
       oracle.renderer.requestRender();
       await oracle.flush();

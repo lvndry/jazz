@@ -11,13 +11,15 @@ export const tasks: EvalTask[] = [
     setup() {},
     check(result) {
       return constraintCheck(result, [
-        { name: "departs-monday", test: (a) => /monday/i.test(a) },
-        { name: "two-nights", test: (a) => /(2|two)\s*night/i.test(a) },
+        { name: "departs-monday", test: (answer) => /monday/i.test(answer) },
+        { name: "two-nights", test: (answer) => /(2|two)\s*night/i.test(answer) },
         {
           name: "under-budget",
-          test: (a) => {
-            const match = a.match(/total[^0-9]*\$?\s*([0-9][0-9,]*)/i);
-            if (!match) return false;
+          test: (answer) => {
+            const match = answer.match(/total[^0-9]*\$?\s*([0-9][0-9,]*)/i);
+            if (!match) {
+              return false;
+            }
             return parseInt(match[1]!.replace(/,/g, ""), 10) < 500;
           },
         },

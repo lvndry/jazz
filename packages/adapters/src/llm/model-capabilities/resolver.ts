@@ -55,15 +55,21 @@ function controlIsSafeForProvider(
   provider: ProviderName,
   control: ReasoningControlSurface | undefined,
 ): control is ReasoningControlSurface {
-  if (!control) return false;
-  if (control.kind === "unsupported") return true;
+  if (!control) {
+    return false;
+  }
+  if (control.kind === "unsupported") {
+    return true;
+  }
   return isTransportValidForProvider(provider, control.transport);
 }
 
 function catalogReasoning(
   catalog: CatalogCapabilities | undefined,
 ): ReasoningControlSurface | { readonly kind: "unknown" } {
-  if (catalog?.supportsReasoning === false) return { kind: "unsupported" };
+  if (catalog?.supportsReasoning === false) {
+    return { kind: "unsupported" };
+  }
   // Models.dev's true means reasoning exists, not how Jazz can control it.
   return { kind: "unknown" };
 }

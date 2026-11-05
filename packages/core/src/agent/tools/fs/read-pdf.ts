@@ -58,10 +58,14 @@ function loadLocalPdf(
 ): Effect.Effect<PdfBytes, never, FsToolDeps> {
   return Effect.gen(function* () {
     const resolved = yield* resolveReadableFile(path, context);
-    if (resolved.kind === "failure") return resolved;
+    if (resolved.kind === "failure") {
+      return resolved;
+    }
 
     const extensionError = pdfExtensionError(resolved.path, "Use read_file for text files.");
-    if (extensionError) return { kind: "failure", result: extensionError };
+    if (extensionError) {
+      return { kind: "failure", result: extensionError };
+    }
 
     const fs = yield* FileSystem.FileSystem;
     const buffer = yield* fs.readFile(resolved.path).pipe(Effect.result);
@@ -154,18 +158,25 @@ function loadPdfBytes(
   args: { readonly path?: string | undefined; readonly url?: string | undefined },
   context: ToolExecutionContext,
 ): Effect.Effect<PdfBytes, never, FsToolDeps | AgentConfigService> {
-  if (args.url !== undefined) return loadRemotePdf(args.url, context);
-  if (args.path !== undefined) return loadLocalPdf(args.path, context);
+  if (args.url !== undefined) {
+    return loadRemotePdf(args.url, context);
+  }
+  if (args.path !== undefined) {
+    return loadLocalPdf(args.path, context);
+  }
   return Effect.succeed(pdfFailure("Provide exactly one of path or url."));
 }
 
 /** Format a single table (rows of cell strings) as markdown. */
 function formatTableAsMarkdown(rows: readonly (readonly string[])[]): string {
-  if (rows.length === 0) return "";
+  if (rows.length === 0) {
+    return "";
+  }
   const first = rows[0]!;
-  const safe = (s: string) => s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
+  const safe = (text: string) =>
+    text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
   const rowToLine = (row: readonly string[]) =>
-    "| " + row.map((c) => safe(String(c ?? ""))).join(" | ") + " |";
+    "| " + row.map((cell) => safe(String(cell ?? ""))).join(" | ") + " |";
   const header = rowToLine(first);
   const separator = "| " + first.map(() => "---").join(" | ") + " |";
   const body = rows
@@ -185,14 +196,18 @@ function buildTablesSection(getTableResult: {
   for (const page of pages) {
     const pageNum = typeof page.num === "number" ? page.num : 0;
     const pageTables = page.tables ?? [];
-    if (pageTables.length === 0) continue;
+    if (pageTables.length === 0) {
+      continue;
+    }
     parts.push(`### Page ${pageNum + 1}`);
-    for (let i = 0; i < pageTables.length; i++) {
-      const table = pageTables[i];
-      if (table === undefined) continue;
-      const rows = table.map((row) => [...(row ?? []).map((c) => String(c ?? ""))]);
+    for (let pageIndex = 0; pageIndex < pageTables.length; pageIndex++) {
+      const table = pageTables[pageIndex];
+      if (table === undefined) {
+        continue;
+      }
+      const rows = table.map((row) => [...(row ?? []).map((cell) => String(cell ?? ""))]);
       tables.push({ pageNumber: pageNum + 1, rows });
-      const label = pageTables.length > 1 ? ` (Table ${i + 1})` : "";
+      const label = pageTables.length > 1 ? ` (Table ${pageIndex + 1})` : "";
       parts.push(`#### Table${label}`);
       parts.push(formatTableAsMarkdown(rows));
     }
@@ -262,11 +277,15 @@ export function createReadPdfTool(): Tool<
     handler: (args, context) =>
       Effect.gen(function* () {
         const source = yield* loadPdfBytes(args, context);
-        if (source.kind === "failure") return source.result;
+        if (source.kind === "failure") {
+          return source.result;
+        }
         const sourceLabel = source.label;
 
         const loaded = yield* loadPdfParser("Failed to read PDF file");
-        if (loaded.kind === "failure") return loaded.result;
+        if (loaded.kind === "failure") {
+          return loaded.result;
+        }
         const PDFParse = loaded.PDFParse;
 
         // pdf-parse rejects on malformed or encrypted input, so every call runs through
@@ -349,7 +368,8 @@ export function createReadPdfTool(): Tool<
               truncated,
               totalLines,
               pageCount,
-              pagesExtracted: args.pages || Array.from({ length: pageCount }, (_, i) => i + 1),
+              pagesExtracted:
+                args.pages || Array.from({ length: pageCount }, (_, pageIndex) => pageIndex + 1),
               fileType: "pdf",
               tables: extractedTables,
             },

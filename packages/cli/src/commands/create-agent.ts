@@ -399,7 +399,9 @@ export function suggestAgentName(
     return base || "agent";
   }
   let suffix = 2;
-  while (taken.has(`${base}-${String(suffix)}`)) suffix += 1;
+  while (taken.has(`${base}-${String(suffix)}`)) {
+    suffix += 1;
+  }
   return `${base}-${String(suffix)}`;
 }
 
@@ -414,7 +416,9 @@ function countActingTools(
       let acting = 0;
       for (const name of names) {
         const tool = yield* toolRegistry.getTool(name).pipe(Effect.option);
-        if (tool._tag === "Some" && tool.value.riskLevel !== "read-only") acting += 1;
+        if (tool._tag === "Some" && tool.value.riskLevel !== "read-only") {
+          acting += 1;
+        }
       }
       counts.set(category, acting);
     }
@@ -517,7 +521,9 @@ function stepAfterReasoning(state: WizardState): WizardStep {
 
 /** Where the persona step goes when the user presses ESC to go back. */
 function personaBackStep(state: WizardState): WizardStep {
-  if (state.llmProvider === "ollama") return "ollamaContext";
+  if (state.llmProvider === "ollama") {
+    return "ollamaContext";
+  }
   return state.isReasoningModel ? "reasoning" : "model";
 }
 
@@ -663,7 +669,7 @@ export async function promptForAgentInfo(
         state.llmProvider = result;
 
         const providerDisplayName =
-          state.allProviders.find((p) => p.name === result)?.displayName ?? result;
+          state.allProviders.find((provider) => provider.name === result)?.displayName ?? result;
         if (isLocalServerProvider(result)) {
           const localProvider = await connectLocalProvider(
             result,
@@ -775,7 +781,8 @@ export async function promptForAgentInfo(
 
         if (state.llmProvider === "ollama" && isOllamaCloudModel(result)) {
           const providerDisplayName =
-            state.allProviders?.find((p) => p.name === "ollama")?.displayName ?? "Ollama";
+            state.allProviders?.find((provider) => provider.name === "ollama")?.displayName ??
+            "Ollama";
           const keyResult = await ensureProviderApiKey({
             configService,
             terminal,
@@ -792,7 +799,9 @@ export async function promptForAgentInfo(
         }
 
         // Check if reasoning model
-        const selectedModel = state.providerInfo!.supportedModels.find((m) => m.id === result);
+        const selectedModel = state.providerInfo!.supportedModels.find(
+          (model) => model.id === result,
+        );
         state.isReasoningModel = selectedModel?.isReasoningModel ?? false;
         state.supportsTools = selectedModel?.supportsTools ?? false;
         if (selectedModel?.contextWindow !== undefined) {
@@ -1113,7 +1122,9 @@ export async function promptForAgentInfo(
             }
 
             if (webSearchProvider === "builtin") {
-              resolvedTools = resolvedTools.filter((t) => t !== WEB_SEARCH_CATEGORY.displayName);
+              resolvedTools = resolvedTools.filter(
+                (toolName) => toolName !== WEB_SEARCH_CATEGORY.displayName,
+              );
             } else {
               state.webSearchProvider = webSearchProvider;
             }

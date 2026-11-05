@@ -25,6 +25,7 @@ import { acquireFileLock } from "@jazz/core/utils/file-lock";
 import { getRunsDirectory } from "@jazz/core/utils/paths";
 import { decodeStateFile, encodeStateFile, type StateFileKind } from "@jazz/core/utils/state-file";
 import { Effect, Layer } from "effect";
+import { asStoredRecord } from "./state-record";
 
 /** Run ids are UUIDs; anything else came from outside and must not reach a path join. */
 const RUN_ID_PATTERN = /^[0-9a-fA-F-]{8,64}$/;
@@ -42,7 +43,7 @@ const RUN_RECORD_KIND: StateFileKind<RunRecord> = {
     if (typeof record !== "object" || record === null || Array.isArray(record)) {
       return { ok: false, error: "expected a run record" };
     }
-    return { ok: true, content: record as unknown as RunRecord };
+    return { ok: true, content: asStoredRecord<RunRecord>(record) };
   },
   serialize: (record) => ({ ...record }),
 };
@@ -65,9 +66,13 @@ function withState(record: RunRecord, next: RunState, now: Date): RunRecord {
 }
 
 function isExpired(record: RunRecord, now: Date): boolean {
-  if (!isParked(record.state)) return false;
+  if (!isParked(record.state)) {
+    return false;
+  }
   const expiresAt = "expiresAt" in record.state ? record.state.expiresAt : undefined;
-  if (expiresAt === undefined) return false;
+  if (expiresAt === undefined) {
+    return false;
+  }
   const deadline = new Date(expiresAt).getTime();
   return Number.isFinite(deadline) && deadline <= now.getTime();
 }
@@ -212,10 +217,14 @@ export class FileRunStore implements RunStore {
         const entries = await nodeFs.readdir(this.directory);
         const records: RunRecord[] = [];
         for (const entry of entries) {
-          if (!entry.endsWith(".json")) continue;
+          if (!entry.endsWith(".json")) {
+            continue;
+          }
           const raw = await nodeFs.readFile(path.join(this.directory, entry), "utf-8");
           const parsed = readRecord(raw);
-          if (parsed !== undefined) records.push(parsed);
+          if (parsed !== undefined) {
+            records.push(parsed);
+          }
         }
         return records;
       },
@@ -312,7 +321,9 @@ export class FileRunStore implements RunStore {
       runId,
       Effect.gen({ self: this }, function* () {
         const current = yield* this.get(runId);
-        if (current === undefined) return "kept" as const;
+        if (current === undefined) {
+          return "kept" as const;
+        }
 
         const recovered = recoveredState(current.state);
         if (recovered !== undefined) {
@@ -365,9 +376,13 @@ export class FileRunStore implements RunStore {
           options.now,
           options.maxTerminalAgeMs,
         ).pipe(Effect.catch(() => Effect.succeed("kept" as const)));
-        if (outcome === "reparked") reparked += 1;
-        else if (outcome === "abandoned") abandoned += 1;
-        else if (outcome === "deleted") deleted += 1;
+        if (outcome === "reparked") {
+          reparked += 1;
+        } else if (outcome === "abandoned") {
+          abandoned += 1;
+        } else if (outcome === "deleted") {
+          deleted += 1;
+        }
       }
       return { abandoned, deleted, reparked };
     });

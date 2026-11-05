@@ -66,7 +66,9 @@ export function createIMessageSurface(options: IMessageSurfaceOptions): IMessage
 
   const remember = (chunk: string): void => {
     recentlySent.push(chunk.trim());
-    if (recentlySent.length > SENT_ECHO_MEMORY) recentlySent.shift();
+    if (recentlySent.length > SENT_ECHO_MEMORY) {
+      recentlySent.shift();
+    }
   };
 
   return {
@@ -78,7 +80,9 @@ export function createIMessageSurface(options: IMessageSurfaceOptions): IMessage
     async send(chatId: ChatId, message: OutgoingMessage): Promise<MessageRef | undefined> {
       const target = options.resolveTarget(chatId);
       for (const chunk of splitForSurface(renderForIMessage(message), IMESSAGE_CHUNK_CHARS)) {
-        if (chunk.trim().length === 0) continue;
+        if (chunk.trim().length === 0) {
+          continue;
+        }
         remember(chunk);
         await sendText(options.binary, target, chunk);
       }

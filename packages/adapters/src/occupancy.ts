@@ -65,10 +65,14 @@ export function createOccupancyServiceLayer(
     const kept: Record<string, OccupancyEntry> = {};
     for (const [runId, entry] of Object.entries(entries)) {
       const updated = Date.parse(entry.updatedAt);
-      if (Number.isNaN(updated)) continue;
+      if (Number.isNaN(updated)) {
+        continue;
+      }
       const ageMs = now - updated;
       if (TERMINAL_STATES.has(entry.state)) {
-        if (ageMs < TERMINAL_ENTRY_TTL_MS) kept[runId] = entry;
+        if (ageMs < TERMINAL_ENTRY_TTL_MS) {
+          kept[runId] = entry;
+        }
       } else if (ageMs < OCCUPANCY_FRESH_WINDOW_MS) {
         kept[runId] = entry;
       }

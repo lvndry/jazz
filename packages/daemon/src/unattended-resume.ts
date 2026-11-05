@@ -55,8 +55,12 @@ export interface UnattendedTurn {
 }
 
 function logSource(source: string): "job_batch" | "wake_trigger" | "other" {
-  if (source === "job batch") return "job_batch";
-  if (source === "wake trigger") return "wake_trigger";
+  if (source === "job batch") {
+    return "job_batch";
+  }
+  if (source === "wake trigger") {
+    return "wake_trigger";
+  }
   return "other";
 }
 
@@ -152,13 +156,17 @@ export function classifyTurnOutcome(
     | { readonly ok: true; readonly messages?: readonly ChatMessage[] }
     | { readonly ok: false; readonly error: unknown },
 ): TurnOutcome {
-  if (result.ok) return { kind: "finished", messages: result.messages ?? [] };
+  if (result.ok) {
+    return { kind: "finished", messages: result.messages ?? [] };
+  }
   const ending = classifyRunError(result.error);
   if (ending.kind === "failed") {
     return ending;
   }
   const { park } = ending;
-  if (park.runId === undefined) return { kind: "unresumable" };
+  if (park.runId === undefined) {
+    return { kind: "unresumable" };
+  }
   return {
     kind: "parked",
     runId: park.runId,

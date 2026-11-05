@@ -34,8 +34,11 @@ test("hydrate with no file leaves the defaults untouched", async () => {
     await Effect.runPromise(hydrateTokenCalibration());
     expect(DEFAULT_TOKEN_COUNTER.getRatio(HINT)).toBe(ANTHROPIC_DEFAULT_RATIO);
   } finally {
-    if (original === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = original;
+    if (original === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = original;
+    }
   }
 });
 
@@ -69,8 +72,11 @@ test("save writes the learned state; a fresh hydrate restores it (resume)", asyn
     // The hydrated value changes real estimates: 700 chars at 4.0, not 3.5.
     expect(DEFAULT_TOKEN_COUNTER.countText("a".repeat(700), HINT)).toBe(175);
   } finally {
-    if (original === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = original;
+    if (original === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = original;
+    }
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
@@ -94,8 +100,11 @@ test("overhead is persisted and restored", async () => {
 
     expect(DEFAULT_TOKEN_COUNTER.overheadFor(HINT)).toBe(learnedOverhead);
   } finally {
-    if (original === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = original;
+    if (original === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = original;
+    }
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
@@ -108,8 +117,11 @@ test("save with nothing learned does not create or clobber the file", async () =
     await Effect.runPromise(saveTokenCalibration().pipe(Effect.ignore));
     expect(fs.existsSync(path.join(home, "token-calibration.json"))).toBe(false);
   } finally {
-    if (original === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = original;
+    if (original === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = original;
+    }
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
@@ -129,8 +141,11 @@ test("a corrupt file quarantines and falls back to defaults without throwing", a
     expect(DEFAULT_TOKEN_COUNTER.getRatio(HINT)).toBe(ANTHROPIC_DEFAULT_RATIO);
     expect(fs.existsSync(path.join(home, "token-calibration.json"))).toBe(false);
   } finally {
-    if (original === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = original;
+    if (original === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = original;
+    }
     fs.rmSync(home, { recursive: true, force: true });
   }
 });

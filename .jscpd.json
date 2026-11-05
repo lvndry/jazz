@@ -1,0 +1,22 @@
+{
+  "minTokens": 60,
+  "minLines": 6,
+  "mode": "mild",
+  "format": ["typescript", "tsx"],
+  "path": ["packages", "plugins", "scripts"],
+  "pattern": "**/*.{ts,tsx}",
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "packages/website/**",
+    "**/generated/**"
+  ],
+  "ignorePattern": ["(?s)/\\* jscpd:ignore-start \\*/.*?/\\* jscpd:ignore-end \\*/"],
+  "reporters": ["console", "json"],
+  "output": "reports/jscpd",
+  "exitCode": 0,
+  "noSymlinks": true,
+  "silent": false
+}

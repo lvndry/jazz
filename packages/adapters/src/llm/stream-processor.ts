@@ -66,7 +66,9 @@ export function resolveStreamIdleTimeoutMs(
     return configured;
   }
   const raw = env["JAZZ_STREAM_IDLE_TIMEOUT_MS"];
-  if (raw === undefined || raw === "") return DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+  if (raw === undefined || raw === "") {
+    return DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+  }
   const parsed = Number(raw);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 }
@@ -149,9 +151,13 @@ export async function* withIdleTimeout<T>(
       try {
         step = await Promise.race([iterator.next(), idle]);
       } finally {
-        if (timer !== undefined) clearTimeout(timer);
+        if (timer !== undefined) {
+          clearTimeout(timer);
+        }
       }
-      if (step.done === true) return;
+      if (step.done === true) {
+        return;
+      }
       if (!receivedContent && isContent(step.value)) {
         receivedContent = true;
       }
@@ -412,7 +418,9 @@ export class StreamProcessor {
               textChunk = String(part.text ?? "");
             }
 
-            if (textChunk.length === 0) break;
+            if (textChunk.length === 0) {
+              break;
+            }
 
             if (this.config.reasoningParser && !this.state.reasoningArrivedSeparately) {
               this.state.inlineTextParsed = true;
@@ -424,7 +432,9 @@ export class StreamProcessor {
           }
 
           case "reasoning-start": {
-            if (!this.state.inlineTextParsed) this.state.reasoningArrivedSeparately = true;
+            if (!this.state.inlineTextParsed) {
+              this.state.reasoningArrivedSeparately = true;
+            }
             // Emit thinking start on reasoning-start event. Reasoning is always
             // surfaced when the provider sends it: providers that respect
             // disabled reasoning won't emit these parts, and providers that
@@ -445,7 +455,9 @@ export class StreamProcessor {
           }
 
           case "reasoning-delta": {
-            if (!this.state.inlineTextParsed) this.state.reasoningArrivedSeparately = true;
+            if (!this.state.inlineTextParsed) {
+              this.state.reasoningArrivedSeparately = true;
+            }
             const textDelta = part.text;
 
             if (textDelta && textDelta.length > 0) {
@@ -531,7 +543,9 @@ export class StreamProcessor {
           // but IS in tool-result output as action.query.
           case "tool-result": {
             const pending = this.state.pendingNativeToolCalls.get(part.toolCallId);
-            if (!pending) break;
+            if (!pending) {
+              break;
+            }
             this.state.pendingNativeToolCalls.delete(part.toolCallId);
 
             // Enrich the buffered tool call with data from the result
@@ -657,7 +671,9 @@ export class StreamProcessor {
         sequence: this.state.reasoningSequence++,
       });
     }
-    if (chunk.thinkingEnded) this.closeReasoningStream();
+    if (chunk.thinkingEnded) {
+      this.closeReasoningStream();
+    }
     if (chunk.strayCloseTag && !STRAY_CLOSE_WARNED_FOR.has(this.config.modelName)) {
       STRAY_CLOSE_WARNED_FOR.add(this.config.modelName);
       Effect.runFork(
@@ -675,7 +691,9 @@ export class StreamProcessor {
   }
 
   private closeReasoningStream(): void {
-    if (!this.state.reasoningStreamActive) return;
+    if (!this.state.reasoningStreamActive) {
+      return;
+    }
     this.state.reasoningStreamActive = false;
     void this.emitEvent({
       type: "thinking_complete",
