@@ -158,7 +158,12 @@ import {
   StreamProcessor,
   type StreamTextResult,
 } from "./stream-processor";
-import { SDK_STOP_CONDITIONS, toJazzToolCall } from "./tool-call-parts";
+import {
+  hasToolCallIdentity,
+  malformedToolCallError,
+  SDK_STOP_CONDITIONS,
+  toJazzToolCall,
+} from "./tool-call-parts";
 import rootPackageJson from "../../../../package.json";
 
 /** Diagnostic fields from provider errors that cannot contain request or response content. */
@@ -2443,6 +2448,17 @@ class AISDKService implements LLMService {
                 }),
               );
             }
+          }
+
+          if (!result.toolCalls.every((toolCall) => hasToolCallIdentity(toolCall))) {
+            Effect.runFork(
+              this.logger.warn("Tool call completed without an id or name, failing the step", {
+                provider: providerName,
+                model: options.model,
+                toolCallCount: result.toolCalls.length,
+              }),
+            );
+            throw malformedToolCallError(providerName);
           }
 
           const filteredToolCalls = result.toolCalls.filter(

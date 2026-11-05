@@ -267,6 +267,12 @@ export class LLMRequestError extends Data.TaggedError("LLMRequestError")<{
    * almost nothing and usually yields an answer.
    */
   readonly emptyResponse?: boolean;
+  /**
+   * Set when the stream completed a tool call whose id or name is empty, which a gateway
+   * produces by blanking them on a continuation chunk. The call cannot be run or stored, and
+   * a fresh request usually streams it intact.
+   */
+  readonly malformedToolCall?: boolean;
 }> {}
 
 export class LLMRateLimitError extends Data.TaggedError("LLMRateLimitError")<{

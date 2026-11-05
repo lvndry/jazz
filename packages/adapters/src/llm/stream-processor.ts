@@ -9,6 +9,7 @@
  */
 
 import type { Context } from "@ai-sdk/provider-utils";
+import { isUsableToolCallField } from "@jazz/core/agent/context/tool-call-identity";
 import type { LoggerService } from "@jazz/core/interfaces/logger";
 import type { ChatCompletionResponse, StreamEvent } from "@jazz/core/types";
 import { toFinishReason, type FinishReason } from "@jazz/core/types/chat";
@@ -25,7 +26,7 @@ import { isBridgedToolName } from "./claude-code/tool-bridge";
 import type { ParseChunk, ReasoningParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
 import { routerBilledCostUSD } from "./router-cost";
-import { toJazzToolCall } from "./tool-call-parts";
+import { hasToolCallIdentity, malformedToolCallError, toJazzToolCall } from "./tool-call-parts";
 
 /** The full `streamText` result; Jazz never passes `experimental_lowMemory`, which returns a narrower one. */
 export type StreamTextResult = AiStreamTextResult<ToolSet, Context, OutputInterface>;
@@ -239,6 +240,10 @@ interface StreamProcessorState {
 
   // Tool calls
   collectedToolCalls: ToolCall[];
+  /** Identity each `tool-input-start` established, in stream order, for blanked completions. */
+  startedToolInputs: { id: string; toolName: string }[];
+  /** `tool-call` parts seen so far, which indexes `startedToolInputs`. */
+  completedToolCallParts: number;
   /** Provider-native tool calls waiting for tool-result to arrive with enriched data (e.g. query) */
   pendingNativeToolCalls: Map<string, { toolCall: ToolCall; sequence: number }>;
 
@@ -272,6 +277,8 @@ function createInitialState(): StreamProcessorState {
     reasoningStreamActive: false,
     accumulatedReasoning: "",
     collectedToolCalls: [],
+    startedToolInputs: [],
+    completedToolCallParts: 0,
     pendingNativeToolCalls: new Map(),
     firstTokenTime: null,
     firstTextTime: null,
@@ -493,14 +500,50 @@ export class StreamProcessor {
             break;
           }
 
+          case "tool-input-start": {
+            this.state.startedToolInputs.push({ id: part.id, toolName: part.toolName });
+            break;
+          }
+
           case "tool-call": {
-            if (isBridgedToolName(part.toolName)) {
+            const established = this.state.startedToolInputs[this.state.completedToolCallParts];
+            this.state.completedToolCallParts += 1;
+            const completed = {
+              ...part,
+              toolCallId: isUsableToolCallField(part.toolCallId)
+                ? part.toolCallId
+                : (established?.id ?? ""),
+              toolName: isUsableToolCallField(part.toolName)
+                ? part.toolName
+                : (established?.toolName ?? ""),
+            };
+            if (!hasToolCallIdentity(completed)) {
+              Effect.runFork(
+                this.logger.warn("Tool call completed without an id or name, failing the step", {
+                  provider: this.config.providerName,
+                  model: this.config.modelName,
+                  hasId: isUsableToolCallField(completed.toolCallId),
+                  hasName: isUsableToolCallField(completed.toolName),
+                  establishedIdentity: established !== undefined,
+                }),
+              );
+              throw malformedToolCallError(this.config.providerName);
+            }
+            if (completed.toolCallId !== part.toolCallId || completed.toolName !== part.toolName) {
+              Effect.runFork(
+                this.logger.debug("Restored a blanked tool call identity from its input start", {
+                  provider: this.config.providerName,
+                  toolName: completed.toolName,
+                }),
+              );
+            }
+            if (isBridgedToolName(completed.toolName)) {
               break;
             }
             const isProviderNative =
-              this.config.providerNativeToolNames?.has(part.toolName) ?? false;
+              this.config.providerNativeToolNames?.has(completed.toolName) ?? false;
 
-            const toolCall = toJazzToolCall(part);
+            const toolCall = toJazzToolCall(completed);
 
             if (isProviderNative) {
               // Buffer provider-native tool calls (e.g. OpenAI web_search).

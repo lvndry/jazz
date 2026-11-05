@@ -1,4 +1,6 @@
 import { type LoggerService } from "@jazz/core/interfaces/logger";
+import { LLMRequestError } from "@jazz/core/types/errors";
+import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { describe, expect, it, mock } from "bun:test";
 import { Chunk, Effect } from "effect";
 import { selectParser } from "./reasoning";
@@ -926,5 +928,90 @@ describe("resolveStreamIdleTimeoutMs", () => {
         120_000,
       );
     }
+  });
+});
+
+describe("StreamProcessor tool call identity", () => {
+  const silentLogger = {
+    debug: () => Effect.void,
+    warn: () => Effect.void,
+  } as unknown as LoggerService;
+
+  async function run(
+    parts: readonly Record<string, unknown>[],
+    emit: (effect: Effect.Effect<Chunk.Chunk<any>, any>) => void = () => undefined,
+  ) {
+    const processor = new StreamProcessor(
+      { providerName: "p1", modelName: "m1", hasReasoningEnabled: false, startTime: Date.now() },
+      emit,
+      silentLogger,
+    );
+    return processor.process({
+      fullStream: (async function* () {
+        yield* parts;
+      })(),
+      usage: Promise.resolve({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+    } as any);
+  }
+
+  const finish = { type: "finish", finishReason: "tool-calls" };
+
+  it("keeps a call whose id and name are intact", async () => {
+    const response = await run([
+      { type: "tool-input-start", id: "call_1", toolName: "read_file" },
+      { type: "tool-input-delta", id: "", delta: "{}" },
+      { type: "tool-call", toolCallId: "call_1", toolName: "read_file", input: {} },
+      finish,
+    ]);
+    expect(response.toolCalls?.map((call) => call.id)).toEqual(["call_1"]);
+  });
+
+  it("restores the established identity when the completed part blanks it", async () => {
+    for (const blank of ["", null, undefined, "   "]) {
+      const response = await run([
+        { type: "tool-input-start", id: "call_1", toolName: "read_file" },
+        { type: "tool-call", toolCallId: blank, toolName: blank, input: {} },
+        finish,
+      ]);
+      expect(response.toolCalls?.map((call) => [call.id, call.function.name])).toEqual([
+        ["call_1", "read_file"],
+      ]);
+    }
+  });
+
+  it("restores each call from its own input start, in order", async () => {
+    const response = await run([
+      { type: "tool-input-start", id: "call_1", toolName: "read_file" },
+      { type: "tool-input-start", id: "call_2", toolName: "grep" },
+      { type: "tool-call", toolCallId: "", toolName: "read_file", input: {} },
+      { type: "tool-call", toolCallId: "call_2", toolName: "", input: {} },
+      finish,
+    ]);
+    expect(response.toolCalls?.map((call) => [call.id, call.function.name])).toEqual([
+      ["call_1", "read_file"],
+      ["call_2", "grep"],
+    ]);
+  });
+
+  it("fails the step with a retryable error when no identity was ever established", async () => {
+    for (const blank of ["", null, undefined]) {
+      for (const field of ["toolCallId", "toolName"]) {
+        const part = { type: "tool-call", toolCallId: "call_1", toolName: "grep", input: {} };
+        const error = await run([{ ...part, [field]: blank }, finish]).catch(
+          (thrown: unknown) => thrown,
+        );
+        expect(error).toBeInstanceOf(LLMRequestError);
+        expect((error as LLMRequestError).malformedToolCall).toBe(true);
+        expect(isRetryableLLMError(error)).toBe(true);
+      }
+    }
+  });
+
+  it("emits no tool_call event for a malformed call", async () => {
+    const events: any[] = [];
+    await run([{ type: "tool-call", toolCallId: "", toolName: "", input: {} }, finish], (effect) =>
+      events.push(...Chunk.toArray(Effect.runSync(effect))),
+    ).catch(() => undefined);
+    expect(events.some((event) => event.type === "tool_call")).toBe(false);
   });
 });

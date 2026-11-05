@@ -596,6 +596,11 @@ export function convertToLLMError(
   providerName: ProviderName,
   attemptedUrl?: string,
 ): LLMError {
+  // Already classified where it was raised.
+  if (error instanceof LLMRequestError) {
+    return error;
+  }
+
   // Use clean message for user-facing error (keeps terminal output readable)
   const cleanMessage = extractCleanErrorMessage(error);
 
@@ -755,6 +760,9 @@ export function describeRetryableLLMError(error: unknown): string {
     }
     if (error.emptyResponse === true) {
       return "empty response";
+    }
+    if (error.malformedToolCall === true) {
+      return "malformed tool call";
     }
     if (error.statusCode === undefined) return "network issue";
     return `server error (${error.statusCode})`;
