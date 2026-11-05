@@ -1,0 +1,273 @@
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "Persona and rules.\n\nEnvironment: Date: 2026-03-01"
+    },
+    {
+      "role": "user",
+      "content": "hello"
+    },
+    {
+      "role": "assistant",
+      "content": "hi"
+    },
+    {
+      "role": "user",
+      "content": "context is at 72%",
+      "kind": "ephemeral"
+    }
+  ],
+  "requests": [
+    {
+      "provider": "anthropic",
+      "expected": [
+        {
+          "role": "system",
+          "content": "Persona and rules.\n\nEnvironment: Date: 2026-03-01",
+          "providerOptions": {
+            "anthropic": {
+              "cacheControl": {
+                "type": "ephemeral"
+              }
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "hi",
+              "providerOptions": {
+                "anthropic": {
+                  "cacheControl": {
+                    "type": "ephemeral"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "context is at 72%"
+        }
+      ]
+    },
+    {
+      "provider": "ai_gateway",
+      "expected": [
+        {
+          "role": "system",
+          "content": "Persona and rules.\n\nEnvironment: Date: 2026-03-01",
+          "providerOptions": {
+            "anthropic": {
+              "cacheControl": {
+                "type": "ephemeral"
+              }
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "hi",
+              "providerOptions": {
+                "anthropic": {
+                  "cacheControl": {
+                    "type": "ephemeral"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "context is at 72%"
+        }
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "expected": [
+        {
+          "role": "system",
+          "content": "Persona and rules.\n\nEnvironment: Date: 2026-03-01",
+          "providerOptions": {
+            "openrouter": {
+              "cacheControl": {
+                "type": "ephemeral"
+              }
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "hi",
+              "providerOptions": {
+                "openrouter": {
+                  "cacheControl": {
+                    "type": "ephemeral"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "context is at 72%"
+        }
+      ]
+    },
+    {
+      "provider": "openai",
+      "expected": [
+        {
+          "role": "system",
+          "content": "Persona and rules.\n\nEnvironment: Date: 2026-03-01"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "hi"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "context is at 72%"
+        }
+      ]
+    },
+    {
+      "provider": "ollama",
+      "expected": [
+        {
+          "role": "system",
+          "content": "Persona and rules.\n\nEnvironment: Date: 2026-03-01"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "hi"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "context is at 72%"
+        }
+      ]
+    },
+    {
+      "provider": "google",
+      "expected": [
+        {
+          "role": "system",
+          "content": "Persona and rules.\n\nEnvironment: Date: 2026-03-01"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "hi"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "context is at 72%"
+        }
+      ]
+    },
+    {
+      "provider": "deepseek",
+      "expected": [
+        {
+          "role": "system",
+          "content": "Persona and rules.\n\nEnvironment: Date: 2026-03-01"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "hi"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "context is at 72%"
+        }
+      ]
+    },
+    {
+      "provider": "claude_code",
+      "expected": [
+        {
+          "role": "system",
+          "content": "Persona and rules.\n\nEnvironment: Date: 2026-03-01"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "hi"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "context is at 72%"
+        }
+      ]
+    }
+  ]
+}
