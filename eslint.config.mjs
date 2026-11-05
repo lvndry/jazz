@@ -325,11 +325,9 @@ export default [
   },
   {
     /**
-     * Code conventions enforced per identifier and per statement. Existing violations are recorded
-     * in `eslint-suppressions.json` (ESLint bulk suppressions) so only new violations fail; shrink
-     * it with `bun run lint:prune-suppressions` after fixing some. `_` is the one single-character
-     * name allowed: it marks an intentionally unused parameter, which `no-unused-vars` already
-     * requires to start with an underscore.
+     * Code conventions enforced per identifier and per statement, with no suppressions. `_` is the
+     * one single-character name allowed: it marks an intentionally unused parameter, which
+     * `no-unused-vars` already requires to start with an underscore.
      */
     files: ["**/*.{js,mjs,ts,tsx}"],
     rules: {

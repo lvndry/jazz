@@ -4,5 +4,5 @@
  * written by `serialize` of the same kind. Used by the kinds whose records are stored verbatim.
  */
 export function asStoredRecord<Stored extends object>(body: Record<string, unknown>): Stored {
-  return body as object as Stored;
+  return body as Stored;
 }

@@ -148,20 +148,14 @@ and computes the published SHA-256 itself. See [Plugins](docs/configure/plugins.
 ## Mechanical gates
 
 - **`curly` and `id-length`** (eslint): every `if`/`else`/loop body is braced, and identifiers
-  have at least 2 characters (`_` is allowed for an unused parameter). Violations that predate
-  the rules are recorded in `eslint-suppressions.json`, so only new ones fail. Fix some and run
-  `bun run lint:prune-suppressions` to shrink the file; never add entries by hand. Fix old
-  violations when you are in that code (`bun run lint:fix` repairs braces).
-- **`as unknown` casts**: `bun run verify:unknown-casts` fails on any new assertion to `unknown`
-  (tests and scripts included). Narrow the value or give it a real type. After removing casts, run
-  `bun run verify:unknown-casts --prune`.
-- **Baselines only shrink**: `scripts/no-unknown-casts.baseline.json` and
-  `eslint-suppressions.json` record violations that predate the gates. On pull requests CI runs
-  `bun run verify:baselines-shrink --base-ref origin/<base>`, which compares both files with the
-  base branch and fails on any added entry or raised count, so regenerating a baseline next to a
-  new violation does not pass. Raising a baseline (`verify:unknown-casts --rebaseline`, or a
-  fresh `eslint --suppress-all`) is a deliberate change that needs reviewer sign-off in its own
-  commit, for example when a merge from the base branch brings in code that predates the gates.
+  have at least 2 characters (`_` is allowed for an unused parameter). There are no suppressions
+  and no baseline: a violation fails `bun run lint`, and `bun run lint:fix` repairs braces.
+- **Assertion escape hatches**: `bun run verify:unknown-casts` fails on any assertion to
+  `unknown` and on any double assertion through `unknown`, `any`, `never`, `object` or `{}`
+  (`x as object as T`), tests and scripts included. Narrow the value, validate it at the
+  boundary, or give it a real type. A single `as T` and `as const` are allowed; the test-support
+  helpers (`partialFake`, `standIn`, `invalidInput`, `narrowEffect`, `withoutServices`, the
+  adapters `fakeFetch`) each hold one documented plain `as T`.
 - **Duplicate code**: `bun run dup` runs jscpd (`.jscpd.json`) and lists each duplicated block as
   a pair of `file [lines]` ranges. CI runs it report-only for now; wrap deliberate duplication in
   `/* jscpd:ignore-start */ ... /* jscpd:ignore-end */`.

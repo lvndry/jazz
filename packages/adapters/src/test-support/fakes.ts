@@ -11,7 +11,9 @@
 export function fakeFetch<Handler extends (...args: never[]) => unknown>(
   handler: Handler,
 ): typeof fetch {
-  return handler as object as typeof fetch;
+  const fetchLike = (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> =>
+    Reflect.apply(handler, undefined, [input, init]) as Promise<Response>;
+  return Object.assign(fetchLike, { preconnect: () => undefined });
 }
 
 /**

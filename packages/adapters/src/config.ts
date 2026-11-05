@@ -86,11 +86,18 @@ const CONFIG_DIR_MODE = 0o700;
 type ConfigDocument = Record<string, unknown>;
 
 /**
+ * `AppConfig` spelled as a mapped type. An interface has no index signature and so is not
+ * assignable to `ConfigDocument`; the mapped spelling is structurally identical and is.
+ */
+type AppConfigShape = { [Key in keyof AppConfig]: AppConfig[Key] };
+
+/**
  * View a typed config as the untyped document it was built from, aliasing the same object. Sound
  * because an `AppConfig` is a plain JSON-shaped object; the view only widens property types.
  */
 function documentOf(config: AppConfig): ConfigDocument {
-  return config as object as ConfigDocument;
+  const shape: AppConfigShape = config;
+  return shape;
 }
 
 /**
@@ -98,7 +105,8 @@ function documentOf(config: AppConfig): ConfigDocument {
  * or are merged from layers whose files were validated; the callers pass nothing else.
  */
 function configOf(document: ConfigDocument): AppConfig {
-  return document as object as AppConfig;
+  const shape = document as AppConfigShape;
+  return shape;
 }
 
 /**

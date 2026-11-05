@@ -134,10 +134,9 @@ bun test
 ```
 
 `lint` also enforces braced `if`/loop bodies (`curly`) and identifiers of 2+ characters
-(`id-length`) on new code: older violations sit in `eslint-suppressions.json`, which only
-shrinks (`bun run lint:prune-suppressions`). `verify:unknown-casts` rejects new `as unknown`
-assertions against `scripts/no-unknown-casts.baseline.json`. See the "Mechanical gates"
-section of [CONTRIBUTING.md](CONTRIBUTING.md).
+(`id-length`), with no suppressions. `verify:unknown-casts` rejects `as unknown` and double
+assertions through `any`, `never`, `object` or `{}`. See the "Mechanical gates" section of
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Code
 

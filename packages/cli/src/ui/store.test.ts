@@ -789,7 +789,11 @@ describe("UIStore", () => {
       store.appendToQueue("second");
       store.appendToQueue("third");
 
-      expect(store.getMessageQueueSnapshot()).toEqual(["first", "second", "third"]);
+      expect(store.getMessageQueueSnapshot()).toEqual([
+        { text: "first", lane: "steer" },
+        { text: "second", lane: "steer" },
+        { text: "third", lane: "steer" },
+      ]);
     });
 
     test("peekQueue joins entries with newlines for back-compat with the chat-loop drain", () => {
@@ -805,7 +809,7 @@ describe("UIStore", () => {
       store.appendToQueue("only");
       store.appendToQueue("");
 
-      expect(store.getMessageQueueSnapshot()).toEqual(["only"]);
+      expect(store.getMessageQueueSnapshot()).toEqual([{ text: "only", lane: "steer" }]);
     });
 
     test("takeQueue returns the joined string and clears the array", () => {
@@ -829,7 +833,10 @@ describe("UIStore", () => {
       store.appendToQueue("and this");
 
       expect(store.takeQueuedTurn()).toEqual(["/info"]);
-      expect(store.getMessageQueueSnapshot()).toEqual(["keep going", "and this"]);
+      expect(store.getMessageQueueSnapshot()).toEqual([
+        { text: "keep going", lane: "steer" },
+        { text: "and this", lane: "steer" },
+      ]);
       expect(store.takeQueuedTurn()).toEqual(["keep going", "and this"]);
       expect(store.getMessageQueueSnapshot()).toEqual([]);
     });
@@ -851,14 +858,41 @@ describe("UIStore", () => {
       store.appendToQueue("/compact");
       store.appendToQueue("note");
       expect(store.takeQueuedProse()).toEqual([]);
-      expect(store.getMessageQueueSnapshot()).toEqual(["/compact", "note"]);
+      expect(store.getMessageQueueSnapshot()).toEqual([
+        { text: "/compact", lane: "steer" },
+        { text: "note", lane: "steer" },
+      ]);
 
-      const secondStore = new UIStore();
-      secondStore.appendToQueue("a");
-      secondStore.appendToQueue("/slash\nstill prose");
-      secondStore.appendToQueue("/help");
-      expect(secondStore.takeQueuedProse()).toEqual(["a", "/slash\nstill prose"]);
-      expect(secondStore.getMessageQueueSnapshot()).toEqual(["/help"]);
+      const otherStore = new UIStore();
+      otherStore.appendToQueue("a");
+      otherStore.appendToQueue("/slash\nstill prose");
+      otherStore.appendToQueue("/help");
+      expect(otherStore.takeQueuedProse()).toEqual(["a", "/slash\nstill prose"]);
+      expect(otherStore.getMessageQueueSnapshot()).toEqual([{ text: "/help", lane: "steer" }]);
+    });
+
+    test("a follow-up never signals or steers a running turn, and a command keeps the steer lane", () => {
+      const store = new UIStore();
+      let signalled = 0;
+      store.onceQueuedProse(() => (signalled += 1));
+      store.appendToQueue("then summarize", "followup");
+      store.appendToQueue("/compact", "followup");
+      expect(signalled).toBe(0);
+      expect(store.takeQueuedProse()).toEqual([]);
+      expect(store.getMessageQueueSnapshot()).toEqual([
+        { text: "then summarize", lane: "followup" },
+        { text: "/compact", lane: "steer" },
+      ]);
+
+      store.appendToQueue("use staging");
+      expect(signalled).toBe(0);
+      expect(store.takeQueuedProse()).toEqual([]);
+      store.clearQueue();
+      store.appendToQueue("then summarize", "followup");
+      store.appendToQueue("use staging");
+      expect(signalled).toBe(1);
+      expect(store.takeQueuedProse()).toEqual(["use staging"]);
+      expect(store.takeQueuedTurn()).toEqual(["then summarize"]);
     });
 
     test("clearQueue empties the array", () => {
@@ -874,7 +908,7 @@ describe("UIStore", () => {
       const store = new UIStore();
       const seen: (readonly string[])[] = [];
       store.subscribePrompt(() => {
-        seen.push([...store.getPromptSlice().messageQueue]);
+        seen.push(store.getPromptSlice().messageQueue.map((entry) => entry.text));
       });
 
       store.appendToQueue("a");
@@ -888,7 +922,7 @@ describe("UIStore", () => {
 
     test("clearQueue when already empty does not notify subscribers", () => {
       const store = new UIStore();
-      const seen: (readonly string[])[] = [];
+      const seen: unknown[] = [];
       store.subscribePrompt(() => seen.push(store.getPromptSlice().messageQueue));
 
       store.clearQueue();

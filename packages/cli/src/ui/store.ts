@@ -15,7 +15,6 @@ import type {
 } from "@jazz/core/types/presentation-content";
 import type { ToolRiskLevel } from "@jazz/core/types/tools";
 import { useSyncExternalStore } from "react";
-import { isCommandInput } from "@/cli/chat/commands/parser";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import {
   createClassicProjection,
@@ -37,6 +36,16 @@ import {
   type TranscriptDocument,
 } from "./document";
 import type { LocalModelHosts } from "./local-model-hosts";
+import {
+  EMPTY_QUEUE_ENTRIES,
+  hasSteering,
+  isQueuedCommand,
+  queueText,
+  takeNextTurn,
+  takeSteering,
+  type QueueEntry,
+  type QueueLane,
+} from "./message-queue";
 import { sameBackgroundItems, type BackgroundItem } from "./models/background-work";
 import { SnapshotSet } from "./snapshot-set";
 import {
@@ -60,12 +69,6 @@ type ModeSwitchHandler = (mode: "safe" | "yolo") => void;
 
 const EMPTY_STREAM = "";
 const EMPTY_OUTPUT_ENTRIES: readonly OutputEntryWithId[] = [];
-const EMPTY_QUEUE: readonly string[] = [];
-
-function isQueuedCommand(entry: string): boolean {
-  const trimmed = entry.trim();
-  return isCommandInput(trimmed) && !trimmed.includes("\n");
-}
 const EMPTY_REGIONS: readonly EphemeralRegion[] = [];
 const EMPTY_SUBAGENT_RUNS: readonly SubagentRun[] = [];
 const EMPTY_CONNECTORS: ReadonlyMap<string, ConnectorStatus> = new Map();
@@ -332,7 +335,7 @@ export interface RetryNotice extends LlmRetryNotice {
 
 export interface PromptSnapshot {
   readonly prompt: PromptState | null;
-  readonly messageQueue: readonly string[];
+  readonly messageQueue: readonly QueueEntry[];
 }
 
 export interface EphemeralSnapshot {
@@ -373,7 +376,7 @@ const INITIAL_SESSION: SessionSnapshot = {
 
 const INITIAL_PROMPT: PromptSnapshot = {
   prompt: null,
-  messageQueue: EMPTY_QUEUE,
+  messageQueue: EMPTY_QUEUE_ENTRIES,
 };
 
 const INITIAL_EPHEMERAL: EphemeralSnapshot = {
@@ -884,47 +887,45 @@ export class UIStore {
     patchSlice(this.session, { backgroundHandler: top });
   };
 
-  appendToQueue = (text: string): void => {
+  /**
+   * Queue a message behind the running turn. A `followup` waits for the turn to end and runs as
+   * a turn of its own; a command always keeps the `steer` lane, since it runs alone either way.
+   */
+  appendToQueue = (text: string, lane: QueueLane = "steer"): void => {
     if (text.length === 0) {
       return;
     }
-    const next = [...this.prompt.getSnapshot().messageQueue, text];
-    patchSlice(this.prompt, { messageQueue: next });
+    const entry: QueueEntry = { text, lane: isQueuedCommand(text) ? "steer" : lane };
+    patchSlice(this.prompt, { messageQueue: [...this.prompt.getSnapshot().messageQueue, entry] });
   };
 
-  peekQueue = (): string => this.prompt.getSnapshot().messageQueue.join("\n");
+  peekQueue = (): string => queueText(this.prompt.getSnapshot().messageQueue);
 
   takeQueue = (): string => {
     const queue = this.prompt.getSnapshot().messageQueue;
     if (queue.length === 0) {
       return "";
     }
-    const value = queue.join("\n");
-    patchSlice(this.prompt, { messageQueue: EMPTY_QUEUE });
-    return value;
+    patchSlice(this.prompt, { messageQueue: EMPTY_QUEUE_ENTRIES });
+    return queueText(queue);
   };
 
   /**
-   * Pop the leading run of prose entries, leaving any slash/shell command at
-   * the head (and everything behind it) queued. Used mid-run so a queued
-   * command is never injected into the model conversation as text.
+   * Pop the steering messages a running turn picks up: `steer` entries ahead of the first
+   * slash/shell command. Follow-ups and commands stay queued, so a command is never injected
+   * into the model conversation as text and a follow-up never redirects the run.
    */
   takeQueuedProse = (): readonly string[] => {
-    const queue = this.prompt.getSnapshot().messageQueue;
-    const firstCommand = queue.findIndex(isQueuedCommand);
-    const end = firstCommand === -1 ? queue.length : firstCommand;
-    if (end === 0) {
-      return EMPTY_QUEUE;
+    const { taken, rest } = takeSteering(this.prompt.getSnapshot().messageQueue);
+    if (taken.length === 0) {
+      return taken;
     }
-    patchSlice(this.prompt, { messageQueue: queue.slice(end) });
-    return queue.slice(0, end);
+    patchSlice(this.prompt, { messageQueue: rest });
+    return taken;
   };
 
   /** Whether `takeQueuedProse` has something to deliver to a running turn. */
-  hasQueuedProse = (): boolean => {
-    const head = this.prompt.getSnapshot().messageQueue[0];
-    return head !== undefined && !isQueuedCommand(head);
-  };
+  hasQueuedProse = (): boolean => hasSteering(this.prompt.getSnapshot().messageQueue);
 
   /** Calls `listener` once `hasQueuedProse` is true, at once when it already is; returns a cancel. */
   onceQueuedProse = (listener: () => void): (() => void) => {
@@ -942,27 +943,23 @@ export class UIStore {
   };
 
   /**
-   * Pop the next turn: a command at the head runs alone, otherwise the
-   * leading prose run is sent as one combined message.
+   * Pop the next turn between turns: a command or follow-up at the head runs alone, otherwise
+   * the leading run of steering messages is sent as one combined message.
    */
   takeQueuedTurn = (): readonly string[] => {
-    const queue = this.prompt.getSnapshot().messageQueue;
-    const head = queue[0];
-    if (head === undefined) {
-      return EMPTY_QUEUE;
+    const { taken, rest } = takeNextTurn(this.prompt.getSnapshot().messageQueue);
+    if (taken.length === 0) {
+      return taken;
     }
-    if (!isQueuedCommand(head)) {
-      return this.takeQueuedProse();
-    }
-    patchSlice(this.prompt, { messageQueue: queue.slice(1) });
-    return [head];
+    patchSlice(this.prompt, { messageQueue: rest });
+    return taken;
   };
 
   clearQueue = (): void => {
     if (this.prompt.getSnapshot().messageQueue.length === 0) {
       return;
     }
-    patchSlice(this.prompt, { messageQueue: EMPTY_QUEUE });
+    patchSlice(this.prompt, { messageQueue: EMPTY_QUEUE_ENTRIES });
   };
 
   /**
@@ -1894,7 +1891,7 @@ export class UIStore {
     return this.ephemeral.getSnapshot().expandableReasoning;
   }
 
-  getMessageQueueSnapshot(): readonly string[] {
+  getMessageQueueSnapshot(): readonly QueueEntry[] {
     return this.prompt.getSnapshot().messageQueue;
   }
 

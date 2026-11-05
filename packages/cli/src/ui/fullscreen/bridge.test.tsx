@@ -923,7 +923,7 @@ describe("fullscreen bridge", () => {
     expect(rendered.captureCharFrame()).toContain("1 queued");
     expect(rendered.captureCharFrame()).toContain("follow up");
     expect(rendered.captureCharFrame()).toContain("enter to queue");
-    expect(store.getMessageQueueSnapshot()).toEqual(["follow up"]);
+    expect(store.getMessageQueueSnapshot()).toEqual([{ text: "follow up", lane: "steer" }]);
 
     rendered.mockInput.pressKey("ARROW_UP");
     await settleKeypress(rendered.flush);
@@ -940,6 +940,28 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
     store.setChatBusy(false);
     store.setPrompt(null);
+  });
+
+  it("queues the draft as a follow-up on Tab, held back from the running turn", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    store.setChatBusy(true);
+    await rendered.flush();
+    store.registerImmediateCommandRunner(() => false);
+
+    await typeInto(rendered.mockInput, rendered.flush, "then summarize");
+    rendered.mockInput.pressTab();
+    await settleKeypress(rendered.flush);
+    const frame = rendered.captureCharFrame();
+    const steering = store.takeQueuedProse();
+    const snapshot = store.getMessageQueueSnapshot();
+    rendered.renderer.destroy();
+    store.clearQueue();
+    store.setChatBusy(false);
+
+    expect(frame).toContain("after this turn");
+    expect(steering).toEqual([]);
+    expect(snapshot).toEqual([{ text: "then summarize", lane: "followup" }]);
   });
 
   it("answers a read-only command in a centered panel mid-turn instead of queueing it", async () => {
@@ -1002,7 +1024,7 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush);
     rendered.renderer.destroy();
 
-    expect(store.getMessageQueueSnapshot()).toEqual(["/compact now"]);
+    expect(store.getMessageQueueSnapshot()).toEqual([{ text: "/compact now", lane: "steer" }]);
   });
 
   it("keeps the composer enabled after the chat prompt resolves while a queue is shown", async () => {
@@ -3164,7 +3186,10 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
     rendered.renderer.destroy();
 
-    expect(queue).toEqual(["first", "second"]);
+    expect(queue).toEqual([
+      { text: "first", lane: "steer" },
+      { text: "second", lane: "steer" },
+    ]);
     expect(flushRequested).toBe(true);
     expect(interrupted).toBe(1);
   });

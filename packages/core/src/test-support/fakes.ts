@@ -52,6 +52,16 @@ export function withoutServices<Success, Failure, Requirements>(
 }
 
 /**
+ * View a tool's effect as the concrete success shape a test asserts on, with no failure and no
+ * required services, so the test can provide a small harness layer and run it.
+ * @param effect - the effect the tool's `execute` returned.
+ * @returns the same effect typed as succeeding with `Success`.
+ */
+export function narrowEffect<Success>(effect: AnyEffect): Effect.Effect<Success> {
+  return effect as Effect.Effect<Success>;
+}
+
+/**
  * Wrap a fetch implementation as a complete `typeof fetch`, adding the `preconnect` member the
  * runtime type requires.
  * @param implementation - the fetch behavior the test wants.

@@ -44,6 +44,7 @@ import { TextAttributes } from "@opentui/core";
 import { memo, type ReactNode } from "react";
 import { runsInShell } from "@/cli/chat/commands/parser";
 import { getGlyphs, type GlyphSet } from "../glyphs";
+import type { QueueEntry } from "../message-queue";
 import { matchedSpan, plainDescription, suggestionOrigin } from "../suggestion-menu";
 import { useThemeRevision } from "./theme-revision";
 import { COMPACT_HEIGHT, type InputModel, type Viewport } from "./types";
@@ -258,11 +259,21 @@ function queueChipRow(count: number, width: number): InputRow {
   );
 }
 
-function queuePreviewRows(entries: readonly string[], width: number, glyphs: GlyphSet): InputRow[] {
+/** Marks a queued entry that waits for the turn to end instead of steering it. */
+const FOLLOW_UP_TAG = "after this turn";
+
+function queuePreviewRows(
+  entries: readonly QueueEntry[],
+  width: number,
+  glyphs: GlyphSet,
+): InputRow[] {
   return entries.map((entry, index) => {
-    const oneLine = previewQueuedEntry(entry);
+    const oneLine = previewQueuedEntry(entry.text);
     const segments: InputSegment[] = [
       { text: `${QUEUE_INDENT} ${glyphs.bullet} `, fg: THEME.muted },
+      ...(entry.lane === "followup"
+        ? [{ text: `${FOLLOW_UP_TAG}  `, fg: THEME.muted } satisfies InputSegment]
+        : []),
       { text: oneLine, fg: THEME.secondary },
     ];
     return {

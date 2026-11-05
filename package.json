@@ -60,8 +60,6 @@
     "cli": "bun packages/runtime/src/main.ts",
     "prepare": "git config core.hooksPath .githooks || true",
     "lint": "bun eslint packages plugins scripts --cache --cache-strategy content --no-error-on-unmatched-pattern",
-    "lint:prune-suppressions": "bun eslint packages plugins scripts --prune-suppressions --no-error-on-unmatched-pattern",
-    "verify:baselines-shrink": "bun run scripts/verify-baselines-shrink.ts",
     "dup": "bunx jscpd@latest",
     "verify:unknown-casts": "bun run scripts/verify-no-unknown-casts.ts",
     "lint:fix": "bun eslint packages plugins scripts --fix --cache --cache-strategy content",

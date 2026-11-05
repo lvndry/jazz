@@ -1,93 +1,111 @@
 /**
- * Ratchet on type assertions to `unknown` (`value as unknown`, `<unknown>value`, and unions that
- * contain `unknown`). Existing assertions are recorded in `scripts/no-unknown-casts.baseline.json`;
- * a new one fails the check, and a removed one must be pruned so the allowance only shrinks.
+ * Zero-tolerance check for assertion escape hatches. It fails on:
  *
- * Run `bun run verify:unknown-casts`, or add `--prune` after removing casts to drop their entries.
- * `--init` writes a first baseline and refuses to overwrite one; `--rebaseline` overwrites it and
- * is a deliberate, reviewed change. `scripts/verify-baselines-shrink.ts` compares the baseline with
- * the base branch's in CI, so adding an entry or raising a count fails there.
- * Entries are keyed by file and a hash of the assertion's tokens rather than by line, so moving
- * code or rebasing never invalidates the baseline.
+ * - an assertion to `unknown` (`value as unknown`, `<unknown>value`, or a union containing it);
+ * - a double assertion through a non-specific type: `value as object as T`, `as {} as T`,
+ *   `as never as T`, `as any as T` and `as unknown as T` all launder one type into another
+ *   without the compiler checking the relationship, exactly like `as unknown as T`.
+ *
+ * A single `as T` is allowed, as is `as const`. The test-support helpers that hold one documented
+ * plain `as T` each (the typed fakes under `plugins/jev/tests/` and the per-package test helpers
+ * named in their own docstrings) are single assertions, so they pass without an exception list.
+ *
+ * Run `bun run verify:unknown-casts`; the output lists each offending `file:line` with the kind.
  */
 
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const BASELINE_PATH = "scripts/no-unknown-casts.baseline.json";
 const SCAN_AREAS = ["packages/", "plugins/", "scripts/", "evals/", "bench/"];
 const EXCLUDED_PREFIXES = ["vendor/", "packages/website/"];
 const MAX_GIT_OUTPUT_BYTES = 16 * 1024 * 1024;
 
-/** Existing assertion counts, keyed by repository path and token fingerprint. */
-export type UnknownCastBaseline = Record<string, Record<string, number>>;
+export type CastKind = "unknown-assertion" | "double-assertion";
 
-export interface UnknownCast {
+export interface UnsafeCast {
   /** Repository-relative path with forward slashes. */
   file: string;
   /** One-based line of the asserted type. */
   line: number;
-  /** SHA-256 of the assertion's tokens, excluding comments and whitespace. */
-  fingerprint: string;
+  kind: CastKind;
 }
 
-export interface UnknownCastReport {
-  total: number;
-  added: UnknownCast[];
-  stale: string[];
-}
-
-function tokenFingerprint(node: ts.Node, source: ts.SourceFile): string {
-  const tokens: string[] = [];
-  const visit = (child: ts.Node): void => {
-    if (ts.isJSDoc(child)) {
-      return;
-    }
-    if (ts.isToken(child)) {
-      tokens.push(child.getText(source));
-    } else {
-      child.getChildren(source).forEach(visit);
-    }
-  };
-  visit(node);
-  return createHash("sha256").update(JSON.stringify(tokens)).digest("hex");
+function unwrapParentheses(type: ts.TypeNode): ts.TypeNode {
+  return ts.isParenthesizedTypeNode(type) ? unwrapParentheses(type.type) : type;
 }
 
 function assertsUnknown(type: ts.TypeNode): boolean {
-  if (ts.isParenthesizedTypeNode(type)) {
-    return assertsUnknown(type.type);
-  }
+  const inner = unwrapParentheses(type);
   return (
-    type.kind === ts.SyntaxKind.UnknownKeyword ||
-    (ts.isUnionTypeNode(type) && type.types.some(assertsUnknown))
+    inner.kind === ts.SyntaxKind.UnknownKeyword ||
+    (ts.isUnionTypeNode(inner) && inner.types.some(assertsUnknown))
   );
 }
 
+function isNonSpecificType(type: ts.TypeNode): boolean {
+  const inner = unwrapParentheses(type);
+  return (
+    inner.kind === ts.SyntaxKind.UnknownKeyword ||
+    inner.kind === ts.SyntaxKind.AnyKeyword ||
+    inner.kind === ts.SyntaxKind.NeverKeyword ||
+    inner.kind === ts.SyntaxKind.ObjectKeyword ||
+    (ts.isTypeLiteralNode(inner) && inner.members.length === 0) ||
+    (ts.isTypeReferenceNode(inner) &&
+      ts.isIdentifier(inner.typeName) &&
+      inner.typeName.text === "Object" &&
+      inner.typeArguments === undefined)
+  );
+}
+
+function isAssertion(node: ts.Node): node is ts.AsExpression | ts.TypeAssertion {
+  return ts.isAsExpression(node) || ts.isTypeAssertionExpression(node);
+}
+
+function isConstAssertion(type: ts.TypeNode): boolean {
+  return (
+    ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) && type.typeName.text === "const"
+  );
+}
+
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  return ts.isParenthesizedExpression(expression)
+    ? unwrapExpression(expression.expression)
+    : expression;
+}
+
 /**
- * Find assertions to `unknown` in one source file.
+ * Find assertion escape hatches in one source file.
  * @param file - repository-relative path; its extension selects TS or TSX parsing.
  * @param text - source contents.
- * @returns assertions in traversal order; comments, strings and `unknown` used as a type argument do not match.
+ * @returns offending assertions in traversal order. `as unknown as T` is reported twice: the inner assertion to `unknown`, and the outer double assertion.
  */
-export function findUnknownCasts(file: string, text: string): UnknownCast[] {
+export function findUnsafeCasts(file: string, text: string): UnsafeCast[] {
   const normalized = file.replaceAll("\\", "/");
   const source = ts.createSourceFile(normalized, text, ts.ScriptTarget.Latest, true);
-  const casts: UnknownCast[] = [];
+  const casts: UnsafeCast[] = [];
+  const report = (node: ts.AsExpression | ts.TypeAssertion, kind: CastKind): void => {
+    casts.push({
+      file: normalized,
+      line: source.getLineAndCharacterOfPosition(node.type.getStart(source)).line + 1,
+      kind,
+    });
+  };
   const visit = (node: ts.Node): void => {
-    if (
-      (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) &&
-      assertsUnknown(node.type)
-    ) {
-      casts.push({
-        file: normalized,
-        line: source.getLineAndCharacterOfPosition(node.type.getStart(source)).line + 1,
-        fingerprint: tokenFingerprint(node, source),
-      });
+    if (isAssertion(node)) {
+      const operand = unwrapExpression(node.expression);
+      if (assertsUnknown(node.type)) {
+        report(node, "unknown-assertion");
+      } else if (
+        !isConstAssertion(node.type) &&
+        isAssertion(operand) &&
+        isNonSpecificType(operand.type)
+      ) {
+        report(node, "double-assertion");
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -106,10 +124,10 @@ function isScannedSource(file: string): boolean {
 /**
  * Scan tracked and non-ignored new source, tests and scripts included.
  * @param repositoryRoot - repository root holding the git index.
- * @returns every assertion to `unknown` in the working tree.
- * @throws when discovery returns no file under a required area.
+ * @returns every offending assertion in the working tree.
+ * @throws when discovery returns no file under a required area, or a file cannot be read for a reason other than having been deleted.
  */
-export function scanUnknownCasts(repositoryRoot: string): UnknownCast[] {
+export function scanUnsafeCasts(repositoryRoot: string): UnsafeCast[] {
   const listed = execFileSync(
     "git",
     ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
@@ -134,117 +152,19 @@ export function scanUnknownCasts(repositoryRoot: string): UnknownCast[] {
         { cause: error },
       );
     }
-    return findUnknownCasts(file, text);
+    return findUnsafeCasts(file, text);
   });
 }
 
-/**
- * Tally assertions per file and fingerprint.
- * @param casts - observed assertions.
- * @returns counts in stable order for comparison and writing.
- */
-export function countUnknownCasts(casts: readonly UnknownCast[]): UnknownCastBaseline {
-  const baseline: UnknownCastBaseline = {};
-  for (const { file, fingerprint } of casts) {
-    const counts = (baseline[file] ??= {});
-    counts[fingerprint] = (counts[fingerprint] ?? 0) + 1;
-  }
-  return Object.fromEntries(
-    Object.entries(baseline)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([file, counts]) => [
-        file,
-        Object.fromEntries(
-          Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
-        ),
-      ]),
-  );
-}
-
-function readBaseline(repositoryRoot: string): UnknownCastBaseline {
-  const parsed: unknown = JSON.parse(
-    readFileSync(path.resolve(repositoryRoot, BASELINE_PATH), "utf8"),
-  );
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("verify-no-unknown-casts: baseline must map file paths to fingerprint counts");
-  }
-  return parsed as UnknownCastBaseline;
-}
-
-/**
- * Compare observed assertions with a recorded baseline.
- * @param casts - assertions found in the working tree.
- * @param baseline - allowance recorded in the checked-in baseline.
- * @returns the total, assertions the baseline does not cover, and baseline entries no longer present.
- */
-export function compareUnknownCasts(
-  casts: readonly UnknownCast[],
-  baseline: UnknownCastBaseline,
-): UnknownCastReport {
-  const remaining = structuredClone(baseline);
-  const added: UnknownCast[] = [];
-  for (const cast of casts) {
-    const counts = remaining[cast.file];
-    const allowance = counts?.[cast.fingerprint] ?? 0;
-    if (counts !== undefined && allowance > 0) {
-      counts[cast.fingerprint] = allowance - 1;
-    } else {
-      added.push(cast);
-    }
-  }
-  const stale = Object.entries(remaining).flatMap(([file, counts]) =>
-    Object.entries(counts)
-      .filter(([, count]) => count > 0)
-      .map(([fingerprint]) => `${file} (${fingerprint.slice(0, 12)})`),
-  );
-  return { total: casts.length, added, stale };
-}
-
-function writeBaseline(casts: readonly UnknownCast[]): void {
-  writeFileSync(
-    path.resolve(REPOSITORY_ROOT, BASELINE_PATH),
-    `${JSON.stringify(countUnknownCasts(casts), null, 2)}\n`,
-  );
-}
-
 function main(): void {
-  const args = process.argv.slice(2);
-  if (args.some((arg) => arg !== "--prune" && arg !== "--init" && arg !== "--rebaseline")) {
-    throw new Error("Usage: bun run verify:unknown-casts [--prune | --init | --rebaseline]");
-  }
-  const casts = scanUnknownCasts(REPOSITORY_ROOT);
-  const baselineExists = existsSync(path.resolve(REPOSITORY_ROOT, BASELINE_PATH));
-  if (args.includes("--init") && baselineExists) {
+  const casts = scanUnsafeCasts(REPOSITORY_ROOT);
+  if (casts.length > 0) {
     throw new Error(
-      "verify-no-unknown-casts: a baseline already exists; --init will not overwrite it. Raising it is a deliberate, reviewed change: use --rebaseline.",
+      "verify-no-unknown-casts: assertions through unknown, any, never, object or {} are forbidden. Use a typed value, narrow the input, or validate it at the boundary.\n" +
+        casts.map((cast) => `  ${cast.file}:${String(cast.line)} (${cast.kind})`).join("\n"),
     );
   }
-  if (args.includes("--init") || args.includes("--rebaseline")) {
-    writeBaseline(casts);
-    console.log(
-      `verify-no-unknown-casts: baseline written with ${String(casts.length)} assertions.`,
-    );
-    return;
-  }
-  const { total, added, stale } = compareUnknownCasts(casts, readBaseline(REPOSITORY_ROOT));
-  if (added.length > 0) {
-    throw new Error(
-      "verify-no-unknown-casts: new assertions to unknown are forbidden. Use a typed value or narrow the input.\n" +
-        added.map((cast) => `  ${cast.file}:${String(cast.line)}`).join("\n"),
-    );
-  }
-  if (stale.length > 0) {
-    if (!args.includes("--prune")) {
-      throw new Error(
-        "verify-no-unknown-casts: assertions were removed; record that with `bun run verify:unknown-casts --prune`.\n" +
-          stale.map((entry) => `  ${entry}`).join("\n"),
-      );
-    }
-    writeBaseline(casts);
-  }
-  console.log(
-    `verify-no-unknown-casts: no new assertions; ${String(total)} existing assertions remain.`,
-  );
+  console.log("verify-no-unknown-casts: no assertion escape hatches.");
 }
 
 if (import.meta.main) {
