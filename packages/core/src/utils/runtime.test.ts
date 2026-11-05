@@ -21,8 +21,11 @@ describe("isOfflineMode", () => {
       process.env["JAZZ_OFFLINE"] = "True";
       expect(isOfflineMode()).toBe(false);
     } finally {
-      if (originalValue === undefined) delete process.env["JAZZ_OFFLINE"];
-      else process.env["JAZZ_OFFLINE"] = originalValue;
+      if (originalValue === undefined) {
+        delete process.env["JAZZ_OFFLINE"];
+      } else {
+        process.env["JAZZ_OFFLINE"] = originalValue;
+      }
     }
   });
 });

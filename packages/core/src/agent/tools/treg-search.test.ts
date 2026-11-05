@@ -2,12 +2,13 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { fakeFetch, partialFake } from "@/core/test-support/fakes";
 import { executeTregSearch } from "./treg-search";
 
 const originalFetch = global.fetch;
-const logger = {
+const logger = partialFake<LoggerService>({
   info: () => Effect.void,
-} as unknown as LoggerService;
+});
 const layer = Layer.succeed(LoggerServiceTag, logger);
 const search = () =>
   Effect.runPromise(
@@ -30,7 +31,7 @@ describe("treg web search", () => {
     const fetchMock = mock(async (_url: URL, _options: RequestInit) =>
       Response.json({ results: [{ title: "Free", url: "https://example.org/" }] }),
     );
-    global.fetch = fetchMock as unknown as typeof fetch;
+    global.fetch = fakeFetch(fetchMock);
     const result = await search();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = fetchMock.mock.calls[0]!;
@@ -50,7 +51,7 @@ describe("treg web search", () => {
         ? found("Fallback", "crawl4ai.web.search")
         : Response.json({ results: [] }),
     );
-    global.fetch = fetchMock as unknown as typeof fetch;
+    global.fetch = fakeFetch(fetchMock);
     const result = await search();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const options = fetchMock.mock.calls[1]![1];
@@ -68,7 +69,7 @@ describe("treg web search", () => {
       const fetchMock = mock(async (_url: string, _options: RequestInit) =>
         fetchMock.mock.calls.length === 1 ? freeResponse : found("Fallback"),
       );
-      global.fetch = fetchMock as unknown as typeof fetch;
+      global.fetch = fakeFetch(fetchMock);
       expect((await search()).results[0]?.title).toBe("Fallback");
       expect(fetchMock).toHaveBeenCalledTimes(2);
     }
@@ -130,7 +131,7 @@ describe("treg web search", () => {
               _treg: { served_by: example.servedBy },
             }),
       );
-      global.fetch = fetchMock as unknown as typeof fetch;
+      global.fetch = fakeFetch(fetchMock);
       const result = await search();
       expect(result.results[0]?.snippet).toBe(example.snippet);
       expect(result.results[0]?.publishedDate).toBe(example.publishedDate);
@@ -150,7 +151,7 @@ describe("treg web search", () => {
           ? Response.json({ results: [] })
           : Response.json({ output: { results: [{ url: "https://example.org/", ...row }] } }),
       );
-      global.fetch = fetchMock as unknown as typeof fetch;
+      global.fetch = fakeFetch(fetchMock);
       await expect(search()).rejects.toMatchObject({
         message: "treg paid fallback failed or exceeded its cost limit",
       });
@@ -164,7 +165,7 @@ describe("treg web search", () => {
         ? new Response("rate limited", { status: 429 })
         : new Response("sensitive provider text", { status: 503 }),
     );
-    global.fetch = fetchMock as unknown as typeof fetch;
+    global.fetch = fakeFetch(fetchMock);
     const error = await search().then(
       () => undefined,
       (reason: unknown) => reason,
@@ -195,11 +196,15 @@ describe("treg web search", () => {
       for (const stage of ["free", "routed"] as const) {
         const fetchMock = mock(async (_url: URL | string, options: RequestInit) => {
           const routed = (options.headers as Record<string, string>)["X-Treg-Route-Exclude"];
-          if (stage === "routed" && !routed) return Response.json({ results: [] });
-          if (stage === "free" && routed) return found("Fallback");
+          if (stage === "routed" && !routed) {
+            return Response.json({ results: [] });
+          }
+          if (stage === "free" && routed) {
+            return found("Fallback");
+          }
           return originalFetch(redirect.url, options);
         });
-        global.fetch = fetchMock as unknown as typeof fetch;
+        global.fetch = fakeFetch(fetchMock);
         if (stage === "free") {
           expect((await search()).results[0]?.title).toBe("Fallback");
         } else {

@@ -11,7 +11,9 @@
  */
 
 export async function whatsappCommand(agent?: string): Promise<void> {
-  if (agent !== undefined) await selectSeedAgent(agent);
+  if (agent !== undefined) {
+    await selectSeedAgent(agent);
+  }
   const { startBridge } = await import("@jazz/whatsapp-bot/bridge");
   await startBridge();
 }

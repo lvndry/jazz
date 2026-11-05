@@ -109,7 +109,9 @@ export function stripUtf8Bom(content: string): string {
 }
 
 export function pdfExtensionError(filePath: string, hint: string): ToolExecutionResult | null {
-  if (filePath.toLowerCase().endsWith(".pdf")) return null;
+  if (filePath.toLowerCase().endsWith(".pdf")) {
+    return null;
+  }
   return {
     success: false,
     result: null,

@@ -29,28 +29,28 @@ describe("TagPairParser", () => {
 
   it("stitches an open tag split across two feeds", () => {
     const parser = new TagPairParser();
-    const a = parser.feed("<thi");
-    const b = parser.feed("nk>secret</think>after");
-    expect(a.visibleText).toBe("");
-    expect(a.thinkingText).toBe("");
-    expect(a.thinkingStarted).toBeUndefined();
+    const firstFeed = parser.feed("<thi");
+    const secondFeed = parser.feed("nk>secret</think>after");
+    expect(firstFeed.visibleText).toBe("");
+    expect(firstFeed.thinkingText).toBe("");
+    expect(firstFeed.thinkingStarted).toBeUndefined();
 
-    expect(b.visibleText).toBe("after");
-    expect(b.thinkingText).toBe("secret");
-    expect(b.thinkingStarted).toBe(true);
-    expect(b.thinkingEnded).toBe(true);
+    expect(secondFeed.visibleText).toBe("after");
+    expect(secondFeed.thinkingText).toBe("secret");
+    expect(secondFeed.thinkingStarted).toBe(true);
+    expect(secondFeed.thinkingEnded).toBe(true);
   });
 
   it("stitches a close tag split across two feeds", () => {
     const parser = new TagPairParser();
-    const a = parser.feed("<think>secr");
-    const b = parser.feed("et</thi");
-    const c = parser.feed("nk>after");
-    expect(a.thinkingStarted).toBe(true);
-    expect(a.thinkingText).toBe("secr");
-    expect(b.thinkingText).toBe("et");
-    expect(c.thinkingEnded).toBe(true);
-    expect(c.visibleText).toBe("after");
+    const firstFeed = parser.feed("<think>secr");
+    const secondFeed = parser.feed("et</thi");
+    const thirdFeed = parser.feed("nk>after");
+    expect(firstFeed.thinkingStarted).toBe(true);
+    expect(firstFeed.thinkingText).toBe("secr");
+    expect(secondFeed.thinkingText).toBe("et");
+    expect(thirdFeed.thinkingEnded).toBe(true);
+    expect(thirdFeed.visibleText).toBe("after");
   });
 
   it("treats <table> and other non-reasoning tags as visible text", () => {
@@ -78,13 +78,13 @@ describe("TagPairParser", () => {
 
   it("keeps an unclosed tag the answer quotes, and the text after it", () => {
     const parser = new TagPairParser();
-    const a = parser.feed("Models open reasoning with <thi");
-    const b = parser.feed("nk> and the rest of this answer");
-    const c = parser.flush();
-    expect(a.visibleText + b.visibleText + c.visibleText).toBe(
+    const firstFeed = parser.feed("Models open reasoning with <thi");
+    const secondFeed = parser.feed("nk> and the rest of this answer");
+    const flushed = parser.flush();
+    expect(firstFeed.visibleText + secondFeed.visibleText + flushed.visibleText).toBe(
       "Models open reasoning with <think> and the rest of this answer",
     );
-    expect(a.thinkingText + b.thinkingText + c.thinkingText).toBe("");
+    expect(firstFeed.thinkingText + secondFeed.thinkingText + flushed.thinkingText).toBe("");
   });
 
   it("keeps a tag that follows a reasoning block and the answer", () => {
@@ -123,30 +123,30 @@ describe("TagPairParser", () => {
 
   it("flushes a partial open-tag buffer as visible text", () => {
     const parser = new TagPairParser();
-    const a = parser.feed("<thi");
-    const b = parser.flush();
-    expect(a.visibleText).toBe("");
-    expect(b.visibleText).toBe("<thi");
-    expect(b.thinkingText).toBe("");
+    const firstFeed = parser.feed("<thi");
+    const flushed = parser.flush();
+    expect(firstFeed.visibleText).toBe("");
+    expect(flushed.visibleText).toBe("<thi");
+    expect(flushed.thinkingText).toBe("");
   });
 
   it("flushes mid-thinking content with thinkingEnded set", () => {
     const parser = new TagPairParser();
-    const a = parser.feed("<think>partial");
-    const b = parser.flush();
-    expect(a.thinkingStarted).toBe(true);
-    expect(a.thinkingText).toBe("partial");
-    expect(b.thinkingEnded).toBe(true);
+    const firstFeed = parser.feed("<think>partial");
+    const flushed = parser.flush();
+    expect(firstFeed.thinkingStarted).toBe(true);
+    expect(firstFeed.thinkingText).toBe("partial");
+    expect(flushed.thinkingEnded).toBe(true);
   });
 
   it("flushes mid-MAYBE_CLOSE buffer back into thinking text", () => {
     const parser = new TagPairParser();
-    const a = parser.feed("<think>secret</thi");
-    const b = parser.flush();
-    expect(a.thinkingStarted).toBe(true);
-    expect(a.thinkingText).toBe("secret");
-    expect(b.thinkingText).toBe("</thi");
-    expect(b.thinkingEnded).toBe(true);
+    const firstFeed = parser.feed("<think>secret</thi");
+    const flushed = parser.flush();
+    expect(firstFeed.thinkingStarted).toBe(true);
+    expect(firstFeed.thinkingText).toBe("secret");
+    expect(flushed.thinkingText).toBe("</thi");
+    expect(flushed.thinkingEnded).toBe(true);
   });
 
   it("returns empty chunks on flush after a clean stream", () => {

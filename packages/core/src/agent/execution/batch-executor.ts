@@ -203,12 +203,15 @@ export function executeWithoutStreaming(
           // Show metrics if enabled
           if (showMetrics && completion.usage) {
             const parts: string[] = [];
-            if (completion.usage.totalTokens)
+            if (completion.usage.totalTokens) {
               parts.push(`Total: ${completion.usage.totalTokens} tokens`);
-            if (completion.usage.promptTokens)
+            }
+            if (completion.usage.promptTokens) {
               parts.push(`Prompt: ${completion.usage.promptTokens}`);
-            if (completion.usage.completionTokens)
+            }
+            if (completion.usage.completionTokens) {
               parts.push(`Completion: ${completion.usage.completionTokens}`);
+            }
             if (parts.length > 0) {
               yield* logger.info(`[${parts.join(" | ")}]`);
             }

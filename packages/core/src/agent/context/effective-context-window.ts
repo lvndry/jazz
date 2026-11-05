@@ -155,8 +155,12 @@ export function describeContextWindowShortfall(
   provider: string,
   effective: EffectiveContextWindow,
 ): string | null {
-  if (!isLocalServerProvider(provider)) return null;
-  if (effective.source === "pinned" || effective.source === "server") return null;
+  if (!isLocalServerProvider(provider)) {
+    return null;
+  }
+  if (effective.source === "pinned" || effective.source === "server") {
+    return null;
+  }
 
   const assumed = effective.cappedByAgent
     ? `this agent's max context (${effective.tokens.toLocaleString()} tokens)`

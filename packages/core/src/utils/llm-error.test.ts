@@ -160,8 +160,11 @@ describe("localServerUnreachableMessage", () => {
       expect(message).not.toContain("localhost:8080");
       expect(message).not.toContain("llama-server -m");
     } finally {
-      if (original === undefined) delete process.env["LLAMACPP_BASE_URL"];
-      else process.env["LLAMACPP_BASE_URL"] = original;
+      if (original === undefined) {
+        delete process.env["LLAMACPP_BASE_URL"];
+      } else {
+        process.env["LLAMACPP_BASE_URL"] = original;
+      }
     }
   });
 });

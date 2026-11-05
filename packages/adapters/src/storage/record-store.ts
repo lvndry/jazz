@@ -213,7 +213,7 @@ export class FileRecords<Rec extends VersionedRecord> {
       }
       throw error;
     }
-    const parsed = this.kind.parse(JSON.parse(raw) as unknown);
+    const parsed = this.kind.parse(JSON.parse(raw));
     if (!parsed.ok) {
       throw new Error(
         `${capitalized(this.kind.noun)} record "${id}" is invalid or corrupt: ${parsed.error}`,

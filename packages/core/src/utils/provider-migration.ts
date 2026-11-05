@@ -22,14 +22,20 @@ export const RENAMED_PROVIDER_NAME = "gemini";
  * caller can avoid rewriting files that are already current.
  */
 export function migrateAgentProviderName(raw: unknown): { record: unknown; changed: boolean } {
-  if (!raw || typeof raw !== "object") return { record: raw, changed: false };
+  if (!raw || typeof raw !== "object") {
+    return { record: raw, changed: false };
+  }
 
   const record = raw as Record<string, unknown>;
   const config = record["config"];
-  if (!config || typeof config !== "object") return { record: raw, changed: false };
+  if (!config || typeof config !== "object") {
+    return { record: raw, changed: false };
+  }
 
   const llm = (config as Record<string, unknown>)["llm"];
-  if (!llm || typeof llm !== "object") return { record: raw, changed: false };
+  if (!llm || typeof llm !== "object") {
+    return { record: raw, changed: false };
+  }
 
   const llmConfig = { ...(llm as Record<string, unknown>) };
   let changed = false;
@@ -55,7 +61,9 @@ export function migrateAgentProviderName(raw: unknown): { record: unknown; chang
     changed = true;
   }
 
-  if (!changed) return { record: raw, changed: false };
+  if (!changed) {
+    return { record: raw, changed: false };
+  }
   return { record: { ...record, config: { ...config, llm: llmConfig } }, changed: true };
 }
 
@@ -77,13 +85,17 @@ export function migrateKeyringProviderName<Backend>(
 ): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
     const legacy = yield* get(backend, LEGACY_KEYRING_ACCOUNT);
-    if (legacy === undefined || legacy.trim() === "") return false;
+    if (legacy === undefined || legacy.trim() === "") {
+      return false;
+    }
 
     // Never clobber a key already stored under the new name.
     const existing = yield* get(backend, RENAMED_KEYRING_ACCOUNT);
     if (existing === undefined || existing.trim() === "") {
       const stored = yield* set(backend, RENAMED_KEYRING_ACCOUNT, legacy);
-      if (!stored) return false;
+      if (!stored) {
+        return false;
+      }
     }
 
     yield* remove(backend, LEGACY_KEYRING_ACCOUNT);
@@ -97,10 +109,14 @@ export function migrateKeyringProviderName<Backend>(
  */
 export function migrateConfigProviderName(fileRecord: Record<string, unknown>): boolean {
   const llm = fileRecord["llm"];
-  if (!llm || typeof llm !== "object") return false;
+  if (!llm || typeof llm !== "object") {
+    return false;
+  }
 
   const llmRecord = llm as Record<string, unknown>;
-  if (!(LEGACY_PROVIDER_NAME in llmRecord)) return false;
+  if (!(LEGACY_PROVIDER_NAME in llmRecord)) {
+    return false;
+  }
 
   const { [LEGACY_PROVIDER_NAME]: legacyEntry, ...rest } = llmRecord;
   fileRecord["llm"] =

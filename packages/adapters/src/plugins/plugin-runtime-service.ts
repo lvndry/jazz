@@ -235,7 +235,9 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
             this.lifecycleSessions.delete(event.agentId);
             yield* cached.session.close();
           }
-          if (enabledPlugins.length === 0) return;
+          if (enabledPlugins.length === 0) {
+            return;
+          }
           const opened = yield* this.openSession({ agentId: event.agentId });
           this.lifecycleSessions.set(event.agentId, { session: opened, enabledPlugins });
           yield* opened.emitLifecycle(event);

@@ -89,6 +89,24 @@ async function gitFailed(
   }
 }
 
+/** A failed `gh` invocation; the detail is the first line gh printed, kept apart from the wrapper's prefix. */
+class GhCommandError extends Error {
+  constructor(
+    summary: string,
+    readonly detail: string,
+    cause: unknown,
+  ) {
+    super(summary, { cause });
+  }
+}
+
+/**
+ * gh's auth failures: its own sign-in guidance, or the API's `HTTP 401` status line, anchored to
+ * the start of the line gh printed so a digit run or a repo name containing "401" never matches.
+ */
+const GH_AUTH_FAILURE_LINE =
+  /^(?:HTTP 401\b|gh: .*not logged in|You are not logged into any GitHub hosts|To get started with GitHub CLI|authentication failed|Bad credentials)/i;
+
 /** Run `gh` through the injected composer, trimming stdout. */
 async function runGh(
   args: readonly string[],
@@ -98,7 +116,8 @@ async function runGh(
   try {
     return (await compose("gh", args, options)).stdout.trim();
   } catch (error) {
-    throw new Error(`gh ${args[0]} ${args[1] ?? ""}: ${firstLine(error)}`, { cause: error });
+    const detail = firstLine(error);
+    throw new GhCommandError(`gh ${args[0]} ${args[1] ?? ""}: ${detail}`, detail, error);
   }
 }
 
@@ -186,7 +205,9 @@ export function createPublishCompositionTool(
         return yield* Effect.promise(() => publishComposition(args, workingDirectory, compose, fs));
       }),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { slug: string; visibility: string };
       return `Published composition ${data.slug} (${data.visibility})`;
     },
@@ -322,10 +343,7 @@ export async function publishComposition(
     return { success: true, result: await runPublish(input, cwd, compose, fs, fetchImpl) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (
-      message.startsWith("gh ") &&
-      /not logged in|401|authentication failed|bad credentials/i.test(message)
-    ) {
+    if (error instanceof GhCommandError && GH_AUTH_FAILURE_LINE.test(error.detail)) {
       return { success: false, result: null, error: PUBLISH_AUTH_ERROR };
     }
     const prefixed = message.startsWith("publish_composition:")
@@ -370,7 +388,9 @@ async function runPublish(
   }
 
   const owner = await currentUser(compose);
-  if (!owner) throw new Error(PUBLISH_AUTH_ERROR);
+  if (!owner) {
+    throw new Error(PUBLISH_AUTH_ERROR);
+  }
   const repo = input.repo ?? compositionRepoFor(owner, visibility);
   const slug = slugFromName(input.htmlPath);
   const pageDir = repoPathFor(visibility, slug);
@@ -394,7 +414,9 @@ async function runPublish(
     const pageTmp = join(repoDir, pageDir);
     await ensurePageDirectory(repoDir, pageDir);
     writeFileSync(join(pageTmp, "index.html"), finalHtml);
-    if (hasOg) writeFileSync(join(pageTmp, "og.png"), ogPng);
+    if (hasOg) {
+      writeFileSync(join(pageTmp, "og.png"), ogPng);
+    }
 
     const assets = prepared ? await compositionAssets(repoDir) : undefined;
 
@@ -457,7 +479,9 @@ async function currentUser(compose: PublishComposer): Promise<string> {
   const parsed = z
     .object({ login: z.string().regex(/^[a-zA-Z0-9-]+$/) })
     .safeParse(JSON.parse(raw));
-  if (!parsed.success) throw new Error(PUBLISH_AUTH_ERROR);
+  if (!parsed.success) {
+    throw new Error(PUBLISH_AUTH_ERROR);
+  }
   return parsed.data.login;
 }
 
@@ -475,7 +499,9 @@ async function ensureRepo(
   try {
     raw = await inspect();
   } catch (error) {
-    if (!/404|Could not resolve to a Repository/.test(firstLine(error))) throw error;
+    if (!/404|Could not resolve to a Repository/.test(firstLine(error))) {
+      throw error;
+    }
     const flag = visibility === "private" ? "--private" : "--public";
     await runGh(["repo", "create", repo, flag], compose);
     created = true;
@@ -498,8 +524,9 @@ async function ensureRepo(
   }
   const branch = info.defaultBranchRef?.name ?? "main";
   await runGit(["clone", `https://github.com/${repo}.git`, tmp], tmpdir(), compose);
-  if (created && info.defaultBranchRef === null)
+  if (created && info.defaultBranchRef === null) {
     await runGit(["symbolic-ref", "HEAD", `refs/heads/${branch}`], tmp, compose);
+  }
   return { directory: tmp, branch };
 }
 
@@ -510,19 +537,25 @@ async function ensurePageDirectory(repoDir: string, pageDir: string): Promise<vo
     current = join(current, part);
     try {
       const status = await lstat(current);
-      if (!status.isDirectory() || status.isSymbolicLink())
+      if (!status.isDirectory() || status.isSymbolicLink()) {
         throw new Error("publish_composition: page directories must not be symbolic links.");
+      }
     } catch (error) {
-      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
+        throw error;
+      }
       await mkdir(current);
     }
   }
   for (const file of ["index.html", "og.png"]) {
     try {
-      if (!(await lstat(join(current, file))).isFile())
+      if (!(await lstat(join(current, file))).isFile()) {
         throw new Error("publish_composition: page outputs must be regular files.");
+      }
     } catch (error) {
-      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
+        throw error;
+      }
     }
   }
 }
@@ -533,13 +566,17 @@ async function compositionAssets(repoDir: string): Promise<readonly CloudflareAs
   const walk = async (path: string): Promise<void> => {
     const absolute = join(repoDir, path);
     const status = await lstat(absolute);
-    if (status.isSymbolicLink())
+    if (status.isSymbolicLink()) {
       throw new Error("publish_composition: composition assets must not contain symbolic links.");
+    }
     if (status.isDirectory()) {
-      for (const name of await readdir(absolute)) await walk(`${path}/${name}`);
+      for (const name of await readdir(absolute)) {
+        await walk(`${path}/${name}`);
+      }
     } else if (status.isFile()) {
-      if (assets.length >= 20_000 || status.size > 25 * 1024 * 1024)
+      if (assets.length >= 20_000 || status.size > 25 * 1024 * 1024) {
         throw new Error("publish_composition: Cloudflare Pages snapshot exceeds asset limits.");
+      }
       const contentType =
         extname(path) === ".html"
           ? "text/html"
@@ -547,7 +584,9 @@ async function compositionAssets(repoDir: string): Promise<readonly CloudflareAs
             ? "image/png"
             : "application/octet-stream";
       assets.push({ path: `/${path}`, contentType, read: () => readFile(absolute) });
-    } else throw new Error("publish_composition: composition assets must be regular files.");
+    } else {
+      throw new Error("publish_composition: composition assets must be regular files.");
+    }
   };
   await walk("compositions");
   return assets;
@@ -562,7 +601,9 @@ async function enablePages(
     await runGh(["api", `repos/${repo}/pages`], compose);
     return true;
   } catch (error) {
-    if (!/404/.test(String(error instanceof Error ? error.message : error))) throw error;
+    if (!/404/.test(String(error instanceof Error ? error.message : error))) {
+      throw error;
+    }
   }
   try {
     await runGh(

@@ -7,14 +7,20 @@ const ENV_VAR = "JAZZ_WEBHOOK_TOKEN_DEPLOYS";
 async function resolve(env: Record<string, string | undefined>): Promise<string | undefined> {
   const saved = process.env[ENV_VAR];
   for (const [key, value] of Object.entries(env)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
   }
   try {
     return await Effect.runPromise(resolveWebhookToken("deploys"));
   } finally {
-    if (saved === undefined) delete process.env[ENV_VAR];
-    else process.env[ENV_VAR] = saved;
+    if (saved === undefined) {
+      delete process.env[ENV_VAR];
+    } else {
+      process.env[ENV_VAR] = saved;
+    }
   }
 }
 

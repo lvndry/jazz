@@ -90,7 +90,9 @@ export function allowedToolsForTier(
   // second relationship that survives revocation to `none`. An unrecognized tier lands here
   // too: a typo in a config file must fail closed rather than index `TIER_ALLOWS` with
   // `undefined` and take the whole door down.
-  if (!isDisclosureTier(tier) || tier === "none") return [];
+  if (!isDisclosureTier(tier) || tier === "none") {
+    return [];
+  }
 
   const permitted = TIER_ALLOWS[tier];
   const allowSet = new Set(allow);

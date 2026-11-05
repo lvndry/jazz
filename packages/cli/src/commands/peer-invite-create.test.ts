@@ -33,7 +33,9 @@ it.each([true, false])(
     ): Promise<Response> {
       expect(String(url)).toBe("https://api.ipify.org");
       expect(options?.body).toBeUndefined();
-      if (!lookupWorks) throw new Error("lookup unavailable");
+      if (!lookupWorks) {
+        throw new Error("lookup unavailable");
+      }
       return new Response("203.0.113.42");
     }
     const lookup = spyOn(globalThis, "fetch").mockImplementation(
@@ -78,8 +80,11 @@ it.each([true, false])(
       lookup.mockRestore();
       out.mockRestore();
       err.mockRestore();
-      if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-      else process.env["JAZZ_HOME"] = previousHome;
+      if (previousHome === undefined) {
+        delete process.env["JAZZ_HOME"];
+      } else {
+        process.env["JAZZ_HOME"] = previousHome;
+      }
       process.exitCode = previousExitCode ?? 0;
       await fs.rm(home, { recursive: true, force: true });
     }

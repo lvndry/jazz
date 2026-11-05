@@ -1,6 +1,7 @@
 import { isJazzBinaryPath } from "@jazz/bot-shared/jazz-binary";
 import { describe, expect, test } from "bun:test";
 import { createCursorTracker, promptFrom, questionFromSelfText } from "./bridge";
+import type { ImsgMessage } from "./imsg";
 
 describe("isJazzBinaryPath", () => {
   test("recognises the npm-installed binary", () => {
@@ -44,16 +45,19 @@ describe("questionFromSelfText", () => {
 });
 
 describe("promptFrom", () => {
-  const message = {
+  const message: ImsgMessage = {
     id: 1,
     chatId: 7,
+    guid: "guid-1",
     sender: "me@example.com",
+    senderName: undefined,
     text: "jazz what time is it",
+    createdAt: "2026-01-01T00:00:00Z",
     isFromMe: true,
     isReaction: false,
     attachments: [],
     replyToText: "https://example.com/thing",
-  } as unknown as Parameters<typeof promptFrom>[0];
+  };
 
   test("keeps the quoted context around the question, so a reply still has it", () => {
     expect(promptFrom(message, "what time is it")).toBe(

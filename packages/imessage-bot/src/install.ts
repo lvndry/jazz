@@ -75,7 +75,9 @@ const TERMINAL_APP_NAMES: Readonly<Record<string, string>> = {
 /** The terminal this process was started from; unknown ones keep their own name. */
 export function terminalAppName(env: NodeJS.ProcessEnv = process.env): string {
   const program = env["TERM_PROGRAM"]?.trim() ?? "";
-  if (program.length === 0) return "your terminal app";
+  if (program.length === 0) {
+    return "your terminal app";
+  }
   return TERMINAL_APP_NAMES[program] ?? program;
 }
 
@@ -111,7 +113,9 @@ function fullDiskAccessHelp(grant: GrantTarget): string {
 }
 
 export function planInstall(availability: ImsgAvailability, context: PlanContext): InstallPlan {
-  if (availability.available) return { action: "proceed" };
+  if (availability.available) {
+    return { action: "proceed" };
+  }
 
   // Reinstalling cannot grant a permission, so this never becomes an offer
   // however convenient that would be.
@@ -171,7 +175,9 @@ export async function confirm(question: string): Promise<boolean> {
       .decode(chunk as Uint8Array)
       .trim()
       .toLowerCase();
-    if (answer.length === 0) return true;
+    if (answer.length === 0) {
+      return true;
+    }
     return answer === "y" || answer === "yes";
   }
   return false;
