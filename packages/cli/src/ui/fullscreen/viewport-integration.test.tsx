@@ -14,9 +14,10 @@ const history: Block = {
   id: "history",
   seq: 1,
   kind: "agent",
-  markdown: Array.from({ length: 100 }, (_, i) => `history-${String(i).padStart(3, "0")}`).join(
-    "\n\n",
-  ),
+  markdown: Array.from(
+    { length: 100 },
+    (_, index) => `history-${String(index).padStart(3, "0")}`,
+  ).join("\n\n"),
 };
 const live: Block = {
   id: "thought",

@@ -149,16 +149,6 @@
       "count": 12
     }
   },
-  "packages/cli/src/chat/commands/mcp-prompt-args.test.ts": {
-    "id-length": {
-      "count": 5
-    }
-  },
-  "packages/cli/src/chat/session/manager.test.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
   "packages/cli/src/commands/agent-management.ts": {
     "id-length": {
       "count": 4
@@ -182,11 +172,6 @@
   "packages/cli/src/commands/edit-agent.ts": {
     "id-length": {
       "count": 5
-    }
-  },
-  "packages/cli/src/commands/media-agents.test.ts": {
-    "id-length": {
-      "count": 1
     }
   },
   "packages/cli/src/commands/settings-wizard.ts": {
@@ -219,16 +204,6 @@
       "count": 1
     }
   },
-  "packages/cli/src/integrations/herdr.test.ts": {
-    "id-length": {
-      "count": 2
-    }
-  },
-  "packages/cli/src/presentation/activity-reducer.test.ts": {
-    "id-length": {
-      "count": 44
-    }
-  },
   "packages/cli/src/presentation/activity-reducer.ts": {
     "id-length": {
       "count": 1
@@ -239,24 +214,9 @@
       "count": 1
     }
   },
-  "packages/cli/src/presentation/ink-presentation-service.test.ts": {
-    "id-length": {
-      "count": 37
-    }
-  },
   "packages/cli/src/presentation/ink-presentation-service.ts": {
     "id-length": {
       "count": 3
-    }
-  },
-  "packages/cli/src/presentation/markdown-formatter.test.ts": {
-    "id-length": {
-      "count": 3
-    }
-  },
-  "packages/cli/src/presentation/markdown-split.test.ts": {
-    "id-length": {
-      "count": 14
     }
   },
   "packages/cli/src/services/input-service.ts": {
@@ -299,11 +259,6 @@
       "count": 1
     }
   },
-  "packages/cli/src/ui/fullscreen/app.test.tsx": {
-    "id-length": {
-      "count": 2
-    }
-  },
   "packages/cli/src/ui/fullscreen/auto-scroll-selection.ts": {
     "id-length": {
       "count": 1
@@ -314,52 +269,7 @@
       "count": 1
     }
   },
-  "packages/cli/src/ui/fullscreen/live-input.test.tsx": {
-    "id-length": {
-      "count": 6
-    }
-  },
-  "packages/cli/src/ui/fullscreen/transcript-layout.test.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/ui/fullscreen/viewport-controller.test.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/ui/fullscreen/viewport-integration.test.tsx": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/ui/glyphs.test.ts": {
-    "id-length": {
-      "count": 10
-    }
-  },
-  "packages/cli/src/ui/prompt-core/picker-core.test.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/ui/store.test.ts": {
-    "id-length": {
-      "count": 72
-    }
-  },
   "packages/cli/src/ui/text-utils.ts": {
-    "id-length": {
-      "count": 2
-    }
-  },
-  "packages/cli/src/ui/text/stream-pacer.test.ts": {
-    "id-length": {
-      "count": 6
-    }
-  },
-  "packages/cli/src/ui/text/wrap.test.ts": {
     "id-length": {
       "count": 2
     }

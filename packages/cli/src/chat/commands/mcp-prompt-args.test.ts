@@ -95,60 +95,60 @@ function run(layer: Layer.Layer<never, never, never>, args: string[]) {
 
 describe("MCP prompt argument filling", () => {
   test("asks for a missing required argument and offers the server's completions", async () => {
-    const h = harness({
+    const promptHarness = harness({
       completions: { department: ["Engineering", "Sales"], name: ["Alice"] },
       selections: ["Engineering", "Alice"],
     });
 
-    const result = await run(h.layer as never, ["srv:staff"]);
+    const result = await run(promptHarness.layer as never, ["srv:staff"]);
 
-    expect(h.selectCalls).toHaveLength(2);
-    expect(h.getPromptArgs()).toEqual({ department: "Engineering", name: "Alice" });
+    expect(promptHarness.selectCalls).toHaveLength(2);
+    expect(promptHarness.getPromptArgs()).toEqual({ department: "Engineering", name: "Alice" });
     expect(result.resendMessage).toBe("ok");
   });
 
   test("passes already-chosen arguments as completion context", async () => {
     // A prompt may narrow one argument by an earlier one; without the context
     // the dependent argument completes to nothing and the picker vanishes.
-    const h = harness({
+    const promptHarness = harness({
       completions: { department: ["Engineering"], name: ["Alice"] },
       selections: ["Engineering", "Alice"],
     });
 
-    await run(h.layer as never, ["srv:staff"]);
+    await run(promptHarness.layer as never, ["srv:staff"]);
 
-    expect(h.completionCalls[0]).toEqual({ argument: "department", resolved: {} });
-    expect(h.completionCalls[1]).toEqual({
+    expect(promptHarness.completionCalls[0]).toEqual({ argument: "department", resolved: {} });
+    expect(promptHarness.completionCalls[1]).toEqual({
       argument: "name",
       resolved: { department: "Engineering" },
     });
   });
 
   test("does not re-ask for an argument supplied inline", async () => {
-    const h = harness({ completions: { name: ["Alice"] }, selections: ["Alice"] });
+    const promptHarness = harness({ completions: { name: ["Alice"] }, selections: ["Alice"] });
 
-    await run(h.layer as never, ["srv:staff", "department=Sales"]);
+    await run(promptHarness.layer as never, ["srv:staff", "department=Sales"]);
 
-    expect(h.completionCalls.map((call) => call.argument)).toEqual(["name"]);
-    expect(h.getPromptArgs()).toEqual({ department: "Sales", name: "Alice" });
+    expect(promptHarness.completionCalls.map((call) => call.argument)).toEqual(["name"]);
+    expect(promptHarness.getPromptArgs()).toEqual({ department: "Sales", name: "Alice" });
   });
 
   test("falls back to free text when the server offers no completions", async () => {
-    const h = harness({ completions: {}, selections: [], typed: ["Ops", "Dana"] });
+    const promptHarness = harness({ completions: {}, selections: [], typed: ["Ops", "Dana"] });
 
-    await run(h.layer as never, ["srv:staff"]);
+    await run(promptHarness.layer as never, ["srv:staff"]);
 
-    expect(h.selectCalls).toHaveLength(0);
-    expect(h.getPromptArgs()).toEqual({ department: "Ops", name: "Dana" });
+    expect(promptHarness.selectCalls).toHaveLength(0);
+    expect(promptHarness.getPromptArgs()).toEqual({ department: "Ops", name: "Dana" });
   });
 
   test("cancels cleanly when the user dismisses a picker", async () => {
-    const h = harness({
+    const promptHarness = harness({
       completions: { department: ["Engineering"] },
       selections: [undefined as never],
     });
 
-    const result = await run(h.layer as never, ["srv:staff"]);
+    const result = await run(promptHarness.layer as never, ["srv:staff"]);
 
     expect(result.resendMessage).toBeUndefined();
     expect(result.shouldContinue).toBe(true);

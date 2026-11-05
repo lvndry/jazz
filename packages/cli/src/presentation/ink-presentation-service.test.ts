@@ -523,10 +523,10 @@ describe("InkStreamingRenderer", () => {
         expect(calls).toHaveLength(0);
 
         // Wait past the buffer window for the flush.
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((resolve) => setTimeout(resolve, 50));
 
         // All three chunks coalesced into a single appendStream call.
-        const responseCalls = calls.filter((c) => c.kind === "response");
+        const responseCalls = calls.filter((call) => call.kind === "response");
         expect(responseCalls).toHaveLength(1);
         expect(responseCalls[0]!.delta).toBe("Hello, world");
       } finally {
@@ -611,7 +611,7 @@ describe("InkStreamingRenderer", () => {
         );
 
         // After one buffer window: the deferral should keep the buffer pending.
-        await new Promise((r) => setTimeout(r, 35));
+        await new Promise((resolve) => setTimeout(resolve, 35));
         expect(calls).toHaveLength(0);
 
         // Close the fence — open structure resolves, next flush window emits.
@@ -623,9 +623,9 @@ describe("InkStreamingRenderer", () => {
             sequence: 1,
           }),
         );
-        await new Promise((r) => setTimeout(r, 35));
+        await new Promise((resolve) => setTimeout(resolve, 35));
         expect(calls.length).toBeGreaterThan(0);
-        const merged = calls.map((c) => c.delta).join("");
+        const merged = calls.map((call) => call.delta).join("");
         expect(merged).toContain("```ts");
         expect(merged).toContain("Done.");
       } finally {
@@ -673,7 +673,7 @@ describe("InkStreamingRenderer", () => {
         );
 
         // Code fence still open after the buffer window — adaptive defers.
-        await new Promise((r) => setTimeout(r, 35));
+        await new Promise((resolve) => setTimeout(resolve, 35));
         expect(calls).toHaveLength(0);
 
         // Manual flush (the path used by complete/reset/abort) bypasses
@@ -693,9 +693,9 @@ describe("InkStreamingRenderer", () => {
       emitStreamStart(renderer);
 
       Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
-      const thinking = setActivityCalls.filter((s) => s.phase === "thinking");
+      const thinking = setActivityCalls.filter((activityCall) => activityCall.phase === "thinking");
       expect(thinking.length).toBeGreaterThan(0);
     });
 
@@ -715,10 +715,10 @@ describe("InkStreamingRenderer", () => {
       emitStreamStart(renderer);
       Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
       const headerEntries = printOutputCalls.filter(
-        (e) =>
-          e.type === "streamContent" &&
-          typeof e.message === "string" &&
-          e.message.includes("Reasoning"),
+        (entry) =>
+          entry.type === "streamContent" &&
+          typeof entry.message === "string" &&
+          entry.message.includes("Reasoning"),
       );
       expect(headerEntries).toHaveLength(0);
     });
@@ -753,7 +753,7 @@ describe("InkStreamingRenderer", () => {
           renderer.handleEvent({ type: "thinking_chunk", content: "let me think\n", sequence: 0 }),
         );
         Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
-        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(openedKind ?? "").toBe("reasoning");
         expect(ephemeralAppends.join("")).toContain("let me think");
@@ -808,11 +808,11 @@ describe("InkStreamingRenderer", () => {
         renderer.handleEvent({ type: "thinking_chunk", content: "let me think", sequence: 0 }),
       );
       Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       const reasoning = store
         .getOutputSnapshot()
-        .entries.filter((e) => contentFromOutput(e).kind === "reasoning");
+        .entries.filter((entry) => contentFromOutput(entry).kind === "reasoning");
       expect(reasoning.length).toBeGreaterThan(0);
       expect(store.isReasoningExpanded(reasoning[0]!.id)).toBe(true);
       expect(reasoning[0]!.message).toMatchObject({ kind: "reasoning", text: "let me think" });
@@ -833,11 +833,11 @@ describe("InkStreamingRenderer", () => {
           arguments: { command: "ls" },
         }),
       );
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       const toolPhases = setActivityCalls.filter(
-        (s): s is Extract<ActivityState, { phase: "tool-execution" }> =>
-          s.phase === "tool-execution",
+        (state): state is Extract<ActivityState, { phase: "tool-execution" }> =>
+          state.phase === "tool-execution",
       );
       expect(toolPhases.length).toBeGreaterThan(0);
       expect(toolPhases[0]!.tools[0]!.toolName).toBe("execute_bash");
@@ -854,7 +854,7 @@ describe("InkStreamingRenderer", () => {
         }),
       );
       Effect.runSync(renderer.flush());
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       const last = setActivityCalls[setActivityCalls.length - 1];
       expect(last!.phase).toBe("idle");
@@ -877,7 +877,7 @@ describe("InkStreamingRenderer", () => {
           recoverable: false,
         } as never),
       );
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       const last = setActivityCalls[setActivityCalls.length - 1];
       expect(last!.phase).toBe("error");
@@ -902,7 +902,7 @@ describe("InkStreamingRenderer", () => {
           durationMs: 50,
         }),
       );
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       const last = setActivityCalls[setActivityCalls.length - 1];
       expect(last!.phase).toBe("idle");
@@ -985,7 +985,7 @@ describe("InkStreamingRenderer", () => {
             summary: "read a.ts",
           }),
         );
-        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         const combined = ephemeralAppends
           .filter((entry) => entry.id === "eph-sub-1")
@@ -1083,7 +1083,7 @@ describe("InkStreamingRenderer", () => {
             metrics: { firstTokenLatencyMs: 10, totalTokens: 42 },
           }),
         );
-        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         const combined = ephemeralAppends
           .filter((entry) => entry.id === "eph-sub-2")
@@ -1094,7 +1094,7 @@ describe("InkStreamingRenderer", () => {
 
         const debugScrollbackEntries = printOutputCalls
           .slice(scrollbackBaseline)
-          .filter((e) => e.type === "debug");
+          .filter((entry) => entry.type === "debug");
         expect(debugScrollbackEntries).toHaveLength(0);
       } finally {
         store.appendEphemeral = originalAppend;
@@ -1257,7 +1257,7 @@ describe("InkStreamingRenderer", () => {
             metrics: { firstTokenLatencyMs: 10, totalTokens: 42, tokensPerSecond: 41.26 },
           }),
         );
-        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         const combined = ephemeralAppends
           .filter((entry) => entry.id === "eph-tps")
@@ -1286,7 +1286,7 @@ describe("InkStreamingRenderer", () => {
           sequence: 0,
         }),
       );
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // Record the order of calls
       const callOrder: string[] = [];
@@ -1431,7 +1431,7 @@ describe("InkStreamingRenderer", () => {
 
       // No info or log entries for the response body (only activity:idle)
       const contentEntries = printOutputCalls.filter(
-        (e) => (e.type === "info" || e.type === "log") && e.message !== "",
+        (entry) => (entry.type === "info" || entry.type === "log") && entry.message !== "",
       );
       expect(contentEntries).toHaveLength(0);
     });
@@ -1511,7 +1511,7 @@ describe("InkStreamingRenderer", () => {
         );
         const finalizeIdx = events.indexOf("finalize");
         const infoIdx = events.findIndex(
-          (e) => e.startsWith("info:") && e.includes("execute_command"),
+          (line) => line.startsWith("info:") && line.includes("execute_command"),
         );
         expect(finalizeIdx).toBeGreaterThanOrEqual(0);
         expect(infoIdx).toBeGreaterThan(finalizeIdx);
@@ -1566,13 +1566,18 @@ describe("InkStreamingRenderer", () => {
           }),
         );
 
-        const openIdx = calls.findIndex((c) => c.op === "openEphemeral" && c.kind === "reasoning");
-        const appendEphIdx = calls.findIndex((c, i) => i > openIdx && c.op === "appendEphemeral");
+        const openIdx = calls.findIndex(
+          (call) => call.op === "openEphemeral" && call.kind === "reasoning",
+        );
+        const appendEphIdx = calls.findIndex(
+          (call, callIndex) => callIndex > openIdx && call.op === "appendEphemeral",
+        );
         const collapseIdx = calls.findIndex(
-          (c, i) => i > appendEphIdx && c.op === "collapseEphemeral",
+          (call, callIndex) => callIndex > appendEphIdx && call.op === "collapseEphemeral",
         );
         const responseIdx = calls.findIndex(
-          (c, i) => i > collapseIdx && c.op === "appendStream" && c.kind === "response",
+          (call, callIndex) =>
+            callIndex > collapseIdx && call.op === "appendStream" && call.kind === "response",
         );
 
         expect(openIdx).toBeGreaterThanOrEqual(0);
@@ -1725,7 +1730,7 @@ describe("InkStreamingRenderer", () => {
           }),
         );
 
-        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         const streamed = appendedDeltas.join("");
         expect(streamed).toContain("word");
@@ -1749,11 +1754,12 @@ describe("InkStreamingRenderer", () => {
         }),
       );
 
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // Activity stays in streaming phase but text is not shown there
       const streaming = setActivityCalls.filter(
-        (s): s is Extract<ActivityState, { phase: "streaming" }> => s.phase === "streaming",
+        (state): state is Extract<ActivityState, { phase: "streaming" }> =>
+          state.phase === "streaming",
       );
       expect(streaming.length).toBeGreaterThan(0);
       expect(streaming[streaming.length - 1]!.text).toBe("");
@@ -1806,20 +1812,20 @@ describe("InkStreamingRenderer", () => {
         Effect.runSync(renderer.handleEvent({ type: "text_start" }));
 
         let accumulated = "";
-        for (let i = 0; i < 5; i++) {
-          const token = `word${i}\n`;
+        for (let index = 0; index < 5; index++) {
+          const token = `word${index}\n`;
           accumulated += token;
           Effect.runSync(
             renderer.handleEvent({
               type: "text_chunk",
               delta: token,
               accumulated,
-              sequence: i,
+              sequence: index,
             }),
           );
         }
 
-        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         const streamed = appendedDeltas.join("");
         expect(streamed).toContain("word0");
@@ -1968,7 +1974,9 @@ describe("InkStreamingRenderer", () => {
         }),
       );
 
-      const streamContentEntries = printOutputCalls.filter((e) => e.type === "streamContent");
+      const streamContentEntries = printOutputCalls.filter(
+        (entry) => entry.type === "streamContent",
+      );
       expect(streamContentEntries.length).toBeGreaterThan(0);
       expect(contentFromOutput(streamContentEntries[0]!)).toEqual({
         kind: "agent",

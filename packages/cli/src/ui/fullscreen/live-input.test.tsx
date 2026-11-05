@@ -745,15 +745,15 @@ describe("input", () => {
 
   it("lists queued messages below the count", () => {
     const none = inputRows(base, { width: WIDTH, height: HEIGHT });
-    expect(none.map((row) => row.segments.map((s) => s.text).join("")).join("")).not.toContain(
-      "queued",
-    );
+    expect(
+      none.map((row) => row.segments.map((span) => span.text).join("")).join(""),
+    ).not.toContain("queued");
 
     const some = inputRows(
       { ...base, queued: ["follow up", "send the itinerary"] },
       { width: WIDTH, height: HEIGHT },
     );
-    const text = some.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    const text = some.map((row) => row.segments.map((span) => span.text).join("")).join("\n");
     expect(text).toContain("2 queued");
     expect(text).toContain("follow up");
     expect(text).toContain("send the itinerary");
@@ -786,7 +786,7 @@ describe("input", () => {
   it("keeps the newest queued messages when the queue is longer than the cap", () => {
     const queued = ["one", "two", "three", "four"];
     const some = inputRows({ ...base, queued }, { width: WIDTH, height: HEIGHT });
-    const text = some.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    const text = some.map((row) => row.segments.map((span) => span.text).join("")).join("\n");
     expect(text).toContain("4 queued");
     expect(text).not.toContain(`${glyphs.bullet} one`);
     expect(text).toContain("two");
@@ -800,7 +800,7 @@ describe("input", () => {
       { ...base, queued: ["/clear", "keep going"] },
       { width: WIDTH, height: HEIGHT },
     );
-    const text = some.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    const text = some.map((row) => row.segments.map((span) => span.text).join("")).join("\n");
     expect(text).toContain("/clear");
     expect(text).not.toContain("sent as text, not run");
     expect(text).toContain("keep going");
@@ -809,7 +809,9 @@ describe("input", () => {
       { ...base, queued: ["first line\nsecond line"] },
       { width: WIDTH, height: HEIGHT },
     );
-    const wrappedText = wrapped.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    const wrappedText = wrapped
+      .map((row) => row.segments.map((span) => span.text).join(""))
+      .join("\n");
     expect(wrappedText).toContain("first line second line");
     expect(wrappedText).not.toContain("first line\nsecond line");
   });
@@ -822,7 +824,7 @@ describe("input", () => {
       glyphs,
       2,
     );
-    const text = squeezed.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    const text = squeezed.map((row) => row.segments.map((span) => span.text).join("")).join("\n");
     expect(text).toContain("2 queued");
     expect(text).not.toContain("follow up");
     expect(squeezed).toHaveLength(2);
