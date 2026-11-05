@@ -81,12 +81,20 @@ function defaultProbeRunner(argv: readonly string[]): ProbeResult {
   };
 }
 
-export function findExecutable(name: string, searchPath: string | undefined): string | undefined {
-  for (const directory of (searchPath ?? "").split(path.delimiter)) {
-    if (directory.length === 0) {
-      continue;
-    }
-    const candidate = path.join(directory, name);
+/**
+ * Where `bwrap` is looked for: fixed absolute paths owned by the system, never `PATH`. A
+ * project-writable `PATH` entry such as `node_modules/.bin` could otherwise supply a launcher
+ * that exits 0 without confining anything.
+ */
+export const TRUSTED_BWRAP_PATHS: readonly string[] = [
+  "/usr/bin/bwrap",
+  "/bin/bwrap",
+  "/usr/local/bin/bwrap",
+  "/run/current-system/sw/bin/bwrap",
+];
+
+function firstExecutable(candidates: readonly string[]): string | undefined {
+  for (const candidate of candidates) {
     try {
       accessSync(candidate, constants.X_OK);
       return candidate;
@@ -101,14 +109,23 @@ type ProbeVerdict =
   { readonly confined: true } | { readonly confined: false; readonly reason: string };
 
 /** Reads a probe launch: confined only when the inside write worked and the outside write was refused. */
-export function interpretProbe(result: ProbeResult, outsideWriteLanded: boolean): ProbeVerdict {
+export function interpretProbe(
+  result: ProbeResult,
+  landed: { readonly inside: boolean; readonly outside: boolean },
+): ProbeVerdict {
   if (result.spawnError !== undefined) {
     return { confined: false, reason: `the backend could not start (${result.spawnError})` };
   }
-  if (result.status === 0 && !outsideWriteLanded) {
+  if (result.status === 0 && landed.inside && !landed.outside) {
     return { confined: true };
   }
-  if (result.status === PROBE_OUTSIDE_WRITE_ALLOWED || outsideWriteLanded) {
+  if (result.status === 0 && !landed.inside && !landed.outside) {
+    return {
+      confined: false,
+      reason: "the backend reported success without running the probe command",
+    };
+  }
+  if (result.status === PROBE_OUTSIDE_WRITE_ALLOWED || landed.outside) {
     return {
       confined: false,
       reason: "the backend started but did not deny a write outside its roots",
@@ -160,8 +177,10 @@ function probeBackend(
         fixture.outsideDirectory,
       ]),
     );
-    const outsideWriteLanded = existsSync(path.join(fixture.outsideDirectory, "outside"));
-    return interpretProbe(result, outsideWriteLanded);
+    return interpretProbe(result, {
+      inside: existsSync(path.join(fixture.insideRoot, "inside")),
+      outside: existsSync(path.join(fixture.outsideDirectory, "outside")),
+    });
   } finally {
     fixture.dispose();
   }
@@ -169,7 +188,8 @@ function probeBackend(
 
 export interface ProbeEnvironment {
   readonly platform: NodeJS.Platform;
-  readonly searchPath: string | undefined;
+  /** Where `bwrap` may be found; defaults to the fixed system locations. */
+  readonly bwrapCandidates?: readonly string[];
   readonly runner?: ProbeRunner;
   readonly sandboxExecExists?: boolean;
 }
@@ -196,7 +216,7 @@ export function probeConfinement(environment: ProbeEnvironment): ConfinementStat
       : { level: "none", backend: "none", reason: verdict.reason, remedy: MACOS_REMEDY };
   }
   if (environment.platform === "linux") {
-    const bwrapPath = findExecutable("bwrap", environment.searchPath);
+    const bwrapPath = firstExecutable(environment.bwrapCandidates ?? TRUSTED_BWRAP_PATHS);
     if (bwrapPath === undefined) {
       return {
         level: "none",
@@ -245,10 +265,7 @@ let cachedStatus: ConfinementStatus | undefined;
 
 /** The process's confinement status, probed on first use and cached for the rest of the run. */
 export function getConfinementStatus(): ConfinementStatus {
-  cachedStatus ??= probeConfinement({
-    platform: process.platform,
-    searchPath: process.env["PATH"],
-  });
+  cachedStatus ??= probeConfinement({ platform: process.platform });
   return cachedStatus;
 }
 
