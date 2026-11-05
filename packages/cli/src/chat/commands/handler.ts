@@ -36,6 +36,10 @@ import {
   workStateSizeBytes,
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
+import {
+  discoverProjectInstructions,
+  type InstructionFileReport,
+} from "@jazz/core/agent/project-instructions";
 import { resolveAgentToolCategoryIds } from "@jazz/core/agent/tools/agent-tool-resolution";
 import { runShellCommand } from "@jazz/core/agent/tools/shell";
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
@@ -2512,6 +2516,22 @@ function handleSkillsCommand(
   });
 }
 
+function summarizeInstructionBudget(reports: readonly InstructionFileReport[]): string | undefined {
+  const trimmed = reports.filter(
+    (report) => report.status === "truncated" || report.status === "omitted",
+  );
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  return trimmed
+    .map((report) => {
+      const lost = report.originalBytes - report.includedBytes;
+      const verb = report.status === "omitted" ? "left out" : "cut";
+      return `${abbreviateHomePath(report.path)} ${verb} (${String(lost)} bytes over budget)`;
+    })
+    .join("; ");
+}
+
 /**
  * Handle /info command - Show session identity, usage, and where its logs are
  */
@@ -2547,6 +2567,10 @@ function handleInfoCommand(
       context.conversationId
         ? { agentId: agent.id, conversationId: context.conversationId }
         : { agentId: agent.id },
+    );
+
+    const instructionsSummary = summarizeInstructionBudget(
+      discoverProjectInstructions(workingDirectory).reports,
     );
 
     const toolCalls = context.conversationHistory.reduce(
@@ -2604,6 +2628,16 @@ function handleInfoCommand(
         },
         { kind: "field", key: "tools", value: `${String(totalTools)} on` },
         { kind: "field", key: "folder", value: abbreviateHomePath(workingDirectory) },
+        ...(instructionsSummary === undefined
+          ? []
+          : [
+              {
+                kind: "field" as const,
+                key: "instructions",
+                value: instructionsSummary,
+                tone: "warning" as const,
+              },
+            ]),
         ...(writeConfinement === undefined
           ? []
           : [{ kind: "field" as const, key: "writes", value: writeConfinement }]),
