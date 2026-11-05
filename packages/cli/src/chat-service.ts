@@ -134,6 +134,8 @@ import {
   createDetachedResultInbox,
   detachedResultsMessage,
   detachedResultsNotice,
+  pushWhileOpen,
+  stoppedDetachedMessage,
 } from "./chat/detached-results";
 import { inlineMentionedTextFiles } from "./chat/mentioned-files";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
@@ -380,6 +382,32 @@ export class ChatServiceImpl implements ChatService {
         }
       });
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
+      /** Detached calls already closed out in a saved history, so leaving twice notes each once. */
+      const closedOutDetachedCalls = new Set<string>();
+      /**
+       * Ends the conversation being left honestly: each background command still running is
+       * stopped by the caller next, so its history gets a stopped result in place of the
+       * "still running" placeholder the model was last given.
+       */
+      const closeOutRunningDetached = Effect.gen(function* () {
+        const running = processDetachedCalls
+          .running()
+          .filter((entry) => !closedOutDetachedCalls.has(entry.toolCallId));
+        if (running.length === 0) {
+          return;
+        }
+        for (const entry of running) {
+          closedOutDetachedCalls.add(entry.toolCallId);
+        }
+        conversationHistory = [...conversationHistory, stoppedDetachedMessage(running)];
+        yield* logger.debug(
+          "Closed the history of a conversation with stopped background commands",
+          {
+            conversationId,
+            stopped: running.length,
+          },
+        );
+      });
       let historyCompactedSinceLastTurn = false;
       // The saved transcript this session builds on. Every save names it, so the session can
       // only replace history it has read; a log saved elsewhere since makes the save fork.
@@ -627,7 +655,21 @@ export class ChatServiceImpl implements ChatService {
             const cancel = store.onceQueuedProse(() => resume(Effect.void));
             return Effect.sync(cancel);
           }),
-        onDetachedToolComplete: detachedResults.push,
+        onDetachedToolComplete: pushWhileOpen(
+          detachedResults,
+          conversationId,
+          () => conversationId,
+          (result) =>
+            Effect.runSync(
+              logger.debug(
+                "Dropped a background result for a conversation that is no longer open",
+                {
+                  conversationId,
+                  toolName: result.toolName,
+                },
+              ),
+            ),
+        ),
       });
 
       // Load last-used agent from runtime state for sorting /agents and /switch
@@ -905,6 +947,7 @@ export class ChatServiceImpl implements ChatService {
               terminal.warn(`Could not hand paused goals to the daemon: ${error.message}`),
             ),
           );
+          yield* closeOutRunningDetached;
           yield* stopBackgroundWork;
           yield* terminal.log(chalk.dim.italic("— fin —"));
 
@@ -1000,6 +1043,9 @@ export class ChatServiceImpl implements ChatService {
             // A command that reshaped this conversation (`/tree`, `/compact`, `/retry`) is saved
             // with its new history: the revision it returned already describes that history,
             // so saving the old one on top of it would undo the command.
+            if (commandResult.newConversationId !== undefined) {
+              yield* closeOutRunningDetached;
+            }
             const historyAfterCommand =
               commandResult.newConversationId === undefined &&
               commandResult.newHistory !== undefined
@@ -1604,6 +1650,7 @@ export class ChatServiceImpl implements ChatService {
         }
       }
 
+      yield* closeOutRunningDetached;
       yield* stopBackgroundWork;
       yield* emitLifecycle("session-end");
       yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });

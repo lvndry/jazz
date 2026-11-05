@@ -1,9 +1,12 @@
 import { DETACHED_RESULT_HEADING } from "@jazz/core/agent/execution/egress-taint";
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import {
   createDetachedResultInbox,
   detachedResultsMessage,
   detachedResultsNotice,
+  pushWhileOpen,
+  stoppedDetachedMessage,
 } from "./detached-results";
 
 const finished = { toolName: "execute_command", summary: "Background task done: ok" };
@@ -60,5 +63,57 @@ describe("detached result text", () => {
     const notice = detachedResultsNotice([finished]);
     expect(notice).toBe("`execute_command` finished in the background.");
     expect(notice).not.toContain("ok");
+  });
+});
+
+describe("detached results across conversations", () => {
+  test("drops a result that arrives after the conversation was left", () => {
+    const inbox = createDetachedResultInbox();
+    let open = "conversation-a";
+    const dropped: string[] = [];
+    const push = pushWhileOpen(
+      inbox,
+      "conversation-a",
+      () => open,
+      (result) => dropped.push(result.summary),
+    );
+
+    push(finished);
+    open = "conversation-b";
+    push({ ...finished, summary: "stopped before it finished" });
+
+    expect(inbox.take()).toEqual([finished]);
+    expect(dropped).toEqual(["stopped before it finished"]);
+  });
+
+  test("never wakes a listener of the conversation that was switched to", () => {
+    const inbox = createDetachedResultInbox();
+    let woke = false;
+    inbox.once(() => {
+      woke = true;
+    });
+    pushWhileOpen(
+      inbox,
+      "old",
+      () => "new",
+      () => {},
+    )(finished);
+    expect(woke).toBe(false);
+  });
+
+  test("closes a history with one host message per stopped command", () => {
+    const message = stoppedDetachedMessage([
+      {
+        toolCallId: "call-1",
+        toolName: "execute_command",
+        description: "make all",
+        origin: "auto",
+        startedAt: 0,
+        stop: Effect.void,
+      },
+    ]);
+    expect(message.role).toBe("user");
+    expect(message.content).toContain(DETACHED_RESULT_HEADING);
+    expect(message.content).toContain("make all");
   });
 });

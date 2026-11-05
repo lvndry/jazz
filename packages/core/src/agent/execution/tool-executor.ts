@@ -1445,6 +1445,14 @@ export class ToolExecutor {
       /** Calls that crossed the threshold with the concurrency limit reached, by index. */
       const keptInForeground = new Map<number, number>();
 
+      /**
+       * Interrupts the fibers this batch still owns. A call auto-detached at the threshold
+       * belongs to the background tracker, which the model was told keeps it running until
+       * its own stop path ends it.
+       */
+      const interruptAttached = (toolFibers: ReadonlyArray<Fiber.Fiber<ToolCallOutcome, Error>>) =>
+        Fiber.interruptAll(toolFibers.filter((_fiber, index) => !autoDetachedOutcomes.has(index)));
+
       const settleToolBatch = (toolFibers: ReadonlyArray<Fiber.Fiber<ToolCallOutcome, Error>>) =>
         Effect.gen(function* () {
           const settleCall = (
@@ -1496,6 +1504,7 @@ export class ToolExecutor {
                 origin: "auto",
                 thresholdMs: autoDetach.thresholdMs,
                 logger,
+                presentationService,
                 agentId,
                 conversationId,
               });
@@ -1565,10 +1574,12 @@ export class ToolExecutor {
                 }
               }
             }
-            yield* Effect.all(
-              toolFibers.map((fiber) => Fiber.interrupt(fiber)),
-              { concurrency: "unbounded" },
-            );
+            yield* logger.debug("Interrupting the batch; auto-detached calls keep running", {
+              agentId,
+              conversationId,
+              keptRunning: autoDetachedOutcomes.size,
+            });
+            yield* interruptAttached(toolFibers);
             return yield* Effect.fail(
               new GenerationInterruptedError({ reason: "Tool execution interrupted by user" }),
             );
@@ -1584,6 +1595,7 @@ export class ToolExecutor {
               autoDetachedOutcomes,
               context.autoDetach?.tracker ?? processDetachedCalls,
               logger,
+              presentationService,
               agentId,
               conversationId,
             );
@@ -1711,7 +1723,7 @@ export class ToolExecutor {
           );
 
           return yield* restore(settleToolBatch(toolFibers)).pipe(
-            Effect.onInterrupt(() => Fiber.interruptAll(toolFibers)),
+            Effect.onInterrupt(() => interruptAttached(toolFibers)),
           );
         }),
       );
@@ -1756,6 +1768,7 @@ function detachInFlightToolCalls(
   alreadyDetached: ReadonlyMap<number, ToolCallOutcome>,
   tracker: DetachedCallTracker,
   logger: LoggerService,
+  presentationService: PresentationService,
   agentId: string,
   conversationId: string,
 ): Effect.Effect<ToolCallOutcome[], never> {
@@ -1793,6 +1806,7 @@ function detachInFlightToolCalls(
           tracker,
           origin: "user",
           logger,
+          presentationService,
           agentId,
           conversationId,
         }),
@@ -1814,6 +1828,7 @@ interface DetachToolCallInput {
   /** The foreground time that passed before an automatic detach. */
   readonly thresholdMs?: number;
   readonly logger: LoggerService;
+  readonly presentationService: PresentationService;
   readonly agentId: string;
   readonly conversationId: string;
 }
@@ -1880,6 +1895,9 @@ function detachToolCall(input: DetachToolCallInput): Effect.Effect<ToolCallOutco
       origin,
       runningDetached: tracker.running().length,
     });
+    // The call no longer holds the batch, so the next queued approval prompt may open now
+    // rather than after the detached command's real completion.
+    yield* input.presentationService.signalToolExecutionStarted();
 
     yield* Effect.forkDetach(
       Fiber.await(fiber).pipe(
@@ -1985,6 +2003,19 @@ function tailOf(text: string): string {
 }
 
 /**
+ * The host's own guidance after write confinement denied a write, so a detached sandboxed
+ * command carries the same escalation path as the foreground result. Undefined when the
+ * command was not denied.
+ */
+function confinementGuidanceOf(confinement: unknown): string | undefined {
+  if (typeof confinement !== "object" || confinement === null) {
+    return undefined;
+  }
+  const { deniedPath, guidance } = confinement as Record<string, unknown>;
+  return typeof deniedPath === "string" && typeof guidance === "string" ? guidance : undefined;
+}
+
+/**
  * A finished background shell command: the command, its exit code, whether it hit its time
  * limit, and the tail of each output stream. Undefined when the outcome is not a shell result
  * (a call that failed before running), which the generic summary reports.
@@ -1994,7 +2025,10 @@ function summarizeShellOutcome(outcome: ToolCallOutcome): string | undefined {
   if (typeof result !== "object" || result === null || !("exitCode" in result)) {
     return undefined;
   }
-  const { command, exitCode, stdout, stderr, timedOut } = result as Record<string, unknown>;
+  const { command, exitCode, stdout, stderr, timedOut, confinement } = result as Record<
+    string,
+    unknown
+  >;
   if (typeof exitCode !== "number") {
     return undefined;
   }
@@ -2015,6 +2049,10 @@ function summarizeShellOutcome(outcome: ToolCallOutcome): string | undefined {
   } else {
     const body = output.join("\n\n");
     sections.push(outcome.untrusted === undefined ? body : frameUntrusted(body, outcome.untrusted));
+  }
+  const confinementGuidance = confinementGuidanceOf(confinement);
+  if (confinementGuidance !== undefined) {
+    sections.push(confinementGuidance);
   }
   return sections.join("\n");
 }

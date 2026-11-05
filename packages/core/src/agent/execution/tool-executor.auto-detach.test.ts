@@ -33,8 +33,13 @@ const logger = partialFake<LoggerService>({
   logToolCall: () => Effect.void,
 });
 
+let approvalSignals = 0;
+
 const presentation = partialFake<PresentationService>({
-  signalToolExecutionStarted: () => Effect.void,
+  signalToolExecutionStarted: () =>
+    Effect.sync(() => {
+      approvalSignals += 1;
+    }),
   formatToolsDetected: () => Effect.succeed(""),
   writeOutput: () => Effect.void,
   writeBlankLine: () => Effect.void,
@@ -70,14 +75,17 @@ function fakeShell(options: {
   readonly runMs: number;
   readonly exitCode?: number;
   readonly stdout?: string;
+  readonly confinement?: Record<string, unknown>;
+  /** Tool names that run for this long instead of `runMs`. */
+  readonly runMsByTool?: Readonly<Record<string, number>>;
 }): FakeShell {
   let starts = 0;
   let interrupted = 0;
   const registry = partialFake<ToolRegistry>({
     getTool: () => Effect.succeed({ name: "execute_command", timeoutMs: 5_000 }),
-    executeTool: (_name: string, args: Record<string, unknown>) => {
+    executeTool: (name: string, args: Record<string, unknown>) => {
       starts += 1;
-      return Effect.sleep(options.runMs).pipe(
+      return Effect.sleep(options.runMsByTool?.[name] ?? options.runMs).pipe(
         Effect.as({
           success: true,
           result: {
@@ -85,6 +93,7 @@ function fakeShell(options: {
             exitCode: options.exitCode ?? 0,
             stdout: options.stdout ?? "",
             stderr: "",
+            ...(options.confinement !== undefined ? { confinement: options.confinement } : {}),
           },
           untrusted: { kind: "external", source: "execute_command output" },
         }),
@@ -122,6 +131,7 @@ async function runBatch(input: {
   readonly autoDetach?: AutoDetachPolicy;
   readonly onDetachedToolComplete?: (result: DetachedToolResult) => void;
   readonly renderer?: StreamingRenderer;
+  readonly interruptSignal?: Effect.Effect<void, never>;
 }) {
   const context: ToolExecutionContext = {
     agentId: "agent",
@@ -144,7 +154,7 @@ async function runBatch(input: {
     "agent",
     "conversation",
     "agent",
-    undefined,
+    input.interruptSignal,
     undefined,
     input.onDetachedToolComplete,
   ).pipe(Effect.provide(layer));
@@ -340,5 +350,73 @@ describe("automatic detach of a slow foreground shell command", () => {
     const summary = completions[0]?.summary ?? "";
     expect(summary).toContain("END");
     expect(summary.length).toBeLessThan(4_000);
+  });
+
+  it("releases the next queued approval prompt as soon as a call is detached", async () => {
+    const shell = fakeShell({ runMs: 5_000 });
+    const policy = policyWith();
+    approvalSignals = 0;
+
+    await runBatch({
+      shell,
+      calls: [commandCall("call-1", "sleep 999")],
+      autoDetach: policy,
+      onDetachedToolComplete: () => {},
+    });
+
+    expect(policy.tracker.running()).toHaveLength(1);
+    expect(approvalSignals).toBeGreaterThan(0);
+    await Effect.runPromise(policy.tracker.stopAll());
+  });
+
+  it("keeps an auto-detached command running when the batch is interrupted", async () => {
+    const shell = fakeShell({ runMs: 5_000, runMsByTool: { read_file: 5_000 } });
+    const policy = policyWith();
+    const completions: DetachedToolResult[] = [];
+    const readCall: ToolCall = {
+      id: "call-2",
+      type: "function",
+      function: { name: "read_file", arguments: "{}" },
+    };
+
+    const outcome = await runBatch({
+      shell,
+      calls: [commandCall("call-1", "sleep 999"), readCall],
+      autoDetach: policy,
+      onDetachedToolComplete: (result) => completions.push(result),
+      interruptSignal: Effect.sleep(120),
+    }).then(
+      () => "completed",
+      () => "interrupted",
+    );
+
+    expect(outcome).toBe("interrupted");
+    expect(shell.interrupted()).toBe(1);
+    expect(policy.tracker.running()).toHaveLength(1);
+    expect(completions).toHaveLength(0);
+
+    await Effect.runPromise(policy.tracker.stopAll());
+    await waitMs(20);
+    expect(shell.interrupted()).toBe(2);
+    expect(completions[0]?.summary).toContain("was stopped before it finished");
+  });
+
+  it("carries the confinement guidance of a denied detached command", async () => {
+    const shell = fakeShell({
+      runMs: SLOW_COMMAND_MS,
+      exitCode: 1,
+      confinement: { deniedPath: "/etc/hosts", guidance: "GUIDANCE-TEXT-FOR-ESCALATION" },
+    });
+    const completions: DetachedToolResult[] = [];
+
+    await runBatch({
+      shell,
+      calls: [commandCall("call-1", "echo x >> /etc/hosts")],
+      autoDetach: policyWith(),
+      onDetachedToolComplete: (result) => completions.push(result),
+    });
+    await waitMs(SLOW_COMMAND_MS);
+
+    expect(completions[0]?.summary).toContain("GUIDANCE-TEXT-FOR-ESCALATION");
   });
 });
