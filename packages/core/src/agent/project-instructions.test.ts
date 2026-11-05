@@ -162,9 +162,9 @@ describe("instruction chain budgets", () => {
 
     const { files, omissions } = discoverProjectInstructions(leaf, ISOLATED_HOME);
 
-    expect(files.map((file) => file.path)).toEqual([paths[1]]);
+    expect(files.map((file) => file.path)).toEqual([paths[1] as string]);
     expect(files[0]?.truncatedBytes).toBe(1);
-    expect(omissions.map((omission) => omission.path)).toEqual([paths[0]]);
+    expect(omissions.map((omission) => omission.path)).toEqual([paths[0] as string]);
   });
 
   test("a chain exactly at the budget is included whole", () => {
