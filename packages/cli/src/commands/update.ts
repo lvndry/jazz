@@ -30,12 +30,12 @@ export interface NpmPackageInfo {
  * @returns -1 if v1 < v2, 0 if equal, 1 if v1 > v2
  */
 function compareVersions(v1: string, v2: string): number {
-  const parts1 = v1.split(".").map((n) => parseInt(n, 10));
-  const parts2 = v2.split(".").map((n) => parseInt(n, 10));
+  const parts1 = v1.split(".").map((segment) => parseInt(segment, 10));
+  const parts2 = v2.split(".").map((segment) => parseInt(segment, 10));
 
-  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
-    const part1 = parts1[i] || 0;
-    const part2 = parts2[i] || 0;
+  for (let index = 0; index < Math.max(parts1.length, parts2.length); index++) {
+    const part1 = parts1[index] || 0;
+    const part2 = parts2[index] || 0;
 
     if (part1 > part2) {
       return 1;

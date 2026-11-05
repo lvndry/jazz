@@ -132,7 +132,7 @@ export function rankToolsByQuery(
       return { name: candidate.name, score };
     })
     .filter((candidate) => candidate.score > 0)
-    .sort((a, b) => b.score - a.score);
+    .sort((left, right) => right.score - left.score);
 
   return scored.slice(0, MAX_SEARCH_TOOLS_RESULTS).map((candidate) => candidate.name);
 }

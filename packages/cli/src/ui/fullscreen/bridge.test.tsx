@@ -26,6 +26,7 @@ import { pickThemeInteractively } from "../theme-picker-prompt";
 import { APPROVAL_ARM_MS, flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
 import { frameWhen, renderForTest, updateForTest } from "./test-helpers";
 import { LIVE_ZONE_MAX_ROWS } from "./types";
+import { partialFake } from "../../test-support/partial-fake";
 
 /**
  * Paints the frame after a simulated key.
@@ -2468,10 +2469,10 @@ describe("fullscreen bridge", () => {
 
   it("drains buffered stdin so a pending Enter cannot land on a new card", () => {
     const leftover: Array<string | Buffer> = ["\r", "a"];
-    const stdin = {
+    const stdin = partialFake<NodeJS.ReadStream>({
       readable: true,
       read: () => leftover.shift() ?? null,
-    } as unknown as NodeJS.ReadStream;
+    });
     flushPendingTerminalKeys(stdin);
     expect(leftover).toEqual([]);
   });

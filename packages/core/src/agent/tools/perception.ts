@@ -113,16 +113,16 @@ type WithSelection<Args> = Args & { readonly [SELECTED_OPTION_KEY]?: string };
  * selection. Zod would strip the unknown key; the selection is the one argument
  * that legitimately arrives from outside the model.
  */
-function validateWithSelection<Args>(
-  schema: z.ZodType<Args>,
-): (args: Record<string, unknown>) => ToolValidatorResult<WithSelection<Args>> {
-  const withSelection: z.ZodType<Record<string, unknown>> = (
-    schema as unknown as z.ZodObject<z.ZodRawShape>
-  ).extend({ [SELECTED_OPTION_KEY]: z.string().optional() });
+function validateWithSelection<Shape extends z.ZodRawShape>(
+  schema: z.ZodObject<Shape>,
+): (args: Record<string, unknown>) => ToolValidatorResult<WithSelection<z.infer<typeof schema>>> {
+  const withSelection: z.ZodType<Record<string, unknown>> = schema.extend({
+    [SELECTED_OPTION_KEY]: z.string().optional(),
+  });
   return (args) => {
     const result = makeZodValidator(withSelection)(args);
     if (!result.valid || result.value === undefined) {
-      return result as ToolValidatorResult<WithSelection<Args>>;
+      return result as ToolValidatorResult<WithSelection<z.infer<typeof schema>>>;
     }
     const selectedOptionId = args[SELECTED_OPTION_KEY];
     return {
@@ -132,7 +132,7 @@ function validateWithSelection<Args>(
         ...(typeof selectedOptionId === "string"
           ? { [SELECTED_OPTION_KEY]: selectedOptionId }
           : {}),
-      } as WithSelection<Args>,
+      } as WithSelection<z.infer<typeof schema>>,
     };
   };
 }
@@ -848,7 +848,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
               `Delegate ${args.modality} analysis to a capable model.\n` +
               `Media: ${described}\nTask: ${args.task}`,
             executeToolName: "execute_analyze_media",
-            executeArgs: args as unknown as Record<string, unknown>,
+            executeArgs: args,
             options: choice.options,
           },
           error: "analyze_media requires the person to pick a companion model.",
@@ -978,7 +978,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
               `Delegate ${args.modality} generation to a capable model.\n` +
               `Brief: ${args.prompt}`,
             executeToolName: "execute_generate_media",
-            executeArgs: args as unknown as Record<string, unknown>,
+            executeArgs: args,
             options: choice.options,
           },
           error: "generate_media requires the person to pick a companion model.",

@@ -194,7 +194,7 @@ const editOperationSchema = z.discriminatedUnion("type", [
       .number()
       .int()
       .optional()
-      .refine((v) => v === undefined || v === -1 || v >= 1, {
+      .refine((value) => value === undefined || value === -1 || value >= 1, {
         message: "count must be a positive integer or -1 (all). Got 0 or invalid negative value.",
       })
       .describe("Matches to replace: omit for the first, -1 for all."),
@@ -932,7 +932,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
                 success: true,
                 result: {
                   path: target,
-                  editsApplied: appliedEdits.map((e) => e.description),
+                  editsApplied: appliedEdits.map((appliedEdit) => appliedEdit.description),
                   totalEdits: args.edits.length,
                   originalLines: lines.length,
                   newLines: resultLines.length,

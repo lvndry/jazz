@@ -461,7 +461,7 @@ function readStoredSchedules(): Effect.Effect<readonly StoredSchedule[], Error> 
     const files = yield* Effect.tryPromise({ try: () => fs.readdir(schedulesDir), catch: toError });
 
     const stored: StoredSchedule[] = [];
-    for (const name of files.filter((f) => f.endsWith(".json"))) {
+    for (const name of files.filter((fileName) => fileName.endsWith(".json"))) {
       const file = path.join(schedulesDir, name);
       const content = yield* Effect.tryPromise({
         try: () => fs.readFile(file, "utf-8"),

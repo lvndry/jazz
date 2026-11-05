@@ -85,10 +85,19 @@ function closePromptCancelled(message: string): void {
 
 type PromptChoiceInput<T> = string | PromptChoice<T>;
 
+/**
+ * `TerminalService.select` lets a bare string stand for its own value, and its signature cannot tie
+ * `T` to `string` for those elements alone. Callers that pass bare strings use the default
+ * `T = string`, so the string is already a `T`.
+ */
+function stringChoiceValue<T>(choice: string): T {
+  return choice as T;
+}
+
 function normalizeChoices<T>(choices: readonly PromptChoiceInput<T>[]): Choice<T>[] {
   return choices.map((choice) =>
     typeof choice === "string"
-      ? { label: choice, value: choice as unknown as T }
+      ? { label: choice, value: stringChoiceValue<T>(choice) }
       : {
           label: choice.name,
           value: choice.value,
@@ -447,7 +456,7 @@ export class InkTerminalService implements TerminalService {
               }),
         },
         resolve: (val: unknown) => {
-          const choice = choices.find((c) => c.value === val);
+          const choice = choices.find((candidate) => candidate.value === val);
           closePromptWithAnswer(message, choice?.label ?? "");
           resume(Effect.succeed(val as T));
         },
@@ -502,7 +511,7 @@ export class InkTerminalService implements TerminalService {
           ...(remove === undefined ? {} : { remove: (value: unknown) => remove(value as T) }),
         },
         resolve: (val: unknown) => {
-          const choice = choices.find((c) => c.value === val);
+          const choice = choices.find((candidate) => candidate.value === val);
           closePromptWithAnswer(message, choice?.label ?? "");
           resume(Effect.succeed(val as T));
         },

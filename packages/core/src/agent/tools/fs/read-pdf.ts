@@ -173,9 +173,10 @@ function formatTableAsMarkdown(rows: readonly (readonly string[])[]): string {
     return "";
   }
   const first = rows[0]!;
-  const safe = (s: string) => s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
+  const safe = (text: string) =>
+    text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
   const rowToLine = (row: readonly string[]) =>
-    "| " + row.map((c) => safe(String(c ?? ""))).join(" | ") + " |";
+    "| " + row.map((cell) => safe(String(cell ?? ""))).join(" | ") + " |";
   const header = rowToLine(first);
   const separator = "| " + first.map(() => "---").join(" | ") + " |";
   const body = rows
@@ -199,14 +200,14 @@ function buildTablesSection(getTableResult: {
       continue;
     }
     parts.push(`### Page ${pageNum + 1}`);
-    for (let i = 0; i < pageTables.length; i++) {
-      const table = pageTables[i];
+    for (let pageIndex = 0; pageIndex < pageTables.length; pageIndex++) {
+      const table = pageTables[pageIndex];
       if (table === undefined) {
         continue;
       }
-      const rows = table.map((row) => [...(row ?? []).map((c) => String(c ?? ""))]);
+      const rows = table.map((row) => [...(row ?? []).map((cell) => String(cell ?? ""))]);
       tables.push({ pageNumber: pageNum + 1, rows });
-      const label = pageTables.length > 1 ? ` (Table ${i + 1})` : "";
+      const label = pageTables.length > 1 ? ` (Table ${pageIndex + 1})` : "";
       parts.push(`#### Table${label}`);
       parts.push(formatTableAsMarkdown(rows));
     }
@@ -367,7 +368,8 @@ export function createReadPdfTool(): Tool<
               truncated,
               totalLines,
               pageCount,
-              pagesExtracted: args.pages || Array.from({ length: pageCount }, (_, i) => i + 1),
+              pagesExtracted:
+                args.pages || Array.from({ length: pageCount }, (_, pageIndex) => pageIndex + 1),
               fileType: "pdf",
               tables: extractedTables,
             },

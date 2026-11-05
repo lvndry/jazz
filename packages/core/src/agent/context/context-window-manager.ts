@@ -220,24 +220,24 @@ export class ContextWindowManager {
     const protectedStartIndex = protectedZoneStartIndex(messages, protectedTurns);
 
     const protectedIndices = new Set<number>();
-    for (let i = protectedStartIndex; i < messages.length; i++) {
-      protectedIndices.add(i);
+    for (let messageIndex = protectedStartIndex; messageIndex < messages.length; messageIndex++) {
+      protectedIndices.add(messageIndex);
     }
-    for (let i = 1; i < protectedStartIndex; i++) {
-      const kind = messages[i]?.kind;
+    for (let messageIndex = 1; messageIndex < protectedStartIndex; messageIndex++) {
+      const kind = messages[messageIndex]?.kind;
       if (kind !== undefined && TRIM_KEPT_KINDS.has(kind)) {
-        protectedIndices.add(i);
+        protectedIndices.add(messageIndex);
       }
     }
 
     // Step 2: Build tool call ID map
     const toolCallToAssistant = new Map<string, number>();
 
-    for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
+    for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+      const msg = messages[messageIndex];
       if (msg && msg.role === "assistant" && msg.tool_calls) {
         for (const tc of msg.tool_calls) {
-          toolCallToAssistant.set(tc.id, i);
+          toolCallToAssistant.set(tc.id, messageIndex);
         }
       }
     }
@@ -256,9 +256,9 @@ export class ContextWindowManager {
     const recentIndices: number[] = [];
     let accumulatedTokens = systemTokens + protectedTokens;
 
-    for (let i = protectedStartIndex - 1; i >= 1; i--) {
-      const msg = messages[i];
-      if (!msg || protectedIndices.has(i)) {
+    for (let messageIndex = protectedStartIndex - 1; messageIndex >= 1; messageIndex--) {
+      const msg = messages[messageIndex];
+      if (!msg || protectedIndices.has(messageIndex)) {
         continue;
       }
 
@@ -268,7 +268,7 @@ export class ContextWindowManager {
         break;
       }
 
-      recentIndices.push(i);
+      recentIndices.push(messageIndex);
       accumulatedTokens += tokens;
     }
 
@@ -301,7 +301,7 @@ export class ContextWindowManager {
     }
 
     // Sort to maintain chronological order
-    finalIndices.sort((a, b) => a - b);
+    finalIndices.sort((left, right) => left - right);
 
     // Step 6: Rebuild messages array
     const finalIndexSet = new Set(finalIndices);

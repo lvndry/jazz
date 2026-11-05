@@ -6,6 +6,7 @@ import type { LLMProvider } from "@jazz/core/types/llm";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { promptForAgentInfo, suggestAgentName } from "./create-agent";
+import { partialFake } from "../test-support/partial-fake";
 
 function terminal(options: {
   readonly ask: TerminalService["ask"];
@@ -48,15 +49,15 @@ describe("promptForAgentInfo", () => {
     const result = await promptForAgentInfo(
       [{ name: "default" }],
       {},
-      {
+      partialFake<LLMService>({
         listProviders: () =>
           Effect.succeed([{ name: "vllm", displayName: "vLLM", configured: true }]),
         getProvider: () => Effect.succeed(provider),
-      } as unknown as LLMService,
-      {
+      }),
+      partialFake<AgentConfigService>({
         appConfig: Effect.succeed({}),
         set: () => Effect.void,
-      } as unknown as AgentConfigService,
+      }),
       new Map(),
       terminal({
         search: ((message) => {
@@ -85,18 +86,18 @@ describe("promptForAgentInfo", () => {
       ],
       authenticate: () => Effect.void,
     };
-    const llmService = {
+    const llmService = partialFake<LLMService>({
       listProviders: () =>
         Effect.succeed([{ name: "vllm", displayName: "vLLM", configured: true }]),
       getProvider: () => Effect.succeed(provider),
-    } as unknown as LLMService;
-    const configService = {
+    });
+    const configService = partialFake<AgentConfigService>({
       appConfig: Effect.succeed({}),
       set: (key: string, value: unknown) => {
         saved.push({ key, value });
         return Effect.void;
       },
-    } as unknown as AgentConfigService;
+    });
 
     const result = await promptForAgentInfo(
       [{ name: "default" }],
@@ -135,18 +136,18 @@ describe("promptForAgentInfo", () => {
     const result = await promptForAgentInfo(
       [{ name: "default" }],
       {},
-      {
+      partialFake<LLMService>({
         listProviders: () =>
           Effect.succeed([{ name: "sglang", displayName: "SGLang", configured: true }]),
         getProvider: () => Effect.succeed(provider),
-      } as unknown as LLMService,
-      {
+      }),
+      partialFake<AgentConfigService>({
         appConfig: Effect.succeed({}),
         set: (key: string, value: unknown) => {
           saved.push({ key, value });
           return Effect.void;
         },
-      } as unknown as AgentConfigService,
+      }),
       new Map(),
       terminal({
         search: ((message) => {
@@ -180,18 +181,18 @@ describe("promptForAgentInfo", () => {
       ],
       authenticate: () => Effect.void,
     };
-    const llmService = {
+    const llmService = partialFake<LLMService>({
       listProviders: () =>
         Effect.succeed([{ name: "llamacpp", displayName: "llama.cpp", configured: true }]),
       getProvider: () => Effect.succeed(liveProvider),
-    } as unknown as LLMService;
-    const configService = {
+    });
+    const configService = partialFake<AgentConfigService>({
       appConfig: Effect.succeed({}),
       set: (key: string, value: unknown) => {
         saved.push({ key, value });
         return Effect.void;
       },
-    } as unknown as AgentConfigService;
+    });
 
     const result = await promptForAgentInfo(
       [{ name: "default" }],
@@ -244,7 +245,7 @@ describe("promptForAgentInfo", () => {
       authenticate: () => Effect.void,
     };
     let providerLookups = 0;
-    const llmService = {
+    const llmService = partialFake<LLMService>({
       listProviders: () =>
         Effect.succeed([{ name: "llamacpp", displayName: "llama.cpp", configured: true }]),
       getProvider: () => {
@@ -258,8 +259,8 @@ describe("promptForAgentInfo", () => {
             )
           : Effect.succeed(liveProvider);
       },
-    } as unknown as LLMService;
-    const configService = {
+    });
+    const configService = partialFake<AgentConfigService>({
       get appConfig() {
         return Effect.succeed(appConfig);
       },
@@ -268,7 +269,7 @@ describe("promptForAgentInfo", () => {
         appConfig = { llm: { llamacpp: { base_url: value } } };
         return Effect.void;
       },
-    } as unknown as AgentConfigService;
+    });
 
     const result = await promptForAgentInfo(
       [{ name: "default" }],
@@ -317,7 +318,7 @@ describe("promptForAgentInfo", () => {
       authenticate: () => Effect.void,
     };
     let providerLookups = 0;
-    const llmService = {
+    const llmService = partialFake<LLMService>({
       listProviders: () =>
         Effect.succeed([{ name: "llamacpp", displayName: "llama.cpp", configured: true }]),
       getProvider: () => {
@@ -333,14 +334,14 @@ describe("promptForAgentInfo", () => {
             )
           : Effect.succeed(liveProvider);
       },
-    } as unknown as LLMService;
-    const configService = {
+    });
+    const configService = partialFake<AgentConfigService>({
       appConfig: Effect.succeed({ llm: { llamacpp: { base_url: "http://127.0.0.1:8090/v1" } } }),
       set: (key: string, value: unknown) => {
         saved.push({ key, value });
         return Effect.void;
       },
-    } as unknown as AgentConfigService;
+    });
 
     const result = await promptForAgentInfo(
       [{ name: "default" }],

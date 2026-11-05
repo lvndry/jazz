@@ -9,14 +9,16 @@ import { sampleIdleView } from "./sample";
 import { renderForTest, updateForTest } from "./test-helpers";
 import { TranscriptSurfaceRenderable } from "./transcript-surface";
 import type { Block, ViewModel } from "./types";
+import { partialFake } from "../../test-support/partial-fake";
 
 const history: Block = {
   id: "history",
   seq: 1,
   kind: "agent",
-  markdown: Array.from({ length: 100 }, (_, i) => `history-${String(i).padStart(3, "0")}`).join(
-    "\n\n",
-  ),
+  markdown: Array.from(
+    { length: 100 },
+    (_, index) => `history-${String(index).padStart(3, "0")}`,
+  ).join("\n\n"),
 };
 const live: Block = {
   id: "thought",
@@ -117,7 +119,8 @@ it("routes native selection drag through anchored navigation and cancels it on r
     callback: unknown,
     delay?: number,
   ) => {
-    const id = ++serial as unknown as ReturnType<typeof setInterval>;
+    serial += 1;
+    const id = partialFake<ReturnType<typeof setInterval>>({ [Symbol.toPrimitive]: () => serial });
     if (delay === 50) {
       scheduled.set(id, callback as () => void);
     }

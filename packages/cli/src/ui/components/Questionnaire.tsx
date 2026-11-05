@@ -160,8 +160,8 @@ export function Questionnaire({
   return (
     <Box flexDirection="column">
       {positionLabel === undefined ? null : <Text dimColor>{positionLabel}</Text>}
-      {view.rows.map((row, i) => {
-        const isFocused = i === view.cursor;
+      {view.rows.map((row, index) => {
+        const isFocused = index === view.cursor;
         return (
           <Box
             key={row.originalIndex}
@@ -169,7 +169,7 @@ export function Questionnaire({
           >
             <Box>
               {renderIndicator(row)}
-              <Text color={isFocused ? THEME.selected : THEME.primary}> {i + 1}.</Text>
+              <Text color={isFocused ? THEME.selected : THEME.primary}> {index + 1}.</Text>
               <Text
                 color={isFocused ? THEME.selected : THEME.secondary}
                 bold={isFocused}

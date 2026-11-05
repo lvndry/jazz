@@ -73,69 +73,72 @@ export type ActivityState =
 /**
  * Structural equality check for ActivityState to deduplicate React renders.
  */
-export function isActivityEqual(a: ActivityState, b: ActivityState): boolean {
-  if (a === b) {
+export function isActivityEqual(left: ActivityState, right: ActivityState): boolean {
+  if (left === right) {
     return true;
   }
-  if (a.phase !== b.phase) {
+  if (left.phase !== right.phase) {
     return false;
   }
 
-  switch (a.phase) {
+  switch (left.phase) {
     case "idle":
     case "complete":
       return true;
 
     case "awaiting":
       return (
-        a.agentName === (b as typeof a).agentName &&
-        a.provider === (b as typeof a).provider &&
-        a.model === (b as typeof a).model &&
-        a.label === (b as typeof a).label
+        left.agentName === (right as typeof left).agentName &&
+        left.provider === (right as typeof left).provider &&
+        left.model === (right as typeof left).model &&
+        left.label === (right as typeof left).label
       );
 
     case "thinking":
-      return a.agentName === (b as typeof a).agentName;
+      return left.agentName === (right as typeof left).agentName;
 
     case "streaming":
-      return a.agentName === (b as typeof a).agentName && a.text === (b as typeof a).text;
+      return (
+        left.agentName === (right as typeof left).agentName &&
+        left.text === (right as typeof left).text
+      );
 
     case "tool-execution": {
-      const bTools = (b as typeof a).tools;
-      if (a.agentName !== (b as typeof a).agentName) {
+      const bTools = (right as typeof left).tools;
+      if (left.agentName !== (right as typeof left).agentName) {
         return false;
       }
-      if (a.tools.length !== bTools.length) {
+      if (left.tools.length !== bTools.length) {
         return false;
       }
-      const sameTools = a.tools.every(
-        (t, i) =>
-          t.toolCallId === bTools[i]!.toolCallId &&
-          t.toolName === bTools[i]!.toolName &&
-          t.argsPreview === bTools[i]!.argsPreview &&
-          t.classifying === bTools[i]!.classifying &&
-          t.classifiedRisk === bTools[i]!.classifiedRisk,
+      const sameTools = left.tools.every(
+        (tool, index) =>
+          tool.toolCallId === bTools[index]!.toolCallId &&
+          tool.toolName === bTools[index]!.toolName &&
+          tool.argsPreview === bTools[index]!.argsPreview &&
+          tool.classifying === bTools[index]!.classifying &&
+          tool.classifiedRisk === bTools[index]!.classifiedRisk,
       );
       if (!sameTools) {
         return false;
       }
 
-      const aTodos = a.todoSnapshot ?? [];
-      const bTodos = (b as typeof a).todoSnapshot ?? [];
+      const aTodos = left.todoSnapshot ?? [];
+      const bTodos = (right as typeof left).todoSnapshot ?? [];
       if (aTodos.length !== bTodos.length) {
         return false;
       }
       return aTodos.every(
-        (todo, i) =>
-          todo.content === bTodos[i]!.content &&
-          todo.status === bTodos[i]!.status &&
+        (todo, index) =>
+          todo.content === bTodos[index]!.content &&
+          todo.status === bTodos[index]!.status &&
           // Compared too, or a todo that gained a verification would keep the glyph it had
           // before anyone checked it.
-          todo.verifiedBy === bTodos[i]!.verifiedBy,
+          todo.verifiedBy === bTodos[index]!.verifiedBy,
       );
     }
 
     case "error":
-      return a.message === (b as typeof a).message;
+      return left.message === (right as typeof left).message;
   }
 }

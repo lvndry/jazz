@@ -111,7 +111,7 @@ const HttpBodySchema = z.discriminatedUnion("type", [
       type: z.literal("form"),
       value: z
         .record(z.string(), z.string())
-        .refine((v) => Object.keys(v).length > 0, "Form body requires at least one field")
+        .refine((body) => Object.keys(body).length > 0, "Form body requires at least one field")
         .describe("Sent URL-encoded."),
     })
     .strict(),

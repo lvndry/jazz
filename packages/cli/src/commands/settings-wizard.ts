@@ -602,11 +602,11 @@ function configureWebSearchProviders() {
           name: `Select external provider (current: ${providerDisplay})`,
           value: "select-provider",
         },
-        ...WEB_SEARCH_PROVIDERS.map((p) => {
-          const hasKey = !!config.web_search?.[p.value]?.api_key;
+        ...WEB_SEARCH_PROVIDERS.map((provider) => {
+          const hasKey = !!config.web_search?.[provider.value]?.api_key;
           return {
-            name: `${p.name} API Key ${hasKey ? "(configured)" : ""}`,
-            value: p.value,
+            name: `${provider.name} API Key ${hasKey ? "(configured)" : ""}`,
+            value: provider.value,
           };
         }),
         { name: "Back", value: "back" },
@@ -623,9 +623,9 @@ function configureWebSearchProviders() {
       if (selection === "select-provider") {
         const providerChoices: Array<{ name: string; value: WebSearchProviderName | "none" }> = [
           { name: "None (use built-in if available)", value: "none" },
-          ...WEB_SEARCH_PROVIDERS.map((p) => ({
-            name: p.name,
-            value: p.value,
+          ...WEB_SEARCH_PROVIDERS.map((provider) => ({
+            name: provider.name,
+            value: provider.value,
           })),
         ];
 

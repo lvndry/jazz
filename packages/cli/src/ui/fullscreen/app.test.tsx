@@ -873,8 +873,8 @@ describe("transcript links under the pointer", () => {
         .filter((text) => text.startsWith("word"));
     const rows = captureCharFrame().split("\n");
     const firstRow = rows.findIndex((row) => row.includes("word0"));
-    const pointAt = async (x: number, y: number): Promise<void> => {
-      await mockMouse.moveTo(x, y);
+    const pointAt = async (pointX: number, pointY: number): Promise<void> => {
+      await mockMouse.moveTo(pointX, pointY);
       await settle(flush, 100);
       await renderOnce();
     };
