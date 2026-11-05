@@ -187,8 +187,11 @@ function replaceEntry(
   entry: PluginStateRecord | undefined,
 ): PluginStateDocument {
   const plugins = { ...state.plugins };
-  if (entry === undefined) delete plugins[id];
-  else plugins[id] = entry;
+  if (entry === undefined) {
+    delete plugins[id];
+  } else {
+    plugins[id] = entry;
+  }
   return { ...state, plugins };
 }
 
@@ -429,7 +432,9 @@ export class PluginRegistryServiceImpl {
     return this.stateStore.transact((state) => {
       const existing = requireEntry(state, id);
       const pluginId = existing.current.manifest.id;
-      if (!existing.previous) throw new Error(`Plugin ${id} has no rollback artifact`);
+      if (!existing.previous) {
+        throw new Error(`Plugin ${id} has no rollback artifact`);
+      }
       const entry: PluginStateRecord = {
         ...existing,
         current: existing.previous,
@@ -504,7 +509,9 @@ export class PluginRegistryServiceImpl {
       const existing = requireEntry(state, id);
       const pluginId = existing.current.manifest.id;
       const digest = existing.current.manifest.sha256;
-      if (!existing.trustedDigests.includes(digest)) throw new Error(`Plugin ${id} is not trusted`);
+      if (!existing.trustedDigests.includes(digest)) {
+        throw new Error(`Plugin ${id} is not trusted`);
+      }
       if (
         !existing.consentGrants.some(
           (grant) => grant.digest === pluginConsentDigest(existing.current.manifest),
@@ -677,9 +684,15 @@ export class PluginRegistryServiceImpl {
   async doctor(id: string): Promise<PluginDoctorReport> {
     const inspection = await this.inspect(id);
     const problems: string[] = [];
-    if (!inspection.artifactValid) problems.push("artifact digest is missing or invalid");
-    if (!inspection.trusted) problems.push("current code digest is not trusted");
-    if (!inspection.consented) problems.push("current capabilities do not have consent");
+    if (!inspection.artifactValid) {
+      problems.push("artifact digest is missing or invalid");
+    }
+    if (!inspection.trusted) {
+      problems.push("current code digest is not trusted");
+    }
+    if (!inspection.consented) {
+      problems.push("current capabilities do not have consent");
+    }
     for (const secret of inspection.secrets) {
       if (secret.required && (secret.source === "missing" || secret.source === "unavailable")) {
         problems.push(`required secret ${secret.name} is ${secret.source}`);
@@ -693,7 +706,9 @@ export class PluginRegistryServiceImpl {
       const referenced = new Set<string>();
       for (const entry of Object.values(state.plugins)) {
         referenced.add(entry.current.manifest.sha256);
-        if (entry.previous) referenced.add(entry.previous.manifest.sha256);
+        if (entry.previous) {
+          referenced.add(entry.previous.manifest.sha256);
+        }
       }
       const removed: string[] = [];
       const collect = async (
@@ -701,7 +716,9 @@ export class PluginRegistryServiceImpl {
         remove: (digest: string) => Promise<void>,
       ): Promise<void> => {
         for (const item of await fs.readdir(directory, { withFileTypes: true }).catch(() => [])) {
-          if (!item.isDirectory() || item.name.startsWith(".")) continue;
+          if (!item.isDirectory() || item.name.startsWith(".")) {
+            continue;
+          }
           if (
             !/^[a-f0-9]{64}$/.test(item.name) ||
             referenced.has(item.name) ||

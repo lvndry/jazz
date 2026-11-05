@@ -175,10 +175,14 @@ export function peerLogCommand(options: {
     } else if (entries.length === 0) {
       process.stdout.write("Nothing has been said to or by a peer.\n");
     } else {
-      for (const entry of entries) printLedgerEntry(entry);
+      for (const entry of entries) {
+        printLedgerEntry(entry);
+      }
     }
 
-    if (!options.follow) return;
+    if (!options.follow) {
+      return;
+    }
 
     // `entries` is newest-first, so its head is the cursor: only entries stamped strictly
     // later than this have not been shown yet.
@@ -204,7 +208,9 @@ export function peerLogCommand(options: {
           printLedgerEntry(entry);
         }
       }
-      if (fresh[0] !== undefined) lastSeenAt = fresh[0].at;
+      if (fresh[0] !== undefined) {
+        lastSeenAt = fresh[0].at;
+      }
     }
   });
 }

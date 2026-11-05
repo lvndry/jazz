@@ -66,7 +66,9 @@ export function SearchSelect<T = unknown>({
     onResolve: (resolution) => {
       if (resolution.kind === "single") {
         const value = originalValueFromPicker(visibleOptions, resolution.value);
-        if (value !== undefined) onSelect(value);
+        if (value !== undefined) {
+          onSelect(value);
+        }
       } else if (resolution.kind === "custom") {
         onTypedAnswer?.(resolution.value);
       }

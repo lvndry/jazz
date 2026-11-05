@@ -66,12 +66,16 @@ function record(value: unknown, label: string): Record<string, unknown> {
 }
 
 function stringField(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.length === 0) throw new Error(`${label} must be a string`);
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${label} must be a string`);
+  }
   return value;
 }
 
 function booleanField(value: unknown, label: string): boolean {
-  if (typeof value !== "boolean") throw new Error(`${label} must be boolean`);
+  if (typeof value !== "boolean") {
+    throw new Error(`${label} must be boolean`);
+  }
   return value;
 }
 
@@ -103,12 +107,15 @@ function parseRepository(value: unknown, index: number): GitHubRepository {
 }
 
 async function jsonResponse(response: GitHubResponse, url: string): Promise<unknown> {
-  if (!response.ok) throw new Error(`GitHub returned ${response.status} for ${url}`);
+  if (!response.ok) {
+    throw new Error(`GitHub returned ${response.status} for ${url}`);
+  }
   const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > MAX_JSON_BYTES)
+  if (bytes.byteLength > MAX_JSON_BYTES) {
     throw new Error(`GitHub response exceeds ${MAX_JSON_BYTES} bytes`);
+  }
   try {
-    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    return JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     throw new Error(`GitHub returned invalid JSON for ${url}`);
   }
@@ -153,7 +160,7 @@ function communityEntry(
   if (Buffer.byteLength(manifestText, "utf8") > MAX_PLUGIN_MANIFEST_BYTES) {
     throw new Error(`jazz-plugin.json exceeds ${MAX_PLUGIN_MANIFEST_BYTES} bytes`);
   }
-  const source = JSON.parse(manifestText) as unknown;
+  const source: unknown = JSON.parse(manifestText);
   const { manifest, entry } = parsePluginSourceManifest(source);
   const { artifact: _artifact, sha256: _sha256, ...metadata } = manifest;
   return {
@@ -243,7 +250,9 @@ export async function discoverCommunityPlugins(
 
   const byId = new Map<string, CommunityPluginEntry>();
   for (const entry of discovered) {
-    if (entry === undefined) continue;
+    if (entry === undefined) {
+      continue;
+    }
     if (byId.has(entry.id)) {
       process.stderr.write(
         `Skipping duplicate community plugin id ${entry.id} from ${entry.repository}\n`,

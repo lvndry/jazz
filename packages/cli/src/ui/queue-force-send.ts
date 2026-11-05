@@ -9,9 +9,15 @@ export type ForceSendOutcome = "sent" | "nothing-to-send" | "no-run";
  * instead of queueing a message that then waits for the run to finish.
  */
 export function forceSendQueue(draft: string, interrupt: (() => void) | null): ForceSendOutcome {
-  if (interrupt === null) return "no-run";
-  if (draft.length > 0) store.appendToQueue(draft);
-  if (store.getMessageQueueSnapshot().length === 0) return "nothing-to-send";
+  if (interrupt === null) {
+    return "no-run";
+  }
+  if (draft.length > 0) {
+    store.appendToQueue(draft);
+  }
+  if (store.getMessageQueueSnapshot().length === 0) {
+    return "nothing-to-send";
+  }
   store.requestFlushQueue();
   store.printOutput({ type: "warn", message: "Interrupting…", timestamp: new Date() });
   store.collapseAllEphemeral();

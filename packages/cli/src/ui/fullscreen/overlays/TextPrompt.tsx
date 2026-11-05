@@ -93,12 +93,20 @@ function wrapProse(text: string, width: number, maxRows: number): string[] {
       line = candidate;
       continue;
     }
-    if (line.length > 0) lines.push(line);
+    if (line.length > 0) {
+      lines.push(line);
+    }
     line = displayWidth(word) <= width ? word : clip(word, width);
   }
-  if (line.length > 0) lines.push(line);
-  if (lines.length === 0) return [""];
-  if (lines.length <= maxRows) return lines;
+  if (line.length > 0) {
+    lines.push(line);
+  }
+  if (lines.length === 0) {
+    return [""];
+  }
+  if (lines.length <= maxRows) {
+    return lines;
+  }
   const kept = lines.slice(0, maxRows);
   const last = kept[maxRows - 1] ?? "";
   kept[maxRows - 1] = clip(`${last} ${lines.slice(maxRows).join(" ")}`, width);
@@ -122,13 +130,17 @@ interface CaretCells {
  * and the column it shares with the rest of the card stays aligned.
  */
 function caretCells(display: string, caret: number, width: number): CaretCells {
-  if (width <= 0) return { before: "", at: "", after: "" };
+  if (width <= 0) {
+    return { before: "", at: "", after: "" };
+  }
   const graphemes = terminalGraphemes(display);
   let index = 0;
   let codePoints = 0;
   while (index < graphemes.length) {
     const graphemeLength = [...(graphemes[index] as string)].length;
-    if (codePoints + graphemeLength > caret) break;
+    if (codePoints + graphemeLength > caret) {
+      break;
+    }
     codePoints += graphemeLength;
     index += 1;
   }
@@ -338,7 +350,9 @@ function fitHints(hints: readonly Hint[], budget: number): readonly Hint[] {
   while (kept.length > 1 && hintsWidth(kept) > budget) {
     let worst = 0;
     for (let index = 1; index < kept.length; index++) {
-      if ((kept[index]?.expendable ?? 0) > (kept[worst]?.expendable ?? 0)) worst = index;
+      if ((kept[index]?.expendable ?? 0) > (kept[worst]?.expendable ?? 0)) {
+        worst = index;
+      }
     }
     kept.splice(worst, 1);
   }

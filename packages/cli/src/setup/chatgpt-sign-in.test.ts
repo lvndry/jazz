@@ -5,6 +5,7 @@ import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { Effect } from "effect";
 import { refreshChatGPTSignIn } from "./chatgpt-sign-in";
+import { partialFake } from "../test-support/partial-fake";
 
 const storedCredential = {
   access: "access-old",
@@ -15,21 +16,21 @@ const storedCredential = {
 } as ChatGPTCredential;
 
 let writes: { key: string; value: unknown }[] = [];
-const configService = {
+const configService = partialFake<AgentConfigService>({
   set: mock((key: string, value: unknown) => {
     writes.push({ key, value });
     return Effect.void;
   }),
-} as unknown as AgentConfigService;
+});
 
-const terminal = {
+const terminal = partialFake<TerminalService>({
   isInteractive: true,
   info: mock(() => Effect.void),
   success: mock(() => Effect.void),
   warn: mock(() => Effect.void),
   error: mock(() => Effect.void),
   select: mock(() => Effect.succeed<string | undefined>("back")),
-} as unknown as TerminalService;
+});
 
 const spies: { mockRestore: () => void }[] = [];
 let clearCalls = 0;

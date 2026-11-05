@@ -437,16 +437,24 @@ function AppView({
   const scrollTranscriptByWheel = useCallback(
     (direction: string, delta: number): void => {
       const amount = wheelScrollDelta(direction, delta);
-      if (amount === null) return;
-      if (focusRef.current !== "transcript") dispatch({ type: "focus-transcript" });
+      if (amount === null) {
+        return;
+      }
+      if (focusRef.current !== "transcript") {
+        dispatch({ type: "focus-transcript" });
+      }
       navigationRef.current.scrollBy(amount, "line");
     },
     [dispatch],
   );
 
   const announceCopy = useCallback((copied: boolean): void => {
-    if (!copied) return;
-    if (copyNoticeTimer.current !== undefined) clearTimeout(copyNoticeTimer.current);
+    if (!copied) {
+      return;
+    }
+    if (copyNoticeTimer.current !== undefined) {
+      clearTimeout(copyNoticeTimer.current);
+    }
     setCopyNotice("copied");
     copyNoticeTimer.current = setTimeout(() => {
       setCopyNotice(undefined);
@@ -456,7 +464,9 @@ function AppView({
 
   useEffect(() => {
     return () => {
-      if (copyNoticeTimer.current !== undefined) clearTimeout(copyNoticeTimer.current);
+      if (copyNoticeTimer.current !== undefined) {
+        clearTimeout(copyNoticeTimer.current);
+      }
     };
   }, []);
 
@@ -472,15 +482,21 @@ function AppView({
         Effect.runPromise(readPeerLedger({ limit: 50 })),
         Effect.runPromise(readLastSeenInboundAt()),
       ]);
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
 
       const { notice, newestInboundAt } = computePeerNotice(entries, lastSeenAt);
       if (newestInboundAt !== undefined) {
         await Effect.runPromise(recordLastSeenInboundAt(newestInboundAt));
       }
-      if (cancelled || notice === undefined) return;
+      if (cancelled || notice === undefined) {
+        return;
+      }
 
-      if (peerNoticeTimer.current !== undefined) clearTimeout(peerNoticeTimer.current);
+      if (peerNoticeTimer.current !== undefined) {
+        clearTimeout(peerNoticeTimer.current);
+      }
       setPeerNotice(notice);
       peerNoticeTimer.current = setTimeout(() => {
         setPeerNotice(undefined);
@@ -493,12 +509,16 @@ function AppView({
     return () => {
       cancelled = true;
       clearInterval(interval);
-      if (peerNoticeTimer.current !== undefined) clearTimeout(peerNoticeTimer.current);
+      if (peerNoticeTimer.current !== undefined) {
+        clearTimeout(peerNoticeTimer.current);
+      }
     };
   }, []);
 
   useEffect(() => {
-    if (view.runActive !== true) armedAt.current = undefined;
+    if (view.runActive !== true) {
+      armedAt.current = undefined;
+    }
   }, [view.runActive]);
 
   useKeyboard((key) => {
@@ -529,8 +549,11 @@ function AppView({
         currentView.runActive === true ||
         currentView.live.tools.length > 0 ||
         currentView.live.waiting !== undefined;
-      if (running) dispatch({ type: "interrupt" });
-      else process.kill(process.pid, "SIGINT");
+      if (running) {
+        dispatch({ type: "interrupt" });
+      } else {
+        process.kill(process.pid, "SIGINT");
+      }
       return;
     }
 
@@ -617,7 +640,9 @@ function AppView({
     const scrollAction = resolveScrollKey(name, currentFocus);
     if (scrollAction !== null) {
       consumeKeyEvent(key);
-      if (currentFocus !== "transcript") dispatch({ type: "focus-transcript" });
+      if (currentFocus !== "transcript") {
+        dispatch({ type: "focus-transcript" });
+      }
       dispatch(scrollAction);
       return;
     }
@@ -631,7 +656,9 @@ function AppView({
 
   usePaste((event) => {
     const text = pasteTextFromEvent(event);
-    if (text.length === 0) return;
+    if (text.length === 0) {
+      return;
+    }
     if (onPasteRef.current?.(text) === true) {
       consumeKeyEvent(event);
       if (viewRef.current.overlay === undefined && focusRef.current === "transcript") {
@@ -705,11 +732,15 @@ function AppView({
       style={{ width, height, flexDirection: "column", backgroundColor: groundPaint() }}
       onMouseScroll={(event) => {
         const scroll = event.scroll;
-        if (scroll === undefined) return;
+        if (scroll === undefined) {
+          return;
+        }
         scrollTranscriptByWheel(scroll.direction, scroll.delta);
       }}
       onMouseDrag={(event) => {
-        if (overlayOpen) return;
+        if (overlayOpen) {
+          return;
+        }
         dispatch({ type: "focus-transcript" });
         controller.detach();
         onMouseDrag(event);

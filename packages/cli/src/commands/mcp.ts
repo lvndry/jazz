@@ -178,7 +178,9 @@ function parseEnvPairs(pairs: readonly string[]): Record<string, string> {
   const env: Record<string, string> = {};
   for (const pair of pairs) {
     const separator = pair.indexOf("=");
-    if (separator <= 0) continue;
+    if (separator <= 0) {
+      continue;
+    }
     env[pair.slice(0, separator)] = pair.slice(separator + 1);
   }
   return env;
@@ -330,7 +332,9 @@ export function addMcpServerCommand(
 
 /** Describe a server's transport in one line. */
 function describeTransport(config: MCPServerConfig): string {
-  if (isHttpConfig(config)) return `http: ${config.url}`;
+  if (isHttpConfig(config)) {
+    return `http: ${config.url}`;
+  }
   return `stdio: ${config.command}${config.args?.length ? ` ${config.args.join(" ")}` : ""}`;
 }
 
@@ -388,8 +392,12 @@ export function listMcpServersCommand(
     for (const [name, config] of entries) {
       const enabled = config.enabled !== false;
       const labels = [enabled ? "enabled" : "disabled"];
-      if (config.trusted === true) labels.push("trusted");
-      if (config.definedIn === "project") labels.push("project");
+      if (config.trusted === true) {
+        labels.push("trusted");
+      }
+      if (config.definedIn === "project") {
+        labels.push("project");
+      }
 
       yield* terminal.log(
         fmt.itemWithDesc(name, `${describeTransport(config)} [${labels.join(", ")}]`),
@@ -475,8 +483,12 @@ export function testMcpServerCommand(name: string): Effect.Effect<void, never, M
       yield* terminal.log(fmt.keyValue("Tools", String(tools.success.length)));
       for (const tool of tools.success) {
         const hints: string[] = [];
-        if (tool.annotations?.readOnlyHint === true) hints.push("read-only");
-        if (tool.annotations?.destructiveHint === true) hints.push("destructive");
+        if (tool.annotations?.readOnlyHint === true) {
+          hints.push("read-only");
+        }
+        if (tool.annotations?.destructiveHint === true) {
+          hints.push("destructive");
+        }
         yield* terminal.log(
           fmt.itemWithDesc(
             tool.name,
@@ -584,7 +596,9 @@ export function removeMcpServerCommand(
     }
 
     const selected = yield* resolveServerName(name, names, "Select a server to remove:");
-    if (selected === undefined) return;
+    if (selected === undefined) {
+      return;
+    }
 
     if (options.yes !== true) {
       const confirmed = yield* terminal.confirm(`Remove server "${selected}"?`, false);
@@ -639,7 +653,9 @@ function setServerEnabled(
       candidates,
       `Select a server to ${enabled ? "enable" : "disable"}:`,
     );
-    if (selected === undefined) return;
+    if (selected === undefined) {
+      return;
+    }
 
     yield* configService.set(`mcpServers.${selected}`, { enabled });
     yield* terminal.success(`${enabled ? "Enabled" : "Disabled"} MCP server: ${selected}`);
@@ -681,7 +697,9 @@ export function trustMcpServerCommand(
       names,
       `Select a server to ${trusted ? "trust" : "untrust"}:`,
     );
-    if (selected === undefined) return;
+    if (selected === undefined) {
+      return;
+    }
 
     if (trusted && mcpServers[selected]?.definedIn === "project") {
       yield* terminal.error(

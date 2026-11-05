@@ -12,10 +12,12 @@ import { isRecord } from "@jazz/core/utils/is-record";
 import { type JsonObject, mergeBridgeConfig } from "./bridge-config";
 
 function parseExistingConfig(raw: string | undefined, path: string): JsonObject {
-  if (raw === undefined) return {};
+  if (raw === undefined) {
+    return {};
+  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw) as unknown;
+    parsed = JSON.parse(raw);
   } catch {
     // Refuse rather than overwrite: an operator who hand-edited this into
     // invalid JSON would otherwise lose it with no trace.
@@ -23,7 +25,9 @@ function parseExistingConfig(raw: string | undefined, path: string): JsonObject 
   }
   // An array or scalar is not a config; treat it as absent rather than
   // spreading it into one.
-  if (!isRecord(parsed)) return {};
+  if (!isRecord(parsed)) {
+    return {};
+  }
   return parsed;
 }
 

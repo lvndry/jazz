@@ -22,7 +22,9 @@ import { detectKeyringBackend, keyringGet } from "@/adapters/secrets/keyring";
 export function resolvePeerToken(peerName: string): Effect.Effect<string | undefined, never> {
   return Effect.gen(function* () {
     const fromEnv = process.env[peerTokenEnvVar(peerName)];
-    if (fromEnv !== undefined && fromEnv.trim().length > 0) return fromEnv.trim();
+    if (fromEnv !== undefined && fromEnv.trim().length > 0) {
+      return fromEnv.trim();
+    }
 
     const backend = yield* detectKeyringBackend();
     return yield* keyringGet(backend, peerTokenPath(peerName));

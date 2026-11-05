@@ -45,8 +45,8 @@ function baseContext(overrides: Partial<ToolExecutionContext> = {}): ToolExecuti
 
 describe("rankToolsByQuery", () => {
   it("ranks by token overlap and caps results", () => {
-    const candidates = Array.from({ length: MAX_SEARCH_TOOLS_RESULTS + 5 }, (_, i) => ({
-      name: `linear_tool_${i}`,
+    const candidates = Array.from({ length: MAX_SEARCH_TOOLS_RESULTS + 5 }, (_, index) => ({
+      name: `linear_tool_${index}`,
       summary: "Create a Linear issue in a project.",
     }));
     const matches = rankToolsByQuery("create linear issue", candidates);
@@ -195,7 +195,7 @@ describe("search_tools", () => {
     expect(result.success).toBe(true);
     const matched = (result.result as { matchedToolNames: readonly string[] }).matchedToolNames;
     expect(matched).toContain("linear_create_issue");
-    expect(unlocked.map((d) => d.function.name)).toEqual([...matched]);
+    expect(unlocked.map((definition) => definition.function.name)).toEqual([...matched]);
     expect(result.unlockedToolNames).toEqual([...matched]);
   });
 

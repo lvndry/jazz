@@ -89,10 +89,10 @@ function writeTodos(conversationId: string, todos: TodoItem[]): Effect.Effect<vo
 function computeStats(todos: TodoItem[]) {
   return {
     totalItems: todos.length,
-    pending: todos.filter((t) => t.status === "pending").length,
-    inProgress: todos.filter((t) => t.status === "in_progress").length,
-    completed: todos.filter((t) => t.status === "completed").length,
-    cancelled: todos.filter((t) => t.status === "cancelled").length,
+    pending: todos.filter((todo) => todo.status === "pending").length,
+    inProgress: todos.filter((todo) => todo.status === "in_progress").length,
+    completed: todos.filter((todo) => todo.status === "completed").length,
+    cancelled: todos.filter((todo) => todo.status === "cancelled").length,
   };
 }
 
@@ -123,7 +123,9 @@ export function createManageTodosTool(): Tool<never> {
     hidden: false,
     validate: makeZodValidator(parameters),
     createSummary: (result: ToolExecutionResult) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as ReturnType<typeof computeStats>;
       return `Todos updated: ${data.completed}/${data.totalItems} done, ${data.inProgress} in progress, ${data.pending} pending`;
     },
@@ -176,7 +178,9 @@ export function createListTodosTool(): Tool<never> {
     riskLevel: "read-only",
     hidden: false,
     createSummary: (result: ToolExecutionResult) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { totalItems: number };
       return data.totalItems === 0 ? "No todos" : `${data.totalItems} todo(s)`;
     },

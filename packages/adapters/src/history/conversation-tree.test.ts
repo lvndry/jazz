@@ -60,7 +60,9 @@ class Log {
     }
     plan.ids.forEach((id, index) => {
       const message = messages[index];
-      if (message) message.entryId = id;
+      if (message) {
+        message.entryId = id;
+      }
     });
     this.state = plan.state;
     return plan.entries;

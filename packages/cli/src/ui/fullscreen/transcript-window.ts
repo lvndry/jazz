@@ -51,7 +51,9 @@ export function allocateRegions(args: {
     0,
     args.viewport.height - TRANSCRIPT_CHROME_ABOVE - TRANSCRIPT_CHROME_BELOW,
   );
-  if (available <= 0) return { transcript: 0, live: 0, input: 0, subagents: 0 };
+  if (available <= 0) {
+    return { transcript: 0, live: 0, input: 0, subagents: 0 };
+  }
 
   const inputBudget = Math.max(1, available - 1);
   const input = Math.min(
@@ -77,7 +79,9 @@ export function transcriptVisibleCount(args: Parameters<typeof allocateRegions>[
 
 /** Wheel up is older; wheel down walks back to the live edge. */
 export function wheelScrollDelta(direction: string, delta: number): number | null {
-  if (direction !== "up" && direction !== "down") return null;
+  if (direction !== "up" && direction !== "down") {
+    return null;
+  }
   const amount = Math.max(1, Math.trunc(delta));
   return direction === "up" ? -amount : amount;
 }

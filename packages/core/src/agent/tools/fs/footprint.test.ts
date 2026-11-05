@@ -43,7 +43,9 @@ describe("measureFootprint", () => {
 
   it("stops at the entry limit and says the count is a floor", async () => {
     const root = scratch();
-    for (const name of ["a", "b", "c"]) writeFileSync(join(root, name), "x");
+    for (const name of ["a", "b", "c"]) {
+      writeFileSync(join(root, name), "x");
+    }
     const footprint = await measure(root, 2);
     expect(footprint?.truncated).toBe(true);
     expect(footprint?.files).toBe(2);

@@ -113,8 +113,9 @@ export function agentDetailFields(
   for (const [role, model] of companions) {
     fields.push({ section: "Companions", label: role, value: model });
   }
-  if (companions.length === 0)
+  if (companions.length === 0) {
     fields.push({ section: "Companions", label: "Models", value: "none" });
+  }
   for (const tool of config.customTools ?? []) {
     fields.push({
       section: "Custom tools",
@@ -122,8 +123,9 @@ export function agentDetailFields(
       value: `${tool.handler.type} · ${tool.description}`,
     });
   }
-  if ((config.customTools?.length ?? 0) === 0)
+  if ((config.customTools?.length ?? 0) === 0) {
     fields.push({ section: "Custom tools", label: "Tools", value: "none" });
+  }
   if (config.llm.apiKeys !== undefined && Object.keys(config.llm.apiKeys).length > 0) {
     fields.push({ section: "Credentials", label: "Agent API keys", value: "configured (hidden)" });
   }

@@ -2,6 +2,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
+import { standIn } from "@/core/test-support/fakes";
 import type { StreamEvent } from "@/core/types/streaming";
 import { applyConcealedKeys, concealValue, readConcealedLine } from "./concealed-line";
 import { OneShotPresentationService } from "./oneshot-presentation-service";
@@ -53,7 +54,7 @@ describe("readConcealedLine", () => {
     const output = new PassThrough();
     output.on("data", (chunk: Buffer) => written.push(chunk.toString()));
     const pending = readConcealedLine("Secret: ", {
-      input: input as unknown as NodeJS.ReadStream,
+      input: standIn<NodeJS.ReadStream>(input),
       output,
     });
     input.write("from-a-password-manager\nignored\n");

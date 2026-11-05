@@ -4,6 +4,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { TelemetryService } from "@/core/interfaces/telemetry";
 import { TelemetryServiceTag } from "@/core/interfaces/telemetry";
+import { partialFake } from "@/core/test-support/fakes";
 import { LLMRateLimitError } from "@/core/types/errors";
 import {
   beginIteration,
@@ -96,7 +97,7 @@ describe("telemetry error privacy", () => {
   it("emits bounded error categories without credential-bearing exception text", async () => {
     const secret = "Bearer sk-secret-token-123";
     const captured: unknown[] = [];
-    const telemetry = {
+    const telemetry = partialFake<TelemetryService>({
       recordAgentRunFailed: (data: unknown) =>
         Effect.sync(() => {
           captured.push(data);
@@ -109,7 +110,7 @@ describe("telemetry error privacy", () => {
         Effect.sync(() => {
           captured.push(data);
         }),
-    } as unknown as TelemetryService;
+    });
     const metrics = createMetrics();
     const rateLimit = new LLMRateLimitError({
       provider: "openai",
@@ -147,12 +148,12 @@ describe("telemetry error privacy", () => {
     recordLLMRetry(metrics, new LLMRateLimitError({ provider: "openai", message: secret }));
 
     let logged: Record<string, unknown> | undefined;
-    const logger = {
+    const logger = partialFake<LoggerService>({
       info: (_message: string, meta?: Record<string, unknown>) =>
         Effect.sync(() => {
           logged = meta;
         }),
-    } as unknown as LoggerService;
+    });
 
     await Effect.runPromise(
       finalizeAgentRun(metrics, { iterationsUsed: 1, finished: false }).pipe(
@@ -254,7 +255,7 @@ describe("classifier usage", () => {
     recordClassifierUsage(metrics, { promptTokens: 42, completionTokens: 1 }, 9);
 
     let logged: Record<string, unknown> | undefined;
-    const logger = {
+    const logger = partialFake<LoggerService>({
       debug: () => Effect.void,
       info: (_message: string, meta?: Record<string, unknown>) =>
         Effect.sync(() => {
@@ -262,7 +263,7 @@ describe("classifier usage", () => {
         }),
       warn: () => Effect.void,
       error: () => Effect.void,
-    } as unknown as LoggerService;
+    });
 
     await Effect.runPromise(
       finalizeAgentRun(metrics, { iterationsUsed: 1, finished: true }).pipe(
@@ -428,11 +429,11 @@ describe("closeAgentRunTelemetry", () => {
       Effect.sync(() => {
         calls.push(name);
       });
-    const telemetry = {
+    const telemetry = partialFake<TelemetryService>({
       recordAgentRunCompleted: record("completed"),
       recordAgentRunFailed: record("failed"),
       endAgentRun: record("ended"),
-    } as unknown as TelemetryService;
+    });
     return { calls, telemetry };
   }
 

@@ -24,23 +24,29 @@ import { Effect } from "effect";
  */
 export function promptFailedRunsWarning() {
   return Effect.gen(function* () {
-    if (!process.stdout.isTTY) return;
+    if (!process.stdout.isTTY) {
+      return;
+    }
 
     const scheduler = yield* SchedulerServiceTag;
     const scheduled = yield* scheduler
       .listScheduled()
       .pipe(Effect.catch(() => Effect.succeed([] as const)));
 
-    if (scheduled.length === 0) return;
+    if (scheduled.length === 0) {
+      return;
+    }
 
     yield* markInterruptedRuns().pipe(Effect.catch(() => Effect.succeed(0)));
     const history = yield* loadRunHistory().pipe(
       Effect.catch(() => Effect.succeed([] as WorkflowRunRecord[])),
     );
 
-    if (history.length === 0) return;
+    if (history.length === 0) {
+      return;
+    }
 
-    const scheduledNames = new Set(scheduled.map((s) => s.workflowName));
+    const scheduledNames = new Set(scheduled.map((schedule) => schedule.workflowName));
 
     // Find the latest *attempt* per scheduled workflow, and keep only those
     // whose latest attempt failed. We sort on `startedAt` (not completedAt)
@@ -51,9 +57,13 @@ export function promptFailedRunsWarning() {
     type Latest = { record: WorkflowRunRecord; ts: number };
     const latestByWorkflow = new Map<string, Latest>();
     for (const record of history) {
-      if (!scheduledNames.has(record.workflowName)) continue;
+      if (!scheduledNames.has(record.workflowName)) {
+        continue;
+      }
       const ts = Date.parse(record.startedAt);
-      if (!Number.isFinite(ts)) continue;
+      if (!Number.isFinite(ts)) {
+        continue;
+      }
       const existing = latestByWorkflow.get(record.workflowName);
       if (!existing || ts > existing.ts) {
         latestByWorkflow.set(record.workflowName, { record, ts });
@@ -67,7 +77,9 @@ export function promptFailedRunsWarning() {
       }
     }
 
-    if (failed.length === 0) return;
+    if (failed.length === 0) {
+      return;
+    }
 
     const terminal = yield* TerminalServiceTag;
     const logsDir = path.join(getGlobalUserDataDirectory(), "logs");

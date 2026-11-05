@@ -97,7 +97,9 @@ export function CommandPanel({ model, viewport }: CommandPanelProps): ReactNode 
 
   const body = useRef<ScrollBoxRenderable | null>(null);
   useEffect(() => {
-    if (body.current !== null) body.current.scrollTop = offset;
+    if (body.current !== null) {
+      body.current.scrollTop = offset;
+    }
   }, [offset]);
 
   const hint = maxOffset > 0 ? `up down to scroll  ${COMMAND_PANEL_HINT}` : COMMAND_PANEL_HINT;

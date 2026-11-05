@@ -23,8 +23,8 @@ type State = "OUTSIDE" | "MAYBE_OPEN" | "INSIDE" | "MAYBE_CLOSE";
 
 const OPEN_TAGS = ["<think>", "<thinking>"];
 const CLOSE_TAGS = ["</think>", "</thinking>"];
-const MAX_OPEN_LEN = Math.max(...OPEN_TAGS.map((t) => t.length));
-const MAX_CLOSE_LEN = Math.max(...CLOSE_TAGS.map((t) => t.length));
+const MAX_OPEN_LEN = Math.max(...OPEN_TAGS.map((tag) => tag.length));
+const MAX_CLOSE_LEN = Math.max(...CLOSE_TAGS.map((tag) => tag.length));
 
 type MatchResult = "match" | "partial" | "fail";
 
@@ -37,13 +37,19 @@ const STRING_LITERAL = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g;
  * (`<think>\n\n</think>`, how hybrid templates switch thinking off) does not count.
  */
 export function generationPromptOpensBlock(chatTemplate: string | undefined): boolean {
-  if (!chatTemplate) return false;
+  if (!chatTemplate) {
+    return false;
+  }
   const promptStart = chatTemplate.lastIndexOf("add_generation_prompt");
-  if (promptStart === -1) return false;
+  if (promptStart === -1) {
+    return false;
+  }
   for (const [literal] of chatTemplate.slice(promptStart).matchAll(STRING_LITERAL)) {
     const lower = literal.toLowerCase();
     const open = Math.max(lower.lastIndexOf("<think>"), lower.lastIndexOf("<thinking>"));
-    if (open !== -1 && !CLOSE_TAG.test(lower.slice(open))) return true;
+    if (open !== -1 && !CLOSE_TAG.test(lower.slice(open))) {
+      return true;
+    }
   }
   return false;
 }
@@ -57,8 +63,12 @@ function matchAny(buf: string, candidates: readonly string[]): MatchResult {
   const lower = buf.toLowerCase();
   let anyPrefix = false;
   for (const tag of candidates) {
-    if (lower === tag) return "match";
-    if (tag.startsWith(lower)) anyPrefix = true;
+    if (lower === tag) {
+      return "match";
+    }
+    if (tag.startsWith(lower)) {
+      anyPrefix = true;
+    }
   }
   return anyPrefix ? "partial" : "fail";
 }
@@ -80,7 +90,9 @@ export class TagPairParser implements ReasoningParser {
   }
 
   feed(input: string): ParseChunk {
-    if (this.heldBlock !== null) return this.feedHeldBlock(input);
+    if (this.heldBlock !== null) {
+      return this.feedHeldBlock(input);
+    }
     return this.feedTags(input);
   }
 
@@ -132,8 +144,12 @@ export class TagPairParser implements ReasoningParser {
       const result = this.consume(ch);
       visibleText += result.visibleText;
       thinkingText += result.thinkingText;
-      if (result.thinkingStarted) thinkingStarted = true;
-      if (result.thinkingEnded) thinkingEnded = true;
+      if (result.thinkingStarted) {
+        thinkingStarted = true;
+      }
+      if (result.thinkingEnded) {
+        thinkingEnded = true;
+      }
     }
 
     const chunk = this.makeChunk(visibleText, thinkingText, thinkingStarted, thinkingEnded);
@@ -150,7 +166,9 @@ export class TagPairParser implements ReasoningParser {
     }
     const window = this.visibleTail + chunk.visibleText;
     this.visibleTail = window.slice(-MAX_CLOSE_LEN);
-    if (!CLOSE_TAG.test(window)) return chunk;
+    if (!CLOSE_TAG.test(window)) {
+      return chunk;
+    }
     this.strayCloseReported = true;
     return { ...chunk, strayCloseTag: true };
   }
@@ -204,20 +222,22 @@ export class TagPairParser implements ReasoningParser {
           this.state = "MAYBE_OPEN";
         } else {
           visibleText += ch;
-          if (/\S/.test(ch)) this.answerStarted = true;
+          if (/\S/.test(ch)) {
+            this.answerStarted = true;
+          }
         }
         break;
       }
       case "MAYBE_OPEN": {
         this.buffer += ch;
-        const m = matchAny(this.buffer, OPEN_TAGS);
-        if (m === "match") {
+        const match = matchAny(this.buffer, OPEN_TAGS);
+        if (match === "match") {
           this.state = "INSIDE";
           this.blockOpened = true;
           this.sawThinkingContent = false;
           this.pendingThinking = "";
           this.buffer = "";
-        } else if (m === "fail" || this.buffer.length > MAX_OPEN_LEN) {
+        } else if (match === "fail" || this.buffer.length > MAX_OPEN_LEN) {
           visibleText += this.buffer;
           this.buffer = "";
           this.state = "OUTSIDE";
@@ -243,8 +263,8 @@ export class TagPairParser implements ReasoningParser {
       }
       case "MAYBE_CLOSE": {
         this.buffer += ch;
-        const m = matchAny(this.buffer, CLOSE_TAGS);
-        if (m === "match") {
+        const match = matchAny(this.buffer, CLOSE_TAGS);
+        if (match === "match") {
           if (this.sawThinkingContent) {
             thinkingEnded = true;
           }
@@ -252,7 +272,7 @@ export class TagPairParser implements ReasoningParser {
           this.pendingThinking = "";
           this.sawThinkingContent = false;
           this.state = "OUTSIDE";
-        } else if (m === "fail" || this.buffer.length > MAX_CLOSE_LEN) {
+        } else if (match === "fail" || this.buffer.length > MAX_CLOSE_LEN) {
           if (this.sawThinkingContent) {
             thinkingText += this.buffer;
           } else {
@@ -291,8 +311,12 @@ export class TagPairParser implements ReasoningParser {
       visibleText,
       thinkingText,
     };
-    if (thinkingStarted) chunk.thinkingStarted = true;
-    if (thinkingEnded) chunk.thinkingEnded = true;
+    if (thinkingStarted) {
+      chunk.thinkingStarted = true;
+    }
+    if (thinkingEnded) {
+      chunk.thinkingEnded = true;
+    }
     return chunk;
   }
 }
@@ -301,10 +325,16 @@ export const TagPairParserFactory: ReasoningParserFactory = {
   id: "tag-pair",
   canHandle(ctx: ParserSelectionContext): boolean {
     if (ctx.chatTemplate) {
-      if (/<\|channel\|>analysis/.test(ctx.chatTemplate)) return false;
-      if (/<think(ing)?>/i.test(ctx.chatTemplate)) return true;
+      if (/<\|channel\|>analysis/.test(ctx.chatTemplate)) {
+        return false;
+      }
+      if (/<think(ing)?>/i.test(ctx.chatTemplate)) {
+        return true;
+      }
     }
-    if (ctx.capabilities?.includes("thinking")) return true;
+    if (ctx.capabilities?.includes("thinking")) {
+      return true;
+    }
     return false;
   },
   create(ctx: ParserSelectionContext) {

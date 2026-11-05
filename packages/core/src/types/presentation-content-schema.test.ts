@@ -134,8 +134,9 @@ describe("presentation entry schema", () => {
           },
         },
       },
-    ])
+    ]) {
       expect(presentationEntrySchema.safeParse(invalid).success).toBe(false);
+    }
   });
 
   test("rejects prompt drafts, continuations and layout state instead of persisting them", () => {
