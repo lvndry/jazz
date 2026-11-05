@@ -25,7 +25,9 @@ export function registerPluginToolsForAgent(
 ): Effect.Effect<readonly string[], never, ToolRegistry> {
   return Effect.gen(function* () {
     const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
-    if (Option.isNone(runtimeOption)) return [];
+    if (Option.isNone(runtimeOption)) {
+      return [];
+    }
     const runtime = runtimeOption.value;
     const registry = yield* ToolRegistryTag;
 
@@ -77,7 +79,9 @@ export function registerPluginToolsForAgent(
       const previous = registeredPlugins.get(pluginId) ?? [];
       const nextNames = new Set(names);
       for (const staleName of previous) {
-        if (!nextNames.has(staleName)) yield* registry.unregisterTool(staleName);
+        if (!nextNames.has(staleName)) {
+          yield* registry.unregisterTool(staleName);
+        }
       }
       registeredPlugins.set(pluginId, names);
       // Only the model-facing half of an approval pair is offered; the hidden execute_* twin is

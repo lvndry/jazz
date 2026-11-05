@@ -122,14 +122,18 @@ async function postQuestion(
             return { ok: "parked", question: parkedQuestion.slice(0, MAX_ANSWER_CHARS) };
           }
         }
-        if (typeof body.answer === "string") answer = body.answer;
+        if (typeof body.answer === "string") {
+          answer = body.answer;
+        }
       }
     } catch {
       // Not JSON. A peer that answers in plain text is answering; take it as given.
     }
 
     const trimmed = answer.trim();
-    if (trimmed.length === 0) return { ok: false, reason: "peer replied with nothing" };
+    if (trimmed.length === 0) {
+      return { ok: false, reason: "peer replied with nothing" };
+    }
     return { ok: true, answer: trimmed.slice(0, MAX_ANSWER_CHARS) };
   } catch (error) {
     const reason =
@@ -198,7 +202,9 @@ export function createAskPeerTool(
   // shape a one-way invite produces on the granting side) has a `may` and no `url`, and is
   // correctly absent from this list; it is unaskable, not merely unauthorized.
   const askable = peers.filter((peer) => peer.url !== undefined && peer.url.length > 0);
-  if (askable.length === 0) return undefined;
+  if (askable.length === 0) {
+    return undefined;
+  }
 
   const names = askable.map((peer) => peer.name).join(", ");
 

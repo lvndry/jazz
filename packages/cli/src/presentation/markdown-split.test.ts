@@ -25,29 +25,29 @@ const cases: Case[] = [
     input:
       "para 1.\n\npara 2 in flight that is long enough to escape soft tail " +
       "x".repeat(SOFT_TAIL),
-    expected: (s) => s.indexOf("\n\n") + 2,
+    expected: (text) => text.indexOf("\n\n") + 2,
   },
   {
     name: "open code fence forbids any split past its start",
     // Split at the start of the fence line (i.e., right after the preceding \n).
     // The trailing \n is included in the prefix by convention.
     input: "before fence " + "x".repeat(SOFT_TAIL) + "\n```js\nlet x = 1\n",
-    expected: (s) => s.indexOf("\n```") + 1,
+    expected: (text) => text.indexOf("\n```") + 1,
   },
   {
     name: "closed code fence allows split right after closing line",
     input: "intro\n\n```\nx\n```\n" + "y".repeat(SOFT_TAIL + 50),
-    expected: (s) => s.indexOf("```\n", s.indexOf("```") + 3) + "```\n".length,
+    expected: (text) => text.indexOf("```\n", text.indexOf("```") + 3) + "```\n".length,
   },
   {
     name: "open list clamps split before the list",
     input: "para.\n\n- a\n- b in flight " + "x".repeat(SOFT_TAIL),
-    expected: (s) => s.indexOf("\n\n") + 2,
+    expected: (text) => text.indexOf("\n\n") + 2,
   },
   {
     name: "open parenthesis-ordered list clamps split before the list",
     input: "para.\n\n1) a\n2) b in flight " + "x".repeat(SOFT_TAIL),
-    expected: (s) => s.indexOf("\n\n") + 2,
+    expected: (text) => text.indexOf("\n\n") + 2,
   },
   {
     name: "20KB blob with no structure falls back to last newline before MAX_PENDING_TAIL",
@@ -69,55 +69,58 @@ const cases: Case[] = [
   {
     name: "inline code spanning split rejects offset inside backticks",
     input: "para 1.\n\n`open code without close " + "x".repeat(SOFT_TAIL),
-    expected: (s) => s.indexOf("\n\n") + 2,
+    expected: (text) => text.indexOf("\n\n") + 2,
   },
   {
     name: "bold spanning split rejects offset inside **",
     input: "para 1.\n\n**unclosed bold " + "x".repeat(SOFT_TAIL),
-    expected: (s) => s.indexOf("\n\n") + 2,
+    expected: (text) => text.indexOf("\n\n") + 2,
   },
   {
     name: "link spanning split rejects offset inside [..](..)",
     input: "para 1.\n\n[label](http " + "x".repeat(SOFT_TAIL),
-    expected: (s) => s.indexOf("\n\n") + 2,
+    expected: (text) => text.indexOf("\n\n") + 2,
   },
   {
     name: "splitting twice on the post-split tail is stable",
     input: "para 1.\n\npara 2.\n\n" + "x".repeat(SOFT_TAIL + 100),
     // findLastBlankLine finds the last \n\n before upperBound — the second one
     // after "para 2." — so the promoted chunk is "para 1.\n\npara 2.\n\n".
-    expected: (s) => s.lastIndexOf("\n\n") + 2,
+    expected: (text) => text.lastIndexOf("\n\n") + 2,
   },
   {
     name: "mismatched fence chars do not pair: ``` opened, ~~~ does not close it",
     input: "intro\n```js\nx\n~~~\nstill inside fence " + "x".repeat(SOFT_TAIL),
     // The ``` fence is still open. Floor is at position of \n```.
-    expected: (s) => s.indexOf("```"),
+    expected: (text) => text.indexOf("```"),
   },
   {
     name: "list block followed by an in-flight paragraph splits at the list end",
     // The paragraph after the list has no newline yet, so the only boundary
     // on offer is the end of the list block.
     input: "- a\n- b\nprose that is still streaming " + "x".repeat(SOFT_TAIL),
-    expected: (s) => s.lastIndexOf("- b\n") + "- b\n".length,
+    expected: (text) => text.lastIndexOf("- b\n") + "- b\n".length,
   },
   {
     name: "sentence end before a blank line defers to the blank line",
     input: "one sentence.\n\nsecond paragraph " + "x".repeat(SOFT_TAIL),
-    expected: (s) => s.indexOf("\n\n") + 2,
+    expected: (text) => text.indexOf("\n\n") + 2,
   },
   {
     name: "single-star italic spanning split rejects offset inside *",
     input: "para 1.\n\n*unclosed italic " + "x".repeat(SOFT_TAIL),
-    expected: (s) => s.indexOf("\n\n") + 2,
+    expected: (text) => text.indexOf("\n\n") + 2,
   },
 ];
 
 describe("findLastSafeSplitPoint", () => {
-  for (const c of cases) {
-    test(c.name, () => {
-      const expected = typeof c.expected === "function" ? c.expected(c.input) : c.expected;
-      expect(findLastSafeSplitPoint(c.input)).toBe(expected);
+  for (const testCase of cases) {
+    test(testCase.name, () => {
+      const expected =
+        typeof testCase.expected === "function"
+          ? testCase.expected(testCase.input)
+          : testCase.expected;
+      expect(findLastSafeSplitPoint(testCase.input)).toBe(expected);
     });
   }
 

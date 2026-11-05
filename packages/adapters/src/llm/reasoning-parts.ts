@@ -14,13 +14,19 @@ export function extractReasoningParts(
   const collected: StoredReasoningPart[] = [];
 
   for (const message of responseMessages) {
-    if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+    if (message.role !== "assistant" || !Array.isArray(message.content)) {
+      continue;
+    }
 
     for (const part of message.content as ReadonlyArray<ReasoningLikePart>) {
-      if (part.type !== "reasoning") continue;
+      if (part.type !== "reasoning") {
+        continue;
+      }
       const hasText = typeof part.text === "string" && part.text.length > 0;
       const hasPayload = part.providerOptions != null;
-      if (!hasText && !hasPayload) continue;
+      if (!hasText && !hasPayload) {
+        continue;
+      }
 
       collected.push({
         text: part.text ?? "",

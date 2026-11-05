@@ -93,7 +93,9 @@ function contentString(message: ChatMessage): string {
 }
 
 function preview(text: string): string {
-  if (text.length <= PREVIEW_HEAD + PREVIEW_TAIL + 60) return text;
+  if (text.length <= PREVIEW_HEAD + PREVIEW_TAIL + 60) {
+    return text;
+  }
   return `${text.slice(0, PREVIEW_HEAD)}\n…[${text.length - PREVIEW_HEAD - PREVIEW_TAIL} chars of the middle omitted]…\n${text.slice(-PREVIEW_TAIL)}`;
 }
 
@@ -114,16 +116,22 @@ export function reduceToolResultsAdvised(
     const toolNameByCallId = new Map<string, string>();
     for (const message of messages) {
       if (message.role === "assistant" && message.tool_calls) {
-        for (const call of message.tool_calls) toolNameByCallId.set(call.id, call.function.name);
+        for (const call of message.tool_calls) {
+          toolNameByCallId.set(call.id, call.function.name);
+        }
       }
     }
 
     const candidateTokens = new Map<number, number>();
     for (let index = 0; index < messages.length && index < options.protectedFromIndex; index++) {
       const message = messages[index];
-      if (!message || message.role !== "tool" || message.cleared || !message.tool_call_id) continue;
+      if (!message || message.role !== "tool" || message.cleared || !message.tool_call_id) {
+        continue;
+      }
       const tokens = counter.countMessage(message, options.modelHint);
-      if (tokens < minTokens) continue;
+      if (tokens < minTokens) {
+        continue;
+      }
       candidateTokens.set(index, tokens);
     }
 
@@ -134,7 +142,9 @@ export function reduceToolResultsAdvised(
       answered: false,
       decisions: [],
     };
-    if (candidateTokens.size === 0) return unchanged;
+    if (candidateTokens.size === 0) {
+      return unchanged;
+    }
 
     const input: CompactToolsInput = {
       goal: options.goal,
@@ -152,7 +162,9 @@ export function reduceToolResultsAdvised(
     };
 
     const outcome = yield* options.decide(input);
-    if (outcome.status !== "answered") return unchanged;
+    if (outcome.status !== "answered") {
+      return unchanged;
+    }
 
     const actionByCallId = new Map<string, CompactToolAction>(
       outcome.decisions.map((decision) => [decision.id, decision.action]),
@@ -163,7 +175,9 @@ export function reduceToolResultsAdvised(
     const decisions: AdvisedDecision[] = [];
     const next = messages.map((message, index) => {
       const originalTokens = candidateTokens.get(index);
-      if (originalTokens === undefined) return message;
+      if (originalTokens === undefined) {
+        return message;
+      }
       const toolCallId = message.tool_call_id as string;
       const action = actionByCallId.get(toolCallId) ?? "keep";
       const toolName = toolNameByCallId.get(toolCallId);
@@ -173,7 +187,9 @@ export function reduceToolResultsAdvised(
         chars: contentString(message).length,
         tokens: originalTokens,
       });
-      if (action === "keep") return message;
+      if (action === "keep") {
+        return message;
+      }
       const content =
         action === "truncate"
           ? truncatedContent(contentString(message), toolName)

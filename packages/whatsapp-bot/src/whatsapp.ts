@@ -70,7 +70,7 @@ export interface WhatsAppMedia {
  */
 type BaileysLogger = NonNullable<Parameters<typeof makeWASocket>[0]["logger"]>;
 
-const SILENT_LOGGER = {
+const silentLogger = {
   level: "silent",
   fatal: () => {},
   error: () => {},
@@ -78,12 +78,15 @@ const SILENT_LOGGER = {
   info: () => {},
   debug: () => {},
   trace: () => {},
-  child: () => SILENT_LOGGER,
-} as unknown as BaileysLogger;
+  child: (): BaileysLogger => SILENT_LOGGER,
+};
+const SILENT_LOGGER: BaileysLogger = silentLogger;
 
 function textOf(message: Record<string, unknown>): string {
   const conversation = message["conversation"];
-  if (typeof conversation === "string") return conversation;
+  if (typeof conversation === "string") {
+    return conversation;
+  }
 
   for (const key of ["extendedTextMessage", "imageMessage", "videoMessage", "documentMessage"]) {
     const node = message[key];
@@ -91,14 +94,15 @@ function textOf(message: Record<string, unknown>): string {
       const candidate = (node as Record<string, unknown>)[
         key === "extendedTextMessage" ? "text" : "caption"
       ];
-      if (typeof candidate === "string") return candidate;
+      if (typeof candidate === "string") {
+        return candidate;
+      }
     }
   }
   return "";
 }
 
-function mediaOf(message: Record<string, unknown>): WhatsAppMedia | undefined {
-  const whole = message as unknown as proto.IMessage;
+function mediaOf(message: proto.IMessage): WhatsAppMedia | undefined {
   const kinds = [
     ["imageMessage", "image"],
     ["audioMessage", "audio"],
@@ -108,13 +112,14 @@ function mediaOf(message: Record<string, unknown>): WhatsAppMedia | undefined {
 
   for (const [key, kind] of kinds) {
     const node = message[key];
-    if (node === null || typeof node !== "object") continue;
-    const fields = node as Record<string, unknown>;
+    if (node === null || typeof node !== "object") {
+      continue;
+    }
     return {
       kind,
-      mimeType: typeof fields["mimetype"] === "string" ? fields["mimetype"] : "",
-      fileName: typeof fields["fileName"] === "string" ? fields["fileName"] : undefined,
-      source: whole,
+      mimeType: typeof node.mimetype === "string" ? node.mimetype : "",
+      fileName: "fileName" in node && typeof node.fileName === "string" ? node.fileName : undefined,
+      source: message,
     };
   }
   return undefined;
@@ -127,21 +132,31 @@ function mediaOf(message: Record<string, unknown>): WhatsAppMedia | undefined {
  * through the same event as real messages and outnumbers them.
  */
 export function flattenMessage(raw: unknown): WhatsAppMessage | undefined {
-  if (raw === null || typeof raw !== "object") return undefined;
+  if (raw === null || typeof raw !== "object") {
+    return undefined;
+  }
   const envelope = raw as Record<string, unknown>;
 
   const key = envelope["key"];
-  if (key === null || typeof key !== "object") return undefined;
+  if (key === null || typeof key !== "object") {
+    return undefined;
+  }
   const keyFields = key as Record<string, unknown>;
 
   const chatJid = typeof keyFields["remoteJid"] === "string" ? keyFields["remoteJid"] : undefined;
   const id = typeof keyFields["id"] === "string" ? keyFields["id"] : undefined;
-  if (chatJid === undefined || id === undefined) return undefined;
+  if (chatJid === undefined || id === undefined) {
+    return undefined;
+  }
   // Status broadcasts are everyone's stories, not a conversation.
-  if (chatJid === "status@broadcast") return undefined;
+  if (chatJid === "status@broadcast") {
+    return undefined;
+  }
 
   const message = envelope["message"];
-  if (message === null || typeof message !== "object") return undefined;
+  if (message === null || typeof message !== "object") {
+    return undefined;
+  }
   const messageFields = message as Record<string, unknown>;
 
   const isFromMe = keyFields["fromMe"] === true;
@@ -160,8 +175,10 @@ export function flattenMessage(raw: unknown): WhatsAppMessage | undefined {
   const quotedParticipant = contextInfo?.["participant"];
 
   const text = textOf(messageFields);
-  const media = mediaOf(messageFields);
-  if (text.trim().length === 0 && media === undefined) return undefined;
+  const media = mediaOf(message);
+  if (text.trim().length === 0 && media === undefined) {
+    return undefined;
+  }
 
   return {
     id,
@@ -228,7 +245,9 @@ export async function connect(options: ConnectionOptions): Promise<Connection> {
   let reconnectAttempts = 0;
 
   const start = (): void => {
-    if (closed) return;
+    if (closed) {
+      return;
+    }
     socket = makeWASocket({
       auth: state,
       version,
@@ -274,10 +293,14 @@ export async function connect(options: ConnectionOptions): Promise<Connection> {
     socket.ev.on("messages.upsert", (upsert) => {
       // "append" is history being backfilled, not new traffic; answering it
       // would replay old conversations on every reconnect.
-      if (upsert.type !== "notify") return;
+      if (upsert.type !== "notify") {
+        return;
+      }
       for (const raw of upsert.messages) {
         const message = flattenMessage(raw);
-        if (message !== undefined) options.onMessage(message);
+        if (message !== undefined) {
+          options.onMessage(message);
+        }
       }
     });
   };
@@ -294,7 +317,9 @@ export async function connect(options: ConnectionOptions): Promise<Connection> {
   }
 
   const requireSocket = (): WASocket => {
-    if (socket === undefined) throw new Error("WhatsApp socket is not connected");
+    if (socket === undefined) {
+      throw new Error("WhatsApp socket is not connected");
+    }
     return socket;
   };
 
@@ -324,7 +349,9 @@ export async function connect(options: ConnectionOptions): Promise<Connection> {
       await requireSocket().sendPresenceUpdate("composing", jid);
     },
     saveMedia: async (message, directory) => {
-      if (message.media === undefined) return undefined;
+      if (message.media === undefined) {
+        return undefined;
+      }
       mkdirSync(directory, { recursive: true });
       const bytes = await downloadMediaMessage(
         {

@@ -13,9 +13,15 @@ export function forceSendQueue(
   interrupt: (() => void) | null,
   target: UIStore = store,
 ): ForceSendOutcome {
-  if (interrupt === null) return "no-run";
-  if (draft.length > 0) target.appendToQueue(draft);
-  if (target.getMessageQueueSnapshot().length === 0) return "nothing-to-send";
+  if (interrupt === null) {
+    return "no-run";
+  }
+  if (draft.length > 0) {
+    target.appendToQueue(draft);
+  }
+  if (target.getMessageQueueSnapshot().length === 0) {
+    return "nothing-to-send";
+  }
   target.requestFlushQueue();
   target.printOutput({ type: "warn", message: "Interrupting…", timestamp: new Date() });
   target.collapseAllEphemeral();

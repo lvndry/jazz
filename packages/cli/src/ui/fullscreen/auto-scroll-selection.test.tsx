@@ -5,12 +5,14 @@ import { expect, it, spyOn } from "bun:test";
 import { useState } from "react";
 import { useAutoScrollOnDrag } from "./auto-scroll-selection";
 import { renderForTest, updateForTest } from "./test-helpers";
+import { partialFake } from "../../test-support/partial-fake";
 
 it("cancels edge scrolling on drag end, occlusion, document switch and unmount", async () => {
   const scheduled = new Map<ReturnType<typeof setInterval>, () => void>();
   let serial = 100;
   const interval = spyOn(globalThis, "setInterval").mockImplementation(((callback: unknown) => {
-    const id = ++serial as unknown as ReturnType<typeof setInterval>;
+    serial += 1;
+    const id = partialFake<ReturnType<typeof setInterval>>({ [Symbol.toPrimitive]: () => serial });
     scheduled.set(id, callback as () => void);
     return id;
   }) as typeof globalThis.setInterval);
@@ -37,7 +39,9 @@ it("cancels edge scrolling on drag end, occlusion, document switch and unmount",
     drag();
     expect(calls).toEqual([-3]);
     expect(activeTimers()).toBe(1);
-    for (const tick of scheduled.values()) tick();
+    for (const tick of scheduled.values()) {
+      tick();
+    }
     expect(calls).toEqual([-3, -3]);
     handlers?.onMouseDragEnd();
     expect(activeTimers()).toBe(0);
@@ -54,7 +58,9 @@ it("cancels edge scrolling on drag end, occlusion, document switch and unmount",
     rendered.renderer.destroy();
     expect(activeTimers()).toBe(0);
   } finally {
-    if (!rendered.renderer.isDestroyed) rendered.renderer.destroy();
+    if (!rendered.renderer.isDestroyed) {
+      rendered.renderer.destroy();
+    }
     interval.mockRestore();
     clear.mockRestore();
   }

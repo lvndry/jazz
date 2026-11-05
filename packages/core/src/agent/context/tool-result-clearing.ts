@@ -72,7 +72,9 @@ export function toolResultsProtectFromIndex(
   let seen = 0;
   for (let index = messages.length - 1; index >= 0 && seen < cycles; index--) {
     const message = messages[index];
-    if (message?.role !== "assistant" || !message.tool_calls?.length) continue;
+    if (message?.role !== "assistant" || !message.tool_calls?.length) {
+      continue;
+    }
     protectFrom = index;
     seen++;
   }
@@ -121,13 +123,23 @@ export function clearToolResults(
     options.currentTokens - Math.floor(options.budgetTokens * CONTEXT_CLEAR_TARGET_RATIO);
   let tokensReclaimed = 0;
   for (let index = 0; index < messages.length; index++) {
-    if (index >= options.protectedFromIndex) break;
-    if (tokensReclaimed >= tokensToReclaim) break;
+    if (index >= options.protectedFromIndex) {
+      break;
+    }
+    if (tokensReclaimed >= tokensToReclaim) {
+      break;
+    }
     const message = messages[index];
-    if (!message || message.role !== "tool") continue;
-    if (message.cleared) continue;
+    if (!message || message.role !== "tool") {
+      continue;
+    }
+    if (message.cleared) {
+      continue;
+    }
     const originalTokens = counter.countMessage(message, options.modelHint);
-    if (originalTokens < minTokens) continue;
+    if (originalTokens < minTokens) {
+      continue;
+    }
 
     const toolCallId = message.tool_call_id;
     const toolName = toolCallId ? toolNameByCallId.get(toolCallId) : undefined;

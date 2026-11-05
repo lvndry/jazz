@@ -265,7 +265,9 @@ describe("parseWorkerOutput", () => {
 function pipelineObservations(rowsForPair: readonly BenchRow[][]): PairObservation[] {
   const observations: PairObservation[] = [];
   rowsForPair.forEach((rows, pair) => {
-    for (const side of ["base", "head"] as const) observations.push({ pair, side, rows });
+    for (const side of ["base", "head"] as const) {
+      observations.push({ pair, side, rows });
+    }
   });
   return observations;
 }

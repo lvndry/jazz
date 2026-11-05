@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import { z } from "zod";
+import { partialFake } from "@/core/test-support/fakes";
 import { misfireLogPath } from "./misfire-log";
 import { createToolRegistryLayer } from "./tool-registry";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
@@ -134,7 +135,11 @@ describe("ToolRegistry", () => {
       const allNames = yield* registry.listAllTools();
       const listed = yield* registry.listTools();
       const definitions = yield* registry.getToolDefinitions();
-      return { allNames, listed, definitionNames: definitions.map((d) => d.function.name) };
+      return {
+        allNames,
+        listed,
+        definitionNames: definitions.map((definition) => definition.function.name),
+      };
     });
 
     const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
@@ -279,8 +284,8 @@ describe("ToolRegistry", () => {
       });
 
       const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
-      const withSummary = result.find((s) => s.name === "with-summary");
-      const noSummary = result.find((s) => s.name === "no-summary");
+      const withSummary = result.find((summary) => summary.name === "with-summary");
+      const noSummary = result.find((summary) => summary.name === "no-summary");
 
       expect(withSummary?.summary).toBe("Short explicit summary.");
       expect(withSummary?.categoryDisplayName).toBe("Deferred");
@@ -302,22 +307,22 @@ describe("ToolRegistry", () => {
       });
 
       const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
-      expect(result.map((d) => d.function.name)).toEqual(["wanted"]);
+      expect(result.map((definition) => definition.function.name)).toEqual(["wanted"]);
     });
   });
 });
 
 describe("ToolRegistry.executeTool redacts secrets", () => {
   const apiKey = "sk-proj-configured0123456789abcdef";
-  const quietLogger = {
+  const quietLogger = partialFake<LoggerService>({
     debug: () => Effect.void,
     info: () => Effect.void,
     warn: () => Effect.void,
     error: () => Effect.void,
-  } as unknown as LoggerService;
-  const config = {
+  });
+  const config = partialFake<AgentConfigService>({
     appConfig: Effect.succeed({ llm: { openai: { api_key: apiKey } } }),
-  } as unknown as AgentConfigService;
+  });
 
   function execute(
     output: Effect.Effect<ToolExecutionResult, Error>,
@@ -367,10 +372,10 @@ describe("ToolRegistry.executeTool redacts secrets", () => {
 
   it("replaces the secrets the config service holds outside the config", async () => {
     const peerToken = "peer-token-held-in-keyring-0123";
-    const withHeld = {
+    const withHeld = partialFake<AgentConfigService>({
       ...config,
       knownSecrets: Effect.succeed([{ name: "peers.sam.token", value: peerToken }]),
-    } as unknown as AgentConfigService;
+    });
     const result = await execute(
       Effect.succeed({ success: true, result: { content: `curl -H "X: ${peerToken}"` } }),
       withHeld,

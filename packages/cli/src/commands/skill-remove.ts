@@ -44,7 +44,9 @@ export function removeSkillCommand(
           throw new Error("Skill root and target must be real directories, not symbolic links.");
         }
         const skillStat = await lstat(join(directory, "SKILL.md"));
-        if (!skillStat.isFile()) throw new Error("The target must contain a regular SKILL.md.");
+        if (!skillStat.isFile()) {
+          throw new Error("The target must contain a regular SKILL.md.");
+        }
         return { rootStat, directoryStat };
       },
       catch: (error) =>

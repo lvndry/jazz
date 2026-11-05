@@ -13,7 +13,9 @@ const MINIMUM_BUN_VERSION = [1, 4] as const;
 function assertBunSupportsBytecode(): void {
   const [major = 0, minor = 0] = Bun.version.split(".").map((part) => Number.parseInt(part, 10));
   const [requiredMajor, requiredMinor] = MINIMUM_BUN_VERSION;
-  if (major > requiredMajor || (major === requiredMajor && minor >= requiredMinor)) return;
+  if (major > requiredMajor || (major === requiredMajor && minor >= requiredMinor)) {
+    return;
+  }
   throw new Error(
     `Compiling a binary needs Bun >= ${requiredMajor}.${requiredMinor} (found ${Bun.version}): ` +
       `ESM bytecode compilation is unavailable before it. Run \`bun upgrade\`.`,
@@ -129,10 +131,14 @@ async function main(): Promise<void> {
   fs.mkdirSync(path.join("deploy", "binaries"), { recursive: true });
   for (const target of targets) {
     const binaryPath = await buildStandaloneBinary(target);
-    if (stageNpm) stageNpmPlatformPackage(target, binaryPath);
+    if (stageNpm) {
+      stageNpmPlatformPackage(target, binaryPath);
+    }
   }
 
-  if (stageNpm) stageNpmMainPackage();
+  if (stageNpm) {
+    stageNpmMainPackage();
+  }
 }
 
 await main();

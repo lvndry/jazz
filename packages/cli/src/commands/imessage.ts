@@ -56,14 +56,18 @@ function guiDomain(): string {
  */
 export async function imessageCommand(agent?: string, local = false): Promise<void> {
   if (!local) {
-    if (agent !== undefined) await selectSeedAgent(agent, "JAZZ_PHOTON_AGENT");
+    if (agent !== undefined) {
+      await selectSeedAgent(agent, "JAZZ_PHOTON_AGENT");
+    }
     const { startBridge } = await import("@jazz/photon-bot/bridge");
     await startBridge();
     return;
   }
 
   requireMac();
-  if (agent !== undefined) await selectSeedAgent(agent, "JAZZ_IMESSAGE_AGENT");
+  if (agent !== undefined) {
+    await selectSeedAgent(agent, "JAZZ_IMESSAGE_AGENT");
+  }
   const { startBridge } = await import("@jazz/imessage-bot/bridge");
   await startBridge();
 }

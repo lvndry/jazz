@@ -11,6 +11,9 @@
 
 import type { CliRenderer } from "@opentui/core";
 
+const REPAINT_FLAG = "forceFullRepaintRequested";
+const PRESENT_SCENE_METHOD = "presentNativeScene";
+
 export interface RendererInvalidation {
   readonly invalidate: () => void;
 }
@@ -19,13 +22,12 @@ export interface RendererInvalidation {
 export function rendererInvalidation(
   renderer: Pick<CliRenderer, "requestRender">,
 ): RendererInvalidation {
-  const backend = renderer as unknown as { forceFullRepaintRequested?: unknown };
-  if (typeof backend.forceFullRepaintRequested !== "boolean") {
+  if (typeof Reflect.get(renderer, REPAINT_FLAG) !== "boolean") {
     throw new Error("Unsupported OpenTUI repaint contract");
   }
   return {
     invalidate() {
-      backend.forceFullRepaintRequested = true;
+      Reflect.set(renderer, REPAINT_FLAG, true);
       renderer.requestRender();
     },
   };
@@ -36,22 +38,21 @@ export function observeNativeFailure(
   renderer: CliRenderer,
   onFailure: (error: Error) => void,
 ): () => void {
-  const backend = renderer as unknown as { presentNativeScene?: () => Promise<unknown> };
-  const original = backend.presentNativeScene;
+  const original: unknown = Reflect.get(renderer, PRESENT_SCENE_METHOD);
   if (typeof original !== "function") {
     throw new Error("Unsupported OpenTUI native presentation contract");
   }
   const observed = async (): Promise<unknown> => {
-    const result = await original.call(renderer);
+    const result: unknown = await original.call(renderer);
     if (result === "failed") {
       onFailure(new Error("OpenTUI native output failed"));
     }
     return result;
   };
-  backend.presentNativeScene = observed;
+  Reflect.set(renderer, PRESENT_SCENE_METHOD, observed);
   return () => {
-    if (backend.presentNativeScene === observed) {
-      backend.presentNativeScene = original;
+    if (Reflect.get(renderer, PRESENT_SCENE_METHOD) === observed) {
+      Reflect.set(renderer, PRESENT_SCENE_METHOD, original);
     }
   };
 }

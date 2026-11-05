@@ -60,17 +60,13 @@ const observation = z.object({
 });
 type Observation = z.infer<typeof observation>;
 
-interface HeapSnapshot {
-  readonly nodes: readonly number[];
-  readonly nodeClassNames: readonly string[];
-}
 /** Fields per node in a JSC heap snapshot: id, size, class index, flags. */
 const SNAPSHOT_NODE_FIELDS = 4;
 
 /** Live bytes outside compiled code, from a heap snapshot taken after a full collection. */
 function liveDataBytes(): number {
   fullGC();
-  const snapshot = Bun.generateHeapSnapshot() as unknown as HeapSnapshot;
+  const snapshot = Bun.generateHeapSnapshot();
   let total = 0;
   for (let index = 0; index < snapshot.nodes.length; index += SNAPSHOT_NODE_FIELDS) {
     const className = snapshot.nodeClassNames[snapshot.nodes[index + 2] ?? 0] ?? "";

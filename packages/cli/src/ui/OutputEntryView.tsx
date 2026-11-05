@@ -160,7 +160,9 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     const content = isTerminalReport(entry.message)
       ? { kind: "report" as const, report: entry.message }
       : entry.message;
-    if (content.kind === "tool") return <ReceiptLine receipt={content.receipt} />;
+    if (content.kind === "tool") {
+      return <ReceiptLine receipt={content.receipt} />;
+    }
     if (content.kind === "agent" || content.kind === "reasoning") {
       const kind = content.kind === "agent" ? "response" : "reasoning";
       const collapsed =

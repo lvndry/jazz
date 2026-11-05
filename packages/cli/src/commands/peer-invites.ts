@@ -34,6 +34,10 @@ import { generate as generateQrCode } from "qrcode-terminal";
 import { resolvePeerInviteOrigin } from "./peer-invite-origin";
 import { describeTier } from "./peers";
 
+async function readJsonBody(response: Response): Promise<unknown> {
+  return response.json();
+}
+
 function renderQrCode(text: string): Promise<string> {
   return new Promise((resolve) => {
     generateQrCode(text, { small: true }, resolve);
@@ -48,23 +52,36 @@ function renderQrCode(text: string): Promise<string> {
  * transfer this feature introduces that manual `set-token` never had.
  */
 function isEncryptedOrUnreachableNetwork(host: string): boolean {
-  if (host === "127.0.0.1" || host === "::1" || host === "[::1]" || host === "localhost")
+  if (host === "127.0.0.1" || host === "::1" || host === "[::1]" || host === "localhost") {
     return true;
+  }
   const octets = host.split(".");
   const ipv4 =
     octets.length === 4 && octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
       ? octets.map(Number)
       : undefined;
-  if (ipv4?.[0] === 10) return true;
-  if (ipv4?.[0] === 192 && ipv4[1] === 168) return true;
-  if (ipv4?.[0] === 172 && ipv4[1] !== undefined && ipv4[1] >= 16 && ipv4[1] <= 31) return true;
-  if (ipv4?.[0] === 100 && ipv4[1] !== undefined && ipv4[1] >= 64 && ipv4[1] <= 127) return true;
-  if (host.endsWith(".ts.net")) return true;
+  if (ipv4?.[0] === 10) {
+    return true;
+  }
+  if (ipv4?.[0] === 192 && ipv4[1] === 168) {
+    return true;
+  }
+  if (ipv4?.[0] === 172 && ipv4[1] !== undefined && ipv4[1] >= 16 && ipv4[1] <= 31) {
+    return true;
+  }
+  if (ipv4?.[0] === 100 && ipv4[1] !== undefined && ipv4[1] >= 64 && ipv4[1] <= 127) {
+    return true;
+  }
+  if (host.endsWith(".ts.net")) {
+    return true;
+  }
   return false;
 }
 
 function plaintextWarning(host: string): string | undefined {
-  if (isEncryptedOrUnreachableNetwork(host)) return undefined;
+  if (isEncryptedOrUnreachableNetwork(host)) {
+    return undefined;
+  }
   return (
     "Warning: this endpoint is not loopback or a private/Tailscale network and uses plain " +
     "HTTP — the invite secret and the resulting peer token will cross the network " +
@@ -158,7 +175,9 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
       originUrl !== undefined && originUrl.protocol === "https:"
         ? undefined
         : plaintextWarning(originUrl?.hostname ?? originHost);
-    if (warning !== undefined) process.stderr.write(warning);
+    if (warning !== undefined) {
+      process.stderr.write(warning);
+    }
 
     process.stdout.write(
       `Created an invite for "${options.inviteeName}" — ${describeTier(options.disclosure)} ` +
@@ -259,7 +278,9 @@ function parseInviteUrl(raw: string): ParsedInviteUrl | undefined {
   const match = /^\/peer-invites\/([^/]+)\/?$/.exec(url.pathname);
   const id = match?.[1];
   const secret = url.hash.startsWith("#") ? url.hash.slice(1) : "";
-  if (id === undefined || secret.length === 0) return undefined;
+  if (id === undefined || secret.length === 0) {
+    return undefined;
+  }
   return { origin: url.origin, id, secret };
 }
 
@@ -272,7 +293,9 @@ interface InvitePreview {
 }
 
 function parsePreview(body: unknown): InvitePreview | undefined {
-  if (typeof body !== "object" || body === null) return undefined;
+  if (typeof body !== "object" || body === null) {
+    return undefined;
+  }
   const candidate = body as Record<string, unknown>;
   if (
     typeof candidate["inviterDisplayName"] === "string" &&
@@ -334,14 +357,19 @@ export function backfillAskPeerTool(): Effect.Effect<PeerToolBackfillResult, nev
     const errors: string[] = [];
     for (const agent of agents.success) {
       const tools = agent.config.tools;
-      if (tools === undefined || tools.includes(askPeerToolName)) continue;
+      if (tools === undefined || tools.includes(askPeerToolName)) {
+        continue;
+      }
       const result = yield* Effect.result(
         service.updateAgent(agent.id, {
           config: { ...agent.config, tools: [...tools, askPeerToolName] },
         }),
       );
-      if (result._tag === "Success") updated.push(agent.name);
-      else errors.push(`Could not update "${agent.name}": ${getErrorMessage(result.failure)}`);
+      if (result._tag === "Success") {
+        updated.push(agent.name);
+      } else {
+        errors.push(`Could not update "${agent.name}": ${getErrorMessage(result.failure)}`);
+      }
     }
     return { updated, errors };
   });
@@ -365,7 +393,7 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
       try: (): Promise<{ readonly status: number; readonly body: unknown }> =>
         fetch(`${parsed.origin}/peer-invites/${parsed.id}`).then(async (response) => ({
           status: response.status,
-          body: (await response.json()) as unknown,
+          body: await readJsonBody(response),
         })),
       catch: (error) => error,
     }).pipe(Effect.catch(() => Effect.succeed(undefined)));
@@ -407,7 +435,9 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
     const parsedUrl = new URL(parsed.origin);
     const warning =
       parsedUrl.protocol === "https:" ? undefined : plaintextWarning(parsedUrl.hostname);
-    if (warning !== undefined) process.stderr.write(warning);
+    if (warning !== undefined) {
+      process.stderr.write(warning);
+    }
 
     const backend = yield* detectKeyringBackend();
     if (backend === "none") {
@@ -461,7 +491,7 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
           body: JSON.stringify({ secret: parsed.secret, as: localName }),
         }).then(async (response) => ({
           status: response.status,
-          body: (await response.json()) as unknown,
+          body: await readJsonBody(response),
         })),
       catch: (error) => error,
     }).pipe(
@@ -492,7 +522,9 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
     }
 
     const backfill = yield* backfillAskPeerTool();
-    if (backfill.errors.length > 0) process.exitCode = 1;
+    if (backfill.errors.length > 0) {
+      process.exitCode = 1;
+    }
 
     if (options.json) {
       process.stdout.write(

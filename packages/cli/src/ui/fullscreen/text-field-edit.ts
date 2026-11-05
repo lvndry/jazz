@@ -29,8 +29,12 @@ export interface FieldKeyChord {
 /** Start of the word before `at`: skip whitespace, then the run before it. */
 export function wordStartBefore(characters: readonly string[], at: number): number {
   let index = Math.max(0, Math.min(at, characters.length));
-  while (index > 0 && /\s/.test(characters[index - 1] as string)) index -= 1;
-  while (index > 0 && !/\s/.test(characters[index - 1] as string)) index -= 1;
+  while (index > 0 && /\s/.test(characters[index - 1] as string)) {
+    index -= 1;
+  }
+  while (index > 0 && !/\s/.test(characters[index - 1] as string)) {
+    index -= 1;
+  }
   return index;
 }
 
@@ -38,8 +42,12 @@ export function wordStartBefore(characters: readonly string[], at: number): numb
 export function wordEndAfter(characters: readonly string[], at: number): number {
   const limit = characters.length;
   let index = Math.max(0, Math.min(at, limit));
-  while (index < limit && /\s/.test(characters[index] as string)) index += 1;
-  while (index < limit && !/\s/.test(characters[index] as string)) index += 1;
+  while (index < limit && /\s/.test(characters[index] as string)) {
+    index += 1;
+  }
+  while (index < limit && !/\s/.test(characters[index] as string)) {
+    index += 1;
+  }
   return index;
 }
 
@@ -72,14 +80,18 @@ export function applyTextFieldKey(field: FieldState, key: FieldKeyChord): FieldS
     };
   }
   if (name === "backspace") {
-    if (caret === 0) return field;
+    if (caret === 0) {
+      return field;
+    }
     return {
       value: [...characters.slice(0, caret - 1), ...characters.slice(caret)].join(""),
       caret: caret - 1,
     };
   }
   if (name === "delete") {
-    if (caret >= characters.length) return field;
+    if (caret >= characters.length) {
+      return field;
+    }
     return {
       value: [...characters.slice(0, caret), ...characters.slice(caret + 1)].join(""),
       caret,
@@ -89,8 +101,12 @@ export function applyTextFieldKey(field: FieldState, key: FieldKeyChord): FieldS
   // Caret motion, widest jump to narrowest: Cmd goes to the edge of the line,
   // Option/Ctrl move by word, Home/End and Ctrl+A/E work everywhere else.
   const wordJump = meta || option || ctrl;
-  if (name === "left" && superKey) return { value: field.value, caret: 0 };
-  if (name === "right" && superKey) return { value: field.value, caret: characters.length };
+  if (name === "left" && superKey) {
+    return { value: field.value, caret: 0 };
+  }
+  if (name === "right" && superKey) {
+    return { value: field.value, caret: characters.length };
+  }
   if (name === "left" && wordJump) {
     return { value: field.value, caret: wordStartBefore(characters, caret) };
   }
@@ -103,9 +119,12 @@ export function applyTextFieldKey(field: FieldState, key: FieldKeyChord): FieldS
   if (name === "end" || isCtrlLetter({ name, ctrl }, "e")) {
     return { value: field.value, caret: characters.length };
   }
-  if (name === "left") return { value: field.value, caret: Math.max(0, caret - 1) };
-  if (name === "right")
+  if (name === "left") {
+    return { value: field.value, caret: Math.max(0, caret - 1) };
+  }
+  if (name === "right") {
     return { value: field.value, caret: Math.min(characters.length, caret + 1) };
+  }
 
   // Typing, from the sequence the terminal actually sent — see the composer's
   // identical check for why `name` cannot be used to compose text.

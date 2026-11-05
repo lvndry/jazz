@@ -34,7 +34,9 @@ export function computeUsageCostUSD(
   tokens: UsageCostTokens,
   pricing: UsageCostPricing | undefined,
 ): number | null {
-  if (tokens.billedCostUSD !== undefined) return tokens.billedCostUSD;
+  if (tokens.billedCostUSD !== undefined) {
+    return tokens.billedCostUSD;
+  }
   if (pricing?.inputPricePerMillion === undefined && pricing?.outputPricePerMillion === undefined) {
     return null;
   }
@@ -66,7 +68,9 @@ export function isUsageCostIncomplete(
   tokens: UsageCostTokens,
   pricing: UsageCostPricing | undefined,
 ): boolean {
-  if (tokens.billedCostUSD !== undefined) return false;
+  if (tokens.billedCostUSD !== undefined) {
+    return false;
+  }
   return (
     (tokens.cacheWriteTokens ?? 0) > 0 &&
     pricing?.cacheWritePricePerMillion === undefined &&

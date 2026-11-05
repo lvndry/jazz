@@ -26,36 +26,44 @@ export function isWordChar(char: string): boolean {
  *
  */
 export function findPrevWordBoundary(value: string, cursor: number): number {
-  if (cursor === 0) return 0;
+  if (cursor === 0) {
+    return 0;
+  }
 
-  let i = cursor;
+  let index = cursor;
 
   // If we're in the middle or end of a word, skip to its start
-  const charBefore = value[i - 1];
-  if (i > 0 && charBefore !== undefined && isWordChar(charBefore)) {
-    while (i > 0) {
-      const char = value[i - 1];
-      if (char === undefined || !isWordChar(char)) break;
-      i--;
+  const charBefore = value[index - 1];
+  if (index > 0 && charBefore !== undefined && isWordChar(charBefore)) {
+    while (index > 0) {
+      const char = value[index - 1];
+      if (char === undefined || !isWordChar(char)) {
+        break;
+      }
+      index--;
     }
-    return i;
+    return index;
   }
 
   // Skip backward through non-word characters
-  while (i > 0) {
-    const char = value[i - 1];
-    if (char === undefined || isWordChar(char)) break;
-    i--;
+  while (index > 0) {
+    const char = value[index - 1];
+    if (char === undefined || isWordChar(char)) {
+      break;
+    }
+    index--;
   }
 
   // Skip backward through word characters to find the start
-  while (i > 0) {
-    const char = value[i - 1];
-    if (char === undefined || !isWordChar(char)) break;
-    i--;
+  while (index > 0) {
+    const char = value[index - 1];
+    if (char === undefined || !isWordChar(char)) {
+      break;
+    }
+    index--;
   }
 
-  return i;
+  return index;
 }
 
 /**
@@ -68,34 +76,42 @@ export function findPrevWordBoundary(value: string, cursor: number): number {
  *
  */
 export function findNextWordBoundary(value: string, cursor: number): number {
-  if (cursor >= value.length) return value.length;
+  if (cursor >= value.length) {
+    return value.length;
+  }
 
-  let i = cursor;
+  let index = cursor;
 
   // If we're in the middle or start of a word, skip to its end
-  const charAt = value[i];
-  if (i < value.length && charAt !== undefined && isWordChar(charAt)) {
-    while (i < value.length) {
-      const char = value[i];
-      if (char === undefined || !isWordChar(char)) break;
-      i++;
+  const charAt = value[index];
+  if (index < value.length && charAt !== undefined && isWordChar(charAt)) {
+    while (index < value.length) {
+      const char = value[index];
+      if (char === undefined || !isWordChar(char)) {
+        break;
+      }
+      index++;
     }
-    return i;
+    return index;
   }
 
   // Skip forward through non-word characters
-  while (i < value.length) {
-    const char = value[i];
-    if (char === undefined || isWordChar(char)) break;
-    i++;
+  while (index < value.length) {
+    const char = value[index];
+    if (char === undefined || isWordChar(char)) {
+      break;
+    }
+    index++;
   }
 
   // Skip forward through word characters to find the end
-  while (i < value.length) {
-    const char = value[i];
-    if (char === undefined || !isWordChar(char)) break;
-    i++;
+  while (index < value.length) {
+    const char = value[index];
+    if (char === undefined || !isWordChar(char)) {
+      break;
+    }
+    index++;
   }
 
-  return i;
+  return index;
 }

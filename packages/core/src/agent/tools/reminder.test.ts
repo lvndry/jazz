@@ -122,7 +122,7 @@ describe("list_reminders tool", () => {
     );
     expect(result.success).toBe(true);
     const data = result.result as { reminders: readonly { id: string }[] };
-    expect(data.reminders.map((r) => r.id)).toEqual(["a", "b"]);
+    expect(data.reminders.map((reminder) => reminder.id)).toEqual(["a", "b"]);
   });
 });
 

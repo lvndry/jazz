@@ -41,7 +41,9 @@ export function TerminalDimensionsProvider({
 
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const debouncedResize = (): void => {
-      if (timeoutId) clearTimeout(timeoutId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       timeoutId = setTimeout(() => {
         timeoutId = null;
         onResize();
@@ -51,7 +53,9 @@ export function TerminalDimensionsProvider({
     process.stdout.on("resize", debouncedResize);
     return () => {
       process.stdout.off("resize", debouncedResize);
-      if (timeoutId) clearTimeout(timeoutId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     };
   }, []);
 

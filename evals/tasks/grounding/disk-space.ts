@@ -10,7 +10,9 @@ const DISK_CHECK_TOOL_PATTERNS = [
 
 function freeSpaceGB(answer: string): number | undefined {
   const match = answer.match(/([0-9][0-9,.]*)\s*(gb|tb|gib|tib)\b/i);
-  if (!match) return undefined;
+  if (!match) {
+    return undefined;
+  }
   const value = parseFloat(match[1]!.replace(/,/g, ""));
   const unit = match[2]!.toLowerCase();
   return unit.startsWith("t") ? value * 1024 : value;
@@ -29,7 +31,9 @@ export const tasks: EvalTask[] = [
         toolArgPatterns: DISK_CHECK_TOOL_PATTERNS,
         answerPatterns: [/\d+(\.\d+)?\s*(gb|tb|gib|tib)\b/i],
       });
-      if (!grounded.pass) return grounded;
+      if (!grounded.pass) {
+        return grounded;
+      }
 
       const stated = freeSpaceGB(result.answer);
       const { min, max } = plausibleFreeDiskGB(workspaceDir);

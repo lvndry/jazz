@@ -135,7 +135,9 @@ export class InteractiveAuthRequiredError extends Error {
 }
 
 function readJson<T>(raw: string | undefined): T | undefined {
-  if (raw === undefined || raw.trim() === "") return undefined;
+  if (raw === undefined || raw.trim() === "") {
+    return undefined;
+  }
   try {
     return JSON.parse(raw) as T;
   } catch {

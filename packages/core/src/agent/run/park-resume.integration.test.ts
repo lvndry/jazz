@@ -24,6 +24,7 @@ import { RunStoreTag } from "@/core/interfaces/run-store";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
+import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import type { ChatCompletionResponse } from "@/core/types/chat";
 import { AgentRunner } from "../agent-runner";
@@ -96,7 +97,7 @@ function makeLayers(
       : { id: "c2", model: "gpt-4", content: "Done." };
   };
 
-  const logger = {
+  const logger = partialFake<LoggerService>({
     debug: mock(() => Effect.void),
     info: mock(() => Effect.void),
     warn: mock(() => Effect.void),
@@ -107,11 +108,10 @@ function makeLayers(
     popLogGroup: mock(() => Effect.void),
     writeToFile: mock(() => Effect.void),
     logToolCall: mock(() => Effect.void),
-  } as unknown as LoggerService;
+  });
 
-  const presentation = {
+  const presentation = partialFake<PresentationService>({
     presentThinking: mock(() => Effect.void),
-    presentThinkingEnd: mock(() => Effect.void),
     renderMarkdown: mock((content: string) => Effect.succeed(content)),
     presentAgentResponse: mock(() => Effect.void),
     presentCompletion: mock(() => Effect.void),
@@ -127,7 +127,7 @@ function makeLayers(
     // The whole point: nobody is here to answer.
     canPromptForApproval: () => false,
     requestApproval: mock(() => Effect.succeed({ approved: false as const })),
-  } as unknown as PresentationService;
+  });
 
   const dangerTool = {
     name: "danger",
@@ -138,7 +138,7 @@ function makeLayers(
     longRunning: false,
   };
 
-  const registry = {
+  const registry = partialFake<ToolRegistry>({
     registerTool: mock(() => Effect.succeed(undefined)),
     registerForCategory: mock(() => mock(() => Effect.succeed(undefined))),
     listTools: mock(() => Effect.succeed(["danger", "harmless"])),
@@ -180,12 +180,14 @@ function makeLayers(
         });
       }
       executions.push(name);
-      if (typeof args["target"] === "string") executedTargets.push(args["target"]);
+      if (typeof args["target"] === "string") {
+        executedTargets.push(args["target"]);
+      }
       return Effect.succeed({ success: true, result: "did the gated thing" });
     }),
-  } as unknown as ToolRegistry;
+  });
 
-  const llm = {
+  const llm = partialFake<LLMService>({
     getProvider: mock(() =>
       Effect.succeed({
         name: "openai",
@@ -203,12 +205,12 @@ function makeLayers(
         cancel: Effect.void,
       }),
     ),
-  } as unknown as LLMService;
+  });
 
-  const agentService = {
+  const agentService = partialFake<AgentService>({
     getAgent: mock(() => Effect.succeed(AGENT)),
     listAgents: mock(() => Effect.succeed([AGENT])),
-  } as unknown as AgentService;
+  });
 
   return Layer.mergeAll(
     Layer.succeed(LoggerServiceTag, logger),
@@ -217,36 +219,48 @@ function makeLayers(
     Layer.succeed(LLMServiceTag, llm),
     Layer.succeed(AgentServiceTag, agentService),
     Layer.succeed(RunStoreTag, store),
-    Layer.succeed(SkillServiceTag, {
-      listSkills: mock(() => Effect.succeed([])),
-    } as unknown as SkillService),
-    Layer.succeed(AgentConfigServiceTag, {
-      appConfig: Effect.succeed({
-        output: { showMetrics: false, streaming: { enabled: false }, mode: "text" as const },
-        llm: { openai: { api_key: "test-key" } },
+    Layer.succeed(
+      SkillServiceTag,
+      partialFake<SkillService>({
+        listSkills: mock(() => Effect.succeed([])),
       }),
-      get: mock(() => Effect.succeed(undefined)),
-      getOrElse: mock((_key: string, fallback: unknown) => Effect.succeed(fallback)),
-      getOrFail: mock(() => Effect.succeed(undefined)),
-      has: mock(() => Effect.succeed(false)),
-      set: mock(() => Effect.void),
-    } as unknown as AgentConfigService),
-    Layer.succeed(PersonaServiceTag, {
-      getPersonaByIdentifier: mock(() =>
-        Effect.succeed({
-          name: "default",
-          description: "test persona",
-          systemPrompt: "You are a test agent.",
+    ),
+    Layer.succeed(
+      AgentConfigServiceTag,
+      partialFake<AgentConfigService>({
+        appConfig: Effect.succeed({
+          output: { showMetrics: false, streaming: { enabled: false }, mode: "text" as const },
+          llm: { openai: { api_key: "test-key" } },
         }),
-      ),
-    } as unknown as PersonaService),
-    Layer.succeed(MCPServerManagerTag, {} as unknown as MCPServerManager),
-    Layer.succeed(TerminalServiceTag, {} as unknown as TerminalService),
-    Layer.succeed(FileSystem.FileSystem, {} as unknown as FileSystem.FileSystem),
-    Layer.succeed(FileSystemContextServiceTag, {
-      getCwd: () => Effect.succeed(os.tmpdir()),
-      setCwd: () => Effect.void,
-    } as unknown as FileSystemContextService),
+        get: mock(() => Effect.succeed(undefined)),
+        getOrElse: mock((_key: string, fallback: unknown) => Effect.succeed(fallback)),
+        getOrFail: mock(() => Effect.succeed(undefined)),
+        has: mock(() => Effect.succeed(false)),
+        set: mock(() => Effect.void),
+      }),
+    ),
+    Layer.succeed(
+      PersonaServiceTag,
+      partialFake<PersonaService>({
+        getPersonaByIdentifier: mock(() =>
+          Effect.succeed({
+            name: "default",
+            description: "test persona",
+            systemPrompt: "You are a test agent.",
+          }),
+        ),
+      }),
+    ),
+    Layer.succeed(MCPServerManagerTag, partialFake<MCPServerManager>({})),
+    Layer.succeed(TerminalServiceTag, partialFake<TerminalService>({})),
+    Layer.succeed(FileSystem.FileSystem, partialFake<FileSystem.FileSystem>({})),
+    Layer.succeed(
+      FileSystemContextServiceTag,
+      partialFake<FileSystemContextService>({
+        getCwd: () => Effect.succeed(os.tmpdir()),
+        setCwd: () => Effect.void,
+      }),
+    ),
   );
 }
 
@@ -271,8 +285,12 @@ describe("park and resume, through the real loop", () => {
 
     const parked = (await Effect.runPromise(store.list()))[0];
     expect(parked).toBeDefined();
-    if (parked?.state.kind !== "input-required") throw new Error("expected a parked run");
-    if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+    if (parked?.state.kind !== "input-required") {
+      throw new Error("expected a parked run");
+    }
+    if (parked.state.pending.kind !== "tool-approval") {
+      throw new Error("expected an approval");
+    }
     expect(parked.state.pending.request.toolCallId).toBe(TOOL_CALL.id);
     // The transcript has to carry the assistant turn holding the unanswered call, or there
     // is nothing for resume to finish.
@@ -313,7 +331,9 @@ describe("park and resume, through the real loop", () => {
 
     expect(exit._tag).toBe("Success");
     expect(executions).toEqual([]);
-    if (exit._tag === "Failure") return;
+    if (exit._tag === "Failure") {
+      return;
+    }
     expect(isRunParkRequested(exit.value)).toBe(false);
   });
 });
@@ -479,8 +499,12 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     expect(executions).toEqual([]);
 
     const parked = (await Effect.runPromise(store.list()))[0];
-    if (parked?.state.kind !== "input-required") throw new Error("expected a parked run");
-    if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+    if (parked?.state.kind !== "input-required") {
+      throw new Error("expected a parked run");
+    }
+    if (parked.state.pending.kind !== "tool-approval") {
+      throw new Error("expected an approval");
+    }
     expect(parked.state.pending.request.toolCallId).toBe(TOOL_CALL.id);
 
     // Approving it finishes the batch, and each tool runs exactly once.
@@ -517,12 +541,20 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     const askedAbout: string[] = [];
     for (let round = 0; round < 5; round += 1) {
       const parked = (await Effect.runPromise(store.list()))[0];
-      if (parked === undefined) break;
-      if (parked.state.kind !== "input-required") throw new Error("expected a parked run");
-      if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+      if (parked === undefined) {
+        break;
+      }
+      if (parked.state.kind !== "input-required") {
+        throw new Error("expected a parked run");
+      }
+      if (parked.state.pending.kind !== "tool-approval") {
+        throw new Error("expected an approval");
+      }
       askedAbout.push(parked.state.pending.request.toolCallId);
       // Nothing may have run while approvals are still outstanding.
-      if (round === 0) expect(executions).toEqual([]);
+      if (round === 0) {
+        expect(executions).toEqual([]);
+      }
       await Effect.runPromiseExit(
         resumeRun({
           runId: parked.runId,
@@ -553,7 +585,9 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     );
 
     const first = (await Effect.runPromise(store.list()))[0];
-    if (first?.state.kind !== "input-required") throw new Error("expected a parked run");
+    if (first?.state.kind !== "input-required") {
+      throw new Error("expected a parked run");
+    }
     // The first park has nothing to remember yet.
     expect(first.state.snapshot.pendingTurnAnswers).toBeUndefined();
 
@@ -565,7 +599,9 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     );
 
     const second = (await Effect.runPromise(store.list()))[0];
-    if (second?.state.kind !== "input-required") throw new Error("expected a second park");
+    if (second?.state.kind !== "input-required") {
+      throw new Error("expected a second park");
+    }
     // The second one is where it matters: without this the next resume forgets round one.
     expect(Object.keys(second.state.snapshot.pendingTurnAnswers ?? {})).toEqual([TOOL_CALL.id]);
   });
@@ -581,9 +617,15 @@ describe("the order approvals are asked in, and who each answer belongs to", () 
     const askedAbout: string[] = [];
     for (let round = 0; round < 6; round += 1) {
       const parked = (await Effect.runPromise(store.list()))[0];
-      if (parked === undefined) break;
-      if (parked.state.kind !== "input-required") throw new Error("expected a parked run");
-      if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+      if (parked === undefined) {
+        break;
+      }
+      if (parked.state.kind !== "input-required") {
+        throw new Error("expected a parked run");
+      }
+      if (parked.state.pending.kind !== "tool-approval") {
+        throw new Error("expected an approval");
+      }
       const toolCallId = parked.state.pending.request.toolCallId;
       askedAbout.push(toolCallId);
       await Effect.runPromiseExit(

@@ -209,7 +209,9 @@ export type PickerIntent =
   | { readonly kind: "submit" };
 
 function clampCursor(cursor: number, length: number): number {
-  if (length <= 0) return 0;
+  if (length <= 0) {
+    return 0;
+  }
   return Math.max(0, Math.min(length - 1, cursor));
 }
 
@@ -226,12 +228,16 @@ function moveCursor(
   trailingRow: boolean,
 ): number {
   const length = filtered.length + (trailingRow ? 1 : 0);
-  if (length === 0) return 0;
+  if (length === 0) {
+    return 0;
+  }
   const direction = delta > 0 ? 1 : -1;
   let next = cursor;
   for (let step = 0; step < length; step += 1) {
     next = clampCursor(next + direction, length);
-    if (!filtered[next]?.choice.disabled) return next;
+    if (!filtered[next]?.choice.disabled) {
+      return next;
+    }
   }
   return cursor;
 }
@@ -263,19 +269,32 @@ export function reducePicker(state: PickerState, intent: PickerIntent): PickerSt
       };
     }
     case "toggle": {
-      if (state.type !== "checkbox" && state.type !== "questionnaire") return state;
-      if (!state.allowMultiple) return state;
+      if (state.type !== "checkbox" && state.type !== "questionnaire") {
+        return state;
+      }
+      if (!state.allowMultiple) {
+        return state;
+      }
       const current = filtered[state.cursor];
-      if (current === undefined) return state;
+      if (current === undefined) {
+        return state;
+      }
       const next = new Set(state.checked);
-      if (next.has(current.originalIndex)) next.delete(current.originalIndex);
-      else next.add(current.originalIndex);
+      if (next.has(current.originalIndex)) {
+        next.delete(current.originalIndex);
+      } else {
+        next.add(current.originalIndex);
+      }
       return { ...state, checked: next };
     }
     case "quickPick": {
       const target = intent.index;
-      if (target < 0 || target >= filtered.length) return state;
-      if (filtered[target]?.choice.disabled) return state;
+      if (target < 0 || target >= filtered.length) {
+        return state;
+      }
+      if (filtered[target]?.choice.disabled) {
+        return state;
+      }
       return { ...state, cursor: target };
     }
     case "setChoices": {
