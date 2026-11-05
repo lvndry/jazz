@@ -9,6 +9,7 @@ import { sampleIdleView } from "./sample";
 import { renderForTest, updateForTest } from "./test-helpers";
 import { TranscriptSurfaceRenderable } from "./transcript-surface";
 import type { Block, ViewModel } from "./types";
+import { partialFake } from "../../test-support/partial-fake";
 
 const history: Block = {
   id: "history",
@@ -118,7 +119,8 @@ it("routes native selection drag through anchored navigation and cancels it on r
     callback: unknown,
     delay?: number,
   ) => {
-    const id = ++serial as unknown as ReturnType<typeof setInterval>;
+    serial += 1;
+    const id = partialFake<ReturnType<typeof setInterval>>({ [Symbol.toPrimitive]: () => serial });
     if (delay === 50) {
       scheduled.set(id, callback as () => void);
     }

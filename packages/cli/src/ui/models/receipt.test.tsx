@@ -3,6 +3,7 @@ import { renderToString } from "ink";
 import { receiptParts, receiptPlainText, summaryRestatesReason, toolReceipt } from "./receipt";
 import { reduceEvent, createAccumulator } from "../../presentation/activity-reducer";
 import { CLIRenderer } from "../../presentation/cli-renderer";
+import { viewAs } from "../../test-support/view-as";
 import { stripAnsiCodes } from "../../utils/string-utils";
 import { createLayoutFixture } from "../fullscreen/testing/layout-fixture";
 import { blocksFrom } from "../fullscreen/transcript-projection";
@@ -123,13 +124,13 @@ describe("the same receipt on fullscreen, Ink and plain output", () => {
     );
 
     const plain = stripAnsiCodes(
-      (
+      viewAs<{ renderEvent(value: typeof event): string | null }>(
         new CLIRenderer({
           displayConfig: { mode: "rendered", showReasoning: false, showToolExecution: true },
           streamingConfig: {},
           showMetrics: false,
           agentName: "jazz",
-        }) as unknown as { renderEvent(value: typeof event): string | null }
+        }),
       ).renderEvent(event) ?? "",
     );
 

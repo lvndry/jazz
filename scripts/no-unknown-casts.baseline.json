@@ -263,49 +263,11 @@
     "24836b1e9a4b494a4acdca189cb6015da79e9c626fe925b13dc2da30e8d2df27": 3,
     "6fe9024d30e0d4757a348b83d246925b3f5aeaf2e79a0eff4bf12f3c9fb5826b": 1
   },
-  "packages/cli/src/presentation/cli-renderer.test.ts": {
-    "72e8b177e0690f2c7ed717e73172036aa56f97f6ad7f1c97364bfa14f54e6957": 1
-  },
-  "packages/cli/src/setup/provider-api-key.test.ts": {
-    "61fb93a8e791caf774b058336e49690c7d06e0c2b53176bcb6b573bef2c6baba": 1
-  },
   "packages/cli/src/terminal.ts": {
     "4716743d8cb8e6b3b5f0d6d81e6443381fce3147c2298eb49b43349b67e40bc2": 1
   },
-  "packages/cli/src/ui/fullscreen/attach.test.ts": {
-    "94e6c4d15a19729cf60005d29c0985aa4e5bd984b92f40c2b5d8e996bb651997": 1
-  },
-  "packages/cli/src/ui/fullscreen/auto-scroll-selection.test.tsx": {
-    "e759684d663f5eaa1cf2bbc8f66b3dec464fc680b0cb3b709ac37667202a3da0": 1
-  },
-  "packages/cli/src/ui/fullscreen/bridge.test.tsx": {
-    "ee4d5a9d435ba2ec29bcd2acb605cb903609a49718b2ed51220b3866d81ccdb8": 1
-  },
-  "packages/cli/src/ui/fullscreen/renderer-adapter.test.tsx": {
-    "94e6c4d15a19729cf60005d29c0985aa4e5bd984b92f40c2b5d8e996bb651997": 2
-  },
   "packages/cli/src/ui/fullscreen/renderer-adapter.ts": {
     "72e8b177e0690f2c7ed717e73172036aa56f97f6ad7f1c97364bfa14f54e6957": 2
-  },
-  "packages/cli/src/ui/fullscreen/test-helpers.tsx": {
-    "72e8b177e0690f2c7ed717e73172036aa56f97f6ad7f1c97364bfa14f54e6957": 1
-  },
-  "packages/cli/src/ui/fullscreen/testing/terminal-oracle.test.tsx": {
-    "1e85fffe502cef2c1a6be00eb6bf19fa5010a93074eaf792e4a7330dd6e8971d": 1
-  },
-  "packages/cli/src/ui/fullscreen/testing/terminal-oracle.ts": {
-    "2c01874686204d2e1723ae4a9c54f15c98a53cc1e88682b0b432f79f91dd28ac": 1,
-    "f30cc8d63e02fd6608c2c80f9564bfc17f171581770ba2df4b1a62a8869a3105": 1
-  },
-  "packages/cli/src/ui/fullscreen/viewport-integration.test.tsx": {
-    "e759684d663f5eaa1cf2bbc8f66b3dec464fc680b0cb3b709ac37667202a3da0": 1
-  },
-  "packages/cli/src/ui/models/receipt.test.tsx": {
-    "728c103ad9c065cb10053075ed6966556db768a824413eef480e97674dab63e8": 1
-  },
-  "packages/cli/src/ui/prompt-frame-erase.test.ts": {
-    "e4106b97491d22c5e6b1c9279ed1d21d8ff1032124cd96d0641680ee7c05169d": 1,
-    "fa91c1dd9fdfaf25a12626c3993174ecf29a472339dfe17fc6888d3f448221fc": 1
   },
   "packages/core/src/agent/agent-prompt-environment.test.ts": {
     "93d8bdffb2f810fb98eb551c7d300df4de8d39bd85c011cbe0445fac78090684": 1

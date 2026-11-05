@@ -35,7 +35,9 @@ function setup(answers: readonly (string | undefined)[], config: Partial<AppConf
 describe("ensureProviderApiKey", () => {
   it("saves a key when model listing is forbidden and explains the permission uncertainty", async () => {
     const { terminal, configService, saved, errors } = setup(["sk-restricted"]);
-    const forbidden = (async () => new Response("{}", { status: 403 })) as unknown as typeof fetch;
+    const forbidden = Object.assign(async () => new Response("{}", { status: 403 }), {
+      preconnect: () => undefined,
+    }) satisfies typeof fetch;
     const result = await ensureProviderApiKey({
       configService,
       terminal,
