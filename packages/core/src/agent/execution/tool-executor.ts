@@ -855,6 +855,9 @@ export class ToolExecutor {
             message: labelForSubagent(approvalMessage, context),
             executeToolName: approvalResult.executeToolName,
             executeArgs: approvalResult.executeArgs,
+            ...(approvalResult.writeSnapshot !== undefined
+              ? { writeSnapshot: approvalResult.writeSnapshot }
+              : {}),
             ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
             ...(approvalResult.impact ? { impact: approvalResult.impact } : {}),
             ...(approvalResult.editableArg ? { editableArg: approvalResult.editableArg } : {}),
@@ -979,10 +982,18 @@ export class ToolExecutor {
             // The refined level: for `execute_command` this is the classified risk, not the
             // tool's declared one — exactly the cut the approval policy just used.
             recordActivity(approvalResult.executeToolName, riskLevel, executeArgs);
+            const approvedWriteSnapshot =
+              alreadyAnswered === undefined
+                ? approvalResult.writeSnapshot
+                : alreadyAnswered.approved
+                  ? alreadyAnswered.writeSnapshot
+                  : undefined;
             result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
               ...context,
               toolCallId: toolCall.id,
               allowHiddenExecute: true,
+              ...(alreadyAnswered !== undefined ? { resumedApproval: true as const } : {}),
+              ...(approvedWriteSnapshot !== undefined ? { approvedWriteSnapshot } : {}),
               ...(isHttpApprovalTool(name)
                 ? { approvedHttpUrl: effectiveHttpUrl(name, approvalResult.executeArgs) }
                 : {}),
@@ -1397,6 +1408,9 @@ export class ToolExecutor {
               ].join("\n\n"),
               executeToolName: request.executeToolName,
               executeArgs: request.executeArgs,
+              ...(request.writeSnapshot !== undefined
+                ? { writeSnapshot: request.writeSnapshot }
+                : {}),
               isAutoApproved: () => false,
             };
           }

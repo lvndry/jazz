@@ -261,6 +261,12 @@ export interface ApprovalOption {
  * Result structure when a tool requires user approval before execution.
  * Returned by approval tools created with `defineApprovalTool`.
  */
+/** Host-generated binding of a write proposal to the file bytes its approver saw. */
+export interface WriteApprovalSnapshot {
+  readonly key: string;
+  readonly version: string;
+}
+
 export interface ApprovalRequiredResult {
   readonly approvalRequired: true;
   /** Human-readable message explaining what will happen if approved */
@@ -269,6 +275,8 @@ export interface ApprovalRequiredResult {
   readonly executeToolName: string;
   /** The arguments to pass to the execution tool */
   readonly executeArgs: Record<string, unknown>;
+  /** Persisted with the request; never accepted from model arguments. */
+  readonly writeSnapshot?: WriteApprovalSnapshot;
   /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
   readonly previewDiff?: string;
   /**
@@ -316,6 +324,8 @@ export interface ApprovalRequest {
   readonly executeToolName: string;
   /** Arguments that will be passed to the execution tool */
   readonly executeArgs: Record<string, unknown>;
+  /** Persisted with the request; never accepted from model arguments. */
+  readonly writeSnapshot?: WriteApprovalSnapshot;
   /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
   readonly previewDiff?: string;
   /** What approving concretely does, with real numbers. See {@link ApprovalRequiredResult.impact}. */
@@ -359,6 +369,8 @@ export type ApprovalOutcome =
       readonly approved: true;
       readonly alwaysApproveCommand?: string;
       readonly alwaysApproveTool?: string;
+      /** Restored by the host from the parked request, overriding caller-supplied data. */
+      readonly writeSnapshot?: WriteApprovalSnapshot | undefined;
       /**
        * For picker-style requests (`ApprovalRequest.options`): which row the human
        * chose. The executor merges this into the execution tool's args under
@@ -469,6 +481,10 @@ export interface ToolExecutionContext {
    * Set only when resuming a parked run: the person answered in another process, possibly
    * yesterday, and the executor uses the stored outcome instead of asking again.
    */
+  /** Host-only precondition for the execution half of write_file. */
+  readonly approvedWriteSnapshot?: WriteApprovalSnapshot;
+  /** A replay must carry its original precondition, never a fresh proposal baseline. */
+  readonly resumedApproval?: true;
   readonly resolvedApprovals?: ReadonlyMap<string, ApprovalOutcome>;
   /** Answers supplied by a human after a run parked on ask_user_question. */
   readonly resolvedUserInputs?: ReadonlyMap<

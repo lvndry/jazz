@@ -9,6 +9,7 @@ import type {
   ToolRiskLevel,
 } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import type { WriteApprovalSnapshot } from "@/core/types/tools";
 
 /**
  * Shared builders for Jazz tools.
@@ -259,6 +260,7 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
     | string
     | {
         message: string;
+        writeSnapshot?: WriteApprovalSnapshot;
         previewDiff?: string;
         impact?: string;
         alwaysAsk?: true;
@@ -368,6 +370,9 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
             previewDiff,
             ...(impact === undefined ? {} : { impact }),
             ...(config.editableArg === undefined ? {} : { editableArg: config.editableArg }),
+            ...(typeof approvalResult !== "string" && approvalResult.writeSnapshot !== undefined
+              ? { writeSnapshot: approvalResult.writeSnapshot }
+              : {}),
             executeToolName: executeToolName,
             executeArgs: args as Record<string, unknown>,
             ...(alwaysAsk ? { alwaysAsk: true } : {}),

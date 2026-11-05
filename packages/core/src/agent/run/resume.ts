@@ -246,7 +246,12 @@ export function resumeRun(options: ResumeRunOptions) {
         ? {
             resolvedApprovals: new Map([
               ...alreadyAnswered,
-              [pending.request.toolCallId, options.outcome.value] as const,
+              [
+                pending.request.toolCallId,
+                options.outcome.value.approved
+                  ? { ...options.outcome.value, writeSnapshot: pending.request.writeSnapshot }
+                  : options.outcome.value,
+              ] as const,
             ]),
           }
         : options.outcome.kind === "question" && pending.kind === "question"

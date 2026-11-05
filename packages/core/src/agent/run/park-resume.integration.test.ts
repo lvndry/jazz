@@ -176,6 +176,7 @@ function makeLayers(
             message: "About to do something gated",
             executeToolName: "danger_execute",
             executeArgs: args,
+            writeSnapshot: { key: `proposal-${String(args["target"])}`, version: "original" },
           },
         });
       }
@@ -594,7 +595,10 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     await Effect.runPromiseExit(
       resumeRun({
         runId: first.runId,
-        outcome: { kind: "approval", value: { approved: true } },
+        outcome: {
+          kind: "approval",
+          value: { approved: true, writeSnapshot: { key: "forged", version: "forged" } },
+        },
       }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
     );
 
@@ -604,6 +608,10 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     }
     // The second one is where it matters: without this the next resume forgets round one.
     expect(Object.keys(second.state.snapshot.pendingTurnAnswers ?? {})).toEqual([TOOL_CALL.id]);
+    expect(second.state.snapshot.pendingTurnAnswers?.[TOOL_CALL.id]).toMatchObject({
+      approved: true,
+      writeSnapshot: { key: "proposal-/tmp/x", version: "original" },
+    });
   });
 });
 
