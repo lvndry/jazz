@@ -791,4 +791,34 @@ describe("SubagentSupervisor queue", () => {
       ["two", "cancelled"],
     ]);
   });
+  it("drains nested fan-out at the concurrency limit while each parent holds its slot", async () => {
+    const CHILDREN = 3;
+    const GRANDCHILDREN = 3;
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const top = yield* createSubagentSupervisor();
+        const childWork = Effect.gen(function* () {
+          const own = yield* createSubagentSupervisor();
+          for (let index = 0; index < GRANDCHILDREN; index++) {
+            const hooks = own.register({ name: `grandchild-${String(index)}` });
+            yield* own.startOrQueue(
+              hooks.id,
+              Effect.sleep("5 millis").pipe(Effect.as(done("leaf"))),
+              1,
+            );
+          }
+          const waited = yield* own.wait([], "all", 5_000);
+          return done(waited.outcome);
+        });
+        for (let index = 0; index < CHILDREN; index++) {
+          const hooks = top.register({ name: `child-${String(index)}` });
+          yield* top.startOrQueue(hooks.id, childWork, 1);
+        }
+        const waited = yield* top.wait([], "all", 5_000);
+        return { outcome: waited.outcome, statuses: waited.subagents.map((child) => child.status) };
+      }),
+    );
+    expect(outcome.outcome).toBe("settled");
+    expect(outcome.statuses).toEqual(Array(CHILDREN).fill("completed"));
+  });
 });

@@ -2286,11 +2286,13 @@ describe("makeOllamaAuthorizedFetch", () => {
 describe("buildProviderOptions - openai reasoning round-trip", () => {
   const openaiOptions = (
     reasoningEffort: "disable" | "low" | "medium" | "high" | undefined,
+    conversationId?: string,
   ): ChatCompletionOptions =>
     ({
       model: "gpt-5",
       messages: [{ role: "user", content: "hi" }],
       ...(reasoningEffort ? { reasoning: reasoningEffort } : {}),
+      ...(conversationId ? { conversationId } : {}),
     }) as ChatCompletionOptions;
 
   it("enables stateless encrypted reasoning when reasoning is on", () => {
@@ -2303,16 +2305,70 @@ describe("buildProviderOptions - openai reasoning round-trip", () => {
     });
   });
 
-  it("still sets a conversation cache key when reasoning is disabled", () => {
-    expect(buildProviderOptions("openai", openaiOptions("disable"))).toEqual({
-      openai: { promptCacheKey: "conversation" },
+  it("keys the prompt cache by conversation id when reasoning is disabled", () => {
+    expect(buildProviderOptions("openai", openaiOptions("disable", "conv-1"))).toEqual({
+      openai: { promptCacheKey: "conv-1" },
     });
+  });
+
+  it("gives different conversations different cache keys", () => {
+    const keyFor = (conversationId: string) =>
+      (
+        buildProviderOptions("openai", openaiOptions("high", conversationId))?.["openai"] as {
+          promptCacheKey?: string;
+        }
+      ).promptCacheKey;
+
+    expect(keyFor("conv-a")).toBe("conv-a");
+    expect(keyFor("conv-b")).toBe("conv-b");
+  });
+
+  it("sends no cache key without a conversation id", () => {
+    expect(buildProviderOptions("openai", openaiOptions("disable"))).toEqual({ openai: {} });
+    expect(buildProviderOptions("chatgpt", openaiOptions("disable"))).toEqual({
+      openai: { store: false },
+    });
+  });
+
+  it("keys the prompt cache for ChatGPT, xAI and Moonshot by conversation id", () => {
+    expect(buildProviderOptions("chatgpt", openaiOptions(undefined, "conv-1"))).toEqual({
+      openai: { promptCacheKey: "conv-1", store: false },
+    });
+    expect(buildProviderOptions("xai", openaiOptions(undefined, "conv-1"))).toEqual({
+      xai: { promptCacheKey: "conv-1" },
+    });
+    expect(buildProviderOptions("xai", openaiOptions("high", "conv-1"))).toEqual({
+      xai: { promptCacheKey: "conv-1", reasoningEffort: "high" },
+    });
+    expect(buildProviderOptions("moonshotai", openaiOptions(undefined, "conv-1"))).toEqual({
+      moonshotai: { promptCacheKey: "conv-1" },
+    });
+    expect(
+      buildProviderOptions("moonshotai", openaiOptions("low", "conv-1"))?.["moonshotai"],
+    ).toMatchObject({ promptCacheKey: "conv-1", reasoningHistory: "interleaved" });
+  });
+
+  it("puts no cache key on the system message", () => {
+    const result = toCoreMessages(
+      [
+        { role: "system", content: "rules" },
+        { role: "user", content: "hi" },
+      ],
+      "openai",
+    );
+
+    expect(result[0]).toEqual({ role: "system", content: "rules" });
   });
 });
 
 describe("buildProviderOptions - efforts above high", () => {
   const request = (model: string, reasoning: ReasoningSelection): ChatCompletionOptions =>
-    ({ model, messages: [{ role: "user", content: "hi" }], reasoning }) as ChatCompletionOptions;
+    ({
+      model,
+      messages: [{ role: "user", content: "hi" }],
+      reasoning,
+      conversationId: "conv-1",
+    }) as ChatCompletionOptions;
   const ladder = {
     kind: "effort",
     transport: "openai.responses.reasoning-effort",
@@ -2339,7 +2395,7 @@ describe("buildProviderOptions - efforts above high", () => {
 
   it("turns reasoning off with none when the profile allows it", () => {
     expect(buildProviderOptions("openai", request("gpt-6-luna", "disable"), ladder)).toEqual({
-      openai: { promptCacheKey: "conversation", reasoningEffort: "none" },
+      openai: { promptCacheKey: "conv-1", reasoningEffort: "none" },
     });
   });
 
@@ -2347,7 +2403,7 @@ describe("buildProviderOptions - efforts above high", () => {
     expect(
       buildProviderOptions("chatgpt", request("gpt-6-luna", "max"), ladder)?.["openai"],
     ).toEqual({
-      promptCacheKey: "conversation",
+      promptCacheKey: "conv-1",
       store: false,
       reasoningEffort: "max",
       reasoningSummary: "auto",
@@ -2358,7 +2414,7 @@ describe("buildProviderOptions - efforts above high", () => {
   it("sends no effort to a model whose listing says it does not reason", () => {
     expect(
       buildProviderOptions("chatgpt", request("gpt-none-only", "max"), { kind: "unsupported" }),
-    ).toEqual({ openai: { promptCacheKey: "conversation", store: false } });
+    ).toEqual({ openai: { promptCacheKey: "conv-1", store: false } });
   });
 
   it("caps a model with no profile at high", () => {
@@ -2519,6 +2575,171 @@ describe("toCoreMessages - reasoning replay", () => {
 
     const assistantContent = result[1]?.content as Array<{ type: string }>;
     expect(assistantContent.every((part) => part.type !== "reasoning")).toBe(true);
+  });
+});
+
+describe("toCoreMessages - reasoning replay capability", () => {
+  const toolCall = {
+    id: "t1",
+    type: "function" as const,
+    function: { name: "get_weather", arguments: "{}" },
+  };
+
+  function toolLoop(provider: string, text = "step one reasoning") {
+    return [
+      { role: "user" as const, content: "hi" },
+      {
+        role: "assistant" as const,
+        content: "",
+        reasoning_parts: [{ text, provider }],
+        tool_calls: [toolCall],
+      },
+      { role: "tool" as const, content: "sunny", name: "get_weather", tool_call_id: "t1" },
+    ];
+  }
+
+  function assistantTypes(result: ReturnType<typeof toCoreMessages>, index: number): string[] {
+    return (result[index]?.content as Array<{ type: string }>).map((part) => part.type);
+  }
+
+  it("replays DeepSeek reasoning byte-exact inside the current tool loop", () => {
+    const exact = "line one\n  indented \uD800 tail ";
+    const result = toCoreMessages(toolLoop("deepseek", exact), "deepseek", undefined, {
+      modelName: "deepseek-v4-flash",
+    });
+
+    const content = result[1]?.content as Array<{ type: string; text?: string }>;
+    expect(content[0]).toEqual({ type: "reasoning", text: exact });
+  });
+
+  it("replays DeepSeek V4 reasoning from earlier turns", () => {
+    const messages = [
+      ...toolLoop("deepseek"),
+      { role: "assistant" as const, content: "done" },
+      { role: "user" as const, content: "next" },
+    ];
+    const result = toCoreMessages(messages, "deepseek", undefined, {
+      modelName: "deepseek-v4-pro",
+    });
+
+    expect(assistantTypes(result, 1)).toContain("reasoning");
+  });
+
+  it("keeps legacy DeepSeek reasoning inside the current turn only", () => {
+    const messages = [...toolLoop("deepseek"), { role: "user" as const, content: "next" }];
+    const result = toCoreMessages(messages, "deepseek", undefined, {
+      modelName: "deepseek-reasoner",
+    });
+    expect(assistantTypes(result, 1)).not.toContain("reasoning");
+
+    const insideTurn = toCoreMessages(toolLoop("deepseek"), "deepseek", undefined, {
+      modelName: "deepseek-reasoner",
+    });
+    expect(assistantTypes(insideTurn, 1)).toContain("reasoning");
+  });
+
+  it("replays Moonshot reasoning inside the current tool loop", () => {
+    const result = toCoreMessages(toolLoop("moonshotai"), "moonshotai", undefined, {
+      modelName: "kimi-k2-thinking",
+    });
+
+    expect(assistantTypes(result, 1)).toEqual(["reasoning", "tool-call"]);
+  });
+
+  it("does not replay on providers that cannot accept reasoning back", () => {
+    for (const provider of ["ollama", "llamacpp", "nvidia", "openrouter"] as const) {
+      const result = toCoreMessages(toolLoop(provider), provider);
+      expect(assistantTypes(result, 1)).not.toContain("reasoning");
+    }
+  });
+
+  it("degrades a payload-only part on a text-only wire format without failing the request", () => {
+    const skipped: Array<{ messageIndex: number; reason: string }> = [];
+    const messages = toolLoop("deepseek", "");
+    const result = toCoreMessages(messages, "deepseek", undefined, {
+      modelName: "deepseek-v4-flash",
+      onReasoningPartSkipped: (details) => skipped.push(details),
+    });
+
+    expect(assistantTypes(result, 1)).toEqual(["tool-call"]);
+    expect(skipped).toEqual([{ messageIndex: 1, reason: "empty-text" }]);
+  });
+
+  it("degrades a stored part whose text is not a string", () => {
+    const skipped: string[] = [];
+    const messages = [
+      { role: "user" as const, content: "hi" },
+      {
+        role: "assistant" as const,
+        content: "answer",
+        reasoning_parts: [{ text: 42 as unknown as string, provider: "deepseek" }],
+      },
+    ];
+    const result = toCoreMessages(messages, "deepseek", undefined, {
+      modelName: "deepseek-v4-flash",
+      onReasoningPartSkipped: ({ reason }) => skipped.push(reason),
+    });
+
+    expect(assistantTypes(result, 1)).toEqual(["text"]);
+    expect(skipped).toEqual(["invalid-text"]);
+  });
+
+  it("skips malformed stored parts without throwing", () => {
+    const skipped: string[] = [];
+    const malformedParts = [
+      { text: "a", provider: null },
+      { text: "b", provider: 7 },
+      { text: "c" },
+      null,
+      "not-an-object",
+      { text: "d", provider: "deepseek", providerOptions: "oops" },
+    ] as unknown as Array<{ text: string; provider: string }>;
+    const messages = [
+      { role: "user" as const, content: "hi" },
+      { role: "assistant" as const, content: "answer", reasoning_parts: malformedParts },
+      {
+        role: "assistant" as const,
+        content: "answer",
+        reasoning_parts: "garbage" as unknown as typeof malformedParts,
+      },
+    ];
+
+    const result = toCoreMessages(messages, "deepseek", undefined, {
+      modelName: "deepseek-v4-flash",
+      onReasoningPartSkipped: ({ reason }) => skipped.push(reason),
+    });
+
+    expect(assistantTypes(result, 1)).toEqual(["text"]);
+    expect(assistantTypes(result, 2)).toEqual(["text"]);
+    expect(skipped).toEqual([
+      "invalid-provider",
+      "invalid-provider",
+      "invalid-provider",
+      "invalid-part",
+      "invalid-part",
+      "invalid-provider-options",
+    ]);
+  });
+
+  it("still replays payload-only parts for providers that continue from encrypted content", () => {
+    const messages = [
+      { role: "user" as const, content: "hi" },
+      {
+        role: "assistant" as const,
+        content: "",
+        reasoning_parts: [
+          {
+            text: "",
+            provider: "openai",
+            providerOptions: { openai: { itemId: "rs_1" } },
+          },
+        ],
+        tool_calls: [toolCall],
+      },
+    ];
+    const result = toCoreMessages(messages, "openai");
+
+    expect(assistantTypes(result, 1)).toEqual(["reasoning", "tool-call"]);
   });
 });
 
