@@ -50,5 +50,10 @@
       "name": "parseMarkdown 50KB reply",
       "maxP95Ms": 10
     }
-  ]
+  ],
+  "firstTurn": {
+    "systemPromptTokens": 2068,
+    "toolSchemaTokens": 10101,
+    "toolCount": 53
+  }
 }
