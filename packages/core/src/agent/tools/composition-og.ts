@@ -114,8 +114,8 @@ export async function renderCompositionOg(
     const fraction = 0.12 + ((value % 1000) / 1000) * 0.78;
     const barHeight = Math.round(fraction * HEIGHT * 0.42);
     const opacity = (0.2 + ((value % 700) / 700) * 0.55).toFixed(2);
-    const x = index * (barWidth + BAR_GAP);
-    return `<rect x="${x.toFixed(1)}" y="${HEIGHT - barHeight}" width="${barWidth.toFixed(1)}" height="${barHeight}" fill="${BRAND_CYAN}" opacity="${opacity}"/>`;
+    const barX = index * (barWidth + BAR_GAP);
+    return `<rect x="${barX.toFixed(1)}" y="${HEIGHT - barHeight}" width="${barWidth.toFixed(1)}" height="${barHeight}" fill="${BRAND_CYAN}" opacity="${opacity}"/>`;
   }).join("");
 
   const lines = wrapTitle(title);

@@ -120,9 +120,9 @@ function deleteKeys(obj: Record<string, unknown>, keys: readonly string[]): void
  * grep — strip input echoes, derivable fields, diagnostic.
  * Keep: matches/files/counts (core data), searchPath (useful context).
  */
-function stripGrep(r: Record<string, unknown>): void {
+function stripGrep(record: Record<string, unknown>): void {
   // Input echoes
-  deleteKeys(r, [
+  deleteKeys(record, [
     "pattern",
     "recursive",
     "regex",
@@ -134,25 +134,25 @@ function stripGrep(r: Record<string, unknown>): void {
     "outputMode",
   ]);
   // Derivable
-  deleteKeys(r, ["totalFound", "message"]);
+  deleteKeys(record, ["totalFound", "message"]);
   // Diagnostic
-  delete r["backend"];
+  delete record["backend"];
 }
 
 /**
  * read_file — strip unused encoding. Keep totalLines so the model can
  * plan the next window, and truncated so it knows to re-read.
  */
-function stripReadFile(r: Record<string, unknown>): void {
-  deleteKeys(r, ["encoding"]);
+function stripReadFile(record: Record<string, unknown>): void {
+  deleteKeys(record, ["encoding"]);
 }
 
 /**
  * edit_file — strip derivable totalEdits, duplicate fullDiff.
  * Keep: path, editsApplied, originalLines, newLines, diff.
  */
-function stripEditFile(r: Record<string, unknown>): void {
-  deleteKeys(r, ["totalEdits", "fullDiff", "wasTruncated"]);
+function stripEditFile(record: Record<string, unknown>): void {
+  deleteKeys(record, ["totalEdits", "fullDiff", "wasTruncated"]);
 }
 
 /**
@@ -175,12 +175,12 @@ function stripFindEntry(entry: Record<string, unknown>): void {
  * Keep: path, content, pageCount, tables, truncated.
  * Drop pagesExtracted (echo of input).
  */
-function stripReadPdf(r: Record<string, unknown>): void {
-  deleteKeys(r, ["fileType", "totalLines", "pagesExtracted"]);
+function stripReadPdf(record: Record<string, unknown>): void {
+  deleteKeys(record, ["fileType", "totalLines", "pagesExtracted"]);
   // tables duplicate content that's already rendered as markdown in `content`.
   // Only strip if content is present (tables are rendered inline).
-  if (typeof r["content"] === "string" && r["content"].length > 0) {
-    delete r["tables"];
+  if (typeof record["content"] === "string" && record["content"].length > 0) {
+    delete record["tables"];
   }
 }
 
@@ -188,8 +188,8 @@ function stripReadPdf(r: Record<string, unknown>): void {
  * execute_command — strip input echo (command), derivable success.
  * Keep: workingDirectory, exitCode, stdout, stderr.
  */
-function stripExecuteCommand(r: Record<string, unknown>): void {
-  deleteKeys(r, ["command", "success"]);
+function stripExecuteCommand(record: Record<string, unknown>): void {
+  deleteKeys(record, ["command", "success"]);
 }
 
 /**
@@ -197,9 +197,9 @@ function stripExecuteCommand(r: Record<string, unknown>): void {
  * derivable truncated from response.
  * Keep: response.{status, statusText, headers, body, size}.
  */
-function stripHttpRequest(r: Record<string, unknown>): void {
-  delete r["request"];
-  const response = r["response"];
+function stripHttpRequest(record: Record<string, unknown>): void {
+  delete record["request"];
+  const response = record["response"];
   if (isRecord(response)) {
     deleteKeys(response, ["elapsedMs", "truncated"]);
   }
@@ -210,9 +210,9 @@ function stripHttpRequest(r: Record<string, unknown>): void {
  * derivable totalResults. Strip per-item source (redundant with provider).
  * Keep: results[].{title, url, snippet, publishedDate, metadata}.
  */
-function stripWebSearch(r: Record<string, unknown>): void {
-  deleteKeys(r, ["query", "provider", "timestamp", "totalResults"]);
-  const results = r["results"];
+function stripWebSearch(record: Record<string, unknown>): void {
+  deleteKeys(record, ["query", "provider", "timestamp", "totalResults"]);
+  const results = record["results"];
   if (Array.isArray(results)) {
     for (const item of results) {
       if (isRecord(item)) {
@@ -282,10 +282,10 @@ function truncateLineContent(text: string, maxChars: number): string {
  * Truncate an array by keeping the first N complete entries that fit within
  * the budget. Appends a count of omitted entries.
  */
-function truncateArray(arr: readonly unknown[], maxChars: number): unknown[] {
+function truncateArray(arr: unknown[], maxChars: number): unknown[] {
   const serialized = safeStringify(arr);
   if (serialized.length <= maxChars) {
-    return arr as unknown[];
+    return arr;
   }
 
   const result: unknown[] = [];

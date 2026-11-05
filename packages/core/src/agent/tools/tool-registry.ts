@@ -403,7 +403,7 @@ class DefaultToolRegistry implements ToolRegistry {
       const categories: ToolCategory[] = Array.from(categoryIds)
         .map((id) => this.categories.get(id))
         .filter((cat): cat is ToolCategory => cat !== undefined)
-        .sort((a, b) => a.displayName.localeCompare(b.displayName));
+        .sort((left, right) => left.displayName.localeCompare(right.displayName));
 
       return categories;
     });

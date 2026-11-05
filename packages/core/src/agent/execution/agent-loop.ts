@@ -1652,7 +1652,9 @@ function handleToolPhase(
       toolCalls: [...(state.response.toolCalls ?? []), ...toolCalls],
       toolResults: {
         ...state.response.toolResults,
-        ...Object.fromEntries(toolResults.map((r) => [r.name, r.result])),
+        ...Object.fromEntries(
+          toolResults.map((toolResult) => [toolResult.name, toolResult.result]),
+        ),
       },
       ...(producedArtifacts.length > 0
         ? { artifacts: [...(state.response.artifacts ?? []), ...producedArtifacts] }
@@ -2026,9 +2028,9 @@ function runIteration(
     }
 
     let lastUserContent: string | undefined;
-    for (let j = state.currentMessages.length - 1; j >= 0; j--) {
-      if (state.currentMessages[j]?.role === "user") {
-        lastUserContent = state.currentMessages[j]?.content;
+    for (let messageIndex = state.currentMessages.length - 1; messageIndex >= 0; messageIndex--) {
+      if (state.currentMessages[messageIndex]?.role === "user") {
+        lastUserContent = state.currentMessages[messageIndex]?.content;
         break;
       }
     }
@@ -2616,23 +2618,27 @@ export function executeAgentLoop(
 
         yield* reportCheckpoint(state, options, deps.context.egressTaint);
 
-        for (let i = 0; i < maxIterations && !interrupted && !stalled; i++) {
-          yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
+        for (
+          let iterationIndex = 0;
+          iterationIndex < maxIterations && !interrupted && !stalled;
+          iterationIndex++
+        ) {
+          yield* Effect.sync(() => beginIteration(runMetrics, iterationIndex + 1));
           // Iteration-budget pressure warnings: 50%, 70%, 90% — user-visible, once each.
           // The model already gets its own ephemeral nudges via buildBudgetPressureMessage;
           // this tells the person watching the run how much headroom is left.
           if (Number.isFinite(maxIterations)) {
-            const pct = (i + 1) / maxIterations;
+            const pct = (iterationIndex + 1) / maxIterations;
             const threshold = pct >= 0.9 ? 90 : pct >= 0.7 ? 70 : pct >= 0.5 ? 50 : null;
             if (threshold !== null && !state.iterationPressureWarned.includes(threshold)) {
               state.iterationPressureWarned.push(threshold);
               if (!options.internal) {
-                yield* observer.onIterationPressure(agent.name, i + 1, maxIterations);
+                yield* observer.onIterationPressure(agent.name, iterationIndex + 1, maxIterations);
               }
             }
           }
           try {
-            const iteration = runIteration(state, i, deps).pipe(
+            const iteration = runIteration(state, iterationIndex, deps).pipe(
               Effect.tapError((error) =>
                 reportFailedTurn(error, state, options, deps.context.egressTaint),
               ),
@@ -2650,7 +2656,7 @@ export function executeAgentLoop(
             if (Option.isNone(outcome)) {
               closeStoppedBatch(state, options, "the run reached its time budget");
               durationCapped = true;
-              state.iterationsUsed = i + 1;
+              state.iterationsUsed = iterationIndex + 1;
               const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
               yield* observer.onDurationCapReached(
                 agent.name,
@@ -2672,7 +2678,7 @@ export function executeAgentLoop(
             if (step.kind === "stalled") {
               finished = true;
               stalled = true;
-              state.iterationsUsed = i + 1;
+              state.iterationsUsed = iterationIndex + 1;
               break;
             }
           } finally {
@@ -2692,7 +2698,7 @@ export function executeAgentLoop(
               runCost.costUSD === undefined ? undefined : runCost.costUSD + subagents.liveCostUSD();
             if (spentWithChildren !== undefined && spentWithChildren >= maxCostUSD) {
               costCapped = true;
-              state.iterationsUsed = i + 1;
+              state.iterationsUsed = iterationIndex + 1;
               yield* observer.onCostCapReached(agent.name, maxCostUSD, spentWithChildren);
               break;
             }
@@ -2701,7 +2707,7 @@ export function executeAgentLoop(
           // A child's share of its parent's cost cap, spent together with its siblings.
           if (options.sharedCostExhausted?.() === true) {
             costCapped = true;
-            state.iterationsUsed = i + 1;
+            state.iterationsUsed = iterationIndex + 1;
             break;
           }
 
@@ -2711,7 +2717,7 @@ export function executeAgentLoop(
             const totalTokens = runMetrics.totalPromptTokens + runMetrics.totalCompletionTokens;
             if (totalTokens >= maxTokens) {
               tokenCapped = true;
-              state.iterationsUsed = i + 1;
+              state.iterationsUsed = iterationIndex + 1;
               yield* observer.onTokenCapReached(agent.name, maxTokens, totalTokens);
               break;
             }
@@ -2722,7 +2728,7 @@ export function executeAgentLoop(
             runMetrics.totalCompletionTokens >= maxOutputTokens
           ) {
             tokenCapped = true;
-            state.iterationsUsed = i + 1;
+            state.iterationsUsed = iterationIndex + 1;
             yield* observer.onOutputTokenCapReached(
               agent.name,
               maxOutputTokens,
@@ -2737,7 +2743,7 @@ export function executeAgentLoop(
           if (workTimeLeftMs(deps) === 0) {
             const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
             durationCapped = true;
-            state.iterationsUsed = i + 1;
+            state.iterationsUsed = iterationIndex + 1;
             yield* observer.onDurationCapReached(agent.name, maxDurationMs ?? elapsedMs, elapsedMs);
             break;
           }

@@ -1143,7 +1143,7 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.removeAutoApprovedCommand) {
               autoApprovedCommands = autoApprovedCommands.filter(
-                (c) => c !== commandResult.removeAutoApprovedCommand,
+                (command) => command !== commandResult.removeAutoApprovedCommand,
               );
             }
 

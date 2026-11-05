@@ -97,7 +97,7 @@ export function listWorkflowsCommand(options: { readonly json?: boolean } = {}) 
 
     // Resolve scheduled and running status (best-effort; ignore scheduler errors on unsupported platforms)
     const scheduledNames = yield* scheduler.listScheduled().pipe(
-      Effect.map((list) => new Set(list.map((s) => s.workflowName))),
+      Effect.map((list) => new Set(list.map((schedule) => schedule.workflowName))),
       Effect.catch(() => Effect.succeed(new Set<string>())),
     );
     const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
@@ -105,16 +105,16 @@ export function listWorkflowsCommand(options: { readonly json?: boolean } = {}) 
       Effect.map((history) => {
         const running = new Set<string>();
         const stale = new Set<string>();
-        for (const r of history) {
-          if (r.status === "running") {
-            const startedAtMs = Date.parse(r.startedAt);
+        for (const run of history) {
+          if (run.status === "running") {
+            const startedAtMs = Date.parse(run.startedAt);
             if (!Number.isFinite(startedAtMs)) {
               continue;
             }
             if (Date.now() - startedAtMs > STALE_THRESHOLD_MS) {
-              stale.add(r.workflowName);
+              stale.add(run.workflowName);
             } else {
-              running.add(r.workflowName);
+              running.add(run.workflowName);
             }
           }
         }
@@ -147,17 +147,17 @@ export function listWorkflowsCommand(options: { readonly json?: boolean } = {}) 
 
     const { local, global } = groupWorkflows(workflows);
 
-    function statusBadge(w: WorkflowMetadata): string {
-      if (runningNames.has(w.name)) {
+    function statusBadge(workflow: WorkflowMetadata): string {
+      if (runningNames.has(workflow.name)) {
         return " ● running";
       }
-      if (staleNames.has(w.name)) {
+      if (staleNames.has(workflow.name)) {
         return " ✗ failed (stale)";
       }
-      if (scheduledNames.has(w.name)) {
+      if (scheduledNames.has(workflow.name)) {
         return " ○ scheduled";
       }
-      if (w.schedule) {
+      if (workflow.schedule) {
         return " — not scheduled";
       }
       return "";
@@ -165,16 +165,16 @@ export function listWorkflowsCommand(options: { readonly json?: boolean } = {}) 
 
     if (local.length > 0) {
       yield* terminal.log("Local workflows:");
-      for (const w of local) {
-        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
+      for (const workflow of local) {
+        yield* terminal.log(formatWorkflow(workflow, { statusBadge: statusBadge(workflow) }));
       }
       yield* terminal.log("");
     }
 
     if (global.length > 0) {
       yield* terminal.log("Global workflows (~/.jazz/workflows):");
-      for (const w of global) {
-        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
+      for (const workflow of global) {
+        yield* terminal.log(formatWorkflow(workflow, { statusBadge: statusBadge(workflow) }));
       }
       yield* terminal.log("");
     }
@@ -321,7 +321,7 @@ export function runWorkflowCommand(
         .listScheduled()
         .pipe(Effect.catch(() => Effect.succeed([] as const)));
       const scheduleMeta = allScheduled.find(
-        (s) => s.workflowName === workflowName && s.label === scheduleLabel,
+        (schedule) => schedule.workflowName === workflowName && schedule.label === scheduleLabel,
       );
 
       if (scheduleMeta?.scheduledAt) {
@@ -476,7 +476,10 @@ export function runWorkflowCommand(
     const firedBy = isSchedulerTriggered
       ? yield* Effect.flatMap(SchedulerServiceTag, (scheduler) => scheduler.listScheduled()).pipe(
           Effect.map((all) =>
-            all.find((s) => s.workflowName === workflowName && s.label === scheduleLabel),
+            all.find(
+              (schedule) =>
+                schedule.workflowName === workflowName && schedule.label === scheduleLabel,
+            ),
           ),
           Effect.catch(() => Effect.succeed(undefined)),
         )
@@ -927,19 +930,20 @@ export function catchupWorkflowCommand() {
     yield* terminal.log("Workflows that missed a scheduled run:");
     yield* terminal.log("");
 
-    for (const c of candidates) {
-      const scheduledStr = c.decision.scheduledAt?.toISOString() ?? "—";
-      const scheduleLabel = describeCronSchedule(c.entry.schedule) ?? c.entry.schedule;
+    for (const candidate of candidates) {
+      const scheduledStr = candidate.decision.scheduledAt?.toISOString() ?? "—";
+      const scheduleLabel =
+        describeCronSchedule(candidate.entry.schedule) ?? candidate.entry.schedule;
       yield* terminal.log(
-        `  • ${scheduleId(c.entry)} (${scheduleLabel}) — missed at ${scheduledStr}`,
+        `  • ${scheduleId(candidate.entry)} (${scheduleLabel}) — missed at ${scheduledStr}`,
       );
     }
 
     yield* terminal.log("");
 
-    const choices = candidates.map((c) => ({
-      name: `${scheduleId(c.entry)} (${c.decision.scheduledAt?.toISOString() ?? "—"})`,
-      value: scheduleId(c.entry),
+    const choices = candidates.map((candidate) => ({
+      name: `${scheduleId(candidate.entry)} (${candidate.decision.scheduledAt?.toISOString() ?? "—"})`,
+      value: scheduleId(candidate.entry),
     }));
 
     const selected = yield* terminal.checkbox<string>(
@@ -953,8 +957,8 @@ export function catchupWorkflowCommand() {
     }
 
     const entriesToRun = candidates
-      .filter((c) => selected.includes(scheduleId(c.entry)))
-      .map((c) => c.entry);
+      .filter((candidate) => selected.includes(scheduleId(candidate.entry)))
+      .map((candidate) => candidate.entry);
 
     yield* terminal.log("");
     yield* terminal.info(`Running catch-up for ${entriesToRun.length} schedule(s)...`);
@@ -1038,7 +1042,9 @@ export function workflowHistoryCommand(workflowName?: string) {
     const runs = yield* getRecentRuns(20);
 
     // Filter by workflow name if provided
-    const filteredRuns = workflowName ? runs.filter((r) => r.workflowName === workflowName) : runs;
+    const filteredRuns = workflowName
+      ? runs.filter((run) => run.workflowName === workflowName)
+      : runs;
 
     if (filteredRuns.length === 0) {
       yield* terminal.info("No run history found.");

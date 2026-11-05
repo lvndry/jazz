@@ -84,11 +84,12 @@ export function truncateRequestBodyValues(
   if (messageKey === undefined) {
     return undefined;
   }
+  const rawMessages = bodyValues[messageKey];
+  if (!Array.isArray(rawMessages)) {
+    return undefined;
+  }
 
-  const truncatedMessages = truncateContentsArray(
-    bodyValues[messageKey] as unknown[],
-    keepLastMessages,
-  );
+  const truncatedMessages = truncateContentsArray(rawMessages, keepLastMessages);
 
   if (!truncatedMessages) {
     return undefined;
@@ -667,12 +668,12 @@ export function convertToLLMError(
   let httpStatus: number | undefined;
 
   if (error instanceof Error) {
-    const e = error as Error & { status?: number; statusCode?: number };
-    httpStatus = e.status || e.statusCode;
+    const statusError = error as Error & { status?: number; statusCode?: number };
+    httpStatus = statusError.status || statusError.statusCode;
     if (!httpStatus) {
-      const m = cleanMessage.match(/(\d{3})\s/);
-      if (m && m[1]) {
-        httpStatus = parseInt(m[1], 10);
+      const statusMatch = cleanMessage.match(/(\d{3})\s/);
+      if (statusMatch && statusMatch[1]) {
+        httpStatus = parseInt(statusMatch[1], 10);
       }
     }
   }
