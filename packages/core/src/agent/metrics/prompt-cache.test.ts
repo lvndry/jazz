@@ -3,6 +3,7 @@ import {
   addToCacheTally,
   cacheHitRate,
   cacheTallyHitRate,
+  cacheTallyIsPartial,
   canonicalJson,
   classifyCacheChange,
   EMPTY_CACHE_TALLY,
@@ -300,5 +301,65 @@ describe("ledger", () => {
     const fingerprint = fingerprintRequest(request());
     observeRequest("one", fingerprint);
     expect(observeRequest("two", fingerprint).reason).toBe("first-request");
+  });
+});
+
+describe("partial tallies", () => {
+  test("a request with input and no cache fields marks the rate partial", () => {
+    let tally = addToCacheTally(EMPTY_CACHE_TALLY, { promptTokens: 1000, cacheReadTokens: 900 });
+    expect(cacheTallyIsPartial(tally)).toBe(false);
+    tally = addToCacheTally(tally, { promptTokens: 1000 });
+    expect(cacheTallyIsPartial(tally)).toBe(true);
+    expect(cacheTallyHitRate(tally)).toBeCloseTo(0.9);
+  });
+
+  test("nothing reported is unknown, not partial", () => {
+    const tally = addToCacheTally(EMPTY_CACHE_TALLY, { promptTokens: 1000 });
+    expect(cacheTallyIsPartial(tally)).toBe(false);
+    expect(cacheTallyHitRate(tally)).toBeUndefined();
+  });
+
+  test("the summary says partial", () => {
+    expect(formatCacheSummary(0.9, "none", true)).toBe("cache 90% (partial)");
+    expect(formatCacheSummary(0.1, "tools-changed", true)).toBe(
+      "cache 10% (partial, tools changed)",
+    );
+  });
+});
+
+describe("fingerprint reuse", () => {
+  test("an unchanged prefix is not hashed again and classification is unchanged", () => {
+    let calls = 0;
+    const hash = (text: string): string => {
+      calls += 1;
+      return `h${String(text.length)}:${text.slice(0, 40)}`;
+    };
+    const cache = new WeakMap();
+    const history = [
+      { role: "system", content: "persona" },
+      { role: "user", content: "one" },
+      { role: "assistant", content: "two" },
+    ];
+    const first = fingerprintRequest({ ...request(), messages: history }, hash, cache);
+    const callsAfterFirst = calls;
+    const grown = [...history, { role: "user", content: "three" }];
+    const second = fingerprintRequest({ ...request(), messages: grown }, hash, cache);
+    const newHashes = calls - callsAfterFirst;
+    expect(newHashes).toBe(1 + 3);
+    expect(classifyCacheChange(first, second).reason).toBe("none");
+    const uncached = fingerprintRequest({ ...request(), messages: grown }, hash, new WeakMap());
+    expect(second).toEqual(uncached);
+  });
+
+  test("a message replaced with new content is hashed afresh", () => {
+    const cache = new WeakMap();
+    const message = { role: "user", content: "old" };
+    const before = fingerprintRequest({ ...request(), messages: [message] }, undefined, cache);
+    const after = fingerprintRequest(
+      { ...request(), messages: [{ role: "user", content: "new" }] },
+      undefined,
+      cache,
+    );
+    expect(classifyCacheChange(before, after).reason).toBe("history-rewritten");
   });
 });

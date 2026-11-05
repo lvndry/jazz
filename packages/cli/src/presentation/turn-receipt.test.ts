@@ -166,6 +166,11 @@ describe("turn receipt cache figure", () => {
     expect(receipt).toContain("cache 5% (tools changed)");
   });
 
+  test("a step without cache fields makes the figure partial", () => {
+    const receipt = formatTurnReceipt({ steps: [step(1000, 900), step(1000, undefined)] });
+    expect(receipt).toContain("cache 90% (partial)");
+  });
+
   test("the breakdown shows each step's rate and reason", () => {
     const breakdown = formatStepBreakdown({
       steps: [{ ...step(1000, 900), cacheMissReason: "system-changed" }],

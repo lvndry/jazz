@@ -1602,6 +1602,44 @@ describe("executeAgentLoop", () => {
     expect(result.messages?.some((message) => message.content.includes(advisory))).toBe(false);
   });
 
+  it("counts an interrupted request's cache usage with its reason", async () => {
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "gpt-4",
+            content: "partial",
+            usage: {
+              promptTokens: 1000,
+              completionTokens: 5,
+              totalTokens: 1005,
+              cacheReadTokens: 500,
+            },
+          },
+          interrupted: true,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: 5 }),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(result.usage?.cacheHitRate).toBeCloseTo(0.5);
+    expect(result.usage?.cacheMissReason).toBeDefined();
+  });
+
   it("should handle interruption from strategy", async () => {
     let getCompletionCalls = 0;
     const strategy: CompletionStrategy = {

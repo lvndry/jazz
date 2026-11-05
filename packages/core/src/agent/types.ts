@@ -570,6 +570,8 @@ export interface AgentResponse {
     readonly cacheReadTokens?: number;
     /** Cache reads over input, 0..1, across the requests that reported cache fields. Absent when none did. */
     readonly cacheHitRate?: number;
+    /** True when `cacheHitRate` covers only some requests because others reported no cache fields. */
+    readonly cacheHitRatePartial?: true;
     /** Why the run's latest request's cacheable prefix changed; absent before any request. */
     readonly cacheMissReason?: CacheMissReason;
   };

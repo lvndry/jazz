@@ -4,7 +4,10 @@ import type { StreamEvent } from "@/core/types/streaming";
 import type { ToolDefinition } from "@/core/types/tools";
 import type { AgentRunMetrics } from "./agent-run-metrics";
 import {
+  addToCacheTally,
   cacheHitRate,
+  EMPTY_CACHE_TALLY,
+  type CacheMissReason,
   fingerprintRequest,
   observeRequest,
   recordCacheUsage,
@@ -20,6 +23,8 @@ export interface PromptCacheScope {
   readonly model: string;
   /** Receives the `prompt_cache` event; absent for nested runs, whose renderer is the parent's. */
   readonly emit: ((event: StreamEvent) => Effect.Effect<void>) | undefined;
+  /** The classified reason, held until the request's usage lands so reason and rate stay paired. */
+  pendingReason?: CacheMissReason;
 }
 
 /**
@@ -39,7 +44,7 @@ export function observePromptCache(
       messages,
     });
     const change = observeRequest(scope.conversationKey, fingerprint);
-    scope.runMetrics.lastCacheReason = change.reason;
+    scope.pendingReason = change.reason;
     yield* scope.logger.debug("Prompt cache prefix classified", {
       conversationId: scope.runMetrics.conversationId,
       reason: change.reason,
@@ -56,12 +61,24 @@ export function observePromptCache(
   });
 }
 
-/** Attach the provider's cache figures to the request just classified and log the hit rate. */
+/**
+ * Attach the provider's cache figures to the request just classified and log the hit rate. The
+ * run's last reason moves with the figures, so a reported rate and its reason describe the same
+ * request. `addToRunTally` is for requests whose usage the loop does not otherwise record.
+ */
 export function recordPromptCacheUsage(
-  scope: Pick<PromptCacheScope, "logger" | "runMetrics" | "conversationKey">,
+  scope: Pick<PromptCacheScope, "logger" | "runMetrics" | "conversationKey" | "pendingReason">,
   usage: CacheUsageInput,
+  addToRunTally = false,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
+    if (addToRunTally) {
+      scope.runMetrics.cacheTally = addToCacheTally(
+        scope.runMetrics.cacheTally ?? EMPTY_CACHE_TALLY,
+        usage,
+      );
+    }
+    scope.runMetrics.lastCacheReason = scope.pendingReason;
     recordCacheUsage(scope.conversationKey, usage);
     const hitRate = cacheHitRate(usage);
     yield* scope.logger.debug("Prompt cache usage recorded", {

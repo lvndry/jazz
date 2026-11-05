@@ -111,7 +111,7 @@ import {
   telemetryErrorCategory,
   type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
-import { cacheTallyHitRate, promptCacheKey } from "../metrics/prompt-cache";
+import { cacheTallyHitRate, cacheTallyIsPartial, promptCacheKey } from "../metrics/prompt-cache";
 import {
   observePromptCache,
   recordPromptCacheUsage,
@@ -723,6 +723,7 @@ function finalizeRun(
           cacheReadTokens: runMetrics.totalCacheReadTokens,
         }),
         ...(cacheHitRate !== undefined && { cacheHitRate }),
+        ...(cacheTallyIsPartial(runMetrics.cacheTally) && { cacheHitRatePartial: true }),
         ...(runMetrics.lastCacheReason !== undefined && {
           cacheMissReason: runMetrics.lastCacheReason,
         }),
@@ -2205,6 +2206,8 @@ function runIteration(
       // run's totals cannot claim to be complete.
       if (completion.usage === undefined) {
         runMetrics.usageMissing = true;
+      } else {
+        yield* recordPromptCacheUsage(cacheScope, completion.usage, true);
       }
       state.response = {
         ...state.response,
