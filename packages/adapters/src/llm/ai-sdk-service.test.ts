@@ -2684,6 +2684,43 @@ describe("toCoreMessages - reasoning replay capability", () => {
     expect(skipped).toEqual(["invalid-text"]);
   });
 
+  it("skips malformed stored parts without throwing", () => {
+    const skipped: string[] = [];
+    const malformedParts = [
+      { text: "a", provider: null },
+      { text: "b", provider: 7 },
+      { text: "c" },
+      null,
+      "not-an-object",
+      { text: "d", provider: "deepseek", providerOptions: "oops" },
+    ] as unknown as Array<{ text: string; provider: string }>;
+    const messages = [
+      { role: "user" as const, content: "hi" },
+      { role: "assistant" as const, content: "answer", reasoning_parts: malformedParts },
+      {
+        role: "assistant" as const,
+        content: "answer",
+        reasoning_parts: "garbage" as unknown as typeof malformedParts,
+      },
+    ];
+
+    const result = toCoreMessages(messages, "deepseek", undefined, {
+      modelName: "deepseek-v4-flash",
+      onReasoningPartSkipped: ({ reason }) => skipped.push(reason),
+    });
+
+    expect(assistantTypes(result, 1)).toEqual(["text"]);
+    expect(assistantTypes(result, 2)).toEqual(["text"]);
+    expect(skipped).toEqual([
+      "invalid-provider",
+      "invalid-provider",
+      "invalid-provider",
+      "invalid-part",
+      "invalid-part",
+      "invalid-provider-options",
+    ]);
+  });
+
   it("still replays payload-only parts for providers that continue from encrypted content", () => {
     const messages = [
       { role: "user" as const, content: "hi" },

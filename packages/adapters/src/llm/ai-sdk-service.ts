@@ -395,13 +395,16 @@ function buildAttachmentParts(
   return { parts, notes };
 }
 
+export type ReasoningPartSkipReason =
+  "invalid-part" | "invalid-provider" | "invalid-text" | "invalid-provider-options" | "empty-text";
+
 export interface ToCoreMessagesOptions {
   /** Model id, for providers whose reasoning wire format depends on the model generation. */
   readonly modelName?: string;
   /** Called when a stored reasoning part is left out of the request instead of replayed. */
   readonly onReasoningPartSkipped?: (details: {
     readonly messageIndex: number;
-    readonly reason: "empty-text" | "invalid-text";
+    readonly reason: ReasoningPartSkipReason;
   }) => void;
 }
 
@@ -529,23 +532,45 @@ export function toCoreMessages(
       const replayScopeIncludesMessage =
         reasoningReplay.scope === "all-turns" ||
         (reasoningReplay.scope === "current-turn" && messageIndex > lastUserMessageIndex);
-      if (m.reasoning_parts && normalizedProviderName && replayScopeIncludesMessage) {
-        for (const storedPart of m.reasoning_parts) {
-          if (storedPart.provider.toLowerCase() !== normalizedProviderName) {
+      if (
+        Array.isArray(m.reasoning_parts) &&
+        normalizedProviderName &&
+        replayScopeIncludesMessage
+      ) {
+        const skip = (reason: ReasoningPartSkipReason) =>
+          conversionOptions?.onReasoningPartSkipped?.({ messageIndex, reason });
+        for (const storedPart of m.reasoning_parts as ReadonlyArray<unknown>) {
+          if (typeof storedPart !== "object" || storedPart === null) {
+            skip("invalid-part");
             continue;
           }
-          if (typeof storedPart.text !== "string") {
-            conversionOptions?.onReasoningPartSkipped?.({ messageIndex, reason: "invalid-text" });
+          const { provider, text, providerOptions } = storedPart as Record<string, unknown>;
+          if (typeof provider !== "string") {
+            skip("invalid-provider");
             continue;
           }
-          if (reasoningReplay.textRequired && storedPart.text.length === 0) {
-            conversionOptions?.onReasoningPartSkipped?.({ messageIndex, reason: "empty-text" });
+          if (provider.toLowerCase() !== normalizedProviderName) {
+            continue;
+          }
+          if (typeof text !== "string") {
+            skip("invalid-text");
+            continue;
+          }
+          if (reasoningReplay.textRequired && text.length === 0) {
+            skip("empty-text");
+            continue;
+          }
+          const hasProviderOptions = providerOptions !== undefined && providerOptions !== null;
+          if (hasProviderOptions && typeof providerOptions !== "object") {
+            skip("invalid-provider-options");
             continue;
           }
           contentParts.push({
             type: "reasoning",
-            text: storedPart.text,
-            ...(storedPart.providerOptions ? { providerOptions: storedPart.providerOptions } : {}),
+            text,
+            ...(hasProviderOptions
+              ? { providerOptions: providerOptions as Record<string, Record<string, JsonValue>> }
+              : {}),
           });
         }
       }
