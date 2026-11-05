@@ -407,6 +407,12 @@ export const PERSISTED_STORES: readonly PersistedStore[] = [
       symbol: "DetachManifest",
       property: "version",
     },
-    declarations: declarations(DETACH_SNAPSHOT, "DetachManifest", "DetachEntry"),
+    declarations: declarations(
+      DETACH_SNAPSHOT,
+      "DetachManifest",
+      "DetachEntry",
+      "DetachEntryKind",
+      "DETACH_ENTRY_KINDS",
+    ),
   },
 ];

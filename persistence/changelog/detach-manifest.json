@@ -1,4 +1,11 @@
 {
   "store": "detach-manifest",
-  "entries": []
+  "entries": [
+    {
+      "shape": "35f5b056fa4b",
+      "version": 1,
+      "description": "The entry kind union moved into DETACH_ENTRY_KINDS and the snapshot now tracks it; the accepted kinds are unchanged.",
+      "readersOfOldFormatStillWork": true
+    }
+  ]
 }

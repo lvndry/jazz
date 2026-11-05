@@ -1,15 +1,31 @@
 {
   "store": "detach-manifest",
   "version": 1,
-  "shape": "eb83023c2f72",
+  "shape": "35f5b056fa4b",
   "declarations": {
+    "packages/adapters/src/detach/snapshot.ts#DETACH_ENTRY_KINDS": [
+      "const DETACH_ENTRY_KINDS = [",
+      "    \"history\",",
+      "    \"work\",",
+      "    \"todos\",",
+      "    \"artifact\",",
+      "    \"workspace\",",
+      "    \"config\",",
+      "    \"git\",",
+      "    \"skill\",",
+      "    \"persona\",",
+      "] as const;"
+    ],
     "packages/adapters/src/detach/snapshot.ts#DetachEntry": [
       "interface DetachEntry {",
-      "    readonly kind: \"history\" | \"work\" | \"todos\" | \"artifact\" | \"workspace\" | \"config\" | \"git\" | \"skill\" | \"persona\";",
+      "    readonly kind: DetachEntryKind;",
       "    readonly relativePath: string;",
       "    readonly size: number;",
       "    readonly sha256: string;",
       "}"
+    ],
+    "packages/adapters/src/detach/snapshot.ts#DetachEntryKind": [
+      "type DetachEntryKind = (typeof DETACH_ENTRY_KINDS)[number];"
     ],
     "packages/adapters/src/detach/snapshot.ts#DetachManifest": [
       "interface DetachManifest {",
