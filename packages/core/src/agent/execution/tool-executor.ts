@@ -961,6 +961,7 @@ export class ToolExecutor {
             recordActivity(approvalResult.executeToolName, riskLevel, executeArgs);
             result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
               ...context,
+              toolCallId: toolCall.id,
               allowHiddenExecute: true,
               ...(isHttpApprovalTool(name)
                 ? { approvedHttpUrl: effectiveHttpUrl(name, approvalResult.executeArgs) }

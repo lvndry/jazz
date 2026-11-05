@@ -59,8 +59,9 @@ export function runTool(
   tool: Tool<FileSystem.FileSystem | FileSystemContextService | AgentConfigService>,
   args: Record<string, unknown>,
   cwd: string,
+  context: Partial<ToolExecutionContext> = {},
 ): Promise<ToolExecutionResult> {
   return Effect.runPromise(
-    Effect.provide(tool.execute(args, testContext()), createFsTestLayer(cwd)),
+    Effect.provide(tool.execute(args, { ...testContext(), ...context }), createFsTestLayer(cwd)),
   );
 }

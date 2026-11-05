@@ -166,13 +166,22 @@ const MAX_PENDING_APPROVALS = 256;
 const ABSENT_FILE_VERSION = "absent";
 
 /**
- * The file version each pending approval was shown, keyed by target and requested content, so
- * the execution of that approval can refuse when the file has changed since.
+ * The file version each pending approval was shown, keyed by the approval's tool call, the target
+ * and the requested content. The first proposal of a call fixes its version; a proposal that
+ * repeats while the approval waits (a resumed run proposes again) leaves it as it was, so the
+ * execution compares against what the approver saw.
  */
 const approvedVersions = new Map<string, string>();
 
-function rememberApprovedVersion(key: string, version: string): void {
-  approvedVersions.delete(key);
+function approvalKey(toolCallId: string, canonicalPath: string, requested: string): string {
+  return `${toolCallId}\0${fileSnapshot(canonicalPath, requested)}`;
+}
+
+/** Records `version` for `key` unless a version is already recorded; true when it recorded. */
+function rememberApprovedVersion(key: string, version: string): boolean {
+  if (approvedVersions.has(key)) {
+    return false;
+  }
   approvedVersions.set(key, version);
   while (approvedVersions.size > MAX_PENDING_APPROVALS) {
     const oldest = approvedVersions.keys().next();
@@ -181,6 +190,7 @@ function rememberApprovedVersion(key: string, version: string): void {
     }
     approvedVersions.delete(oldest.value);
   }
+  return true;
 }
 
 function versionOf(canonicalPath: string, current: DecodedFile | undefined): string {
@@ -199,17 +209,43 @@ function canonicalPathOf(fs: FileSystem.FileSystem, target: string) {
   );
 }
 
-/** The existing file at `canonicalPath`, or undefined when there is none or it cannot be read. */
+function isNotFound(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("reason" in error)) {
+    return false;
+  }
+  const { reason } = error;
+  if (typeof reason !== "object" || reason === null) {
+    return false;
+  }
+  if ("_tag" in reason && reason._tag === "NotFound") {
+    return true;
+  }
+  const cause = "cause" in reason ? reason.cause : undefined;
+  return typeof cause === "object" && cause !== null && "code" in cause && cause.code === "ENOTDIR";
+}
+
+/**
+ * The existing file at `canonicalPath`, or undefined when it confirmably does not exist. A file
+ * that exists but cannot be read fails, since its version cannot be checked.
+ */
 function readExistingFile(fs: FileSystem.FileSystem, canonicalPath: string) {
   return fs.readFile(canonicalPath).pipe(
     Effect.map((bytes): DecodedFile | undefined => decodeFileBytes(bytes)),
-    Effect.catch(() => Effect.succeed(undefined)),
+    Effect.catch((error) =>
+      isNotFound(error)
+        ? Effect.succeed(undefined)
+        : Effect.fail(
+            new Error(
+              `${canonicalPath} cannot be read (${error instanceof Error ? error.message : String(error)}), so write_file cannot check what it would replace. Make the file readable, or write to a different path.`,
+            ),
+          ),
+    ),
   );
 }
 
 /**
- * `content` as the text to write: the replaced file's byte-order mark and line ending carry
- * over, unless the content brings its own line endings or mark.
+ * The text to write for `content`: exactly what was requested for a new file; for a replaced
+ * file, its byte-order mark and line ending carry over unless the content brings its own.
  */
 function encodeLikeReplaced(
   content: string,
@@ -217,7 +253,7 @@ function encodeLikeReplaced(
   replaced: DecodedFile | undefined,
 ): string {
   if (replaced === undefined) {
-    return content;
+    return requested;
   }
   return encodeFileText({
     bom: content.startsWith("﻿") ? "" : replaced.bom,
@@ -231,6 +267,14 @@ function staleWriteResult(target: string) {
     success: false,
     result: { errorType: "StaleFileError", path: target },
     error: `File changed since this write_file was proposed: ${target}. Read the file again, merge its current content into your complete new content, and call write_file again. Nothing was written.`,
+  } as const;
+}
+
+function unverifiedApprovalResult(target: string) {
+  return {
+    success: false,
+    result: { errorType: "UnverifiedApprovalError", path: target },
+    error: `This write_file has no recorded proposal in this process, so the file it would replace cannot be checked: ${target}. Call write_file again to get a fresh approval. Nothing was written.`,
   } as const;
 }
 
@@ -265,13 +309,15 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
 
         const originalContent = current?.text ?? "";
         const isNewFile = current === undefined;
-        rememberApprovedVersion(
-          fileSnapshot(canonicalTarget, args.content),
-          versionOf(canonicalTarget, current),
-        );
-        yield* Effect.logDebug(
-          `write_file approval: ${target} ${isNewFile ? "new file" : "overwrite"}, version recorded`,
-        );
+        if (context.toolCallId !== undefined) {
+          const recorded = rememberApprovedVersion(
+            approvalKey(context.toolCallId, canonicalTarget, args.content),
+            versionOf(canonicalTarget, current),
+          );
+          yield* Effect.logDebug(
+            `write_file approval: ${target} ${isNewFile ? "new file" : "overwrite"}, version ${recorded ? "recorded" : "kept from the first proposal"}`,
+          );
+        }
 
         // This message is shown to whoever approves the write, which is not always a
         // person at a terminal: it also goes into the `jazz run --json` envelope and out
@@ -332,10 +378,19 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           `${canonicalTarget}.jazz-edit.lock`,
           Effect.gen(function* () {
             const current = yield* readExistingFile(fs, canonicalTarget);
-            const approvalKey = fileSnapshot(canonicalTarget, args.content);
-            const approvedVersion = approvedVersions.get(approvalKey);
-            if (approvedVersion !== undefined) {
-              approvedVersions.delete(approvalKey);
+            const key =
+              context.toolCallId === undefined
+                ? undefined
+                : approvalKey(context.toolCallId, canonicalTarget, args.content);
+            if (key !== undefined) {
+              const approvedVersion = approvedVersions.get(key);
+              approvedVersions.delete(key);
+              if (approvedVersion === undefined) {
+                yield* Effect.logDebug(
+                  `write_file execute: ${target} has no recorded proposal, write refused`,
+                );
+                return unverifiedApprovalResult(target);
+              }
               if (approvedVersion !== versionOf(canonicalTarget, current)) {
                 yield* Effect.logDebug(
                   `write_file execute: ${target} changed since approval, write refused`,
@@ -359,7 +414,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
               encodeLikeReplaced(content, args.content, current),
             );
             yield* Effect.logDebug(
-              `write_file execute: ${target} ${isNewFile ? "created" : "overwritten"}, approval ${approvedVersion === undefined ? "unbound" : "verified"}`,
+              `write_file execute: ${target} ${isNewFile ? "created" : "overwritten"}, approval ${key === undefined ? "unbound" : "verified"}`,
             );
 
             const { diff, wasTruncated } = generateDiffWithMetadata(
