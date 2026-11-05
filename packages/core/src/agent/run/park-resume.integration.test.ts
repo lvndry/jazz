@@ -27,6 +27,7 @@ import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service"
 import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import type { ChatCompletionResponse } from "@/core/types/chat";
+import type { ToolExecutionContext } from "@/core/types/tools";
 import { AgentRunner } from "../agent-runner";
 import { isRunParkRequested } from "./park-signal";
 import { resumeRun } from "./resume";
@@ -167,25 +168,33 @@ function makeLayers(
     partitionByTier: mock((names: readonly string[]) =>
       Effect.succeed({ eager: names, deferred: [] }),
     ),
-    executeTool: mock((name: string, args: Record<string, unknown>) => {
-      if (name === "danger") {
-        return Effect.succeed({
-          success: true,
-          result: {
-            approvalRequired: true,
-            message: "About to do something gated",
-            executeToolName: "danger_execute",
-            executeArgs: args,
-            writeSnapshot: { key: `proposal-${String(args["target"])}`, version: "original" },
-          },
-        });
-      }
-      executions.push(name);
-      if (typeof args["target"] === "string") {
-        executedTargets.push(args["target"]);
-      }
-      return Effect.succeed({ success: true, result: "did the gated thing" });
-    }),
+    executeTool: mock(
+      (name: string, args: Record<string, unknown>, context: ToolExecutionContext) => {
+        if (name === "danger") {
+          return Effect.succeed({
+            success: true,
+            result: {
+              approvalRequired: true,
+              message: "About to do something gated",
+              executeToolName: "danger_execute",
+              executeArgs: args,
+              writeSnapshot: { key: `proposal-${String(args["target"])}`, version: "original" },
+            },
+          });
+        }
+        if (name === "danger_execute") {
+          expect(context.approvedWriteSnapshot).toEqual({
+            key: `proposal-${String(args["target"])}`,
+            version: "original",
+          });
+        }
+        executions.push(name);
+        if (typeof args["target"] === "string") {
+          executedTargets.push(args["target"]);
+        }
+        return Effect.succeed({ success: true, result: "did the gated thing" });
+      },
+    ),
   });
 
   const llm = partialFake<LLMService>({
