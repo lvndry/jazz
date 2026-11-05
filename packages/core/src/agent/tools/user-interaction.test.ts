@@ -75,29 +75,43 @@ describe("ask_user_question", () => {
     expect(result.result).toBe("User responded: next Tuesday at 3pm");
   });
 
-  it("reports a refusal as the human's decision, not a gap to fill", async () => {
+  it("reports a refusal as a failed result, never as an answer", async () => {
     const result = await ask({ kind: "declined" });
     expect(result.success).toBe(false);
-    expect(result.result).toContain("declined to answer");
-    expect(result.result).toContain("do not pick an answer for them");
     expect(result.result).not.toContain("User responded");
-    expect(result.result).not.toContain("Nobody could be asked");
   });
 
-  it("reports an absent human as something to decide around", async () => {
-    const result = await ask({ kind: "unavailable" });
-    expect(result.success).toBe(false);
-    expect(result.result).toContain("Nobody could be asked");
-    expect(result.result).toContain("state the assumption");
-    expect(result.result).not.toContain("declined");
+  it("returns the same result for a refusal live and on resume", async () => {
+    const live = await ask({ kind: "declined" });
+    const effect = askUserQuestion!.execute(
+      {
+        question: "When is your appointment?",
+        suggested_responses: [{ value: "today" }, { value: "tomorrow" }],
+      },
+      {
+        agentId: "a",
+        conversationId: "c",
+        toolCallId: "call_5",
+        resolvedUserInputs: new Map([["call_5", { kind: "declined" }]]),
+      },
+    ) as never as Effect.Effect<{ success: boolean; result: string }, never, never>;
+    const resumed = await Effect.runPromise(
+      effect.pipe(
+        Effect.provide(
+          Layer.succeed(PresentationServiceTag, {
+            requestUserInput: () => Effect.die("must not prompt again once resolved"),
+          } as never),
+        ),
+      ) as Effect.Effect<{ success: boolean; result: string }, never, never>,
+    );
+    expect(resumed).toEqual(live);
   });
 
-  it("gives opposite guidance for the two failures", async () => {
-    const declined = await ask({ kind: "declined" });
+  it("reports an absent human as a failed result distinct from a refusal", async () => {
     const unavailable = await ask({ kind: "unavailable" });
-    expect(declined.result).toContain("do not pick an answer");
-    expect(unavailable.result).toContain("Decide yourself");
-    expect(declined.result).not.toBe(unavailable.result);
+    const declined = await ask({ kind: "declined" });
+    expect(unavailable.success).toBe(false);
+    expect(unavailable.result).not.toBe(declined.result);
   });
 });
 

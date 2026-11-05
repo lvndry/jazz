@@ -43,7 +43,9 @@ const askUserSchema = z.object({
     )
     .min(2)
     .max(4)
-    .describe("Concrete, self-contained options."),
+    .describe(
+      "Concrete, self-contained options. List a recommended option first and end its label with (Recommended).",
+    ),
   allow_multiple: z.boolean().optional().default(false).describe("Allow several selections."),
 });
 
@@ -96,6 +98,10 @@ const useSavedSecretSchema = z.object({
 type UseSavedSecretArgs = z.infer<typeof useSavedSecretSchema>;
 
 const listSavedSecretsSchema = z.object({});
+
+const QUESTION_DECLINED_RESULT =
+  "The human saw this question and declined to answer. Treat that as no answer: it approves no option, and neither the risky nor the guessed one is permitted by it. " +
+  "Do only what is unambiguous without it, ask nothing further about it, and say plainly what remains blocked and why.";
 
 const SECRET_DECLINED_RESULT =
   "The person chose not to type this secret. Treat that as their decision: carry on with what needs no secret, and say plainly what stays locked without it.";
@@ -232,7 +238,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     disclosure: "private",
     longRunning: true,
     description:
-      "Ask the human one blocking decision: an approach with no clear best option, or sign-off on a destructive action. Proceed on your own with requested or reversible work and anything a tool can answer. For a password, token or passphrase, use ask_user_secret.",
+      "Ask the human one blocking decision: an approach with no clear best option, or sign-off on a destructive action. A declined question is no answer and approves nothing. Proceed on your own with requested or reversible work and anything a tool can answer. For a password, token or passphrase, use ask_user_secret.",
     parameters: askUserSchema,
     hidden: false,
     riskLevel: "read-only",
@@ -254,11 +260,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
             : context.resolvedUserInputs?.get(context.toolCallId);
         if (prior !== undefined) {
           if (prior.kind === "declined") {
-            return {
-              success: false,
-              result:
-                "The human saw this question and declined to answer. Treat that as their decision, not as a gap to fill: do not pick an answer for them.",
-            };
+            return { success: false, result: QUESTION_DECLINED_RESULT };
           }
           return { success: true, result: `User responded: ${prior.response}` };
         }
@@ -277,13 +279,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
         const outcome = yield* presentation.requestUserInput(request);
 
         if (outcome.kind === "declined") {
-          return {
-            success: false,
-            result:
-              "The human saw this question and declined to answer. Treat that as their decision, not as a gap to fill: " +
-              "do not pick an answer for them and do not ask again. Do only what is unambiguous without it, " +
-              "and say plainly what remains blocked and why.",
-          };
+          return { success: false, result: QUESTION_DECLINED_RESULT };
         }
 
         if (outcome.kind === "unavailable") {
