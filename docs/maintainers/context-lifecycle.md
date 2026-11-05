@@ -245,6 +245,19 @@ compaction, while 20% of a 32K window is less than one large tool result. On win
 32K the floor shrinks to a quarter of the window, so the rebuild still lands well under
 the warn rung. The newest message is always kept, even when it alone exceeds the budget.
 
+**The summarize call reuses the conversation's prefix when it can.** The summarizer sub-agent
+is the fallback. For automatic compaction, when the summarizer model equals the run's model,
+the provider is not `claude_code`, models.dev lists a cache-read price, and the whole history
+plus the checkpoint fits the window (`ALIGNED_SUMMARY_OUTPUT_RESERVE_RATIO`),
+`requestAlignedSummary` (`cache-aligned-summary.ts`) sends the run's own request options
+(`buildCompletionOptions`) with `toolChoice: "none"` over the unchanged history plus one final
+instruction message. The ledger's `peekCacheChange` must classify it `none` against the previous
+request, otherwise nothing would hit the cache and the stand-alone path (which chunks oversized
+transcripts) runs. A returned tool call is discarded and falls back. The summary's spend is side
+spend and its hit rate goes through `recordPromptCacheUsage`. `/compact`, `summarize_context`,
+overflow recovery and memory extraction have no previous request to share and always use the
+stand-alone path.
+
 The summary is a fixed checkpoint rather than free-form prose. Every compaction writes:
 
 ```md
