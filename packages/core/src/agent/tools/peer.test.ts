@@ -9,6 +9,7 @@ import { silentLogger } from "@/core/agent/test-logger";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PeerLedgerServiceTag, PeerTokenServiceTag } from "@/core/interfaces/peers";
+import { partialFake } from "@/core/test-support/fakes";
 import type { PeerConfig } from "@/core/types/peer";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
@@ -63,9 +64,9 @@ function peers(overrides: Partial<PeerConfig> = {}): readonly PeerConfig[] {
 }
 
 function layers(configured: readonly PeerConfig[]) {
-  const configService = {
+  const configService = partialFake<AgentConfigService>({
     appConfig: Effect.succeed({ peers: configured }),
-  } as unknown as AgentConfigService;
+  });
 
   return Layer.mergeAll(
     Layer.succeed(LoggerServiceTag, silentLogger),

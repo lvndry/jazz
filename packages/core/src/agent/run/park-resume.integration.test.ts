@@ -24,6 +24,7 @@ import { RunStoreTag } from "@/core/interfaces/run-store";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
+import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import type { ChatCompletionResponse } from "@/core/types/chat";
 import { AgentRunner } from "../agent-runner";
@@ -96,7 +97,7 @@ function makeLayers(
       : { id: "c2", model: "gpt-4", content: "Done." };
   };
 
-  const logger = {
+  const logger = partialFake<LoggerService>({
     debug: mock(() => Effect.void),
     info: mock(() => Effect.void),
     warn: mock(() => Effect.void),
@@ -107,11 +108,10 @@ function makeLayers(
     popLogGroup: mock(() => Effect.void),
     writeToFile: mock(() => Effect.void),
     logToolCall: mock(() => Effect.void),
-  } as unknown as LoggerService;
+  });
 
-  const presentation = {
+  const presentation = partialFake<PresentationService>({
     presentThinking: mock(() => Effect.void),
-    presentThinkingEnd: mock(() => Effect.void),
     renderMarkdown: mock((content: string) => Effect.succeed(content)),
     presentAgentResponse: mock(() => Effect.void),
     presentCompletion: mock(() => Effect.void),
@@ -127,7 +127,7 @@ function makeLayers(
     // The whole point: nobody is here to answer.
     canPromptForApproval: () => false,
     requestApproval: mock(() => Effect.succeed({ approved: false as const })),
-  } as unknown as PresentationService;
+  });
 
   const dangerTool = {
     name: "danger",
@@ -138,7 +138,7 @@ function makeLayers(
     longRunning: false,
   };
 
-  const registry = {
+  const registry = partialFake<ToolRegistry>({
     registerTool: mock(() => Effect.succeed(undefined)),
     registerForCategory: mock(() => mock(() => Effect.succeed(undefined))),
     listTools: mock(() => Effect.succeed(["danger", "harmless"])),
@@ -185,9 +185,9 @@ function makeLayers(
       }
       return Effect.succeed({ success: true, result: "did the gated thing" });
     }),
-  } as unknown as ToolRegistry;
+  });
 
-  const llm = {
+  const llm = partialFake<LLMService>({
     getProvider: mock(() =>
       Effect.succeed({
         name: "openai",
@@ -205,12 +205,12 @@ function makeLayers(
         cancel: Effect.void,
       }),
     ),
-  } as unknown as LLMService;
+  });
 
-  const agentService = {
+  const agentService = partialFake<AgentService>({
     getAgent: mock(() => Effect.succeed(AGENT)),
     listAgents: mock(() => Effect.succeed([AGENT])),
-  } as unknown as AgentService;
+  });
 
   return Layer.mergeAll(
     Layer.succeed(LoggerServiceTag, logger),
@@ -219,36 +219,48 @@ function makeLayers(
     Layer.succeed(LLMServiceTag, llm),
     Layer.succeed(AgentServiceTag, agentService),
     Layer.succeed(RunStoreTag, store),
-    Layer.succeed(SkillServiceTag, {
-      listSkills: mock(() => Effect.succeed([])),
-    } as unknown as SkillService),
-    Layer.succeed(AgentConfigServiceTag, {
-      appConfig: Effect.succeed({
-        output: { showMetrics: false, streaming: { enabled: false }, mode: "text" as const },
-        llm: { openai: { api_key: "test-key" } },
+    Layer.succeed(
+      SkillServiceTag,
+      partialFake<SkillService>({
+        listSkills: mock(() => Effect.succeed([])),
       }),
-      get: mock(() => Effect.succeed(undefined)),
-      getOrElse: mock((_key: string, fallback: unknown) => Effect.succeed(fallback)),
-      getOrFail: mock(() => Effect.succeed(undefined)),
-      has: mock(() => Effect.succeed(false)),
-      set: mock(() => Effect.void),
-    } as unknown as AgentConfigService),
-    Layer.succeed(PersonaServiceTag, {
-      getPersonaByIdentifier: mock(() =>
-        Effect.succeed({
-          name: "default",
-          description: "test persona",
-          systemPrompt: "You are a test agent.",
+    ),
+    Layer.succeed(
+      AgentConfigServiceTag,
+      partialFake<AgentConfigService>({
+        appConfig: Effect.succeed({
+          output: { showMetrics: false, streaming: { enabled: false }, mode: "text" as const },
+          llm: { openai: { api_key: "test-key" } },
         }),
-      ),
-    } as unknown as PersonaService),
-    Layer.succeed(MCPServerManagerTag, {} as unknown as MCPServerManager),
-    Layer.succeed(TerminalServiceTag, {} as unknown as TerminalService),
-    Layer.succeed(FileSystem.FileSystem, {} as unknown as FileSystem.FileSystem),
-    Layer.succeed(FileSystemContextServiceTag, {
-      getCwd: () => Effect.succeed(os.tmpdir()),
-      setCwd: () => Effect.void,
-    } as unknown as FileSystemContextService),
+        get: mock(() => Effect.succeed(undefined)),
+        getOrElse: mock((_key: string, fallback: unknown) => Effect.succeed(fallback)),
+        getOrFail: mock(() => Effect.succeed(undefined)),
+        has: mock(() => Effect.succeed(false)),
+        set: mock(() => Effect.void),
+      }),
+    ),
+    Layer.succeed(
+      PersonaServiceTag,
+      partialFake<PersonaService>({
+        getPersonaByIdentifier: mock(() =>
+          Effect.succeed({
+            name: "default",
+            description: "test persona",
+            systemPrompt: "You are a test agent.",
+          }),
+        ),
+      }),
+    ),
+    Layer.succeed(MCPServerManagerTag, partialFake<MCPServerManager>({})),
+    Layer.succeed(TerminalServiceTag, partialFake<TerminalService>({})),
+    Layer.succeed(FileSystem.FileSystem, partialFake<FileSystem.FileSystem>({})),
+    Layer.succeed(
+      FileSystemContextServiceTag,
+      partialFake<FileSystemContextService>({
+        getCwd: () => Effect.succeed(os.tmpdir()),
+        setCwd: () => Effect.void,
+      }),
+    ),
   );
 }
 

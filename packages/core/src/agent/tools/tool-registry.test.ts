@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import { z } from "zod";
+import { partialFake } from "@/core/test-support/fakes";
 import { misfireLogPath } from "./misfire-log";
 import { createToolRegistryLayer } from "./tool-registry";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
@@ -313,15 +314,15 @@ describe("ToolRegistry", () => {
 
 describe("ToolRegistry.executeTool redacts secrets", () => {
   const apiKey = "sk-proj-configured0123456789abcdef";
-  const quietLogger = {
+  const quietLogger = partialFake<LoggerService>({
     debug: () => Effect.void,
     info: () => Effect.void,
     warn: () => Effect.void,
     error: () => Effect.void,
-  } as unknown as LoggerService;
-  const config = {
+  });
+  const config = partialFake<AgentConfigService>({
     appConfig: Effect.succeed({ llm: { openai: { api_key: apiKey } } }),
-  } as unknown as AgentConfigService;
+  });
 
   function execute(
     output: Effect.Effect<ToolExecutionResult, Error>,
@@ -371,10 +372,10 @@ describe("ToolRegistry.executeTool redacts secrets", () => {
 
   it("replaces the secrets the config service holds outside the config", async () => {
     const peerToken = "peer-token-held-in-keyring-0123";
-    const withHeld = {
+    const withHeld = partialFake<AgentConfigService>({
       ...config,
       knownSecrets: Effect.succeed([{ name: "peers.sam.token", value: peerToken }]),
-    } as unknown as AgentConfigService;
+    });
     const result = await execute(
       Effect.succeed({ success: true, result: { content: `curl -H "X: ${peerToken}"` } }),
       withHeld,

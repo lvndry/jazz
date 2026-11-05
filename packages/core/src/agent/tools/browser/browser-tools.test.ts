@@ -3,6 +3,7 @@ import { Effect, Layer } from "effect";
 import { testConfigLayer } from "@/core/agent/test-config";
 import { ToolRegistryTag, type Tool } from "@/core/interfaces/tool-registry";
 import { UserSecretStore } from "@/core/secrets/user-secrets";
+import { partialFake } from "@/core/test-support/fakes";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { hasExternalUntrustedFrame } from "@/core/utils/untrusted-content";
 import { registerBrowserAdoptionTools } from "../register-tools";
@@ -57,7 +58,7 @@ function fakeBrowser(page: FakePage, options: FakeOptions = {}) {
   let closes = 0;
   let actCalls = 0;
   const current = () => ({ tab: "main", ...page });
-  const session = {
+  const session = partialFake<BrowserSession>({
     exclusive: async (_policy: unknown, operation: () => Promise<unknown>) => operation(),
     state: async () => current(),
     hasTab: () => true,
@@ -130,7 +131,7 @@ function fakeBrowser(page: FakePage, options: FakeOptions = {}) {
     close: async () => {
       closes += 1;
     },
-  } as unknown as BrowserSession;
+  });
   return { session, calls, closes: () => closes };
 }
 

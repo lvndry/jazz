@@ -10,6 +10,7 @@ import {
 } from "@/core/interfaces/mcp-server";
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import { partialFake } from "@/core/test-support/fakes";
 import type { MCPTool } from "@/core/types/mcp";
 import { isApprovalRequiredResult, type ToolExecutionResult } from "@/core/types/tools";
 import { registerMCPServerTools, resolveToolRiskLevel } from "./mcp";
@@ -136,10 +137,10 @@ describe("MCP tool output", () => {
     if (readTool === undefined) {
       throw new Error("expected a tool");
     }
-    const manager = {
+    const manager = partialFake<MCPServerManager>({
       isConnected: () => Effect.succeed(true),
       callTool: () => Effect.succeed(reply),
-    } as unknown as MCPServerManager;
+    });
     return Effect.runPromise(
       readTool
         .execute({}, { agentId: "a", conversationId: "c" })

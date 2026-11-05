@@ -10,6 +10,7 @@ import { Duration, Effect, Fiber, FileSystem, Layer } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { formatMemorySourceTag } from "@/core/memory/source-trust";
+import { partialFake } from "@/core/test-support/fakes";
 import { GenerationInterruptedError, LLMRequestError } from "@/core/types/errors";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
@@ -114,14 +115,14 @@ const mockAgentConfigService = {
   appConfig: Effect.succeed({}),
 } as any;
 
-const mockLLMService: LLMService = {
+const mockLLMService: LLMService = partialFake<LLMService>({
   createStreamingChatCompletion: () => Effect.fail(new Error("not implemented")),
   createChatCompletion: () => Effect.fail(new Error("not implemented")),
   listProviders: () => Effect.succeed([]),
   getProvider: () => Effect.fail(new Error("not implemented")),
   supportsNativeWebSearch: () => Effect.succeed(false),
   resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
-} as unknown as LLMService;
+});
 
 const mockSkillService = {
   listSkills: () => Effect.succeed([]),

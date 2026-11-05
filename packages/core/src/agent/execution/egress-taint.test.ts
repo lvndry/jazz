@@ -4,6 +4,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
+import { partialFake } from "@/core/test-support/fakes";
 import type { ChatMessage } from "@/core/types/message";
 import type {
   ApprovalRequest,
@@ -299,7 +300,7 @@ function harness(options: {
 }) {
   const executed: string[] = [];
   const approvals: ApprovalRequest[] = [];
-  const registry = {
+  const registry = partialFake<ToolRegistry>({
     getTool: (name: string) =>
       Effect.succeed({
         name,
@@ -316,8 +317,8 @@ function harness(options: {
           untrusted: { kind: "external", source: `${name} https://page.example` },
         };
       }),
-  } as unknown as ToolRegistry;
-  const presentation = {
+  });
+  const presentation = partialFake<PresentationService>({
     formatToolsDetected: () => Effect.succeed(""),
     writeOutput: () => Effect.void,
     writeBlankLine: () => Effect.void,
@@ -333,7 +334,7 @@ function harness(options: {
         options.onApproval?.();
         return { approved: options.approve };
       }),
-  } as unknown as PresentationService;
+  });
   const layer = Layer.mergeAll(
     Layer.succeed(ToolRegistryTag, registry),
     Layer.succeed(PresentationServiceTag, presentation),

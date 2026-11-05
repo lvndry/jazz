@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
+import { partialFake } from "@/core/test-support/fakes";
 import type { ReduceToolResultsFn } from "./advised-tool-clearing";
 import {
   chunkForSummarizer,
@@ -877,13 +878,13 @@ describe("Summarizer", () => {
 
     it("says it is stuck, without announcing a compaction, when nothing is old enough", async () => {
       const warnings: string[] = [];
-      const presentation = {
+      const presentation = partialFake<PresentationService>({
         ...mockPresentationService,
         presentWarning: (_agent: string, message: string) =>
           Effect.sync(() => {
             warnings.push(message);
           }),
-      } as unknown as PresentationService;
+      });
       const oneHugeMessage: ConversationMessages = [
         { role: "system", content: "You are an assistant" },
         { role: "user", content: "x ".repeat(2_000) },

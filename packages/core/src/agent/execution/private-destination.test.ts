@@ -4,6 +4,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
+import { partialFake } from "@/core/test-support/fakes";
 import type { AppConfig } from "@/core/types/config";
 import type {
   ApprovalRequest,
@@ -44,7 +45,7 @@ function harness(options: {
     options.allowPrivateHosts === undefined
       ? {}
       : { network: { allowPrivateHosts: options.allowPrivateHosts } };
-  const configService = {
+  const configService = partialFake<AgentConfigService>({
     get appConfig() {
       return Effect.sync(() => appConfig);
     },
@@ -53,8 +54,8 @@ function harness(options: {
         writes.push({ key, value });
         appConfig = { ...appConfig, network: { allowPrivateHosts: value as string[] } };
       }),
-  } as unknown as AgentConfigService;
-  const registry = {
+  });
+  const registry = partialFake<ToolRegistry>({
     getTool: (name: string) =>
       Effect.succeed({
         name,
@@ -71,8 +72,8 @@ function harness(options: {
         grants.push(context.approvedPrivateAddresses);
         return { success: true, result: { content: "states" } };
       }),
-  } as unknown as ToolRegistry;
-  const presentation = {
+  });
+  const presentation = partialFake<PresentationService>({
     formatToolsDetected: () => Effect.succeed(""),
     writeOutput: () => Effect.void,
     writeBlankLine: () => Effect.void,
@@ -87,7 +88,7 @@ function harness(options: {
         approvals.push(request);
         return { approved: options.approve };
       }),
-  } as unknown as PresentationService;
+  });
   const layer = Layer.mergeAll(
     Layer.succeed(ToolRegistryTag, registry),
     Layer.succeed(PresentationServiceTag, presentation),

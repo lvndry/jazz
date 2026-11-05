@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { ToolRegistryTag, type Tool, type ToolRegistry } from "@/core/interfaces/tool-registry";
+import { partialFake } from "@/core/test-support/fakes";
 import { ToolNotFoundError } from "@/core/types/errors";
 import {
   allowedToolsForTier,
@@ -113,7 +114,7 @@ describe("what a tier permits among riskier-than-read-only tools", () => {
 });
 
 function registryOf(tools: readonly TierCandidateTool[], unhandable: readonly string[] = []) {
-  return {
+  return partialFake<ToolRegistry>({
     listTools: () => Effect.succeed([...tools.map((tool) => tool.name), ...unhandable]),
     getTool: (name: string) => {
       const found = tools.find((tool) => tool.name === name);
@@ -121,7 +122,7 @@ function registryOf(tools: readonly TierCandidateTool[], unhandable: readonly st
         ? Effect.fail(new ToolNotFoundError({ toolName: name }))
         : Effect.succeed(found as unknown as Tool);
     },
-  } as unknown as ToolRegistry;
+  });
 }
 
 function resolve(

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import type { StreamingRendererConfig } from "@/core/interfaces/presentation";
+import { invalidInput } from "@/core/test-support/fakes";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest } from "@/core/types/tools";
 import { detectInteractiveInput, OneShotPresentationService } from "./oneshot-presentation-service";
@@ -220,11 +221,11 @@ describe("OneShotPresentationService streaming renderer", () => {
     const renderer = Effect.runSync(service.createStreamingRenderer(rendererConfig));
 
     const captured = captureStderr();
-    const errorEvent = {
+    const errorEvent = invalidInput<StreamEvent>({
       type: "error",
       error: new Error("model request failed"),
       recoverable: false,
-    } as unknown as StreamEvent;
+    });
     Effect.runSync(renderer.handleEvent(errorEvent));
 
     expect(captured.lines).toHaveLength(1);

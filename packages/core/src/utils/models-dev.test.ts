@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { fakeFetch } from "@/core/test-support/fakes";
 import {
   clearModelsDevCache,
   getMetadataFromMap,
@@ -50,13 +51,13 @@ function mockFetchSuccess(): ReturnType<typeof mock> {
   const fetchMock = mock(() =>
     Promise.resolve(new Response(JSON.stringify(SAMPLE_API), { status: 200 })),
   );
-  global.fetch = fetchMock as unknown as typeof fetch;
+  global.fetch = fakeFetch(fetchMock);
   return fetchMock;
 }
 
 function mockFetchFailure(): ReturnType<typeof mock> {
   const fetchMock = mock(() => Promise.reject(new Error("network unreachable")));
-  global.fetch = fetchMock as unknown as typeof fetch;
+  global.fetch = fakeFetch(fetchMock);
   return fetchMock;
 }
 
@@ -115,9 +116,9 @@ describe("models-dev disk cache", () => {
         },
       },
     };
-    global.fetch = mock(() =>
-      Promise.resolve(new Response(JSON.stringify(withExtras), { status: 200 })),
-    ) as unknown as typeof fetch;
+    global.fetch = fakeFetch(
+      mock(() => Promise.resolve(new Response(JSON.stringify(withExtras), { status: 200 }))),
+    );
 
     await getModelsDevProviderModels("anthropic");
 
@@ -211,7 +212,7 @@ describe("models-dev mirror override", () => {
     const fetchMock = mock((url: string) =>
       Promise.resolve(Response.json(catalog(url === urlA ? 111 : 222))),
     );
-    global.fetch = fetchMock as unknown as typeof fetch;
+    global.fetch = fakeFetch(fetchMock);
     process.env["JAZZ_MODELS_DEV_URL"] = urlA;
     expect((await getModelsDevMap())?.get("claude-test")?.contextWindow).toBe(111);
     process.env["JAZZ_MODELS_DEV_URL"] = urlB;
@@ -251,15 +252,17 @@ describe("models-dev mirror override", () => {
     const slowResponse = new Promise<Response>((resolve) => {
       finish = resolve;
     });
-    global.fetch = mock((url: string) => {
-      if (url.includes("slow")) {
-        started();
-        return slowResponse;
-      }
-      return Promise.resolve(
-        Response.json({ anthropic: { models: { fast: { limit: { context: 222 } } } } }),
-      );
-    }) as unknown as typeof fetch;
+    global.fetch = fakeFetch(
+      mock((url: string) => {
+        if (url.includes("slow")) {
+          started();
+          return slowResponse;
+        }
+        return Promise.resolve(
+          Response.json({ anthropic: { models: { fast: { limit: { context: 222 } } } } }),
+        );
+      }),
+    );
     process.env["JAZZ_MODELS_DEV_URL"] = "https://slow.internal/api.json";
     const slow = getModelsDevMap();
     await firstStarted;

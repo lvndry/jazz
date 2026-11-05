@@ -13,6 +13,7 @@ import type { AgentResponse, AgentRunnerOptions } from "@/core/agent/types";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import { runClaimedWorkflow } from "./catch-up";
 import { addRunRecord, loadRunHistory } from "./run-history";
@@ -36,12 +37,12 @@ const baseWorkflow: WorkflowMetadata = {
   path: "/test",
 };
 
-const logger = {
+const logger = partialFake<LoggerService>({
   debug: () => Effect.void,
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
-} as unknown as LoggerService;
+});
 
 describe("claimed workflow execution", () => {
   let previousHome: string | undefined;
@@ -85,16 +86,25 @@ describe("claimed workflow execution", () => {
     );
     const services = Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, logger),
-      Layer.succeed(AgentConfigServiceTag, {
-        appConfig: Effect.succeed({}),
-      } as unknown as AgentConfigService),
-      Layer.succeed(AgentServiceTag, {
-        getAgent: () => Effect.succeed(agent),
-        listAgents: () => Effect.succeed([agent]),
-      } as unknown as AgentService),
-      Layer.succeed(WorkflowServiceTag, {
-        loadWorkflow: () => Effect.succeed({ metadata: workflow, prompt: "Write a recap." }),
-      } as unknown as WorkflowService),
+      Layer.succeed(
+        AgentConfigServiceTag,
+        partialFake<AgentConfigService>({
+          appConfig: Effect.succeed({}),
+        }),
+      ),
+      Layer.succeed(
+        AgentServiceTag,
+        partialFake<AgentService>({
+          getAgent: () => Effect.succeed(agent),
+          listAgents: () => Effect.succeed([agent]),
+        }),
+      ),
+      Layer.succeed(
+        WorkflowServiceTag,
+        partialFake<WorkflowService>({
+          loadWorkflow: () => Effect.succeed({ metadata: workflow, prompt: "Write a recap." }),
+        }),
+      ),
     );
     const execution = runClaimedWorkflow({
       workflow,

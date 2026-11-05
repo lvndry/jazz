@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { partialFake } from "@/core/test-support/fakes";
 import { type BrowserSession, BrowserSessions } from "./session";
 
 interface FakeSession {
@@ -8,11 +9,11 @@ interface FakeSession {
 
 function fakeSession(): FakeSession {
   let closes = 0;
-  const session = {
+  const session = partialFake<BrowserSession>({
     close: async () => {
       closes += 1;
     },
-  } as unknown as BrowserSession;
+  });
   return { session, closes: () => closes };
 }
 
