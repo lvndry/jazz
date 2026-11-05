@@ -276,7 +276,7 @@ const plugin: JazzPluginModule = {
         return {
           message: `Rename symbol to ${String(args["newName"])} in ${prepared.files.length} file(s)`,
           previewDiff,
-          prepared: prepared as unknown as JsonValue,
+          prepared,
         };
       },
       executePrepared: async (args, prepared, context) => {
@@ -337,7 +337,7 @@ const plugin: JazzPluginModule = {
         return {
           message: `Apply code action: ${String(args["title"])} (${prepared.files.length} file(s))`,
           previewDiff,
-          prepared: prepared as unknown as JsonValue,
+          prepared,
         };
       },
       executePrepared: async (args, prepared, context) => {
@@ -376,7 +376,7 @@ const plugin: JazzPluginModule = {
         return {
           message: `Format ${selected.path}`,
           previewDiff,
-          prepared: prepared as unknown as JsonValue,
+          prepared,
         };
       },
       executePrepared: async (args, prepared, context) => {

@@ -135,7 +135,6 @@ function main(): void {
   console.log(`verify-baselines-shrink: baselines only shrank relative to ${baseRef}.`);
 }
 
-// eslint-disable-next-line n/no-unsupported-features/node-builtins -- Bun script entry point.
 if (import.meta.main) {
   try {
     main();

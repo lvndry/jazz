@@ -199,7 +199,7 @@ function readUidMap(dataDir: string): UidMap {
     return {};
   }
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (!isRecord(parsed)) {
       return {};
     }
@@ -357,7 +357,7 @@ export function addAutoApprovedCommand(sandbox: ChatSandbox, commandKey: string)
     const raw = home.readText(CONFIG_FILE);
     let config: Record<string, unknown> = {};
     if (raw !== undefined) {
-      const parsed = JSON.parse(raw) as unknown;
+      const parsed: unknown = JSON.parse(raw);
       if (isRecord(parsed)) {
         config = parsed;
       }

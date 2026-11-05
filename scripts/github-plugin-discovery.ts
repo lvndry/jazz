@@ -115,7 +115,7 @@ async function jsonResponse(response: GitHubResponse, url: string): Promise<unkn
     throw new Error(`GitHub response exceeds ${MAX_JSON_BYTES} bytes`);
   }
   try {
-    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    return JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     throw new Error(`GitHub returned invalid JSON for ${url}`);
   }
@@ -160,7 +160,7 @@ function communityEntry(
   if (Buffer.byteLength(manifestText, "utf8") > MAX_PLUGIN_MANIFEST_BYTES) {
     throw new Error(`jazz-plugin.json exceeds ${MAX_PLUGIN_MANIFEST_BYTES} bytes`);
   }
-  const source = JSON.parse(manifestText) as unknown;
+  const source: unknown = JSON.parse(manifestText);
   const { manifest, entry } = parsePluginSourceManifest(source);
   const { artifact: _artifact, sha256: _sha256, ...metadata } = manifest;
   return {

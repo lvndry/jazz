@@ -219,7 +219,6 @@ function main(): void {
   console.log(`✓ every relative link and anchor in ${files.length} Markdown files resolves`);
 }
 
-// eslint-disable-next-line n/no-unsupported-features/node-builtins -- Bun script entry point.
 if (import.meta.main) {
   main();
 }

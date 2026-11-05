@@ -311,6 +311,20 @@ export default [
   },
   {
     /**
+     * Scripts, benchmarks and evals run on Bun, which defines `import.meta.main` (true only for the
+     * entry module); eslint-plugin-n knows it only as an experimental Node 24 feature and flags
+     * every entry-point guard, so that one name is ignored here.
+     */
+    files: ["scripts/**/*.ts", "bench/**/*.ts", "evals/**/*.ts"],
+    rules: {
+      "n/no-unsupported-features/node-builtins": [
+        "error",
+        { allowExperimental: true, ignores: ["import.meta.main"] },
+      ],
+    },
+  },
+  {
+    /**
      * Code conventions enforced per identifier and per statement. Existing violations are recorded
      * in `eslint-suppressions.json` (ESLint bulk suppressions) so only new violations fail; shrink
      * it with `bun run lint:prune-suppressions` after fixing some. `_` is the one single-character

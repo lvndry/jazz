@@ -60,9 +60,9 @@ describe("unaddressed group messages while the requester's prompt waits", () => 
         allowedGroups: new Set([GROUP_ID]),
         requireMentionInGroups: true,
         jazzHome: mkdtempSync(join(tmpdir(), "jazz-wa-pending-")),
-      } as unknown as Parameters<typeof handleIncoming>[0],
-      runner as unknown as Parameters<typeof handleIncoming>[1],
-      connection as unknown as Parameters<typeof handleIncoming>[2],
+      },
+      runner,
+      connection,
       {
         id: "m1",
         chatJid: GROUP,
@@ -74,9 +74,9 @@ describe("unaddressed group messages while the requester's prompt waits", () => 
         quotedAuthor: undefined,
         media:
           options.media === true
-            ? { kind: "image", mimeType: "image/jpeg", fileName: undefined }
+            ? { kind: "image", mimeType: "image/jpeg", fileName: undefined, source: {} }
             : undefined,
-      } as unknown as Parameters<typeof handleIncoming>[3],
+      },
     );
     return { handled, answered, mediaSaved };
   }

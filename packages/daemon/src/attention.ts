@@ -168,7 +168,7 @@ export function listWaiting(now: Date = new Date()) {
       ...goals.map(goalItem),
       ...loops.map(loopItem),
     ].filter((item): item is WaitingItem => item !== undefined);
-    return items.sort((a, b) => Date.parse(a.since) - Date.parse(b.since));
+    return items.sort((left, right) => Date.parse(left.since) - Date.parse(right.since));
   });
 }
 

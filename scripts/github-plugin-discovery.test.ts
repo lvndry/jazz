@@ -103,8 +103,9 @@ describe("discoverCommunityPlugins", () => {
   });
 
   it("refuses incomplete GitHub search results instead of replacing the snapshot", async () => {
-    const fetchImpl = (async () =>
-      response({ incomplete_results: true, items: [] })) as unknown as typeof fetch;
+    const fetchImpl = Object.assign(async () => response({ incomplete_results: true, items: [] }), {
+      preconnect: () => {},
+    });
     await expect(discoverCommunityPlugins({ fetchImpl })).rejects.toThrow("incomplete");
   });
 });

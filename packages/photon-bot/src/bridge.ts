@@ -407,7 +407,7 @@ export async function startBridge(): Promise<void> {
     projectId: config.projectId,
     projectSecret: config.projectSecret,
     providers,
-  } as unknown as Parameters<typeof Spectrum>[0]);
+  } as Parameters<typeof Spectrum>[0]);
 
   // A space is only addressable once it has spoken: Photon's shared line
   // cannot open a conversation the other side did not start.
@@ -423,7 +423,7 @@ export async function startBridge(): Promise<void> {
     if (spaces.has(chatId)) {
       return;
     }
-    const platform = (imessage as unknown as (spectrum: unknown) => PhotonSpaces)(app);
+    const platform = (imessage as (spectrum: unknown) => PhotonSpaces)(app);
     spaces.set(chatId, await platform.space.get(chatId));
   };
 

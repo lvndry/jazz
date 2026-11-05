@@ -1,19 +1,33 @@
 {
+<<<<<<< HEAD
   "packages/bot-shared/src/turn.test.ts": {
+=======
+  "packages/core/src/agent/agent-runner.test.ts": {
+>>>>>>> origin/chore/mechanical-convention-gates
     "id-length": {
       "count": 1
     }
   },
+<<<<<<< HEAD
   "packages/daemon/src/attention.ts": {
     "id-length": {
       "count": 2
     }
   },
   "packages/runtime/src/app-layer.ts": {
+=======
+  "packages/core/src/agent/context/context-window-manager.test.ts": {
+    "id-length": {
+      "count": 5
+    }
+  },
+  "packages/core/src/agent/context/run-progress.test.ts": {
+>>>>>>> origin/chore/mechanical-convention-gates
     "id-length": {
       "count": 1
     }
   },
+<<<<<<< HEAD
   "plugins/lsp/src/workspace-edit.ts": {
     "id-length": {
       "count": 6
@@ -30,13 +44,138 @@
     }
   },
   "scripts/pre-release-review.ts": {
+=======
+  "packages/core/src/agent/context/summarizer.test.ts": {
+>>>>>>> origin/chore/mechanical-convention-gates
     "id-length": {
       "count": 3
     }
   },
+<<<<<<< HEAD
   "scripts/verify-no-unknown-casts.ts": {
     "n/no-unsupported-features/node-builtins": {
       "count": 1
     }
+=======
+  "packages/core/src/agent/context/token-counter.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/execution/agent-loop.test.ts": {
+    "id-length": {
+      "count": 9
+    }
+  },
+  "packages/core/src/agent/execution/streaming-executor.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/subagents/supervisor.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/composition-og.test.ts": {
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/composition.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/fs/find.test.ts": {
+    "id-length": {
+      "count": 20
+    }
+  },
+  "packages/core/src/agent/tools/fs/grep.test.ts": {
+    "id-length": {
+      "count": 5
+    }
+  },
+  "packages/core/src/agent/tools/fs/ls.test.ts": {
+    "id-length": {
+      "count": 13
+    }
+  },
+  "packages/core/src/agent/tools/occupancy.test.ts": {
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/publish-composition.test.ts": {
+    "id-length": {
+      "count": 13
+    }
+  },
+  "packages/core/src/agent/tools/register-tools.docs.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/reminder.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/search-tools.test.ts": {
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/subagent.test.ts": {
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/tools/tool-registry.test.ts": {
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/core/src/daemon/attention.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/presentation/error-handler.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/presentation/oneshot-presentation-service.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/skills/skill-service.test.ts": {
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/utils/mcp-schema-converter.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/utils/model-capabilities.test.ts": {
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/core/src/utils/provider-picker.test.ts": {
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/core/src/workflows/scheduler-service.test.ts": {
+    "id-length": {
+      "count": 11
+    }
+>>>>>>> origin/chore/mechanical-convention-gates
   }
 }

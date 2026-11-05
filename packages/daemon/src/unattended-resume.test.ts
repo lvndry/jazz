@@ -4,6 +4,7 @@ import { RunStoreTag, type RunStore } from "@jazz/core/interfaces/run-store";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { partialFake } from "./partial-fake.fixture";
 import { classifyTurnOutcome, hasParkedRun } from "./unattended-resume";
 
 const TRANSCRIPT: ChatMessage[] = [
@@ -87,9 +88,11 @@ describe("classifyTurnOutcome", () => {
 });
 
 describe("hasParkedRun", () => {
-  function storeWith(states: readonly string[]): RunStore {
-    const runs = states.map((kind) => ({ state: { kind } }) as unknown as RunRecord);
-    return { list: () => Effect.succeed(runs) } as unknown as RunStore;
+  function storeWith(states: readonly RunRecord["state"]["kind"][]): RunStore {
+    const runs = states.map((kind) =>
+      partialFake<RunRecord>({ state: partialFake<RunRecord["state"]>({ kind }) }),
+    );
+    return partialFake<RunStore>({ list: () => Effect.succeed(runs) });
   }
 
   it("holds a delivery back behind a run parked on an approval", async () => {

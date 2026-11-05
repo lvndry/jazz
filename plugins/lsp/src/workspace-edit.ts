@@ -19,15 +19,17 @@ interface TextEdit {
   readonly range: { readonly start: Position; readonly end: Position };
   readonly newText: string;
 }
-interface PreparedFile {
+type PreparedFile = {
   readonly path: string;
   readonly before: string;
   readonly after: string;
   readonly snapshot: string;
-}
-export interface PreparedWorkspaceEdit {
+};
+
+/** A type alias rather than an interface so the value is assignable to `JsonValue` as it is. */
+export type PreparedWorkspaceEdit = {
   readonly files: readonly PreparedFile[];
-}
+};
 
 async function lock(path: string): Promise<() => Promise<void>> {
   const lockPath = `${path}.jazz-edit.lock`;
@@ -103,7 +105,7 @@ function applyEdits(before: string, edits: readonly TextEdit[]): string {
       }
       return { start, end, replacement: edit.newText };
     })
-    .sort((a, b) => b.start - a.start || b.end - a.end);
+    .sort((left, right) => right.start - left.start || right.end - left.end);
   let result = before;
   let earliest = before.length + 1;
   for (const edit of ranges) {
@@ -177,7 +179,7 @@ export async function prepareWorkspaceEdit(
   if (files.length === 0) {
     throw new Error("Language server proposed no effective text changes");
   }
-  files.sort((a, b) => a.path.localeCompare(b.path));
+  files.sort((left, right) => left.path.localeCompare(right.path));
   const previewDiff = files
     .map(({ path, before, after }) => createPatch(path, before, after))
     .join("\n");
@@ -193,7 +195,7 @@ export async function applyWorkspaceEdit(value: unknown): Promise<string> {
   const releases: Array<() => Promise<void>> = [];
   const staged: { path: string; temp: string }[] = [];
   try {
-    for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
+    for (const file of [...files].sort((left, right) => left.path.localeCompare(right.path))) {
       releases.push(await lock(file.path));
     }
     for (const file of files) {

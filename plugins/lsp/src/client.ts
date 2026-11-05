@@ -162,7 +162,7 @@ export async function activateWorkspace(
     ),
   );
   return results.flatMap((result): unknown[] =>
-    result.status === "rejected" ? [result.reason as unknown] : [],
+    result.status === "rejected" ? [result.reason] : [],
   );
 }
 
