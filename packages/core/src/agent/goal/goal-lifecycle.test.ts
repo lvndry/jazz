@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { RunState } from "@/core/agent/run/run-state";
+import { BLOCKED_ROUNDS_REQUIRED } from "./goal-blocker";
 import {
   decideAccept,
   decideCancel,
@@ -401,29 +402,27 @@ describe("cycles cut off by the process stopping", () => {
     run: { kind: "interrupted", cause: "shutdown", spend: SPEND },
   };
 
-  it("continues with a fresh cycle told to check the state, up to the limit", () => {
+  it("pauses the goal, and says how to resume it, until a person continues", () => {
     const first = settleCycle(goal(), interrupted);
-    expect(first.state).toEqual({ kind: "active" });
-    expect(first.interruptedCycles).toBe(1);
+    expect(first.state).toEqual({ kind: "paused" });
     expect(first.lastProgress).toContain("Check the current state before redoing anything");
+    expect(first.lastProgress).toContain("jazz goal resume");
     expect(first.usage.totalTokens).toBe(1_500);
     expect(parseGoalRecord({ ...first, version: 4 }).ok).toBe(true);
-
-    expect(settleCycle(goal({ interruptedCycles: 1 }), interrupted).interruptedCycles).toBe(2);
-    expect(settleCycle(goal({ interruptedCycles: 2 }), interrupted).state.kind).toBe(
-      "review-required",
-    );
   });
 
-  it("pauses on a user stop and carries on after any other cause, with no pause requested", () => {
+  it("pauses whatever stopped the cycle, naming the resume command only for a stop the user did not ask for", () => {
     const stoppedBy = (cause: "user" | "parent" | "deadline" | "shutdown"): CycleEnd => ({
       run: { kind: "interrupted", cause, spend: SPEND },
     });
     const open = goal();
-    expect(settleCycle(open, stoppedBy("user")).state).toEqual({ kind: "paused" });
-    expect(settleCycle(open, stoppedBy("user")).interruptedCycles).toBeUndefined();
+    const byUser = settleCycle(open, stoppedBy("user"));
+    expect(byUser.state).toEqual({ kind: "paused" });
+    expect(byUser.lastProgress).not.toContain("jazz goal resume");
     for (const cause of ["parent", "deadline", "shutdown"] as const) {
-      expect(settleCycle(open, stoppedBy(cause)).state).toEqual({ kind: "active" });
+      const next = settleCycle(open, stoppedBy(cause));
+      expect(next.state).toEqual({ kind: "paused" });
+      expect(next.lastProgress).toContain("jazz goal resume");
     }
   });
 
@@ -436,9 +435,40 @@ describe("cycles cut off by the process stopping", () => {
     expect(settleCycle(stopping("pause"), interrupted).state).toEqual({ kind: "paused" });
     expect(settleCycle(stopping("cancel"), interrupted).state).toEqual({ kind: "canceled" });
   });
+});
 
-  it("resets the count once a cycle reports verifiable progress", () => {
-    const next = settleCycle(goal({ interruptedCycles: 2 }), {
+describe("stopping as blocked", () => {
+  const blockedEnd = (blocker?: string): CycleEnd => ({
+    run: { kind: "completed", spend: SPEND },
+    evaluation: valid({
+      status: "blocked",
+      summary: "Cannot log in.",
+      ...(blocker !== undefined ? { blocker } : {}),
+    }),
+  });
+
+  it("keeps the goal active, and counts the round, until the same blocker has been reported enough times", () => {
+    let current = goal();
+    for (let round = 1; round < BLOCKED_ROUNDS_REQUIRED; round += 1) {
+      const next = settleCycle(current, blockedEnd("Login fails"));
+      expect(next.state).toEqual({ kind: "active" });
+      expect(next.blockerStreak).toEqual({ blocker: "login fails", rounds: round });
+      expect(next.lastProgress).toContain(`round ${round} of ${BLOCKED_ROUNDS_REQUIRED}`);
+      expect(parseGoalRecord({ ...next, version: 4 }).ok).toBe(true);
+      current = goal({ blockerStreak: next.blockerStreak! });
+    }
+    const final = settleCycle(current, blockedEnd("  LOGIN   fails "));
+    expect(final.state).toEqual({ kind: "review-required", reason: "Cannot log in." });
+    expect(final.blockerStreak).toBeUndefined();
+  });
+
+  it("starts the count over when the blocker changes or any other disposition intervenes", () => {
+    const streak = goal({ blockerStreak: { blocker: "login fails", rounds: 2 } });
+    expect(settleCycle(streak, blockedEnd("Disk is full")).blockerStreak).toEqual({
+      blocker: "disk is full",
+      rounds: 1,
+    });
+    const continued = settleCycle(streak, {
       run: { kind: "completed", spend: SPEND },
       evaluation: valid({
         status: "continue",
@@ -447,7 +477,11 @@ describe("cycles cut off by the process stopping", () => {
         completedStepIds: [],
       }),
     });
-    expect(next.interruptedCycles).toBeUndefined();
+    expect(continued.blockerStreak).toBeUndefined();
+  });
+
+  it("falls back to the summary as the blocker when none is named", () => {
+    expect(settleCycle(goal(), blockedEnd()).blockerStreak?.blocker).toBe("cannot log in.");
   });
 });
 
@@ -483,15 +517,15 @@ describe("the authority granted on acceptance", () => {
 
 describe("counters that must run in a row", () => {
   /** The regression: a cycle with an unverified claim kept the interruption count alive. */
-  it("an interruption streak ends at any cycle that finishes, verified or not", () => {
-    const next = settleCycle(goal({ interruptedCycles: 2 }), {
+  it("a blocker streak ends at any cycle that finishes, verified or not", () => {
+    const next = settleCycle(goal({ blockerStreak: { blocker: "login fails", rounds: 2 } }), {
       run: { kind: "completed", spend: SPEND },
       evaluation: {
         kind: "invalid",
         reason: "Completion evidence for criterion 1 does not appear in this cycle's tool output.",
       },
     });
-    expect(next.interruptedCycles).toBeUndefined();
+    expect(next.blockerStreak).toBeUndefined();
     expect(next.unverifiedClaims).toBe(1);
   });
 });

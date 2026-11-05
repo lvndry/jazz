@@ -10,6 +10,12 @@
 
 import type { CancelCause } from "@/core/agent/run/cancel-cause";
 import type { RunSpend } from "@/core/agent/run/run-spend";
+import {
+  BLOCKED_ROUNDS_REQUIRED,
+  blockedRuleInstruction,
+  blockerKey,
+  blockerRound,
+} from "./goal-blocker";
 import type { GoalEvaluationResult } from "./goal-evaluation";
 import { withoutCycle, type GoalRecord, type GoalRecordInput } from "./goal-record";
 import { addSpend, reachedLimit } from "./goal-usage";
@@ -19,8 +25,8 @@ export type EndedRun =
   | { readonly kind: "failed"; readonly error: string; readonly spend: RunSpend }
   | { readonly kind: "canceled"; readonly spend: RunSpend }
   /**
-   * The cycle's run was stopped before it finished. A `user` stop pauses the goal; any other
-   * cause (the process stopping, a restart) is not the agent's failure, so the goal carries on.
+   * The cycle's run was stopped before it finished. Whatever the cause, the goal pauses: a
+   * person decides when it continues, since the cycle's actions may have partly happened.
    */
   | { readonly kind: "interrupted"; readonly cause: CancelCause; readonly spend: RunSpend }
   /** No durable record: the claim was written but the run never recorded anything. */
@@ -42,15 +48,15 @@ export interface CycleEnd {
  */
 const MAX_UNVERIFIED_CLAIMS = 2;
 
-/**
- * Cycles in a row that may be cut off by the process stopping before the goal stops for
- * review. A restart is not the agent's failure, so an unattended goal carries on; a cycle
- * that keeps dying (a crash it triggers itself) needs a person.
- */
-const MAX_INTERRUPTED_CYCLES = 2;
-
 const INTERRUPTED_NOTE =
   "The previous cycle was cut off when the process running it stopped, so some of its actions may have happened and others not. Check the current state before redoing anything.";
+
+/**
+ * Appended when a stop other than the user's cut a cycle off. Nobody asked for the pause, so
+ * the note names the command that undoes it.
+ */
+const PAUSED_AFTER_STOP_NOTE =
+  "The goal is paused because the process running it stopped. Run `jazz goal resume` (or `/goal resume` in a chat) to continue.";
 
 function review(base: GoalRecordInput, reason: string): GoalRecordInput {
   return { ...base, state: { kind: "review-required", reason } };
@@ -69,33 +75,16 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
   if (end.unchecked !== undefined && stopAfter !== "cancel") {
     return review(base, end.unchecked);
   }
-  if (
-    end.run.kind === "interrupted" &&
-    (stopAfter === "pause" || (stopAfter === undefined && end.run.cause === "user"))
-  ) {
+  if (end.run.kind === "interrupted" && stopAfter !== "cancel") {
+    const userStopped = stopAfter === "pause" || end.run.cause === "user";
     return {
       ...base,
-      lastProgress: base.lastProgress ?? INTERRUPTED_NOTE,
+      lastProgress: userStopped
+        ? (base.lastProgress ?? INTERRUPTED_NOTE)
+        : [base.lastProgress, INTERRUPTED_NOTE, PAUSED_AFTER_STOP_NOTE]
+            .filter((line) => line !== undefined)
+            .join("\n"),
       state: { kind: "paused" },
-    };
-  }
-  if (end.run.kind === "interrupted" && stopAfter === undefined) {
-    const interrupted = (goal.interruptedCycles ?? 0) + 1;
-    if (interrupted > MAX_INTERRUPTED_CYCLES) {
-      return review(
-        base,
-        "The process running this goal stopped during several cycles in a row; check for side effects before continuing.",
-      );
-    }
-    const limit = reachedLimit(base);
-    return {
-      ...base,
-      interruptedCycles: interrupted,
-      lastProgress:
-        base.lastProgress === undefined
-          ? INTERRUPTED_NOTE
-          : `${base.lastProgress}\n${INTERRUPTED_NOTE}`,
-      state: limit === undefined ? { kind: "active" } : { kind: "budget-limited", limit },
     };
   }
   if (end.run.kind !== "completed") {
@@ -129,7 +118,7 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
 
   const {
     unverifiedClaims: _previousClaims,
-    interruptedCycles: _previousInterruptions,
+    blockerStreak: _previousBlocker,
     ...settledBase
   } = base;
   const progressed =
@@ -183,11 +172,23 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
     };
   }
   switch (evaluation.evaluation.status) {
-    case "blocked":
+    case "blocked": {
+      const blocker = blockerKey(evaluation.evaluation);
+      const round = blockerRound(goal, blocker);
+      if (round >= BLOCKED_ROUNDS_REQUIRED) {
+        return {
+          ...review(progressed, evaluation.evaluation.summary),
+          lastProgress: evaluation.evaluation.summary,
+        };
+      }
+      const limit = reachedLimit(progressed);
       return {
-        ...review(progressed, evaluation.evaluation.summary),
-        lastProgress: evaluation.evaluation.summary,
+        ...progressed,
+        blockerStreak: { blocker, rounds: round },
+        lastProgress: `${evaluation.evaluation.summary}\n${blockedRuleInstruction(blocker, round)}`,
+        state: limit === undefined ? { kind: "active" } : { kind: "budget-limited", limit },
       };
+    }
     case "question":
       return {
         ...progressed,

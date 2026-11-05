@@ -57,6 +57,14 @@ answer to continue. You can also use `/resume` to find the conversation.
 you resume it. A daily dollar or token cap (`daemon.dailyCostUSD`, `daemon.dailyTokens`) pauses it
 on its own.
 
+If the process running a cycle stops partway (a crash, a restart, a shutdown), the goal pauses
+instead of carrying on by itself, because some of the cycle's actions may have happened. Its
+progress note says so; `jazz goal resume` (or `/goal resume` in a chat) continues it.
+
+A cycle that reports it is blocked does not stop the goal at once. The goal stops for your review
+only after 3 consecutive cycles report the same blocker; until then each cycle is told to try a
+different approach.
+
 ### Goals Jazz proposes
 
 When a request clearly needs sustained work, the agent can propose a goal itself, with a plan and
