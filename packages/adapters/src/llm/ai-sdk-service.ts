@@ -22,6 +22,10 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createProviderDefinedToolFactory } from "@ai-sdk/provider-utils";
 import { createTogetherAI } from "@ai-sdk/togetherai";
 import { createXai, xai, type XaiResponsesProviderOptions } from "@ai-sdk/xai";
+import {
+  relaxToolArguments,
+  type ArgumentRelaxation,
+} from "@jazz/core/agent/tools/argument-tolerance";
 import { AI_SDK_MAX_RETRIES } from "@jazz/core/constants/agent";
 import {
   isLocalServerProvider,
@@ -1962,9 +1966,16 @@ export function buildProviderOptions(
  * manually and patched with a `type`. Every other Zod schema goes through the AI SDK's
  * own `zodSchema` conversion and keeps its validator.
  */
-export function buildToolInputSchema(toolDef: {
-  function: { parameters: z.ZodTypeAny; jsonSchema?: Readonly<Record<string, unknown>> };
-}) {
+export function buildToolInputSchema(
+  toolDef: {
+    function: {
+      name?: string;
+      parameters: z.ZodTypeAny;
+      jsonSchema?: Readonly<Record<string, unknown>>;
+    };
+  },
+  onRelaxed?: (toolName: string, relaxations: readonly ArgumentRelaxation[]) => void,
+) {
   const advertisedJsonSchema = toolDef.function.jsonSchema;
   if (advertisedJsonSchema !== undefined) {
     return jsonSchema(() => compactToolJsonSchema(advertisedJsonSchema) as JSONSchema7);
@@ -1979,6 +1990,20 @@ export function buildToolInputSchema(toolDef: {
     );
   }
   const converted = zodSchema(toolDef.function.parameters);
+  const toolName = toolDef.function.name ?? "";
+  const validate: typeof converted.validate =
+    converted.validate === undefined
+      ? undefined
+      : (value) => {
+          if (!isRecord(value)) {
+            return converted.validate!(value);
+          }
+          const relaxed = relaxToolArguments(toolName, toolDef.function.parameters, value);
+          if (relaxed.relaxations.length > 0) {
+            onRelaxed?.(toolName, relaxed.relaxations);
+          }
+          return converted.validate!(relaxed.args);
+        };
   return jsonSchema(
     () => {
       const convertedJsonSchema = converted.jsonSchema;
@@ -1986,7 +2011,7 @@ export function buildToolInputSchema(toolDef: {
         ? convertedJsonSchema.then((resolved) => compactToolJsonSchema(resolved) as JSONSchema7)
         : (compactToolJsonSchema(convertedJsonSchema) as JSONSchema7);
     },
-    converted.validate !== undefined ? { validate: converted.validate } : {},
+    validate !== undefined ? { validate } : {},
   );
 }
 
@@ -2296,7 +2321,17 @@ class AISDKService implements LLMService {
     for (const toolDef of requestedTools) {
       tools[toolDef.function.name] = tool({
         description: toolDef.function.description,
-        inputSchema: buildToolInputSchema(toolDef),
+        inputSchema: buildToolInputSchema(toolDef, (toolName, relaxations) => {
+          for (const relaxation of relaxations) {
+            Effect.runFork(
+              this.logger.debug("tool argument relaxed", {
+                tool: toolName,
+                field: relaxation.field,
+                reason: relaxation.reason,
+              }),
+            );
+          }
+        }),
       });
     }
 
