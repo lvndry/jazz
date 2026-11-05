@@ -110,11 +110,11 @@ function parseStartRequest(value: unknown): StartRequest {
   if (typeof value !== "object" || value === null) {
     throw new Error("Invalid detach start request");
   }
-  const v = value as Record<string, unknown>;
-  const handoffId = parseId(v["handoffId"]);
-  const agentId = parseId(v["agentId"]);
-  const conversationId = parseId(v["conversationId"]);
-  const workspacePath = v["workspacePath"];
+  const record = value as Record<string, unknown>;
+  const handoffId = parseId(record["handoffId"]);
+  const agentId = parseId(record["agentId"]);
+  const conversationId = parseId(record["conversationId"]);
+  const workspacePath = record["workspacePath"];
   if (
     typeof workspacePath !== "string" ||
     !path.isAbsolute(workspacePath) ||
@@ -123,15 +123,15 @@ function parseStartRequest(value: unknown): StartRequest {
   ) {
     throw new Error("Invalid remote workspace path");
   }
-  const continuation = v["continuation"];
+  const continuation = record["continuation"];
   if (typeof continuation !== "string" || !continuation.trim() || continuation.length > 16_000) {
     throw new Error("Invalid continuation instruction");
   }
-  if (v["approvalPolicy"] !== "low-risk") {
+  if (record["approvalPolicy"] !== "low-risk") {
     throw new Error("Invalid detached approval policy");
   }
   for (const key of ["maxCostUSD", "maxDurationMs", "maxIterations"] as const) {
-    const number = v[key];
+    const number = record[key];
     if (typeof number !== "number" || !Number.isFinite(number) || number <= 0) {
       throw new Error(`Invalid ${key}`);
     }
@@ -143,9 +143,9 @@ function parseStartRequest(value: unknown): StartRequest {
     workspacePath,
     continuation,
     approvalPolicy: "low-risk",
-    maxCostUSD: v["maxCostUSD"] as number,
-    maxDurationMs: v["maxDurationMs"] as number,
-    maxIterations: v["maxIterations"] as number,
+    maxCostUSD: record["maxCostUSD"] as number,
+    maxDurationMs: record["maxDurationMs"] as number,
+    maxIterations: record["maxIterations"] as number,
   };
 }
 

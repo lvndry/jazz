@@ -195,8 +195,8 @@ export function wrapCommaList(items: readonly string[], width: number): string[]
   const lines: string[] = [];
   let current = "";
 
-  for (const p of parts) {
-    const next = current.length === 0 ? p : `${current}, ${p}`;
+  for (const part of parts) {
+    const next = current.length === 0 ? part : `${current}, ${part}`;
     if (next.length <= width) {
       current = next;
       continue;
@@ -204,7 +204,7 @@ export function wrapCommaList(items: readonly string[], width: number): string[]
     if (current.length > 0) {
       lines.push(current);
     }
-    current = p;
+    current = part;
   }
   if (current.length > 0) {
     lines.push(current);
@@ -347,7 +347,7 @@ export function truncateTailAnsiSafe(text: string, maxVisibleChars: number): str
     }
   }
 
-  return resultSegments.map((s) => s.content).join("");
+  return resultSegments.map((segment) => segment.content).join("");
 }
 
 /**

@@ -129,26 +129,6 @@
       "count": 1
     }
   },
-  "packages/cli/src/catch-up-prompt.ts": {
-    "id-length": {
-      "count": 4
-    }
-  },
-  "packages/cli/src/chat-service.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/chat/commands/conversation.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/chat/commands/handler.ts": {
-    "id-length": {
-      "count": 12
-    }
-  },
   "packages/cli/src/chat/commands/mcp-prompt-args.test.ts": {
     "id-length": {
       "count": 5
@@ -159,62 +139,7 @@
       "count": 1
     }
   },
-  "packages/cli/src/commands/agent-management.ts": {
-    "id-length": {
-      "count": 4
-    }
-  },
-  "packages/cli/src/commands/config.ts": {
-    "id-length": {
-      "count": 4
-    }
-  },
-  "packages/cli/src/commands/create-agent.ts": {
-    "id-length": {
-      "count": 4
-    }
-  },
-  "packages/cli/src/commands/detach-internal.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/commands/edit-agent.ts": {
-    "id-length": {
-      "count": 5
-    }
-  },
   "packages/cli/src/commands/media-agents.test.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/commands/settings-wizard.ts": {
-    "id-length": {
-      "count": 2
-    }
-  },
-  "packages/cli/src/commands/update.ts": {
-    "id-length": {
-      "count": 3
-    }
-  },
-  "packages/cli/src/commands/wizard.ts": {
-    "id-length": {
-      "count": 3
-    }
-  },
-  "packages/cli/src/commands/workflow.ts": {
-    "id-length": {
-      "count": 12
-    }
-  },
-  "packages/cli/src/failed-run-prompt.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/input/escape-state-machine.ts": {
     "id-length": {
       "count": 1
     }
@@ -229,24 +154,9 @@
       "count": 44
     }
   },
-  "packages/cli/src/presentation/activity-reducer.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/presentation/cli-presentation-service.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
   "packages/cli/src/presentation/ink-presentation-service.test.ts": {
     "id-length": {
       "count": 37
-    }
-  },
-  "packages/cli/src/presentation/ink-presentation-service.ts": {
-    "id-length": {
-      "count": 3
     }
   },
   "packages/cli/src/presentation/markdown-formatter.test.ts": {
@@ -259,59 +169,9 @@
       "count": 14
     }
   },
-  "packages/cli/src/services/input-service.ts": {
-    "id-length": {
-      "count": 2
-    }
-  },
-  "packages/cli/src/terminal.ts": {
-    "id-length": {
-      "count": 2
-    }
-  },
-  "packages/cli/src/ui/ActivityView.tsx": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/ui/Prompt.tsx": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/ui/activity-state.ts": {
-    "id-length": {
-      "count": 5
-    }
-  },
-  "packages/cli/src/ui/components/ChatInput.tsx": {
-    "id-length": {
-      "count": 2
-    }
-  },
-  "packages/cli/src/ui/components/Questionnaire.tsx": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/ui/components/ScrollableMultiSelect.tsx": {
-    "id-length": {
-      "count": 1
-    }
-  },
   "packages/cli/src/ui/fullscreen/app.test.tsx": {
     "id-length": {
       "count": 2
-    }
-  },
-  "packages/cli/src/ui/fullscreen/auto-scroll-selection.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "packages/cli/src/ui/fullscreen/bridge.tsx": {
-    "id-length": {
-      "count": 1
     }
   },
   "packages/cli/src/ui/fullscreen/live-input.test.tsx": {
@@ -349,22 +209,12 @@
       "count": 72
     }
   },
-  "packages/cli/src/ui/text-utils.ts": {
-    "id-length": {
-      "count": 2
-    }
-  },
   "packages/cli/src/ui/text/stream-pacer.test.ts": {
     "id-length": {
       "count": 6
     }
   },
   "packages/cli/src/ui/text/wrap.test.ts": {
-    "id-length": {
-      "count": 2
-    }
-  },
-  "packages/cli/src/utils/string-utils.ts": {
     "id-length": {
       "count": 2
     }

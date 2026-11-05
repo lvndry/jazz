@@ -982,7 +982,8 @@ function resolveWebSearchProviderLabel(
     const externalProvider = appConfig.web_search?.provider;
     if (externalProvider) {
       const display =
-        WEB_SEARCH_PROVIDERS.find((p) => p.value === externalProvider)?.name ?? externalProvider;
+        WEB_SEARCH_PROVIDERS.find((provider) => provider.value === externalProvider)?.name ??
+        externalProvider;
       return `via ${display}`;
     }
 
@@ -1553,8 +1554,8 @@ function handleCopyCommand(
   return Effect.gen(function* () {
     // Find the last assistant message in the history
     let lastResponse: string | null = null;
-    for (let i = conversationHistory.length - 1; i >= 0; i--) {
-      const msg = conversationHistory[i];
+    for (let index = conversationHistory.length - 1; index >= 0; index--) {
+      const msg = conversationHistory[index];
       if (msg && msg.role === "assistant" && msg.content) {
         lastResponse = msg.content;
         break;
@@ -2022,8 +2023,8 @@ function handleConfigCommand(
       const newTools = [...selected];
 
       // Report changes
-      const added = newTools.filter((t) => !agentToolSet.has(t));
-      const removed = agentToolNames.filter((t) => !newTools.includes(t));
+      const added = newTools.filter((toolName) => !agentToolSet.has(toolName));
+      const removed = agentToolNames.filter((toolName) => !newTools.includes(toolName));
       if (added.length === 0 && removed.length === 0) {
         yield* terminal.log(report("config", [{ kind: "text", text: "No changes." }]));
         return { shouldContinue: true };
@@ -2194,15 +2195,15 @@ function handleWorkflowsCommand(
  *   "Daily email digest (every day at 9:00 AM)"
  *   "Daily email digest (every day at 9:00 AM, agent: email-bot)"
  */
-function formatWorkflowDesc(w: WorkflowMetadata): string {
-  const parts: string[] = [w.description];
+function formatWorkflowDesc(workflow: WorkflowMetadata): string {
+  const parts: string[] = [workflow.description];
 
-  const scheduleDesc = w.schedule ? describeCronSchedule(w.schedule) : null;
-  if (w.schedule) {
-    parts.push(scheduleDesc ? `(${scheduleDesc})` : `[${w.schedule}]`);
+  const scheduleDesc = workflow.schedule ? describeCronSchedule(workflow.schedule) : null;
+  if (workflow.schedule) {
+    parts.push(scheduleDesc ? `(${scheduleDesc})` : `[${workflow.schedule}]`);
   }
-  if (w.agent) {
-    parts.push(`(agent: ${w.agent})`);
+  if (workflow.agent) {
+    parts.push(`(agent: ${workflow.agent})`);
   }
 
   return parts.join(" ");
@@ -2478,7 +2479,8 @@ function handleSkillsCommand(
 
     if (terminal.isInteractive) {
       const skills = [...builtin, ...global, ...agents, ...local, ...plugin].sort(
-        (a, b) => a.name.localeCompare(b.name) || a.source.localeCompare(b.source),
+        (left, right) =>
+          left.name.localeCompare(right.name) || left.source.localeCompare(right.source),
       );
       yield* Effect.callback<void>((resume) => {
         store.setActiveMenu({ kind: "skills", skills }, () => resume(Effect.void));
@@ -2521,7 +2523,7 @@ function handleSkillsCommand(
       rows.push(
         { kind: "group", label, count: String(group.length) },
         ...[...group]
-          .sort((a, b) => a.name.localeCompare(b.name))
+          .sort((left, right) => left.name.localeCompare(right.name))
           .map((skill): ReportRow => ({
             kind: "item",
             name: skill.name,
@@ -3008,7 +3010,7 @@ function runMcpOverlay(
         return { shouldContinue: true };
       }
 
-      const status = statuses.find((s) => s.config.name === selectedName);
+      const status = statuses.find((entry) => entry.config.name === selectedName);
       if (!status) {
         continue;
       }
@@ -3289,8 +3291,8 @@ function calculateContextUsage(
   const effectiveWindow = contextWindow - autocompactBuffer;
 
   // Separate system message from other messages
-  const systemMessage = conversationHistory.find((m) => m.role === "system");
-  const otherMessages = conversationHistory.filter((m) => m.role !== "system");
+  const systemMessage = conversationHistory.find((message) => message.role === "system");
+  const otherMessages = conversationHistory.filter((message) => message.role !== "system");
 
   // Estimate system prompt tokens, separating out the skills catalog
   let systemPromptTokens = systemMessage ? estimateMessageTokens(systemMessage) : 0;

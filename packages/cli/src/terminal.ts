@@ -447,7 +447,7 @@ export class InkTerminalService implements TerminalService {
               }),
         },
         resolve: (val: unknown) => {
-          const choice = choices.find((c) => c.value === val);
+          const choice = choices.find((candidate) => candidate.value === val);
           closePromptWithAnswer(message, choice?.label ?? "");
           resume(Effect.succeed(val as T));
         },
@@ -502,7 +502,7 @@ export class InkTerminalService implements TerminalService {
           ...(remove === undefined ? {} : { remove: (value: unknown) => remove(value as T) }),
         },
         resolve: (val: unknown) => {
-          const choice = choices.find((c) => c.value === val);
+          const choice = choices.find((candidate) => candidate.value === val);
           closePromptWithAnswer(message, choice?.label ?? "");
           resume(Effect.succeed(val as T));
         },

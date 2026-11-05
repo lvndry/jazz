@@ -552,7 +552,9 @@ function hiddenPromptKeys(prompt: PromptState | null): readonly string[] | undef
     return undefined;
   }
   const keys = prompt.options?.["keys"];
-  return Array.isArray(keys) ? keys.filter((k): k is string => typeof k === "string") : undefined;
+  return Array.isArray(keys)
+    ? keys.filter((key): key is string => typeof key === "string")
+    : undefined;
 }
 
 /** The picker's rows: the listings the `/theme` command opened it with. */
