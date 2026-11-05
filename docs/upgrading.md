@@ -57,6 +57,15 @@ setting, did you mean autoApprovedCommands?`). Look it up in the
 [GitHub release notes](https://github.com/lvndry/jazz/releases), rename or remove it, and run
 `jazz config validate` again until it exits 0.
 
+## Migration notes
+
+Each breaking change after 0.16.28 has a short note under `docs/upgrading/` with a table of old
+names, new names and the action to take. Notes are linked here, newest first; the
+[release notes](https://github.com/lvndry/jazz/releases) name the release that ships each one.
+
+No breaking change has a note yet. Maintainers add one with each breaking PR; see
+[Upgrade notes for breaking changes](./maintainers/upgrade-note-template.md).
+
 ## Going back
 
 If a release breaks something the release notes did not warn about, reinstall the previous

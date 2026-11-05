@@ -154,6 +154,7 @@ and computes the published SHA-256 itself. See [Plugins](docs/configure/plugins.
 - [ ] `bun run test:e2e` passes (`jazz run --json` against a scripted model server)
 - [ ] `bun run build:binary` succeeds
 - [ ] The PR description explains breaking changes and any migration steps
+- [ ] A breaking change adds an [upgrade note](docs/maintainers/upgrade-note-template.md) under `docs/upgrading/` with a migration table, and links it from [Upgrading](docs/upgrading.md#migration-notes)
 - [ ] Update relevant READMEs if interfaces change
 
 ## Getting Help
