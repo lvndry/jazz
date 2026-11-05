@@ -4,6 +4,7 @@
  */
 import type { ChildProcess } from "node:child_process";
 import { hostname } from "node:os";
+import { performance } from "node:perf_hooks";
 
 /** The signals Jazz treats as a request to shut down. */
 export type ShutdownSignal = "SIGINT" | "SIGTERM";
@@ -27,16 +28,17 @@ export interface ProcessOwner {
 
 /**
  * `ps` reports start times to the second, and this process's own figure comes from its
- * uptime; the two can disagree by a little over a second for the same process.
+ * fixed performance time origin; the two can disagree by a little over a second for the same process.
  */
 const START_TIME_TOLERANCE_MS = 3_000;
+const PROCESS_STARTED_AT = Math.round(performance.timeOrigin);
 
 /** This process as an owner record. */
 export function currentProcessOwner(): ProcessOwner {
   return {
     pid: process.pid,
     host: hostname(),
-    startedAt: Math.round(Date.now() - process.uptime() * 1000),
+    startedAt: PROCESS_STARTED_AT,
   };
 }
 
