@@ -24,6 +24,7 @@ import {
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { BUILTIN_PERSONA_NAMES, PersonaServiceImpl } from "./persona-service";
+import { partialFake } from "./test-support/fakes";
 
 const tempDir = mkdtempSync(join(tmpdir(), "jazz-persona-test-"));
 
@@ -648,7 +649,7 @@ describe("PersonaService", () => {
 
   describe("plugin personas (global)", () => {
     const pluginRuntime = (): PluginRuntimeService =>
-      ({
+      partialFake<PluginRuntimeService>({
         listAllPersonas: () =>
           Effect.succeed([
             {
@@ -659,7 +660,7 @@ describe("PersonaService", () => {
               tone: "playful",
             },
           ]),
-      }) as unknown as PluginRuntimeService;
+      });
 
     const withPlugin = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Effect.runPromise(

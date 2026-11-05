@@ -47,6 +47,7 @@ import {
   applyConversationCacheBreakpoint,
 } from "./ai-sdk-service";
 import { PROVIDER_MODELS } from "./models";
+import { fakeFetch, invalidInput, partialFake } from "../test-support/fakes";
 
 // Bun module mocks are process-global: snapshot the real exports so afterAll can
 // restore them for test files that run later in the same process.
@@ -279,16 +280,18 @@ describe("AI SDK Service - Unit Tests", () => {
     it("lists a provider's models with a key entered after the service started", async () => {
       const authorizationHeaders: (string | null)[] = [];
       const originalFetch = global.fetch;
-      global.fetch = mock((_input: unknown, init?: { headers?: HeadersInit }) => {
-        authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              data: [{ id: "glm-5.3-abliterated", context_length: 1_048_576 }],
-            }),
-          ),
-        );
-      }) as unknown as typeof fetch;
+      global.fetch = fakeFetch(
+        mock((_input: unknown, init?: { headers?: HeadersInit }) => {
+          authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                data: [{ id: "glm-5.3-abliterated", context_length: 1_048_576 }],
+              }),
+            ),
+          );
+        }),
+      );
       try {
         const fileSystem = await Effect.runPromise(
           Effect.gen(function* () {
@@ -330,16 +333,18 @@ describe("AI SDK Service - Unit Tests", () => {
       const originalFetch = global.fetch;
       const savedKey = process.env["REFUSELESS_API_KEY"];
       process.env["REFUSELESS_API_KEY"] = "rk-from-env";
-      global.fetch = mock((_input: unknown, init?: { headers?: HeadersInit }) => {
-        authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              data: [{ id: "glm-5.3-abliterated", context_length: 1_048_576 }],
-            }),
-          ),
-        );
-      }) as unknown as typeof fetch;
+      global.fetch = fakeFetch(
+        mock((_input: unknown, init?: { headers?: HeadersInit }) => {
+          authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                data: [{ id: "glm-5.3-abliterated", context_length: 1_048_576 }],
+              }),
+            ),
+          );
+        }),
+      );
       try {
         const provider = await runWithTestLayers(
           Effect.gen(function* () {
@@ -577,11 +582,13 @@ describe("AI SDK Service - Unit Tests", () => {
       console.error = (...args: unknown[]) => {
         consoleErrors.push(args);
       };
-      globalThis.fetch = (async () =>
-        new Response(JSON.stringify({ error: { message: "stubbed stream failure" } }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        })) as unknown as typeof fetch;
+      globalThis.fetch = fakeFetch(
+        async () =>
+          new Response(JSON.stringify({ error: { message: "stubbed stream failure" } }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }),
+      );
       try {
         await Effect.runPromiseExit(
           (
@@ -1371,7 +1378,7 @@ describe("AI SDK Service - Unit Tests", () => {
 
     it("uses configured base_url when fetching llamacpp models", async () => {
       let observedUrl = "";
-      global.fetch = ((url: string) => {
+      global.fetch = fakeFetch((url: string) => {
         observedUrl = String(url);
         if (observedUrl.endsWith("/models")) {
           return Promise.resolve({
@@ -1390,7 +1397,7 @@ describe("AI SDK Service - Unit Tests", () => {
           });
         }
         return Promise.reject(new Error("Unknown URL"));
-      }) as unknown as typeof fetch;
+      });
 
       const testEffect = Effect.gen(function* () {
         const llmService = yield* LLMServiceTag;
@@ -1582,7 +1589,7 @@ describe("AI SDK Service - Unit Tests", () => {
         message: "Simulated stream failure",
       });
 
-      const mockLLMService: LLMService = {
+      const mockLLMService: LLMService = partialFake<LLMService>({
         createStreamingChatCompletion: () =>
           Effect.succeed({
             stream: Stream.fail(expectedError) as Stream.Stream<StreamEvent, LLMError>,
@@ -1595,7 +1602,7 @@ describe("AI SDK Service - Unit Tests", () => {
           Effect.fail(new LLMConfigurationError({ provider: "test", message: "not implemented" })),
         supportsNativeWebSearch: () => Effect.succeed(false),
         resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
-      } as unknown as LLMService;
+      });
 
       // Verify that consuming the response gives a typed LLMError
       const testEffect = Effect.gen(function* () {
@@ -1631,7 +1638,7 @@ describe("AI SDK Service - Unit Tests", () => {
         message: "Simulated stream failure",
       });
 
-      const mockLLMService: LLMService = {
+      const mockLLMService: LLMService = partialFake<LLMService>({
         createStreamingChatCompletion: () =>
           Effect.succeed({
             stream: Stream.fail(expectedError) as Stream.Stream<StreamEvent, LLMError>,
@@ -1644,7 +1651,7 @@ describe("AI SDK Service - Unit Tests", () => {
           Effect.fail(new LLMConfigurationError({ provider: "test", message: "not implemented" })),
         supportsNativeWebSearch: () => Effect.succeed(false),
         resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
-      } as unknown as LLMService;
+      });
 
       // Verify that consuming the stream gives a typed LLMError
       const testEffect = Effect.gen(function* () {
@@ -2684,7 +2691,7 @@ describe("toCoreMessages - reasoning replay capability", () => {
       {
         role: "assistant" as const,
         content: "answer",
-        reasoning_parts: [{ text: 42 as unknown as string, provider: "deepseek" }],
+        reasoning_parts: [{ text: invalidInput<string>(42), provider: "deepseek" }],
       },
     ];
     const result = toCoreMessages(messages, "deepseek", undefined, {
@@ -2705,14 +2712,16 @@ describe("toCoreMessages - reasoning replay capability", () => {
       null,
       "not-an-object",
       { text: "d", provider: "deepseek", providerOptions: "oops" },
-    ] as unknown as Array<{ text: string; provider: string }>;
+    ];
+    const malformedReasoningParts =
+      invalidInput<Array<{ text: string; provider: string }>>(malformedParts);
     const messages = [
       { role: "user" as const, content: "hi" },
-      { role: "assistant" as const, content: "answer", reasoning_parts: malformedParts },
+      { role: "assistant" as const, content: "answer", reasoning_parts: malformedReasoningParts },
       {
         role: "assistant" as const,
         content: "answer",
-        reasoning_parts: "garbage" as unknown as typeof malformedParts,
+        reasoning_parts: invalidInput<typeof malformedReasoningParts>("garbage"),
       },
     ];
 

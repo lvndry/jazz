@@ -9,13 +9,14 @@ import {
   StreamProcessor,
   withIdleTimeout,
 } from "./stream-processor";
+import { partialFake } from "../test-support/fakes";
 
 describe("StreamProcessor", () => {
   const logged: string[] = [];
-  const mockLogger = {
+  const mockLogger = partialFake<LoggerService>({
     debug: mock((message: string) => Effect.sync(() => logged.push(`debug:${message}`))),
     warn: mock((message: string) => Effect.sync(() => logged.push(`warn:${message}`))),
-  } as unknown as LoggerService;
+  });
 
   it("should process text deltas and emit events", async () => {
     const events: any[] = [];
