@@ -86,7 +86,9 @@ describe("fingerprintRequest", () => {
         ],
       }),
     );
-    expect(after.messageHashes.slice(0, before.messageHashes.length)).toEqual(before.messageHashes);
+    expect([...after.messageHashes.slice(0, before.messageHashes.length)]).toEqual([
+      ...before.messageHashes,
+    ]);
     expect(after.systemHash).toBe(before.systemHash);
     expect(after.historyHash).not.toBe(before.historyHash);
   });

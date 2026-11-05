@@ -83,7 +83,7 @@ export interface AgentRunMetrics {
   /** Cache reads and input over the requests that reported cache fields; absent means unknown. */
   cacheTally?: CacheTally;
   /** Why the run's latest request's cacheable prefix differed from the one before it. */
-  lastCacheReason: CacheMissReason | undefined;
+  lastCacheReason?: CacheMissReason | undefined;
   /** Aggregated USD cost of nested runs (sub-agents) spawned during this run. */
   childCostUSD: number;
   /** True once any nested run spent tokens whose pricing was unavailable. */
@@ -174,7 +174,6 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     totalReasoningTokens: 0,
     totalCacheReadTokens: 0,
     totalCacheWriteTokens: 0,
-    lastCacheReason: undefined,
     childCostUSD: 0,
     childCostUnknown: false,
     sideCostUSD: 0,

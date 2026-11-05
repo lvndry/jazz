@@ -60,7 +60,11 @@ export interface FingerprintInput {
   readonly provider: string;
   readonly model: string;
   readonly tools: readonly ToolFingerprintInput[];
-  readonly messages: readonly { readonly role: string; readonly kind?: string }[];
+  readonly messages: readonly {
+    readonly role: string;
+    readonly kind?: string;
+    readonly content?: unknown;
+  }[];
 }
 
 export interface CacheChange {
