@@ -4,13 +4,7 @@ import { defineCollection, z } from "astro:content";
 export const collections = {
   docs: defineCollection({
     loader: glob({
-      pattern: [
-        "**/*.md",
-        "!superpowers/**",
-        "!plans/**",
-        "!maintainers/postmortems/**",
-        "!README.md",
-      ],
+      pattern: ["**/*.md", "!maintainers/postmortems/**", "!README.md"],
       base: "../../docs",
     }),
     schema: z.object({
