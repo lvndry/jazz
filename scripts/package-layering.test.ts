@@ -1,12 +1,16 @@
 /**
- * `@jazz/daemon` sits above `@jazz/adapters`: the daemon imports adapters, never the reverse.
+ * Allowed-imports matrix for every workspace package and plugin.
  *
- * Every package except the daemon itself and the packages that compose it (`cli`, `runtime`,
- * the Astro `website`) is daemon-free: no source or test file imports `@jazz/daemon`, and no
- * package.json declares it. A new package lands on the daemon-free side unless it is added to
- * `DAEMON_CONSUMERS`. Core is stricter still: it publishes standalone, so its production code
- * never imports `@jazz/adapters` or `@jazz/cli` — tests may, to supply the Layers that satisfy
- * core's contracts. `eslint.config.mjs` enforces both rules per import as you edit.
+ * `scripts/package-layering.matrix.json` lists, per package, the workspace packages its
+ * production code may import (`imports`) and the extra ones its tests may import (`testImports`).
+ * Plugins form one row: they import `@jazz/plugin-sdk` and nothing else, so they stay publishable
+ * against the SDK alone. `eslint.config.mjs` generates its `no-restricted-imports` rules from the
+ * same file, so editors flag a bad import as it is typed; this test also covers relative imports
+ * that cross a package boundary and the dependencies each package.json declares.
+ *
+ * A package missing from the matrix fails, so adding one forces a decision about where it sits.
+ * An existing violation that cannot be fixed yet goes in `KNOWN_VIOLATIONS` with what must change;
+ * the list only shrinks, and an entry that no longer matches fails the test.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -14,15 +18,32 @@ import path from "node:path";
 import { describe, expect, it } from "bun:test";
 import ts from "typescript";
 
-const PACKAGES_ROOT = path.join(import.meta.dir, "..", "packages");
+const REPOSITORY_ROOT = path.join(import.meta.dir, "..");
+const PACKAGES_ROOT = path.join(REPOSITORY_ROOT, "packages");
+const PLUGINS_ROOT = path.join(REPOSITORY_ROOT, "plugins");
 
-/** Packages allowed to import `@jazz/daemon`, plus the daemon package itself. */
-const DAEMON_CONSUMERS = new Set(["daemon", "cli", "runtime", "website"]);
+interface MatrixRow {
+  imports: string[];
+  testImports?: string[];
+}
 
-const DAEMON_SPECIFIER = /^(@jazz\/daemon(\/|$)|@\/daemon\/)/;
+interface Matrix {
+  packages: Record<string, MatrixRow>;
+  plugins: MatrixRow;
+}
 
-/** Core's production code may not reach into the packages above it; its tests may. */
-const CORE_FORBIDDEN_SPECIFIER = /^(@jazz\/(adapters|cli)(\/|$)|@\/(adapters|cli)\/)/;
+const matrix = JSON.parse(
+  readFileSync(path.join(import.meta.dir, "package-layering.matrix.json"), "utf8"),
+) as Matrix;
+
+/**
+ * Violations that exist today, as `<file> -> <target package>`, each with what must change before
+ * the entry can be deleted. Empty: every current import passes the matrix.
+ */
+const KNOWN_VIOLATIONS: Record<string, string> = {};
+
+const WORKSPACE_SPECIFIER = /^@jazz\/([a-z-]+)(\/|$)/;
+const ALIAS_SPECIFIER = /^@\/([a-z-]+)\//;
 
 function sourceFiles(directory: string): string[] {
   const found: string[] = [];
@@ -40,59 +61,159 @@ function sourceFiles(directory: string): string[] {
   return found;
 }
 
-function daemonFreePackages(): string[] {
+function workspacePackages(): string[] {
   return readdirSync(PACKAGES_ROOT).filter(
     (entry) =>
-      !DAEMON_CONSUMERS.has(entry) &&
       statSync(path.join(PACKAGES_ROOT, entry)).isDirectory() &&
       existsSync(path.join(PACKAGES_ROOT, entry, "package.json")),
   );
 }
 
-describe("package layering", () => {
-  it("finds the packages below the daemon", () => {
-    expect(daemonFreePackages()).toEqual(expect.arrayContaining(["core", "adapters"]));
-  });
+function pluginDirectories(): string[] {
+  return readdirSync(PLUGINS_ROOT).filter((entry) =>
+    existsSync(path.join(PLUGINS_ROOT, entry, "package.json")),
+  );
+}
 
-  it("keeps @jazz/daemon out of every daemon-free package's imports", () => {
-    const offending: string[] = [];
-    for (const packageName of daemonFreePackages()) {
-      const sourceRoot = path.join(PACKAGES_ROOT, packageName, "src");
-      for (const file of sourceFiles(sourceRoot)) {
-        const imports = ts.preProcessFile(readFileSync(file, "utf8"), true, true).importedFiles;
-        for (const imported of imports) {
-          if (DAEMON_SPECIFIER.test(imported.fileName)) {
-            offending.push(`${path.relative(PACKAGES_ROOT, file)} imports ${imported.fileName}`);
-          }
+function targetPackage(file: string, specifier: string): string | undefined {
+  const workspace = WORKSPACE_SPECIFIER.exec(specifier) ?? ALIAS_SPECIFIER.exec(specifier);
+  if (workspace) {
+    return workspace[1];
+  }
+  if (specifier.startsWith(".")) {
+    const relative = path
+      .relative(REPOSITORY_ROOT, path.resolve(path.dirname(file), specifier))
+      .split(path.sep);
+    if (relative[0] === "packages") {
+      return relative[1];
+    }
+  }
+  return undefined;
+}
+
+function isTestFile(file: string): boolean {
+  return /\.test\.tsx?$/.test(file);
+}
+
+function allowedTargets(row: MatrixRow, testFile: boolean): Set<string> {
+  return new Set([...row.imports, ...(testFile ? (row.testImports ?? []) : [])]);
+}
+
+function violations(): string[] {
+  const found: string[] = [];
+  const units: { name: string; root: string; row: MatrixRow }[] = [
+    ...workspacePackages().map((name) => ({
+      name,
+      root: path.join(PACKAGES_ROOT, name),
+      row: matrix.packages[name] ?? { imports: [] },
+    })),
+    ...pluginDirectories().map((name) => ({
+      name: `plugins/${name}`,
+      root: path.join(PLUGINS_ROOT, name),
+      row: matrix.plugins,
+    })),
+  ];
+  for (const unit of units) {
+    const selfName = unit.name.startsWith("plugins/") ? undefined : unit.name;
+    for (const file of sourceFiles(unit.root)) {
+      const allowed = allowedTargets(unit.row, isTestFile(file));
+      const imports = ts.preProcessFile(readFileSync(file, "utf8"), true, true).importedFiles;
+      for (const imported of imports) {
+        const target = targetPackage(file, imported.fileName);
+        if (target !== undefined && target !== selfName && !allowed.has(target)) {
+          found.push(`${path.relative(REPOSITORY_ROOT, file)} -> ${target}`);
         }
       }
     }
-    expect(offending).toEqual([]);
+  }
+  return found.sort();
+}
+
+describe("package layering matrix", () => {
+  it("has a row for every workspace package", () => {
+    expect(workspacePackages().sort()).toEqual(Object.keys(matrix.packages).sort());
   });
 
-  it("keeps @jazz/daemon out of every daemon-free package's dependencies", () => {
-    const offending = daemonFreePackages().filter((packageName) => {
-      const manifest = JSON.parse(
-        readFileSync(path.join(PACKAGES_ROOT, packageName, "package.json"), "utf8"),
-      ) as Record<string, Record<string, string> | undefined>;
-      return ["dependencies", "devDependencies", "peerDependencies"].some(
-        (field) => manifest[field]?.["@jazz/daemon"] !== undefined,
-      );
-    });
-    expect(offending).toEqual([]);
+  it("only names packages that exist", () => {
+    const known = new Set(workspacePackages());
+    const named = [...Object.values(matrix.packages), matrix.plugins].flatMap((row) => [
+      ...row.imports,
+      ...(row.testImports ?? []),
+    ]);
+    expect(named.filter((name) => !known.has(name))).toEqual([]);
   });
 
-  it("keeps @jazz/adapters and @jazz/cli out of core's production imports", () => {
-    const offending: string[] = [];
-    const sourceRoot = path.join(PACKAGES_ROOT, "core", "src");
-    for (const file of sourceFiles(sourceRoot)) {
-      if (/\.test\.tsx?$/.test(file)) {
-        continue;
+  it("lets plugins import only plugin-sdk", () => {
+    expect(matrix.plugins).toEqual({ imports: ["plugin-sdk"] });
+  });
+
+  it("keeps the matrix acyclic", () => {
+    const visiting = new Set<string>();
+    const done = new Set<string>();
+    const cycles: string[] = [];
+    const visit = (name: string, trail: string[]): void => {
+      if (done.has(name)) {
+        return;
       }
-      const imports = ts.preProcessFile(readFileSync(file, "utf8"), true, true).importedFiles;
-      for (const imported of imports) {
-        if (CORE_FORBIDDEN_SPECIFIER.test(imported.fileName)) {
-          offending.push(`${path.relative(PACKAGES_ROOT, file)} imports ${imported.fileName}`);
+      if (visiting.has(name)) {
+        cycles.push([...trail, name].join(" -> "));
+        return;
+      }
+      visiting.add(name);
+      for (const next of matrix.packages[name]?.imports ?? []) {
+        visit(next, [...trail, name]);
+      }
+      visiting.delete(name);
+      done.add(name);
+    };
+    for (const name of Object.keys(matrix.packages)) {
+      visit(name, []);
+    }
+    expect(cycles).toEqual([]);
+  });
+
+  it("keeps every import inside the matrix", () => {
+    const unexpected = violations().filter((entry) => !(entry in KNOWN_VIOLATIONS));
+    expect(unexpected).toEqual([]);
+  });
+
+  it("drops known violations once they are fixed", () => {
+    const current = new Set(violations());
+    const stale = Object.keys(KNOWN_VIOLATIONS).filter((entry) => !current.has(entry));
+    expect(stale).toEqual([]);
+  });
+
+  it("declares only matrix-allowed workspace dependencies", () => {
+    const offending: string[] = [];
+    const manifests = [
+      ...workspacePackages().map((name) => ({
+        name,
+        file: path.join(PACKAGES_ROOT, name, "package.json"),
+        row: matrix.packages[name] ?? { imports: [] },
+      })),
+      ...pluginDirectories().map((name) => ({
+        name: `plugins/${name}`,
+        file: path.join(PLUGINS_ROOT, name, "package.json"),
+        row: matrix.plugins,
+      })),
+    ];
+    for (const { name, file, row } of manifests) {
+      const manifest = JSON.parse(readFileSync(file, "utf8")) as Record<
+        string,
+        Record<string, string> | undefined
+      >;
+      for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
+        for (const dependency of Object.keys(manifest[field] ?? {})) {
+          const target = /^@jazz\/(.+)$/.exec(dependency)?.[1];
+          if (target !== undefined && !allowedTargets(row, false).has(target)) {
+            offending.push(`${name} ${field} ${dependency}`);
+          }
+        }
+      }
+      for (const dependency of Object.keys(manifest["devDependencies"] ?? {})) {
+        const target = /^@jazz\/(.+)$/.exec(dependency)?.[1];
+        if (target !== undefined && !allowedTargets(row, true).has(target)) {
+          offending.push(`${name} devDependencies ${dependency}`);
         }
       }
     }
