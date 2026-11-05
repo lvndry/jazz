@@ -114,4 +114,33 @@ describe("turn decode throughput", () => {
       }),
     ).not.toContain("tok/s");
   });
+
+  test("adds the retries of a turn as a labelled lower bound, only when it retried", () => {
+    const retried = formatTurnReceipt({
+      steps: [
+        { durationMs: 1000, promptTokens: 900, completionTokens: 12, retries: 1, wastedUSD: 0.02 },
+        {
+          durationMs: 1000,
+          promptTokens: 900,
+          completionTokens: 12,
+          retries: 1,
+          wastedUSD: 0.01,
+          wasteLowerBound: true,
+        },
+      ],
+    });
+    expect(retried).toContain("retries: 2, wasted >= $0.03");
+
+    const clean = formatTurnReceipt({
+      steps: [{ durationMs: 1000, promptTokens: 900, completionTokens: 12 }],
+    });
+    expect(clean).not.toContain("retries");
+  });
+
+  test("shows an unknown waste rather than zero when nothing retried could be priced", () => {
+    const receipt = formatTurnReceipt({
+      steps: [{ durationMs: 1000, retries: 1, wasteLowerBound: true }],
+    });
+    expect(receipt).toContain("retries: 1, wasted unknown");
+  });
 });

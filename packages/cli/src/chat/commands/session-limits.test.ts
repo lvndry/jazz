@@ -15,8 +15,12 @@ afterAll(() => {
   mock.module("@jazz/core/utils/models-dev", () => actualModelsDev);
 });
 
-const { estimateSessionCostUSD, findExceededSessionLimits, formatSessionLimitMetric } =
-  await import("./session-limits");
+const {
+  addRetryWasteToSession,
+  estimateSessionCostUSD,
+  findExceededSessionLimits,
+  formatSessionLimitMetric,
+} = await import("./session-limits");
 
 const testAgent = {
   id: "a",
@@ -91,5 +95,44 @@ describe("estimateSessionCostUSD", () => {
       ),
     );
     expect(cost).toBeCloseTo(3 + 7.5);
+  });
+
+  it("adds what failed attempts wasted, which the token totals never held", async () => {
+    metadata = { inputPricePerMillion: 3, outputPricePerMillion: 15 } as ModelsDevMetadata;
+    const cost = await Effect.runPromise(
+      estimateSessionCostUSD(
+        { requests: 1, promptTokens: 1_000_000, completionTokens: 0, wastedUSD: 0.25 },
+        testAgent,
+      ),
+    );
+    expect(cost).toBeCloseTo(3.25);
+  });
+});
+
+describe("addRetryWasteToSession", () => {
+  const usage = { requests: 1, promptTokens: 10, completionTokens: 1 };
+
+  it("leaves the session's retry fields alone when a response retried nothing", () => {
+    expect(addRetryWasteToSession(usage, undefined)).toEqual({});
+    expect(addRetryWasteToSession({ ...usage, retries: 2, wastedUSD: 0.5 }, undefined)).toEqual({
+      retries: 2,
+      wastedUSD: 0.5,
+    });
+  });
+
+  it("adds retries and waste and keeps the lower-bound flag once set", () => {
+    const first = addRetryWasteToSession(usage, { retries: 1, wastedUSD: 0.25, lowerBound: true });
+    const second = addRetryWasteToSession(
+      { ...usage, ...first },
+      { retries: 2, wastedUSD: 0.5, lowerBound: false },
+    );
+    expect(second).toEqual({ retries: 3, wastedUSD: 0.75, wasteLowerBound: true });
+  });
+
+  it("keeps an unpriced waste unpriced", () => {
+    expect(addRetryWasteToSession(usage, { retries: 1, lowerBound: true })).toEqual({
+      retries: 1,
+      wasteLowerBound: true,
+    });
   });
 });

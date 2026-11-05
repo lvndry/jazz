@@ -117,6 +117,7 @@ import {
   confirmSessionLimitOverage,
   estimateSessionCostUSD,
   findExceededSessionLimits,
+  addRetryWasteToSession,
 } from "./chat/commands/session-limits";
 import type { CommandContext, CommandResult, SessionLimits } from "./chat/commands/types";
 import {
@@ -1377,6 +1378,7 @@ export class ChatServiceImpl implements ChatService {
               requests: sessionUsage.requests + (response.usage.requests ?? 0),
               promptTokens: sessionUsage.promptTokens + response.usage.promptTokens,
               completionTokens: sessionUsage.completionTokens + response.usage.completionTokens,
+              ...addRetryWasteToSession(sessionUsage, response.retryWaste),
             };
           }
 

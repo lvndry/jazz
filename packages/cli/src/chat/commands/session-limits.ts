@@ -6,6 +6,7 @@
  * loop (to gate every subsequent turn).
  */
 
+import type { AgentResponse } from "@jazz/core/agent/types";
 import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
@@ -32,7 +33,39 @@ export interface SessionLimitOverage {
   readonly used: number;
 }
 
-/** Estimated USD spent so far, from accumulated tokens and model pricing (same calculation as /cost). */
+/**
+ * The session's retry fields after one more response: retries and waste add up, and the
+ * lower-bound flag sticks once any response set it. A response that retried nothing leaves
+ * them as they were.
+ */
+export function addRetryWasteToSession(
+  sessionUsage: SessionUsage,
+  retryWaste: AgentResponse["retryWaste"],
+): Pick<SessionUsage, "retries" | "wastedUSD" | "wasteLowerBound"> {
+  if (retryWaste === undefined) {
+    return {
+      ...(sessionUsage.retries !== undefined ? { retries: sessionUsage.retries } : {}),
+      ...(sessionUsage.wastedUSD !== undefined ? { wastedUSD: sessionUsage.wastedUSD } : {}),
+      ...(sessionUsage.wasteLowerBound === true ? { wasteLowerBound: true } : {}),
+    };
+  }
+  const wastedUSD =
+    retryWaste.wastedUSD === undefined && sessionUsage.wastedUSD === undefined
+      ? undefined
+      : (sessionUsage.wastedUSD ?? 0) + (retryWaste.wastedUSD ?? 0);
+  return {
+    retries: (sessionUsage.retries ?? 0) + retryWaste.retries,
+    ...(wastedUSD !== undefined ? { wastedUSD } : {}),
+    ...(sessionUsage.wasteLowerBound === true || retryWaste.lowerBound
+      ? { wasteLowerBound: true }
+      : {}),
+  };
+}
+
+/**
+ * Estimated USD spent so far, from accumulated tokens and model pricing (same calculation as
+ * /cost), plus what failed attempts wasted: those tokens never reach the totals.
+ */
 export function estimateSessionCostUSD(
   sessionUsage: SessionUsage,
   agent: Agent,
@@ -45,7 +78,8 @@ export function estimateSessionCostUSD(
       const outputPricePerMillion = meta?.outputPricePerMillion ?? 0;
       return (
         (sessionUsage.promptTokens / 1_000_000) * inputPricePerMillion +
-        (sessionUsage.completionTokens / 1_000_000) * outputPricePerMillion
+        (sessionUsage.completionTokens / 1_000_000) * outputPricePerMillion +
+        (sessionUsage.wastedUSD ?? 0)
       );
     }),
   );

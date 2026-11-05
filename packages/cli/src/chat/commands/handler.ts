@@ -36,6 +36,7 @@ import {
   workStateSizeBytes,
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
+import { formatRetryWaste } from "@jazz/core/agent/metrics/failed-attempts";
 import { resolveAgentToolCategoryIds } from "@jazz/core/agent/tools/agent-tool-resolution";
 import { runShellCommand } from "@jazz/core/agent/tools/shell";
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
@@ -158,7 +159,13 @@ import {
   SESSION_LIMIT_FIELD,
   type SessionLimitMetric,
 } from "./session-limits";
-import type { CommandContext, CommandResult, SessionLimits, SpecialCommand } from "./types";
+import type {
+  CommandContext,
+  CommandResult,
+  SessionLimits,
+  SessionUsage,
+  SpecialCommand,
+} from "./types";
 import { handleWaitsCommand } from "./waits";
 import { reviewMemorySuggestions } from "../../memory-review";
 import { managePlugins } from "../../plugin-manager";
@@ -3581,13 +3588,29 @@ function handleContextCommand(
   });
 }
 
+/** The `retries` row of /cost: shown only once an attempt was retried. */
+function retryRows(sessionUsage: SessionUsage): ReportRow[] {
+  const line = formatRetryWaste(
+    {
+      retries: sessionUsage.retries ?? 0,
+      wastedUSD: sessionUsage.wastedUSD,
+      lowerBound: sessionUsage.wasteLowerBound === true,
+      unpriced: false,
+    },
+    formatCost,
+  );
+  return line === undefined
+    ? []
+    : [{ kind: "gap" }, { kind: "field", key: "retries", value: line }];
+}
+
 /**
  * Handle /cost command - Show conversation token usage and estimated cost
  */
 function handleCostCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
-  sessionUsage: { promptTokens: number; completionTokens: number },
+  sessionUsage: SessionUsage,
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
     const { promptTokens, completionTokens } = sessionUsage;
@@ -3634,7 +3657,12 @@ function handleCostCommand(
     yield* terminal.log(
       report(
         "cost",
-        [{ kind: "field", key: "model", value: model }, { kind: "gap" }, ...tokenRows],
+        [
+          { kind: "field", key: "model", value: model },
+          { kind: "gap" },
+          ...tokenRows,
+          ...retryRows(sessionUsage),
+        ],
         priced
           ? `Priced at $${inputPricePerMillion.toFixed(2)} in and $${outputPricePerMillion.toFixed(2)} out per million tokens.`
           : "models.dev has no pricing for this model, so no cost is shown.",
