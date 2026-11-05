@@ -1035,6 +1035,32 @@ function handOffTranscript(
 }
 
 /**
+ * Checkpoint taken before a batch holding a call that may change something runs. Every call
+ * is closed as interrupted: if the process dies mid-batch, this is the transcript a resumed
+ * conversation loads, and it must not claim a call that may have run changed nothing. The
+ * checkpoint after the batch replaces it with the real results.
+ */
+function reportPreExecutionCheckpoint(
+  state: LoopState,
+  options: LoopDeps["options"],
+  egressTaint: EgressTaint | undefined,
+): Effect.Effect<void> {
+  const onCheckpoint = options.onCheckpoint;
+  if (onCheckpoint === undefined || options.internal === true) {
+    return Effect.void;
+  }
+  return Effect.suspend(() => {
+    const transcript: Pick<LoopState, "currentMessages"> = {
+      currentMessages: [...state.currentMessages],
+    };
+    closeDanglingToolCalls(transcript, () =>
+      stoppedToolCallResult("interrupted", "the process ended while this batch was executing"),
+    );
+    return onCheckpoint(recordEgressTaint(transcript.currentMessages, egressTaint));
+  });
+}
+
+/**
  * Hand a failed turn's transcript to the caller before the failure unwinds it — otherwise
  * the caller reverts to the history it passed in and the turn's work is lost.
  *
@@ -1343,6 +1369,22 @@ function handleToolPhase(
             },
           }))
       : [];
+
+    const mayChangeState = dispatched.filter(
+      (toolCall) => !dedupableNames.has(toolCall.function.name),
+    );
+    if (mayChangeState.length > 0) {
+      const startedAt = Date.now();
+      yield* reportPreExecutionCheckpoint(state, options, deps.context.egressTaint);
+      yield* logger.debug("Saved pre-execution checkpoint for tool batch", {
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        iteration: iterationIndex + 1,
+        mutatingCalls: mayChangeState.length,
+        toolNames: [...new Set(mayChangeState.map((toolCall) => toolCall.function.name))],
+        durationMs: Date.now() - startedAt,
+      });
+    }
 
     const ledger = new ToolBatchLedger(toolCalls);
     for (const outcome of withheld) {

@@ -1871,7 +1871,7 @@ describe("executeAgentLoop", () => {
       }
     });
 
-    it("checkpoints the user's message before the first model call, then each finished iteration", async () => {
+    it("checkpoints the user's message before the first model call, before a batch that may change state, then each finished iteration", async () => {
       const originalExecute = ToolExecutor.executeToolCalls;
       ToolExecutor.executeToolCalls = mock(() =>
         Effect.succeed([
@@ -1888,13 +1888,39 @@ describe("executeAgentLoop", () => {
             }),
         });
 
-        expect(checkpoints).toHaveLength(2);
+        expect(checkpoints).toHaveLength(3);
         expect(checkpoints[0]).toEqual([{ role: "user", content: "hello" }]);
         expect(
-          checkpoints[1]?.some(
+          checkpoints[2]?.some(
             (message) => message.role === "tool" && message.tool_call_id === "call_1",
           ),
         ).toBe(true);
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("leaves an interrupted-while-running answer for a mutating call when the process dies mid-batch", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mock(() => Effect.fail(new Error("process killed")));
+      const checkpoints: (readonly ChatMessage[])[] = [];
+
+      try {
+        await runToFailure(strategyFailingAfter(1), {
+          onCheckpoint: (messages) =>
+            Effect.sync(() => {
+              checkpoints.push(messages);
+            }),
+        });
+
+        const beforeBatch = checkpoints.find((messages) =>
+          messages.some((message) => message.role === "assistant" && message.tool_calls),
+        );
+        const answer = beforeBatch?.find(
+          (message) => message.role === "tool" && message.tool_call_id === "call_1",
+        );
+        expect(answer?.content).toContain("Interrupted while running");
+        expect(answer?.content).toContain("check the current state");
       } finally {
         ToolExecutor.executeToolCalls = originalExecute;
       }
