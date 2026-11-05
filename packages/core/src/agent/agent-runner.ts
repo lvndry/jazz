@@ -43,6 +43,7 @@ import {
 import type { ActivePreference, SituationalPreference } from "@/core/memory/preference-line";
 import { collectMemorySources } from "@/core/memory/source-trust";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
+import { resolveConfinementMode } from "@/core/sandbox/confine";
 import { closeUserSecretStore, openUserSecretStore } from "@/core/secrets/user-secrets";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import {
@@ -124,6 +125,7 @@ import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
 import { registerBrowserAdoptionTools, registerPeerTools } from "./tools/register-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
+import { collectUnlockedToolNames } from "./tools/unlocked-tools";
 import { INTERACTIVE_TOOL_NAMES } from "./tools/user-interaction";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
@@ -823,6 +825,30 @@ function initializeAgentRun(
     const deferredToolSummaries =
       deferredToolNames.length > 0 ? yield* toolRegistry.getToolSummaries(deferredToolNames) : [];
 
+    const restoredToolNames = collectUnlockedToolNames(history, deferredToolNames);
+    if (restoredToolNames.length > 0) {
+      const restoredDefinitions = yield* toolRegistry.getToolDefinitionsFor(restoredToolNames);
+      const definitionByName = new Map(
+        restoredDefinitions.map((definition) => [definition.function.name, definition]),
+      );
+      for (const name of restoredToolNames) {
+        const definition = definitionByName.get(name);
+        if (definition !== undefined) {
+          tools.push(definition);
+        }
+      }
+      yield* logger.debug("Restored deferred tools unlocked earlier in the conversation", {
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        restoredCount: restoredToolNames.length,
+      });
+    }
+
+    const restoredToolNameSet = new Set(restoredToolNames);
+    const unlistedDeferredToolSummaries = deferredToolSummaries.filter(
+      (summary) => !restoredToolNameSet.has(summary.name),
+    );
+
     // Build tool descriptions map
     const availableTools: Record<string, string> = {};
     for (const tool of tools) {
@@ -889,7 +915,9 @@ function initializeAgentRun(
         toolNames: expandedToolNames,
         availableTools,
         knownSkills: relevantSkills,
-        ...(deferredToolSummaries.length > 0 && { deferredTools: deferredToolSummaries }),
+        ...(unlistedDeferredToolSummaries.length > 0 && {
+          deferredTools: unlistedDeferredToolSummaries,
+        }),
         ...(injectedPreferences.standing.length > 0 && {
           activePreferences: injectedPreferences.standing,
         }),
@@ -1018,6 +1046,7 @@ function initializeAgentRun(
       ...resolveDelegationLimits(appConfig, options.maxSubagentIterations, attended),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.offersShellEscape === true ? { offersShellEscape: true } : {}),
+      shellConfinement: resolveConfinementMode(appConfig.shell?.confinement, attended),
       onAutoApproveCommand:
         options.onAutoApproveCommand ??
         ((command: string) =>

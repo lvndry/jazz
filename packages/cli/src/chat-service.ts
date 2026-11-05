@@ -447,6 +447,7 @@ export class ChatServiceImpl implements ChatService {
        * Save this conversation for /resume. A failure is logged every time and shown once per
        * distinct error, so a save that keeps failing is visible instead of losing work silently.
        */
+      let lastSaveError: string | undefined;
       const saveSession = (
         history: readonly ChatMessage[],
         saveOptions: {
@@ -498,6 +499,7 @@ export class ChatServiceImpl implements ChatService {
           ),
           Effect.catch((error) =>
             Effect.gen(function* () {
+              lastSaveError = error.message;
               yield* logger.error("Conversation save failed", {
                 conversationId,
                 error: error.message,
@@ -1249,7 +1251,14 @@ export class ChatServiceImpl implements ChatService {
             },
             onCheckpoint: (messages) => {
               inFlightTranscript = messages;
-              return saveSession(messages, { housekeeping: false });
+              return Effect.suspend(() => {
+                lastSaveError = undefined;
+                return saveSession(messages, { housekeeping: false });
+              }).pipe(
+                Effect.flatMap(() =>
+                  lastSaveError === undefined ? Effect.void : Effect.fail(new Error(lastSaveError)),
+                ),
+              );
             },
             ...(options?.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }

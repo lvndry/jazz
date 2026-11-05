@@ -645,6 +645,25 @@ export function withoutWeakenedOpenRouterZdr(localPath: string, local: ConfigFil
   return { ...local, llm: { ...local.llm, openrouter: openrouterRest } };
 }
 
+/**
+ * The project config without a `shell.confinement: "off"`, which could only remove a fence.
+ *
+ * A cloned repository may turn write confinement on but not off: its config is untrusted text,
+ * and `off` would let it release the very constraint that exists to contain what it makes a
+ * run do. Only the global config can set `off`.
+ */
+export function withoutDisabledShellConfinement(localPath: string, local: ConfigFile): ConfigFile {
+  if (local.shell?.confinement !== "off") {
+    return local;
+  }
+  process.stderr.write(
+    `jazz: ignoring shell.confinement: "off" in ${localPath}. A project config can turn write ` +
+      "confinement on but not off; only your global config can disable it.\n",
+  );
+  const { confinement: _ignored, ...shellRest } = local.shell;
+  return { ...local, shell: shellRest };
+}
+
 /** Tell the user a project config tried to set MCP trust, which only the global config can. */
 function noticeIgnoredProjectTrust(
   localPath: string,
@@ -682,11 +701,14 @@ export function createConfigLayer(
       const checkedLocal =
         files.local === undefined
           ? EMPTY_CONFIG_FILE
-          : withoutWeakenedOpenRouterZdr(
+          : withoutDisabledShellConfinement(
               files.local.path,
-              withoutGlobalOnlySections(
+              withoutWeakenedOpenRouterZdr(
                 files.local.path,
-                yield* requireValidConfigFile(files.local.path, files.local.document),
+                withoutGlobalOnlySections(
+                  files.local.path,
+                  yield* requireValidConfigFile(files.local.path, files.local.document),
+                ),
               ),
             );
       const { mcpServers: globalOverrides, ...globalSettings } = checkedGlobal;

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "child_process";
-import { Effect, FileSystem } from "effect";
+import { Effect, FileSystem, Option } from "effect";
 import { z } from "zod";
 import {
   SHELL_COMMAND_MAX_TIMEOUT_MS,
@@ -8,6 +8,14 @@ import {
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
+import { PresentationServiceTag } from "@/core/interfaces/presentation";
+import { type ConfinementStatus, getConfinementStatus } from "@/core/sandbox/backend";
+import { planLaunch, refusalMessage } from "@/core/sandbox/confine";
+import { classifyWriteDenial } from "@/core/sandbox/denial";
+import { shellEscalationLedger } from "@/core/sandbox/escalation";
+import { clearGrant, storeGrant } from "@/core/sandbox/escalation-store";
+import { writePolicyFor } from "@/core/sandbox/runtime-policy";
+import type { WritePolicy } from "@/core/sandbox/write-policy";
 import type { KnownSecret } from "@/core/secrets/redaction";
 import { redactionPlaceholder } from "@/core/secrets/secret-names";
 import { secretUseNeedsPerson, userSecretNamesIn } from "@/core/secrets/user-secrets";
@@ -499,6 +507,9 @@ export function denylistBlockedError(
   return `Command blocked by the built-in safety denylist: ${forbidden.reason}. This is a specific pattern match on this command — not a general restriction on running shell commands (other commands still run normally), and tool approval does not override it. If this command is genuinely safe and necessary, ${userRunsIt}.`;
 }
 
+const ESCALATE_WITHOUT_DENIAL_MESSAGE =
+  "`escalate` applies to a command that just reported `confinement.deniedPath`. Run the command without `escalate` first; it is retried unconfined only after write confinement denies it.";
+
 const executeCommandParameters = z
   .object({
     command: z.string().min(1, "command cannot be empty").describe("Command to run."),
@@ -522,6 +533,14 @@ const executeCommandParameters = z
       )
       .optional()
       .describe(`Milliseconds. Default and maximum ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}.`),
+    escalate: z
+      .string()
+      .trim()
+      .min(1, "escalate cannot be empty")
+      .optional()
+      .describe(
+        "After a result reports `confinement.deniedPath`, pass the reason this command must write there; the person approves one unconfined retry.",
+      ),
   })
   .strict();
 
@@ -621,6 +640,15 @@ export function runShellCommand(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly interactive?: boolean;
   /**
+   * Fence the command's file writes to this policy's roots. Fails the call, without running
+   * anything, when the machine has no backend that can.
+   */
+  readonly confinement?: {
+    readonly policy: WritePolicy;
+    /** The probed backend; defaults to this process's cached probe. */
+    readonly status?: ConfinementStatus;
+  };
+  /**
    * Secrets to redact from stdout and stderr before they are capped, for output a model reads.
    * Shape-recognized secrets are redacted too.
    */
@@ -655,7 +683,26 @@ export function runShellCommand(input: {
       // No `uid`/`gid` either, even our own: with them Bun often finds a fast command already
       // exited before it watches it, and reports that exit inside spawn(), before any listener
       // is attached, so `close` never fires and the call hangs until its timeout.
-      child = spawn(shellBinary, shellArgs, {
+      let launchArgv: readonly string[] = [shellBinary, ...shellArgs];
+      if (input.confinement !== undefined) {
+        const plan = planLaunch({
+          mode: "on",
+          policy: input.confinement.policy,
+          argv: launchArgv,
+          status: input.confinement.status ?? getConfinementStatus(),
+        });
+        if (plan.kind !== "confined") {
+          finish(
+            Effect.fail(
+              new Error(plan.kind === "refused" ? plan.message : "confinement was not applied"),
+            ),
+          );
+          return;
+        }
+        launchArgv = plan.argv;
+      }
+      const [launchBinary = shellBinary, ...launchArguments] = launchArgv;
+      child = spawn(launchBinary, launchArguments, {
         cwd: input.workingDir,
         stdio: ["ignore", "pipe", "pipe"],
         env: input.env,
@@ -763,6 +810,38 @@ export function runShellCommand(input: {
 }
 
 /**
+ * What the model is told after a confined command was refused a write. When a person can approve
+ * (or the run parks for one later), the result offers one `escalate` retry and records it in the
+ * ledger; when nobody can, it says to write inside the roots instead and records nothing, so an
+ * `escalate` call has nothing to spend.
+ */
+function describeDenial(
+  deniedPath: string,
+  sessionCwd: string,
+  context: ToolExecutionContext,
+  command: string,
+): Effect.Effect<{ readonly guidance: string; readonly escalationOffered: boolean }> {
+  return Effect.gen(function* () {
+    const presentation = yield* Effect.serviceOption(PresentationServiceTag);
+    const personCanApprove =
+      context.parkWhenUnattended === true ||
+      (Option.isSome(presentation) && presentation.value.canPromptForApproval?.() === true);
+    if (!personCanApprove) {
+      return {
+        guidance: `Write confinement denied a write to ${deniedPath}. Writable roots are ${sessionCwd}, temp directories and developer tool caches; nobody is available to approve more. Write inside ${sessionCwd} instead.`,
+        escalationOffered: false,
+      };
+    }
+    shellEscalationLedger.offer(context.runId ?? "", command, deniedPath);
+    yield* storeGrant(context.runId ?? "", { command, deniedPath });
+    return {
+      guidance: `Write confinement denied a write to ${deniedPath}. Writable roots are ${sessionCwd}, temp directories and developer tool caches. To write there, retry this exact command once with \`escalate\` set to why it must; the person approves that retry first.`,
+      escalationOffered: true,
+    };
+  });
+}
+
+/**
  * Create shell command tools (approval + execution pair).
  *
  * SECURITY WARNING: This tool can execute arbitrary commands on the system.
@@ -818,6 +897,36 @@ Working Directory: ${workingDir}
 Timeout: ${formatDuration(timeout)}
 
 This command will be executed on your system. Only approve commands you trust.`;
+
+        if (args.escalate !== undefined) {
+          const deniedPath = shellEscalationLedger.peek(context.runId ?? "", args.command);
+          const logger = yield* LoggerServiceTag;
+          if (deniedPath === undefined) {
+            yield* logger.info("Escalation refused: no open write denial for this command", {
+              toolCallId: context.toolCallId,
+            });
+            return {
+              skipApproval: true,
+              toolResult: {
+                success: false,
+                result: null,
+                error: ESCALATE_WITHOUT_DENIAL_MESSAGE,
+              } as const,
+            };
+          }
+          yield* logger.info("Escalation sent for approval", {
+            toolCallId: context.toolCallId,
+            deniedPath,
+          });
+          return {
+            message: `${message}
+
+ESCALATION: this retry runs WITHOUT write confinement.
+Denied path: ${deniedPath}
+Reason given: ${args.escalate}`,
+            alwaysAsk: true as const,
+          };
+        }
         const typedSecrets =
           context.userSecrets === undefined
             ? []
@@ -882,12 +991,55 @@ This command will be executed on your system. Only approve commands you trust.`;
             envAllowlist,
           );
 
+          const escalated = args.escalate !== undefined;
+          const confineRequested = context.shellConfinement === "on" && !escalated;
+          const sessionCwd = yield* shell.getCwd(key);
+          const writePolicy = confineRequested ? writePolicyFor(sessionCwd) : undefined;
+          if (escalated && !shellEscalationLedger.consume(context.runId ?? "", command)) {
+            yield* logger.info("Escalation refused at execution: offer already spent or absent", {
+              toolCallId: context.toolCallId,
+            });
+            return {
+              success: false,
+              result: null,
+              error: ESCALATE_WITHOUT_DENIAL_MESSAGE,
+            };
+          }
+          if (escalated) {
+            yield* clearGrant(context.runId ?? "", command);
+          }
+          if (writePolicy !== undefined) {
+            const confinementStatus = getConfinementStatus();
+            yield* logger.debug("Shell confinement applies", {
+              toolCallId: context.toolCallId,
+              backend: confinementStatus.backend,
+              level: confinementStatus.level,
+              roots: writePolicy.roots.length,
+            });
+            if (confinementStatus.level === "none") {
+              yield* logger.warn("Command refused: write confinement requested but unavailable", {
+                toolCallId: context.toolCallId,
+                reason: confinementStatus.reason,
+              });
+              return {
+                success: false,
+                result: null,
+                error: refusalMessage(confinementStatus),
+              };
+            }
+          } else if (escalated) {
+            yield* logger.info("Command running unconfined after approved escalation", {
+              toolCallId: context.toolCallId,
+            });
+          }
+
           const result = yield* runShellCommand({
             command,
             workingDir,
             timeoutMs: timeout,
             env: sanitizedEnv,
             redact: yield* toolKnownSecrets(),
+            ...(writePolicy !== undefined ? { confinement: { policy: writePolicy } } : {}),
           }).pipe(
             Effect.catch((error: unknown) =>
               Effect.succeed({
@@ -915,6 +1067,27 @@ This command will be executed on your system. Only approve commands you trust.`;
             stderrChars: result.stderr.length,
           });
 
+          const denial =
+            writePolicy === undefined || result.timedOut
+              ? undefined
+              : classifyWriteDenial({
+                  exitCode: result.exitCode,
+                  stderr: result.stderr,
+                  policy: writePolicy,
+                  cwd: workingDir,
+                });
+          const confinementNote =
+            denial === undefined
+              ? undefined
+              : yield* describeDenial(denial.deniedPath, sessionCwd, context, command);
+          if (denial !== undefined) {
+            yield* logger.info("Command hit a write-confinement denial", {
+              toolCallId: context.toolCallId,
+              deniedPath: denial.deniedPath,
+              offeredEscalation: confinementNote?.escalationOffered === true,
+            });
+          }
+
           return {
             success: true,
             result: {
@@ -925,6 +1098,14 @@ This command will be executed on your system. Only approve commands you trust.`;
               stdout: result.stdout,
               stderr: result.stderr,
               success: result.exitCode === 0 && !result.timedOut,
+              ...(denial !== undefined && confinementNote !== undefined
+                ? {
+                    confinement: {
+                      deniedPath: denial.deniedPath,
+                      guidance: confinementNote.guidance,
+                    },
+                  }
+                : {}),
             },
             // Jazz cannot tell what a command read, so its output is always outside content.
             untrusted: { kind: "external", source: "execute_command output" },

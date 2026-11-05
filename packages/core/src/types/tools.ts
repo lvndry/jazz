@@ -14,6 +14,7 @@ import type { LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
+import type { WriteConfinementMode } from "@/core/sandbox/write-policy";
 import type { UserSecretStore } from "@/core/secrets/user-secrets";
 import type { Agent } from "@/core/types/agent";
 import type { GeneratedArtifact } from "@/core/types/artifact";
@@ -207,6 +208,8 @@ export interface ToolExecutionResult {
   readonly success: boolean;
   readonly result: unknown;
   readonly error?: string;
+  /** Why a question to a person went unanswered, so callers branch on data instead of prose. */
+  readonly outcome?: "declined" | "unavailable";
   /**
    * Files this call produced, for the runner to surface to whoever is watching.
    *
@@ -221,6 +224,11 @@ export interface ToolExecutionResult {
    * result in the untrusted envelope, and `external` provenance marks the run's `EgressTaint`.
    */
   readonly untrusted?: UntrustedProvenance;
+  /**
+   * Deferred-tier tools this call made callable. The agent loop records them on the result's
+   * message so every later run of the conversation declares them again.
+   */
+  readonly unlockedToolNames?: readonly string[];
 }
 
 /**
@@ -580,7 +588,7 @@ export interface ToolExecutionContext {
   readonly allowHiddenExecute?: boolean;
   /** Names of this run's `deferred`-tier tools `search_tools` may look up. */
   readonly deferredToolNames?: readonly string[];
-  /** Called by `search_tools` to make fetched schemas callable for the rest of this run — mirrors `compactConversation`. */
+  /** Called by `search_tools` to make fetched schemas callable for the rest of this run; the runner declares them again at the start of every later run. */
   readonly unlockDeferredTools?: (definitions: readonly ToolDefinition[]) => void;
   /**
    * Attach a media file (image/pdf/audio/video) to the current turn so the model actually
@@ -679,6 +687,12 @@ export interface ToolExecutionContext {
    * person name `!` only when this is true.
    */
   readonly offersShellEscape?: boolean;
+  /**
+   * Whether this run's shell commands and file mutations are fenced to its writable roots. Set
+   * by the runner from `shell.confinement` and whether a person is attending; absent means off,
+   * which is what a one-shot tool call outside an agent run gets.
+   */
+  readonly shellConfinement?: WriteConfinementMode;
   readonly [key: string]: unknown;
 }
 

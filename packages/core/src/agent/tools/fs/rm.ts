@@ -1,6 +1,7 @@
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import { pinWriteTargets } from "@/core/sandbox/pinned-writes";
 import type { ToolExecutionContext } from "@/core/types";
 import { toError } from "@/core/utils/errors";
 import {
@@ -66,6 +67,10 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+        const pin = yield* pinWriteTargets(context, [target]);
+        if (pin.denied !== undefined) {
+          return pin.denied;
+        }
 
         try {
           // Basic safeguards: do not allow deleting root or home dir directly
@@ -97,7 +102,11 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
             };
           }
 
-          yield* fs.remove(target, {
+          const swapped = yield* pin.recheck();
+          if (swapped !== undefined) {
+            return swapped;
+          }
+          yield* fs.remove(pin.paths[0] ?? target, {
             recursive: args.recursive === true,
             force: args.force === true,
           });

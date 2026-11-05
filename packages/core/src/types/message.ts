@@ -73,6 +73,8 @@ export interface ChatMessage {
    * For role === "tool": the id of the tool call this message responds to
    */
   tool_call_id?: string;
+  /** Deferred-tier tools this tool result unlocked, in unlock order; later runs of the conversation declare them again. */
+  unlockedToolNames?: readonly string[];
   /** A memory entry this tool result showed; counted as exposed only while these exact bytes reach a request. */
   memoryDelivery?: MemoryDelivery;
   /**
@@ -118,8 +120,10 @@ export interface ChatMessage {
   }>;
   /**
    * For role === "assistant": reasoning blocks captured from the provider,
-   * replayed on subsequent requests within the same turn (Anthropic thinking
-   * signatures, OpenAI encrypted reasoning, OpenRouter reasoning_details).
+   * replayed on later requests when the provider and model accept it (Anthropic
+   * thinking signatures, OpenAI encrypted reasoning, DeepSeek and Moonshot
+   * reasoning_content). The adapter's `resolveReasoningReplay` decides which
+   * messages replay; parts are kept for every provider regardless.
    */
   reasoning_parts?: ReadonlyArray<StoredReasoningPart>;
   /**

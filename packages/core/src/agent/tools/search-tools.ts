@@ -147,7 +147,7 @@ export function createSearchToolsTool(): Tool<ToolRegistry> {
     name: "search_tools",
     disclosure: "internal",
     description:
-      "Fetch full schemas for tools listed only by name and summary; fetched tools stay callable for this conversation. Use it whenever a listed tool fits the task.",
+      "Fetch full schemas for tools listed only by name and summary; fetched tools stay callable for the rest of this conversation. Use it whenever a listed tool fits the task.",
     parameters: searchToolsParameters,
     riskLevel: "read-only",
     egress: false,
@@ -197,6 +197,7 @@ export function createSearchToolsTool(): Tool<ToolRegistry> {
             matchedToolNames: definitions.map((definition) => definition.function.name),
             definitions: definitions.map((definition) => definition.function),
           },
+          unlockedToolNames: definitions.map((definition) => definition.function.name),
         } satisfies ToolExecutionResult;
       }),
   };

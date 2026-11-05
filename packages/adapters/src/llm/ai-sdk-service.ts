@@ -151,6 +151,7 @@ import {
 } from "./models";
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
+import { resolveReasoningReplay } from "./reasoning-replay";
 import { orcaRouterResponseCostUSD, routerBilledCostUSD } from "./router-cost";
 import {
   resolveStreamIdleTimeoutMs,
@@ -350,15 +351,6 @@ function buildToolConfig(
 }
 
 /**
- * Providers whose reasoning must be sent back between tool calls within a turn. Anthropic
- * requires its signed thinking blocks. OpenAI and ChatGPT continue from the previous reasoning
- * item: by reference when the item is stored, or from its encrypted content when `store` is off,
- * which is always the case for ChatGPT. Ollama and llama.cpp emit reasoning but cannot accept it
- * back.
- */
-const REASONING_ROUND_TRIP_PROVIDERS = new Set(["anthropic", "openai", "chatgpt"]);
-
-/**
  * File parts for a message's attachments, plus text notes for any that could not be sent.
  *
  * Both halves matter. The parts are what the model sees; the notes are what stops it from
@@ -403,6 +395,19 @@ function buildAttachmentParts(
   return { parts, notes };
 }
 
+export type ReasoningPartSkipReason =
+  "invalid-part" | "invalid-provider" | "invalid-text" | "invalid-provider-options" | "empty-text";
+
+export interface ToCoreMessagesOptions {
+  /** Model id, for providers whose reasoning wire format depends on the model generation. */
+  readonly modelName?: string;
+  /** Called when a stored reasoning part is left out of the request instead of replayed. */
+  readonly onReasoningPartSkipped?: (details: {
+    readonly messageIndex: number;
+    readonly reason: ReasoningPartSkipReason;
+  }) => void;
+}
+
 export function toCoreMessages(
   messages: ReadonlyArray<{
     role: "system" | "user" | "assistant" | "tool";
@@ -425,6 +430,7 @@ export function toCoreMessages(
   }>,
   providerName?: ProviderName,
   resolvedAttachments?: ResolvedAttachments,
+  conversionOptions?: ToCoreMessagesOptions,
 ): ModelMessage[] {
   // An ephemeral nudge (context, budget, cost, time pressure) rides as a trailing user message
   // but does not start a new turn. Counting it would put every reasoning part of the current
@@ -444,6 +450,7 @@ export function toCoreMessages(
   const inlineAttachmentIndices = inlineAttachmentMessageIndices(messages);
 
   const normalizedProviderName = providerName?.toLowerCase();
+  const reasoningReplay = resolveReasoningReplay(providerName, conversionOptions?.modelName);
 
   const result = messages.map((m, messageIndex) => {
     const role = m.role;
@@ -462,12 +469,6 @@ export function toCoreMessages(
           msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }
         ).providerOptions = {
           anthropic: { cacheControl: { type: "ephemeral" } },
-        };
-      } else if (normalized === "openai") {
-        (
-          msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }
-        ).providerOptions = {
-          openai: { promptCacheKey: "system-prompt" },
         };
       } else if (normalized === "openrouter") {
         // OpenRouter supports Anthropic-style prompt caching via its own providerOptions.
@@ -528,18 +529,48 @@ export function toCoreMessages(
         | ToolCallPart
       > = [];
 
+      const replayScopeIncludesMessage =
+        reasoningReplay.scope === "all-turns" ||
+        (reasoningReplay.scope === "current-turn" && messageIndex > lastUserMessageIndex);
       if (
-        m.reasoning_parts &&
-        messageIndex > lastUserMessageIndex &&
+        Array.isArray(m.reasoning_parts) &&
         normalizedProviderName &&
-        REASONING_ROUND_TRIP_PROVIDERS.has(normalizedProviderName)
+        replayScopeIncludesMessage
       ) {
-        for (const storedPart of m.reasoning_parts) {
-          if (storedPart.provider.toLowerCase() !== normalizedProviderName) continue;
+        const skip = (reason: ReasoningPartSkipReason) =>
+          conversionOptions?.onReasoningPartSkipped?.({ messageIndex, reason });
+        for (const storedPart of m.reasoning_parts as ReadonlyArray<unknown>) {
+          if (typeof storedPart !== "object" || storedPart === null) {
+            skip("invalid-part");
+            continue;
+          }
+          const { provider, text, providerOptions } = storedPart as Record<string, unknown>;
+          if (typeof provider !== "string") {
+            skip("invalid-provider");
+            continue;
+          }
+          if (provider.toLowerCase() !== normalizedProviderName) {
+            continue;
+          }
+          if (typeof text !== "string") {
+            skip("invalid-text");
+            continue;
+          }
+          if (reasoningReplay.textRequired && text.length === 0) {
+            skip("empty-text");
+            continue;
+          }
+          const hasProviderOptions = providerOptions !== undefined && providerOptions !== null;
+          if (hasProviderOptions && typeof providerOptions !== "object") {
+            skip("invalid-provider-options");
+            continue;
+          }
           contentParts.push({
             type: "reasoning",
-            text: storedPart.text,
-            ...(storedPart.providerOptions ? { providerOptions: storedPart.providerOptions } : {}),
+            text,
+            ...(hasProviderOptions
+              ? { providerOptions: providerOptions as Record<string, Record<string, JsonValue>> }
+              : {}),
           });
         }
       }
@@ -1432,6 +1463,16 @@ function toProviderEffort(
       : selection;
 }
 
+/**
+ * Providers route cached prompt prefixes by this request-level key, so it is the conversation id:
+ * each conversation owns its prefix, and an absent id sends no key.
+ */
+function promptCacheKeyOptions(
+  conversationId: string | undefined,
+): { promptCacheKey: string } | Record<string, never> {
+  return conversationId ? { promptCacheKey: conversationId } : {};
+}
+
 /** A portable effort has a deterministic token budget when a template exposes one. */
 function reasoningBudget(
   selection: Exclude<ReasoningSelection, "disable">,
@@ -1457,6 +1498,7 @@ function buildResolvedReasoningOptions(
   providerName: ProviderName,
   selection: ReasoningSelection | undefined,
   control: ReasoningControlSurface | { readonly kind: "unknown" } | undefined,
+  conversationId?: string,
 ): ProviderOptions | undefined {
   if (!selection || !control || control.kind === "unknown" || control.kind === "unsupported") {
     return undefined;
@@ -1468,8 +1510,8 @@ function buildResolvedReasoningOptions(
       // so it gets neither `systemMessageMode` nor a choice about `store`.
       const base: OpenAIResponsesProviderOptions =
         providerName === "chatgpt"
-          ? { promptCacheKey: "conversation", store: false }
-          : { promptCacheKey: "conversation" };
+          ? { ...promptCacheKeyOptions(conversationId), store: false }
+          : promptCacheKeyOptions(conversationId);
       if (selection === "disable") {
         return { openai: { ...base, reasoningEffort: "none" } };
       }
@@ -1551,6 +1593,7 @@ export function buildProviderOptions(
     providerName,
     clampReasoningSelection(options.reasoning, control),
     control,
+    options.conversationId,
   );
   if (resolved !== undefined) return resolved;
   if (control && control.kind !== "unknown") {
@@ -1561,9 +1604,9 @@ export function buildProviderOptions(
 
   switch (normalizedProvider) {
     case "openai": {
-      const openaiOptions: OpenAIResponsesProviderOptions = {
-        promptCacheKey: "conversation",
-      };
+      const openaiOptions: OpenAIResponsesProviderOptions = promptCacheKeyOptions(
+        options.conversationId,
+      );
       if (reasoningEffort && reasoningEffort !== "disable") {
         return {
           openai: {
@@ -1582,7 +1625,7 @@ export function buildProviderOptions(
       // The Codex backend stores nothing server-side, so reasoning carries across turns only
       // as encrypted content.
       const chatgptOptions: OpenAIResponsesProviderOptions = {
-        promptCacheKey: "conversation",
+        ...promptCacheKeyOptions(options.conversationId),
         store: false,
       };
       if (reasoningEffort && reasoningEffort !== "disable") {
@@ -1624,11 +1667,11 @@ export function buildProviderOptions(
       break;
     }
     case "xai": {
-      if (reasoningEffort && reasoningEffort !== "disable") {
-        const xaiOptions: XaiResponsesProviderOptions = { reasoningEffort };
-        return { xai: xaiOptions };
-      }
-      break;
+      const xaiOptions: XaiResponsesProviderOptions = {
+        ...promptCacheKeyOptions(options.conversationId),
+        ...(reasoningEffort && reasoningEffort !== "disable" ? { reasoningEffort } : {}),
+      };
+      return Object.keys(xaiOptions).length > 0 ? { xai: xaiOptions } : undefined;
     }
     case "ollama": {
       // Ollama defaults thinking ON when no flag is sent, which empties content and
@@ -1666,6 +1709,7 @@ export function buildProviderOptions(
       break;
     }
     case "moonshotai": {
+      const cacheOptions = promptCacheKeyOptions(options.conversationId);
       if (reasoningEffort && reasoningEffort !== "disable") {
         // Moonshot thinking models (kimi-k2-thinking) support budgeted reasoning
         const budgetMap: Record<string, number> = {
@@ -1675,12 +1719,13 @@ export function buildProviderOptions(
         };
         return {
           moonshotai: {
+            ...cacheOptions,
             thinking: { type: "enabled", budgetTokens: budgetMap[reasoningEffort] ?? 4096 },
             reasoningHistory: "interleaved",
           } satisfies MoonshotAILanguageModelOptions,
         };
       }
-      break;
+      return "promptCacheKey" in cacheOptions ? { moonshotai: cacheOptions } : undefined;
     }
     case "alibaba": {
       if (reasoningEffort && reasoningEffort !== "disable") {
@@ -2284,7 +2329,18 @@ class AISDKService implements LLMService {
           effectiveLLMConfig,
           this.logger,
         );
-        const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments);
+        const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments, {
+          modelName: options.model,
+          onReasoningPartSkipped: ({ messageIndex, reason }) => {
+            Effect.runFork(
+              this.logger.debug("Skipped stored reasoning part during replay", {
+                provider: providerName,
+                messageIndex,
+                reason,
+              }),
+            );
+          },
+        });
         Effect.runFork(
           this.logger.debug(
             `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
@@ -2616,7 +2672,18 @@ class AISDKService implements LLMService {
           effectiveLLMConfig,
           this.logger,
         );
-        const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments);
+        const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments, {
+          modelName: options.model,
+          onReasoningPartSkipped: ({ messageIndex, reason }) => {
+            Effect.runFork(
+              this.logger.debug("Skipped stored reasoning part during replay", {
+                provider: providerName,
+                messageIndex,
+                reason,
+              }),
+            );
+          },
+        });
         Effect.runFork(
           this.logger.debug(
             `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,

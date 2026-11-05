@@ -261,6 +261,12 @@ export class LLMRequestError extends Data.TaggedError("LLMRequestError")<{
    * again, while a non-streaming request takes a different parse path.
    */
   readonly unreadableResponse?: boolean;
+  /**
+   * Set when the call succeeded but the model answered with nothing: no text, no reasoning,
+   * no tool calls and no billed output. Zero output tokens are billed, so trying again costs
+   * almost nothing and usually yields an answer.
+   */
+  readonly emptyResponse?: boolean;
 }> {}
 
 export class LLMRateLimitError extends Data.TaggedError("LLMRateLimitError")<{
