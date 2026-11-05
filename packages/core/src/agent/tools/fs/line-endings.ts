@@ -17,7 +17,7 @@ export interface FileText {
 }
 
 /** `\r\n` when it ends more lines than a bare `\n` does, otherwise `\n`. */
-function dominantLineEnding(content: string): LineEnding {
+export function dominantLineEnding(content: string): LineEnding {
   const crlfCount = content.match(/\r\n/g)?.length ?? 0;
   const lfCount = (content.match(/\n/g)?.length ?? 0) - crlfCount;
   return crlfCount > lfCount ? "\r\n" : "\n";

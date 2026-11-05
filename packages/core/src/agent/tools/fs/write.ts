@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
@@ -9,8 +10,8 @@ import {
 } from "@/core/secrets/redaction";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
-import { toError } from "@/core/utils/errors";
 import { jazzStateApprovalNotice, jazzStateChangeReason } from "@/core/utils/jazz-state-paths";
+import { withLock } from "@/core/utils/storage";
 import { diffExceedsPreview, FILE_MUTATION_PREVIEW_LINES } from "@/core/utils/tool-formatter";
 import {
   defineApprovalTool,
@@ -21,6 +22,14 @@ import {
 import { writeFileAtomically } from "./atomic-replace";
 import { buildKeyFromContext } from "../context-utils";
 import { toolKnownSecrets } from "../tool-secrets";
+import { fileSnapshot } from "./file-snapshot";
+import {
+  decodeFileBytes,
+  dominantLineEnding,
+  encodeFileText,
+  normalizeLineBreaks,
+  type DecodedFile,
+} from "./line-endings";
 
 /**
  * Write file tool - writes content to a file.
@@ -95,17 +104,16 @@ interface PlannedWrite {
 function planWrite(
   target: string,
   requested: string,
-): Effect.Effect<PlannedWrite, never, FileSystem.FileSystem> {
+  current: DecodedFile | undefined,
+): Effect.Effect<PlannedWrite> {
   return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const currentContent = yield* fs
-      .readFileString(target)
-      .pipe(Effect.catch(() => Effect.succeed(undefined)));
     const known = yield* toolKnownSecrets();
+    const currentContent = current?.text;
     const currentLines = currentContent?.split("\n");
     const shown = currentLines && redactLines(currentLines, known);
+    const normalized = normalizeLineBreaks(requested);
     const content =
-      currentLines && shown ? restoreKeptSecretLines(requested, currentLines, shown) : requested;
+      currentLines && shown ? restoreKeptSecretLines(normalized, currentLines, shown) : normalized;
     const secretLineIndexes = shown?.secretLineIndexes ?? new Set<number>();
     return {
       content,
@@ -151,6 +159,81 @@ function writeProblem(
   return `content leaves out or changes ${label} ${listed}${more} of ${target}, holding secret values you were shown redacted; writing it would lose them. Keep those lines exactly as read_file shows them, placeholders included, or use edit_file to change the other lines.`;
 }
 
+/** Most approved overwrites remembered at once; the oldest is forgotten first. */
+const MAX_PENDING_APPROVALS = 256;
+
+/** Stands for "no file there" in the version an approval was shown. */
+const ABSENT_FILE_VERSION = "absent";
+
+/**
+ * The file version each pending approval was shown, keyed by target and requested content, so
+ * the execution of that approval can refuse when the file has changed since.
+ */
+const approvedVersions = new Map<string, string>();
+
+function rememberApprovedVersion(key: string, version: string): void {
+  approvedVersions.delete(key);
+  approvedVersions.set(key, version);
+  while (approvedVersions.size > MAX_PENDING_APPROVALS) {
+    const oldest = approvedVersions.keys().next();
+    if (oldest.done === true) {
+      break;
+    }
+    approvedVersions.delete(oldest.value);
+  }
+}
+
+function versionOf(canonicalPath: string, current: DecodedFile | undefined): string {
+  return current === undefined ? ABSENT_FILE_VERSION : fileSnapshot(canonicalPath, current.content);
+}
+
+/** The path a lock and a version are keyed on: the real file when there is one, else `target`. */
+function canonicalPathOf(fs: FileSystem.FileSystem, target: string) {
+  return fs.realPath(target).pipe(
+    Effect.catch(() =>
+      fs.realPath(path.dirname(target)).pipe(
+        Effect.map((parent) => path.join(parent, path.basename(target))),
+        Effect.catch(() => Effect.succeed(target)),
+      ),
+    ),
+  );
+}
+
+/** The existing file at `canonicalPath`, or undefined when there is none or it cannot be read. */
+function readExistingFile(fs: FileSystem.FileSystem, canonicalPath: string) {
+  return fs.readFile(canonicalPath).pipe(
+    Effect.map((bytes): DecodedFile | undefined => decodeFileBytes(bytes)),
+    Effect.catch(() => Effect.succeed(undefined)),
+  );
+}
+
+/**
+ * `content` as the text to write: the replaced file's byte-order mark and line ending carry
+ * over, unless the content brings its own line endings or mark.
+ */
+function encodeLikeReplaced(
+  content: string,
+  requested: string,
+  replaced: DecodedFile | undefined,
+): string {
+  if (replaced === undefined) {
+    return content;
+  }
+  return encodeFileText({
+    bom: content.startsWith("﻿") ? "" : replaced.bom,
+    lineEnding: requested.includes("\r\n") ? dominantLineEnding(requested) : replaced.lineEnding,
+    text: content,
+  });
+}
+
+function staleWriteResult(target: string) {
+  return {
+    success: false,
+    result: { errorType: "StaleFileError", path: target },
+    error: `File changed since this write_file was proposed: ${target}. Read the file again, merge its current content into your complete new content, and call write_file again. Nothing was written.`,
+  } as const;
+}
+
 /**
  * Create write file tools (approval + execution pair).
  * Returns both tools that need to be registered.
@@ -173,24 +256,22 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        const { content, problem } = yield* planWrite(target, args.content);
+        const canonicalTarget = yield* canonicalPathOf(fs, target);
+        const current = yield* readExistingFile(fs, canonicalTarget);
+        const { content, problem } = yield* planWrite(target, args.content, current);
         if (problem !== undefined) {
           return yield* Effect.fail(new Error(problem));
         }
 
-        // Check if file exists and read original content for preview diff
-        const fileExists = yield* fs.exists(target).pipe(Effect.catch(() => Effect.succeed(false)));
-
-        let originalContent = "";
-        const isNewFile = !fileExists;
-
-        if (fileExists) {
-          try {
-            originalContent = yield* fs.readFileString(target);
-          } catch {
-            // If we can't read, treat as new file
-          }
-        }
+        const originalContent = current?.text ?? "";
+        const isNewFile = current === undefined;
+        rememberApprovedVersion(
+          fileSnapshot(canonicalTarget, args.content),
+          versionOf(canonicalTarget, current),
+        );
+        yield* Effect.logDebug(
+          `write_file approval: ${target} ${isNewFile ? "new file" : "overwrite"}, version recorded`,
+        );
 
         // This message is shown to whoever approves the write, which is not always a
         // person at a terminal: it also goes into the `jazz run --json` envelope and out
@@ -233,79 +314,85 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        const { content, problem } = yield* planWrite(target, args.content);
-        if (problem !== undefined) {
-          return yield* Effect.fail(new Error(problem));
-        }
-
-        try {
-          const parentDir = target.substring(0, target.lastIndexOf("/"));
-          if (parentDir && parentDir !== target) {
-            const parentExists = yield* fs
-              .exists(parentDir)
-              .pipe(Effect.catch(() => Effect.succeed(false)));
-
-            if (!parentExists) {
-              yield* fs.makeDirectory(parentDir, { recursive: true });
-            }
-          }
-
-          // Check if file exists and read original content for diff
-          const fileExists = yield* fs
-            .exists(target)
+        const parentDir = target.substring(0, target.lastIndexOf("/"));
+        if (parentDir && parentDir !== target) {
+          const parentExists = yield* fs
+            .exists(parentDir)
             .pipe(Effect.catch(() => Effect.succeed(false)));
 
-          let originalContent = "";
-          const isNewFile = !fileExists;
-
-          if (fileExists) {
-            try {
-              originalContent = yield* fs.readFileString(target);
-            } catch {
-              // If we can't read, treat as new file
-            }
+          if (!parentExists) {
+            yield* fs.makeDirectory(parentDir, { recursive: true });
           }
-
-          // Old content or new, never a truncated file, however the call is stopped.
-          yield* writeFileAtomically(fs, target, content);
-
-          // Generate diff for terminal output
-          const { diff, wasTruncated } = generateDiffWithMetadata(
-            originalContent,
-            content,
-            target,
-            { isNewFile },
-          );
-          const needsExpansion =
-            wasTruncated ||
-            diffExceedsPreview(diff) ||
-            content.split("\n").length > FILE_MUTATION_PREVIEW_LINES;
-          const fullDiff = needsExpansion
-            ? generateDiff(originalContent, content, target, {
-                isNewFile,
-                maxLines: Number.POSITIVE_INFINITY,
-                fullPatch: true,
-              })
-            : "";
-
-          return {
-            success: true,
-            result: {
-              path: target,
-              message: isNewFile ? `File created: ${target}` : `File written: ${target}`,
-              isNewFile,
-              diff,
-              wasTruncated,
-              fullDiff,
-            },
-          };
-        } catch (error) {
-          return {
-            success: false,
-            result: null,
-            error: `writeFile failed: ${toError(error).message}`,
-          };
         }
+        const canonicalTarget = yield* canonicalPathOf(fs, target);
+
+        // Shares edit_file's lock so the two serialize; the version check, the secret checks and
+        // the write all happen inside it.
+        return yield* withLock(
+          `${canonicalTarget}.jazz-edit.lock`,
+          Effect.gen(function* () {
+            const current = yield* readExistingFile(fs, canonicalTarget);
+            const approvalKey = fileSnapshot(canonicalTarget, args.content);
+            const approvedVersion = approvedVersions.get(approvalKey);
+            if (approvedVersion !== undefined) {
+              approvedVersions.delete(approvalKey);
+              if (approvedVersion !== versionOf(canonicalTarget, current)) {
+                yield* Effect.logDebug(
+                  `write_file execute: ${target} changed since approval, write refused`,
+                );
+                return staleWriteResult(target);
+              }
+            }
+
+            const { content, problem } = yield* planWrite(target, args.content, current);
+            if (problem !== undefined) {
+              return yield* Effect.fail(new Error(problem));
+            }
+
+            const originalContent = current?.text ?? "";
+            const isNewFile = current === undefined;
+
+            // Old content or new, never a truncated file, however the call is stopped.
+            yield* writeFileAtomically(
+              fs,
+              canonicalTarget,
+              encodeLikeReplaced(content, args.content, current),
+            );
+            yield* Effect.logDebug(
+              `write_file execute: ${target} ${isNewFile ? "created" : "overwritten"}, approval ${approvedVersion === undefined ? "unbound" : "verified"}`,
+            );
+
+            const { diff, wasTruncated } = generateDiffWithMetadata(
+              originalContent,
+              content,
+              target,
+              { isNewFile },
+            );
+            const needsExpansion =
+              wasTruncated ||
+              diffExceedsPreview(diff) ||
+              content.split("\n").length > FILE_MUTATION_PREVIEW_LINES;
+            const fullDiff = needsExpansion
+              ? generateDiff(originalContent, content, target, {
+                  isNewFile,
+                  maxLines: Number.POSITIVE_INFINITY,
+                  fullPatch: true,
+                })
+              : "";
+
+            return {
+              success: true,
+              result: {
+                path: target,
+                message: isNewFile ? `File created: ${target}` : `File written: ${target}`,
+                isNewFile,
+                diff,
+                wasTruncated,
+                fullDiff,
+              },
+            };
+          }),
+        );
       }),
   };
 
