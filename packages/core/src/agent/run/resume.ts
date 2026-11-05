@@ -12,6 +12,7 @@ import type { ProviderName } from "@/core/constants/models";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { RunStoreTag } from "@/core/interfaces/run-store";
+import { seedLedgerFromGrants, shellEscalationLedger } from "@/core/sandbox/escalation";
 import type { RunBudget } from "@/core/types/remote-door";
 import type { ApprovalOutcome, AutoApprovePolicy, ResolvedUserSecret } from "@/core/types/tools";
 import { currentProcessOwner } from "@/core/utils/process";
@@ -280,6 +281,8 @@ export function resumeRun(options: ResumeRunOptions) {
           );
       }
     }
+
+    seedLedgerFromGrants(shellEscalationLedger, options.runId, record.escalations);
 
     const response: AgentResponse = yield* AgentRunner.run({
       agent,

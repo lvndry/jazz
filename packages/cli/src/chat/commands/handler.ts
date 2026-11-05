@@ -78,6 +78,8 @@ import {
   type ToolRequirements,
 } from "@jazz/core/interfaces/tool-registry";
 import { typedText } from "@jazz/core/memory/source-trust";
+import { getConfinementStatus } from "@jazz/core/sandbox/backend";
+import { resolveConfinementMode, summarizeConfinement } from "@jazz/core/sandbox/confine";
 import { redactSecretText } from "@jazz/core/secrets/redaction";
 import { SkillServiceTag, type SkillService } from "@jazz/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@jazz/core/types/errors";
@@ -2565,6 +2567,14 @@ function handleInfoCommand(
     const inputCost = (promptTokens / 1_000_000) * (meta?.inputPricePerMillion ?? 0);
     const outputCost = (completionTokens / 1_000_000) * (meta?.outputPricePerMillion ?? 0);
     const logsDir = getLogsDirectory();
+    const configService = yield* Effect.serviceOption(AgentConfigServiceTag);
+    const appConfig = Option.isSome(configService)
+      ? yield* configService.value.appConfig
+      : undefined;
+    const writeConfinement =
+      resolveConfinementMode(appConfig?.shell?.confinement, true) === "on"
+        ? summarizeConfinement(getConfinementStatus())
+        : undefined;
 
     yield* terminal.log(
       report("info", [
@@ -2601,6 +2611,9 @@ function handleInfoCommand(
         },
         { kind: "field", key: "tools", value: `${String(totalTools)} on` },
         { kind: "field", key: "folder", value: abbreviateHomePath(workingDirectory) },
+        ...(writeConfinement === undefined
+          ? []
+          : [{ kind: "field" as const, key: "writes", value: writeConfinement }]),
         { kind: "gap" },
         { kind: "field", key: "duration", value: duration },
         { kind: "field", key: "messages", value: String(context.conversationHistory.length) },
