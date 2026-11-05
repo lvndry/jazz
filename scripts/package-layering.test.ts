@@ -3,10 +3,11 @@
  *
  * `scripts/package-layering.matrix.json` lists, per package, the workspace packages its
  * production code may import (`imports`) and the extra ones its tests may import (`testImports`).
- * Plugins form one row: they import `@jazz/plugin-sdk` and nothing else, so they stay publishable
- * against the SDK alone. `eslint.config.mjs` generates its `no-restricted-imports` rules from the
- * same file, so editors flag a bad import as it is typed; this test also covers relative imports
- * that cross a package boundary and the dependencies each package.json declares.
+ * Plugins form one row: they import `@jazz/plugin-sdk` and nothing else (not another
+ * `@jazz-plugin/*` package either), so they stay publishable against the SDK alone.
+ * `eslint.config.mjs` generates its `no-restricted-imports` rules from the same file, so editors
+ * flag a bad import as it is typed; this test also covers relative imports that cross a package
+ * boundary and the dependencies each package.json declares.
  *
  * A package missing from the matrix fails, so adding one forces a decision about where it sits.
  * An existing violation that cannot be fixed yet goes in `KNOWN_VIOLATIONS` with what must change;
@@ -17,6 +18,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "bun:test";
 import ts from "typescript";
+import { importTargetKey, workspaceScopes, type WorkspaceNames } from "./package-layering";
 
 const REPOSITORY_ROOT = path.join(import.meta.dir, "..");
 const PACKAGES_ROOT = path.join(REPOSITORY_ROOT, "packages");
@@ -32,18 +34,22 @@ interface Matrix {
   plugins: MatrixRow;
 }
 
+interface Unit {
+  key: string;
+  root: string;
+  manifestPath: string;
+  row: MatrixRow;
+}
+
 const matrix = JSON.parse(
   readFileSync(path.join(import.meta.dir, "package-layering.matrix.json"), "utf8"),
 ) as Matrix;
 
 /**
- * Violations that exist today, as `<file> -> <target package>`, each with what must change before
+ * Violations that exist today, as `<file> -> <target unit>`, each with what must change before
  * the entry can be deleted. Empty: every current import passes the matrix.
  */
 const KNOWN_VIOLATIONS: Record<string, string> = {};
-
-const WORKSPACE_SPECIFIER = /^@jazz\/([a-z-]+)(\/|$)/;
-const ALIAS_SPECIFIER = /^@\/([a-z-]+)\//;
 
 function sourceFiles(directory: string): string[] {
   const found: string[] = [];
@@ -61,34 +67,38 @@ function sourceFiles(directory: string): string[] {
   return found;
 }
 
+function directoriesWithManifest(root: string): string[] {
+  return readdirSync(root).filter((entry) => existsSync(path.join(root, entry, "package.json")));
+}
+
 function workspacePackages(): string[] {
-  return readdirSync(PACKAGES_ROOT).filter(
-    (entry) =>
-      statSync(path.join(PACKAGES_ROOT, entry)).isDirectory() &&
-      existsSync(path.join(PACKAGES_ROOT, entry, "package.json")),
-  );
+  return directoriesWithManifest(PACKAGES_ROOT);
 }
 
-function pluginDirectories(): string[] {
-  return readdirSync(PLUGINS_ROOT).filter((entry) =>
-    existsSync(path.join(PLUGINS_ROOT, entry, "package.json")),
-  );
+function units(): Unit[] {
+  return [
+    ...workspacePackages().map((name) => ({
+      key: name,
+      root: path.join(PACKAGES_ROOT, name),
+      manifestPath: path.join(PACKAGES_ROOT, name, "package.json"),
+      row: matrix.packages[name] ?? { imports: [] },
+    })),
+    ...directoriesWithManifest(PLUGINS_ROOT).map((name) => ({
+      key: `plugins/${name}`,
+      root: path.join(PLUGINS_ROOT, name),
+      manifestPath: path.join(PLUGINS_ROOT, name, "package.json"),
+      row: matrix.plugins,
+    })),
+  ];
 }
 
-function targetPackage(file: string, specifier: string): string | undefined {
-  const workspace = WORKSPACE_SPECIFIER.exec(specifier) ?? ALIAS_SPECIFIER.exec(specifier);
-  if (workspace) {
-    return workspace[1];
+function workspaceNames(): WorkspaceNames {
+  const names = new Map<string, string>();
+  for (const unit of units()) {
+    const manifest = JSON.parse(readFileSync(unit.manifestPath, "utf8")) as { name: string };
+    names.set(manifest.name, unit.key);
   }
-  if (specifier.startsWith(".")) {
-    const relative = path
-      .relative(REPOSITORY_ROOT, path.resolve(path.dirname(file), specifier))
-      .split(path.sep);
-    if (relative[0] === "packages") {
-      return relative[1];
-    }
-  }
-  return undefined;
+  return names;
 }
 
 function isTestFile(file: string): boolean {
@@ -99,28 +109,45 @@ function allowedTargets(row: MatrixRow, testFile: boolean): Set<string> {
   return new Set([...row.imports, ...(testFile ? (row.testImports ?? []) : [])]);
 }
 
+/**
+ * Whether a unit may import a specifier.
+ * @param row - the unit's matrix row.
+ * @param unitKey - the unit's own key; importing itself is always fine.
+ * @param specifier - the import specifier as written.
+ * @returns the offending unit key, or undefined when the import is allowed.
+ */
+function offendingTarget(
+  row: MatrixRow,
+  unitKey: string,
+  specifier: string,
+  testFile: boolean,
+  names: WorkspaceNames,
+): string | undefined {
+  const target = importTargetKey(
+    specifier,
+    names,
+    path.join(REPOSITORY_ROOT, "x.ts"),
+    REPOSITORY_ROOT,
+  );
+  if (target === undefined || target === unitKey || allowedTargets(row, testFile).has(target)) {
+    return undefined;
+  }
+  return target;
+}
+
 function violations(): string[] {
   const found: string[] = [];
-  const units: { name: string; root: string; row: MatrixRow }[] = [
-    ...workspacePackages().map((name) => ({
-      name,
-      root: path.join(PACKAGES_ROOT, name),
-      row: matrix.packages[name] ?? { imports: [] },
-    })),
-    ...pluginDirectories().map((name) => ({
-      name: `plugins/${name}`,
-      root: path.join(PLUGINS_ROOT, name),
-      row: matrix.plugins,
-    })),
-  ];
-  for (const unit of units) {
-    const selfName = unit.name.startsWith("plugins/") ? undefined : unit.name;
+  const names = workspaceNames();
+  for (const unit of units()) {
     for (const file of sourceFiles(unit.root)) {
-      const allowed = allowedTargets(unit.row, isTestFile(file));
       const imports = ts.preProcessFile(readFileSync(file, "utf8"), true, true).importedFiles;
       for (const imported of imports) {
-        const target = targetPackage(file, imported.fileName);
-        if (target !== undefined && target !== selfName && !allowed.has(target)) {
+        const target = importTargetKey(imported.fileName, names, file, REPOSITORY_ROOT);
+        if (
+          target !== undefined &&
+          target !== unit.key &&
+          !allowedTargets(unit.row, isTestFile(file)).has(target)
+        ) {
           found.push(`${path.relative(REPOSITORY_ROOT, file)} -> ${target}`);
         }
       }
@@ -185,38 +212,89 @@ describe("package layering matrix", () => {
 
   it("declares only matrix-allowed workspace dependencies", () => {
     const offending: string[] = [];
-    const manifests = [
-      ...workspacePackages().map((name) => ({
-        name,
-        file: path.join(PACKAGES_ROOT, name, "package.json"),
-        row: matrix.packages[name] ?? { imports: [] },
-      })),
-      ...pluginDirectories().map((name) => ({
-        name: `plugins/${name}`,
-        file: path.join(PLUGINS_ROOT, name, "package.json"),
-        row: matrix.plugins,
-      })),
-    ];
-    for (const { name, file, row } of manifests) {
-      const manifest = JSON.parse(readFileSync(file, "utf8")) as Record<
+    const names = workspaceNames();
+    const scopes = workspaceScopes(names.keys());
+    for (const unit of units()) {
+      const manifest = JSON.parse(readFileSync(unit.manifestPath, "utf8")) as Record<
         string,
         Record<string, string> | undefined
       >;
-      for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
+      for (const field of [
+        "dependencies",
+        "peerDependencies",
+        "optionalDependencies",
+        "devDependencies",
+      ]) {
         for (const dependency of Object.keys(manifest[field] ?? {})) {
-          const target = /^@jazz\/(.+)$/.exec(dependency)?.[1];
-          if (target !== undefined && !allowedTargets(row, false).has(target)) {
-            offending.push(`${name} ${field} ${dependency}`);
+          const scope = dependency.split("/")[0] ?? "";
+          if (!scopes.has(scope)) {
+            continue;
           }
-        }
-      }
-      for (const dependency of Object.keys(manifest["devDependencies"] ?? {})) {
-        const target = /^@jazz\/(.+)$/.exec(dependency)?.[1];
-        if (target !== undefined && !allowedTargets(row, true).has(target)) {
-          offending.push(`${name} devDependencies ${dependency}`);
+          const target = offendingTarget(
+            unit.row,
+            unit.key,
+            dependency,
+            field === "devDependencies",
+            names,
+          );
+          if (target !== undefined) {
+            offending.push(`${unit.key} ${field} ${dependency}`);
+          }
         }
       }
     }
     expect(offending).toEqual([]);
+  });
+});
+
+describe("import resolution", () => {
+  const names: WorkspaceNames = new Map([
+    ["@jazz/plugin-sdk", "plugin-sdk"],
+    ["@jazz/core", "core"],
+    ["@jazz-plugin/jev", "plugins/jev"],
+    ["@jazz-plugin/lsp", "plugins/lsp"],
+  ]);
+  const pluginRow = matrix.plugins;
+  const importer = path.join(REPOSITORY_ROOT, "plugins/lsp/src/index.ts");
+
+  it("rejects a plugin importing another plugin by package name", () => {
+    expect(importTargetKey("@jazz-plugin/jev", names, importer, REPOSITORY_ROOT)).toBe(
+      "plugins/jev",
+    );
+    expect(offendingTarget(pluginRow, "plugins/lsp", "@jazz-plugin/jev", false, names)).toBe(
+      "plugins/jev",
+    );
+  });
+
+  it("rejects a plugin importing a workspace-scope package that does not exist", () => {
+    expect(
+      offendingTarget(pluginRow, "plugins/lsp", "@jazz-plugin/missing/sub", false, names),
+    ).toBe("@jazz-plugin/missing");
+  });
+
+  it("rejects a plugin importing another plugin by relative path", () => {
+    expect(importTargetKey("../../jev/src/index", names, importer, REPOSITORY_ROOT)).toBe(
+      "plugins/jev",
+    );
+  });
+
+  it("lets a plugin import plugin-sdk and its own package", () => {
+    expect(offendingTarget(pluginRow, "plugins/lsp", "@jazz/plugin-sdk", false, names)).toBe(
+      undefined,
+    );
+    expect(offendingTarget(pluginRow, "plugins/lsp", "@jazz-plugin/lsp", false, names)).toBe(
+      undefined,
+    );
+  });
+
+  it("rejects a plugin importing core", () => {
+    expect(offendingTarget(pluginRow, "plugins/lsp", "@jazz/core/utils", false, names)).toBe(
+      "core",
+    );
+  });
+
+  it("ignores third-party packages", () => {
+    expect(importTargetKey("@scope/other", names, importer, REPOSITORY_ROOT)).toBe(undefined);
+    expect(importTargetKey("effect", names, importer, REPOSITORY_ROOT)).toBe(undefined);
   });
 });

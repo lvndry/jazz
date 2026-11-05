@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 // Used via js.configs.* - ESLint can mis-detect this as extraneous in flat configs
@@ -23,15 +23,33 @@ const LAYERING_MATRIX = JSON.parse(
   readFileSync(path.join(tsconfigRootDir, "scripts", "package-layering.matrix.json"), "utf8"),
 );
 const WORKSPACE_PACKAGES = Object.keys(LAYERING_MATRIX.packages);
+const PLATFORM_SCOPE = "@jazz";
+const WORKSPACE_SCOPES = new Set(
+  ["packages", "plugins"].flatMap((area) =>
+    readdirSync(path.join(tsconfigRootDir, area)).flatMap((entry) => {
+      const manifestPath = path.join(tsconfigRootDir, area, entry, "package.json");
+      return existsSync(manifestPath)
+        ? [JSON.parse(readFileSync(manifestPath, "utf8")).name.split("/")[0]]
+        : [];
+    }),
+  ),
+);
+const PLUGIN_SCOPES = [...WORKSPACE_SCOPES].filter((scope) => scope !== PLATFORM_SCOPE);
 const TEST_FILE_GLOBS = ["**/*.test.ts", "**/*.test.tsx"];
 
 function forbiddenImportPatterns(allowedPackages, packageName) {
-  return WORKSPACE_PACKAGES.filter(
-    (candidate) => candidate !== packageName && !allowedPackages.includes(candidate),
-  ).map((candidate) => ({
-    group: [`@jazz/${candidate}`, `@jazz/${candidate}/*`, `@/${candidate}/*`],
-    message: `${packageName} may not import @jazz/${candidate}: see scripts/package-layering.matrix.json. Move the shared piece down into a package it may import, or change the matrix on purpose.`,
+  const pluginPatterns = PLUGIN_SCOPES.map((scope) => ({
+    group: [`${scope}/*`],
+    message: `${packageName} may not import ${scope}/* plugin packages: plugins are loaded, never imported.`,
   }));
+  return pluginPatterns.concat(
+    WORKSPACE_PACKAGES.filter(
+      (candidate) => candidate !== packageName && !allowedPackages.includes(candidate),
+    ).map((candidate) => ({
+      group: [`@jazz/${candidate}`, `@jazz/${candidate}/*`, `@/${candidate}/*`],
+      message: `${packageName} may not import @jazz/${candidate}: see scripts/package-layering.matrix.json. Move the shared piece down into a package it may import, or change the matrix on purpose.`,
+    })),
+  );
 }
 
 const PACKAGE_LAYERING_CONFIGS = Object.entries(LAYERING_MATRIX.packages).flatMap(
@@ -63,15 +81,15 @@ const PLUGIN_LAYERING_CONFIG = {
         patterns: [
           {
             group: [
-              "@jazz/*",
+              ...[...WORKSPACE_SCOPES].map((scope) => `${scope}/*`),
               ...LAYERING_MATRIX.plugins.imports.flatMap((allowed) => [
-                `!@jazz/${allowed}`,
-                `!@jazz/${allowed}/*`,
+                `!${PLATFORM_SCOPE}/${allowed}`,
+                `!${PLATFORM_SCOPE}/${allowed}/*`,
               ]),
               "@/*",
             ],
             message:
-              "Plugins import only @jazz/plugin-sdk, so they stay publishable against the SDK alone.",
+              "Plugins import only @jazz/plugin-sdk (not core, adapters or another plugin), so they stay publishable against the SDK alone.",
           },
         ],
       },
