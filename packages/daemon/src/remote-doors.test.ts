@@ -14,6 +14,7 @@ import type { PeerConfig } from "@jazz/core/types/peer";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { partialFake } from "./partial-fake.fixture";
 import {
   DoorConcurrency,
   makeA2AHandler,
@@ -232,9 +233,9 @@ describe("which webhooks exist", () => {
 
 /** A runner whose AgentService fails with a message a caller must never see. */
 function failingRunner() {
-  const agents = {
+  const agents = partialFake<AgentService>({
     getAgent: () => Effect.fail(new Error("cannot read /Users/operator/.jazz/agents/x.json")),
-  } as unknown as AgentService;
+  });
   return <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
     Effect.runPromise(
       effect.pipe(Effect.provideService(AgentServiceTag, agents)) as Effect.Effect<A, never, never>,

@@ -11,6 +11,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
+import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
@@ -31,7 +32,7 @@ const parentAgent: Agent = {
 
 const recordedParentMessages: { regionId: string; message: string }[] = [];
 
-const presentation = {
+const presentation = partialFake<PresentationService>({
   writeOutput: () => Effect.void,
   openEphemeralRegion: () => Effect.succeed("eph-test"),
   appendEphemeralRegion: () => Effect.void,
@@ -40,9 +41,9 @@ const presentation = {
     Effect.sync(() => {
       recordedParentMessages.push({ regionId, message });
     }),
-} as unknown as PresentationService;
+});
 
-const llmService = {
+const llmService = partialFake<LLMService>({
   getProvider: () =>
     Effect.succeed({
       name: "openai",
@@ -52,7 +53,7 @@ const llmService = {
         { id: "gpt-embed", supportsTools: false },
       ],
     }),
-} as unknown as LLMService;
+});
 
 const layer = Layer.mergeAll(
   Layer.succeed(LoggerServiceTag, silentLogger),

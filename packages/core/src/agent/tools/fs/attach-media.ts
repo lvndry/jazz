@@ -72,7 +72,9 @@ export async function attachMediaFile(
   known: readonly KnownSecret[],
 ): Promise<AttachMediaOutcome> {
   const classified = classifyAttachmentPath(filePath);
-  if (classified === null) return { kind: "not-media" };
+  if (classified === null) {
+    return { kind: "not-media" };
+  }
 
   if (context?.attachMedia === undefined) {
     return {

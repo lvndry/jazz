@@ -41,7 +41,11 @@ export function listUnlockedToolNames(messages: readonly ChatMessage[]): readonl
 export function carryUnlockedToolNames<Messages extends readonly ChatMessage[]>(
   dropped: readonly ChatMessage[],
   kept: Messages,
-): Messages {
+): Messages;
+export function carryUnlockedToolNames(
+  dropped: readonly ChatMessage[],
+  kept: readonly ChatMessage[],
+): readonly ChatMessage[] {
   const droppedNames = listUnlockedToolNames(dropped);
   const carrierIndex = kept.findIndex((message) => message.role !== "system");
   if (droppedNames.length === 0 || carrierIndex === -1) {
@@ -53,5 +57,5 @@ export function carryUnlockedToolNames<Messages extends readonly ChatMessage[]>(
     ...carrier,
     unlockedToolNames: [...new Set([...droppedNames, ...(carrier.unlockedToolNames ?? [])])],
   };
-  return carried as unknown as Messages;
+  return carried;
 }

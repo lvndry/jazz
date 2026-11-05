@@ -102,7 +102,7 @@ describe("Error Handler", () => {
       presentCompletion: vi.fn().mockReturnValue(Effect.void),
       presentWarning: vi.fn().mockReturnValue(Effect.void),
       presentAgentResponse: vi.fn().mockReturnValue(Effect.void),
-      renderMarkdown: vi.fn().mockImplementation((s: string) => Effect.succeed(s)),
+      renderMarkdown: vi.fn().mockImplementation((text: string) => Effect.succeed(text)),
       formatToolArguments: vi.fn().mockReturnValue(""),
       formatToolResult: vi.fn().mockReturnValue(""),
       formatToolExecutionStart: vi.fn().mockReturnValue(Effect.succeed("")),

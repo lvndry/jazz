@@ -135,7 +135,9 @@ export function toSpan(event: TelemetryEvent): OtlpSpan {
   } else {
     attributes.push(stringAttribute("langfuse.observation.type", "span"));
   }
-  if (isError) attributes.push(stringAttribute("langfuse.observation.level", "ERROR"));
+  if (isError) {
+    attributes.push(stringAttribute("langfuse.observation.level", "ERROR"));
+  }
 
   return {
     traceId,

@@ -148,7 +148,9 @@ function runCommand(
   return Effect.callback<CommandResult, never>((resume) => {
     let settled = false;
     const finish = (result: CommandResult): void => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       resume(Effect.succeed(result));
     };
@@ -206,7 +208,9 @@ function runCommand(
 
 function keyringDisabledByEnv(): boolean {
   const raw = process.env["JAZZ_DISABLE_KEYRING"];
-  if (raw === undefined) return false;
+  if (raw === undefined) {
+    return false;
+  }
   const normalized = raw.trim().toLowerCase();
   return normalized !== "" && normalized !== "0" && normalized !== "false";
 }
@@ -222,7 +226,9 @@ function keyringDisabledByEnv(): boolean {
  */
 export function detectKeyringBackend(): Effect.Effect<KeyringBackend, never> {
   return Effect.gen(function* () {
-    if (keyringDisabledByEnv()) return "none" as const;
+    if (keyringDisabledByEnv()) {
+      return "none" as const;
+    }
 
     if (process.platform === "darwin") {
       if (Bun.which("security", { PATH: process.env["PATH"] ?? "" }) !== null) {
@@ -238,7 +244,9 @@ export function detectKeyringBackend(): Effect.Effect<KeyringBackend, never> {
       ]);
       // A clean "not found" exits non-zero with no diagnostics; a broken or
       // absent secret service always explains itself on stderr.
-      if (!probe.unavailable && probe.stderr.trim() === "") return "libsecret" as const;
+      if (!probe.unavailable && probe.stderr.trim() === "") {
+        return "libsecret" as const;
+      }
     }
 
     return "file" as const;
@@ -514,7 +522,9 @@ function updateVaultWhileLocked(
       return false;
     }
     const next = change(read.status === "ok" ? read.secrets : {});
-    if (next === undefined) return true;
+    if (next === undefined) {
+      return true;
+    }
     const stored = yield* osKeyringWriteVault(run, backend, service, next, read.macosLayout);
     if (stored) {
       rememberVault(backend, service, next);
@@ -594,7 +604,9 @@ function osKeyringAnyAccount(
         : backend === "macos"
           ? /^\s*"acct"<blob>="(.*)"\s*$/m.exec(output)?.[1]
           : /^attribute\.account = (.*)$/m.exec(output)?.[1];
-    if (account !== undefined) return { status: "found", account };
+    if (account !== undefined) {
+      return { status: "found", account };
+    }
     return backend === "libsecret" && output.trim() === ""
       ? { status: "absent" }
       : { status: "failed" };
@@ -661,7 +673,9 @@ export function migrateKeyringEntriesIntoVault(
               account in secrets ? undefined : { ...secrets, [account]: value },
             ),
           );
-          if (!stored) return { copied: false, retired: false };
+          if (!stored) {
+            return { copied: false, retired: false };
+          }
           const retired = await Effect.runPromise(
             osKeyringDelete(run, backend, sourceService, account),
           );
@@ -675,8 +689,12 @@ export function migrateKeyringEntriesIntoVault(
           return { copied: true, retired };
         }),
       ).pipe(Effect.catchDefect(() => Effect.succeed({ copied: false, retired: false })));
-      if (result.copied) moved.push(account);
-      if (!result.retired) return { moved, complete: false };
+      if (result.copied) {
+        moved.push(account);
+      }
+      if (!result.retired) {
+        return { moved, complete: false };
+      }
     }
     return { moved, complete: false };
   });
@@ -1031,7 +1049,9 @@ function adoptPerEntrySecrets(
           migrateKeyringEntriesIntoVault(backend, source, vaultService),
         );
         movedCount += result.moved.length;
-        if (!result.complete) return { movedCount, complete: false };
+        if (!result.complete) {
+          return { movedCount, complete: false };
+        }
       }
       logDebug("keyring: legacy adoption pass finished", {
         backend,
@@ -1047,11 +1067,15 @@ function adoptPerEntrySecrets(
   const attempt = pending;
   return attempt.then(
     (result) => {
-      if (!result.complete && vaultAdoptions.get(key) === attempt) vaultAdoptions.delete(key);
+      if (!result.complete && vaultAdoptions.get(key) === attempt) {
+        vaultAdoptions.delete(key);
+      }
       return result;
     },
     (error: unknown) => {
-      if (vaultAdoptions.get(key) === attempt) vaultAdoptions.delete(key);
+      if (vaultAdoptions.get(key) === attempt) {
+        vaultAdoptions.delete(key);
+      }
       throw error;
     },
   );
@@ -1112,8 +1136,12 @@ export function keyringGet(
 
 /** Every secret the backend holds for the active home, keyed by account. */
 export function keyringReadAll(backend: KeyringBackend): Effect.Effect<VaultSecrets, never> {
-  if (backend === "none") return Effect.succeed({});
-  if (backend === "file") return readSecretsFile();
+  if (backend === "none") {
+    return Effect.succeed({});
+  }
+  if (backend === "file") {
+    return readSecretsFile();
+  }
   return readVault(backend);
 }
 
@@ -1124,7 +1152,9 @@ export function keyringSet(
   secret: string,
 ): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
-    if (backend === "none") return false;
+    if (backend === "none") {
+      return false;
+    }
     if (backend === "file") {
       return yield* Effect.promise(() =>
         withSecretsFileLock(async () => {
@@ -1155,12 +1185,16 @@ export function keyringDelete(
   account: string,
 ): Effect.Effect<void, never> {
   return Effect.gen(function* () {
-    if (backend === "none") return;
+    if (backend === "none") {
+      return;
+    }
     if (backend === "file") {
       yield* Effect.promise(() =>
         withSecretsFileLock(async () => {
           const secrets = await readSecretsFileForWrite();
-          if (!(account in secrets)) return;
+          if (!(account in secrets)) {
+            return;
+          }
           const { [account]: _removed, ...rest } = secrets;
           await writeSecretsFile(rest);
         }),
@@ -1169,13 +1203,17 @@ export function keyringDelete(
     }
     const service = keyringVaultServiceName();
     const adoption = yield* Effect.promise(() => adoptPerEntrySecrets(backend, service));
-    if (!adoption.complete) return;
+    if (!adoption.complete) {
+      return;
+    }
     yield* updateVault(
       runCommand,
       backend,
       service,
       (secrets) => {
-        if (!(account in secrets)) return undefined;
+        if (!(account in secrets)) {
+          return undefined;
+        }
         const { [account]: _removed, ...rest } = secrets;
         return rest;
       },

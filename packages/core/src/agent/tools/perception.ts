@@ -113,16 +113,16 @@ type WithSelection<Args> = Args & { readonly [SELECTED_OPTION_KEY]?: string };
  * selection. Zod would strip the unknown key; the selection is the one argument
  * that legitimately arrives from outside the model.
  */
-function validateWithSelection<Args>(
-  schema: z.ZodType<Args>,
-): (args: Record<string, unknown>) => ToolValidatorResult<WithSelection<Args>> {
-  const withSelection: z.ZodType<Record<string, unknown>> = (
-    schema as unknown as z.ZodObject<z.ZodRawShape>
-  ).extend({ [SELECTED_OPTION_KEY]: z.string().optional() });
+function validateWithSelection<Shape extends z.ZodRawShape>(
+  schema: z.ZodObject<Shape>,
+): (args: Record<string, unknown>) => ToolValidatorResult<WithSelection<z.infer<typeof schema>>> {
+  const withSelection: z.ZodType<Record<string, unknown>> = schema.extend({
+    [SELECTED_OPTION_KEY]: z.string().optional(),
+  });
   return (args) => {
     const result = makeZodValidator(withSelection)(args);
     if (!result.valid || result.value === undefined) {
-      return result as ToolValidatorResult<WithSelection<Args>>;
+      return result as ToolValidatorResult<WithSelection<z.infer<typeof schema>>>;
     }
     const selectedOptionId = args[SELECTED_OPTION_KEY];
     return {
@@ -132,7 +132,7 @@ function validateWithSelection<Args>(
         ...(typeof selectedOptionId === "string"
           ? { [SELECTED_OPTION_KEY]: selectedOptionId }
           : {}),
-      } as WithSelection<Args>,
+      } as WithSelection<z.infer<typeof schema>>,
     };
   };
 }
@@ -158,11 +158,15 @@ function listCandidates(role: CompanionRole): Effect.Effect<CandidateList, never
     for (const item of providerItems) {
       if (!item.configured) {
         const hasCapable = yield* Effect.promise(() => catalogHasRole(item.name, role));
-        if (hasCapable) missingKeyProviders.push(item.name);
+        if (hasCapable) {
+          missingKeyProviders.push(item.name);
+        }
         continue;
       }
       const provider = yield* llmService.getProvider(item.name).pipe(Effect.option);
-      if (Option.isNone(provider)) continue;
+      if (Option.isNone(provider)) {
+        continue;
+      }
       for (const model of filterCapableModels(provider.value.supportedModels, role)) {
         available.push({
           id: `${item.name}/${model.modelId}` as `${string}/${string}`,
@@ -180,9 +184,15 @@ async function catalogHasRole(providerId: string, role: CompanionRole): Promise<
   try {
     const entries = await getModelsDevProviderModels(providerId);
     return entries.some((entry) => {
-      if (entry.status === "deprecated") return false;
-      if (!entry.inputModalities.includes("text")) return false;
-      if (!entry.outputModalities.includes("text")) return false;
+      if (entry.status === "deprecated") {
+        return false;
+      }
+      if (!entry.inputModalities.includes("text")) {
+        return false;
+      }
+      if (!entry.outputModalities.includes("text")) {
+        return false;
+      }
       return modelSupportsRole(entry.metadata, role);
     });
   } catch {
@@ -246,8 +256,12 @@ function buildCompanionAgent(
  */
 function refusesRole(target: CompanionTarget, role: CompanionRole): string | undefined {
   const [action, modality] = role.split(":") as [string, MediaModality];
-  if (action !== "analyze" || target.accepts === undefined) return undefined;
-  if (target.accepts.includes(modality)) return undefined;
+  if (action !== "analyze" || target.accepts === undefined) {
+    return undefined;
+  }
+  if (target.accepts.includes(modality)) {
+    return undefined;
+  }
   return `Companion "${target.binding}" does not accept ${modality} (accepts: ${target.accepts.join(", ")}). Bind another companion under companions["${role}"].`;
 }
 
@@ -372,7 +386,9 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
       sessionCompanions.set(sessionCompanionKey(parentAgent.id, role), binding);
 
       const agentServiceOption = yield* Effect.serviceOption(AgentServiceTag);
-      if (Option.isNone(agentServiceOption)) return;
+      if (Option.isNone(agentServiceOption)) {
+        return;
+      }
       const agentService = agentServiceOption.value;
       yield* agentService.getAgent(parentAgent.id).pipe(
         Effect.flatMap((stored) =>
@@ -477,7 +493,9 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
             companionAgent.config.llm.provider,
             companionAgent.config.llm.model,
           ));
-      if (childCostUnknown) context.recordChildCostUnknown?.();
+      if (childCostUnknown) {
+        context.recordChildCostUnknown?.();
+      }
 
       yield* presentation.collapseEphemeralRegion(regionId, label, {
         status: "completed",
@@ -830,7 +848,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
               `Delegate ${args.modality} analysis to a capable model.\n` +
               `Media: ${described}\nTask: ${args.task}`,
             executeToolName: "execute_analyze_media",
-            executeArgs: args as unknown as Record<string, unknown>,
+            executeArgs: args,
             options: choice.options,
           },
           error: "analyze_media requires the person to pick a companion model.",
@@ -900,7 +918,9 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           : { success: false, result: null, error: attempt.error };
       }),
     createSummary: (result) => {
-      if (!result.success) return `analyze_media failed: ${result.error}`;
+      if (!result.success) {
+        return `analyze_media failed: ${result.error}`;
+      }
       const content = String(result.result);
       return `Companion analyzed the media (${content.length} chars)`;
     },
@@ -958,7 +978,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
               `Delegate ${args.modality} generation to a capable model.\n` +
               `Brief: ${args.prompt}`,
             executeToolName: "execute_generate_media",
-            executeArgs: args as unknown as Record<string, unknown>,
+            executeArgs: args,
             options: choice.options,
           },
           error: "generate_media requires the person to pick a companion model.",
@@ -1013,7 +1033,9 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           : { success: false, result: null, error: attempt.error };
       }),
     createSummary: (result) => {
-      if (!result.success) return `generate_media failed: ${result.error}`;
+      if (!result.success) {
+        return `generate_media failed: ${result.error}`;
+      }
       const paths = (result.result as { paths?: readonly string[] }).paths ?? [];
       return `Companion generated ${paths.length} file(s): ${paths.join(", ")}`;
     },

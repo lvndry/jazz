@@ -158,9 +158,13 @@ export function inlineAttachmentMessageIndices(
 ): ReadonlySet<number> {
   const indices = new Set<number>();
   for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
-    if (messages[messageIndex]?.role !== "user") continue;
+    if (messages[messageIndex]?.role !== "user") {
+      continue;
+    }
     indices.add(messageIndex);
-    if (indices.size >= ATTACHMENT_INLINE_TURN_WINDOW) break;
+    if (indices.size >= ATTACHMENT_INLINE_TURN_WINDOW) {
+      break;
+    }
   }
   return indices;
 }
@@ -175,9 +179,13 @@ export const MAX_ATTACHMENTS_PER_MESSAGE = 8;
 
 function extensionOf(filePath: string): string {
   const lastDot = filePath.lastIndexOf(".");
-  if (lastDot === -1) return "";
+  if (lastDot === -1) {
+    return "";
+  }
   const lastSeparator = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
-  if (lastDot < lastSeparator) return "";
+  if (lastDot < lastSeparator) {
+    return "";
+  }
   return filePath.slice(lastDot + 1).toLowerCase();
 }
 
@@ -226,7 +234,9 @@ export function requiresProviderUpload(
   attachment: MessageAttachment,
   isLocalProvider = false,
 ): boolean {
-  if (isLocalProvider) return false;
+  if (isLocalProvider) {
+    return false;
+  }
   return attachment.byteSize > INLINE_BYTE_LIMIT;
 }
 

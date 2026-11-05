@@ -49,7 +49,9 @@ import packageJson from "../../../../package.json";
 function ActivityIslandComponent(): React.ReactElement | null {
   const { activity, backgroundHandler } = useSessionSlice();
 
-  if (activity.phase === "idle" || activity.phase === "complete") return null;
+  if (activity.phase === "idle" || activity.phase === "complete") {
+    return null;
+  }
 
   return (
     <ActivityView
@@ -197,7 +199,9 @@ const OutputIsland = React.memo(OutputIslandComponent);
 // ============================================================================
 
 function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactElement {
-  if (menu.kind === "skills") return <InkSkillBrowserView menu={menu} />;
+  if (menu.kind === "skills") {
+    return <InkSkillBrowserView menu={menu} />;
+  }
   if (menu.kind === "home") {
     return (
       <InkHome
@@ -211,7 +215,9 @@ function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactEle
       />
     );
   }
-  if (menu.kind === "agent-details") return <InkAgentDetailsView menu={menu} />;
+  if (menu.kind === "agent-details") {
+    return <InkAgentDetailsView menu={menu} />;
+  }
   const options =
     menu.kind === "agents"
       ? menu.agents.map((agent) => ({
@@ -277,7 +283,9 @@ function InkSkillBrowserView({
       setSelected((value) => Math.min(Math.max(0, matches.length - 1), value + 1));
     } else if (key.return) {
       const skill = matches[selected];
-      if (skill !== undefined) setDetail(skill);
+      if (skill !== undefined) {
+        setDetail(skill);
+      }
     } else if (key.backspace || key.delete) {
       setQuery((value) => [...value].slice(0, -1).join(""));
       setSelected(0);
@@ -424,7 +432,9 @@ export function App(): React.ReactElement {
   const modeToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (modeToast === null) return;
+    if (modeToast === null) {
+      return;
+    }
     if (modeToastTimerRef.current) {
       clearTimeout(modeToastTimerRef.current);
     }
@@ -453,7 +463,9 @@ export function App(): React.ReactElement {
   const CTRL_C_CONFIRM_WINDOW_MS = 1500;
 
   useInput((input, key) => {
-    if (input !== "c" || !key.ctrl) return;
+    if (input !== "c" || !key.ctrl) {
+      return;
+    }
 
     const armQuit = (): void => {
       quitArmedRef.current = true;

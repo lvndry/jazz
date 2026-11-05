@@ -280,28 +280,44 @@ function detectTerminalType(): TerminalType {
   const term = process.env["TERM"];
 
   // Warp sets TERM_PROGRAM=WarpTerminal
-  if (termProgram === "WarpTerminal") return "warp";
+  if (termProgram === "WarpTerminal") {
+    return "warp";
+  }
 
   // iTerm2
-  if (termProgram === "iTerm.app") return "iterm2";
+  if (termProgram === "iTerm.app") {
+    return "iterm2";
+  }
 
   // macOS Terminal.app
-  if (termProgram === "Apple_Terminal") return "terminal-app";
+  if (termProgram === "Apple_Terminal") {
+    return "terminal-app";
+  }
 
   // VS Code integrated terminal
-  if (termProgram === "vscode") return "vscode";
+  if (termProgram === "vscode") {
+    return "vscode";
+  }
 
   // Windows Terminal (sets WT_SESSION)
-  if (process.env["WT_SESSION"]) return "windows-terminal";
+  if (process.env["WT_SESSION"]) {
+    return "windows-terminal";
+  }
 
   // Kitty (sets KITTY_WINDOW_ID)
-  if (process.env["KITTY_WINDOW_ID"]) return "kitty";
+  if (process.env["KITTY_WINDOW_ID"]) {
+    return "kitty";
+  }
 
   // Alacritty (TERM contains alacritty)
-  if (term?.includes("alacritty")) return "alacritty";
+  if (term?.includes("alacritty")) {
+    return "alacritty";
+  }
 
   // Generic xterm detection
-  if (term?.startsWith("xterm")) return "xterm";
+  if (term?.startsWith("xterm")) {
+    return "xterm";
+  }
 
   return "unknown";
 }

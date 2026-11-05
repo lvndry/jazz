@@ -1,0 +1,28 @@
+{
+  "packages": {
+    "core": { "imports": [], "testImports": ["adapters", "cli"] },
+    "plugin-sdk": { "imports": [] },
+    "adapters": { "imports": ["core"] },
+    "daemon": { "imports": ["core", "adapters"] },
+    "bot-shared": { "imports": ["core", "adapters"] },
+    "discord-bot": { "imports": ["core", "adapters", "bot-shared"] },
+    "imessage-bot": { "imports": ["core", "adapters", "bot-shared"] },
+    "photon-bot": { "imports": ["core", "adapters", "bot-shared"] },
+    "telegram-bot": { "imports": ["core", "adapters", "bot-shared"] },
+    "whatsapp-bot": { "imports": ["core", "adapters", "bot-shared"] },
+    "cli": {
+      "imports": [
+        "core",
+        "adapters",
+        "daemon",
+        "bot-shared",
+        "imessage-bot",
+        "photon-bot",
+        "whatsapp-bot"
+      ]
+    },
+    "runtime": { "imports": ["core", "adapters", "cli"] },
+    "website": { "imports": ["core", "cli"] }
+  },
+  "plugins": { "imports": ["plugin-sdk"] }
+}

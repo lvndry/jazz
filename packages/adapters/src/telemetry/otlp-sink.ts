@@ -26,9 +26,13 @@ function isRetryableStatus(status: number): boolean {
 function backoffDelayMs(attempt: number, retryAfter: string | null): number {
   if (retryAfter) {
     const seconds = Number(retryAfter);
-    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return seconds * 1000;
+    }
     const date = Date.parse(retryAfter);
-    if (Number.isFinite(date)) return Math.max(0, date - Date.now());
+    if (Number.isFinite(date)) {
+      return Math.max(0, date - Date.now());
+    }
   }
   return BASE_BACKOFF_MS * 2 ** (attempt - 1) * (0.5 + Math.random());
 }
@@ -79,7 +83,9 @@ export class OtlpTelemetrySink implements TelemetrySink {
   }
 
   async write(events: readonly TelemetryEvent[]): Promise<void> {
-    if (events.length === 0) return;
+    if (events.length === 0) {
+      return;
+    }
     return this.serialize(async () => {
       const payloadOptions = {
         serviceName: this.config.serviceName,
@@ -100,18 +106,24 @@ export class OtlpTelemetrySink implements TelemetrySink {
         });
       }
       if (this.outbox) {
-        for (const request of requests) await this.outbox.enqueue(request.signal, request.body);
+        for (const request of requests) {
+          await this.outbox.enqueue(request.signal, request.body);
+        }
         await this.drainOutbox();
         return;
       }
       const results = await Promise.allSettled(
         requests.map(async ({ signal, body }) => {
           const outcome = await this.post(signal, body);
-          if (outcome !== "accepted") throw new Error(`OTLP ${signal} export ${outcome}`);
+          if (outcome !== "accepted") {
+            throw new Error(`OTLP ${signal} export ${outcome}`);
+          }
         }),
       );
       const failed = results.find((result) => result.status === "rejected");
-      if (failed?.status === "rejected") throw failed.reason;
+      if (failed?.status === "rejected") {
+        throw failed.reason;
+      }
     });
   }
 
@@ -127,7 +139,9 @@ export class OtlpTelemetrySink implements TelemetrySink {
   }
 
   private async drainOutbox(): Promise<void> {
-    if (!this.outbox) return;
+    if (!this.outbox) {
+      return;
+    }
     await Promise.all(
       (["traces", "logs"] as const)
         .filter((signal) => this.config.signals.includes(signal))
@@ -161,12 +175,18 @@ export class OtlpTelemetrySink implements TelemetrySink {
         lastError = toError(error);
         retryable = true;
       }
-      if (!retryable) break;
-      if (attempt < MAX_ATTEMPTS) await this.sleep(backoffDelayMs(attempt, retryAfter));
+      if (!retryable) {
+        break;
+      }
+      if (attempt < MAX_ATTEMPTS) {
+        await this.sleep(backoffDelayMs(attempt, retryAfter));
+      }
     }
 
     this.onExportError(signal, lastError);
-    if (!this.outbox) throw lastError;
+    if (!this.outbox) {
+      throw lastError;
+    }
     return retryable ? "retry" : "rejected";
   }
 
@@ -184,7 +204,9 @@ export class OtlpTelemetrySink implements TelemetrySink {
         let bytes = 0;
         for (;;) {
           const chunk = await reader.read();
-          if (chunk.done) break;
+          if (chunk.done) {
+            break;
+          }
           bytes += chunk.value.byteLength;
           if (bytes > MAX_RESPONSE_BYTES) {
             await reader.cancel();
@@ -199,12 +221,18 @@ export class OtlpTelemetrySink implements TelemetrySink {
       this.onExportError(signal, new Error(`OTLP ${signal} response could not be read`));
       return;
     }
-    if (body.length === 0) return;
+    if (body.length === 0) {
+      return;
+    }
     try {
       const parsed: unknown = JSON.parse(body);
-      if (!parsed || typeof parsed !== "object" || !("partialSuccess" in parsed)) return;
+      if (!parsed || typeof parsed !== "object" || !("partialSuccess" in parsed)) {
+        return;
+      }
       const partial: unknown = parsed.partialSuccess;
-      if (!partial || typeof partial !== "object") return;
+      if (!partial || typeof partial !== "object") {
+        return;
+      }
       const fields = partial as Record<string, unknown>;
       const rejectedKey = signal === "traces" ? "rejectedSpans" : "rejectedLogRecords";
       const count = Number(fields[rejectedKey] ?? 0);

@@ -4,6 +4,7 @@ import { silentLogger } from "@/core/agent/test-logger";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LLMServiceTag } from "@/core/interfaces/llm";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
+import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import { LLMRequestError } from "@/core/types/errors";
 import {
@@ -127,11 +128,14 @@ describe("plugin command-risk policy", () => {
       resolveCommandRisk("git status", agent, undefined, undefined, () =>
         Effect.succeed(answered(0.95, 0.03, 0.02)),
       ).pipe(
-        Effect.provideService(LLMServiceTag, {
-          createChatCompletion: () => {
-            throw new Error("fallback must not run");
-          },
-        } as unknown as LLMService),
+        Effect.provideService(
+          LLMServiceTag,
+          partialFake<LLMService>({
+            createChatCompletion: () => {
+              throw new Error("fallback must not run");
+            },
+          }),
+        ),
         Effect.provideService(LoggerServiceTag, silentLogger),
       ),
     );
@@ -152,11 +156,14 @@ describe("plugin command-risk policy", () => {
         hookCalls += 1;
         return Effect.succeed(answered(0.99, 0.005, 0.005));
       }).pipe(
-        Effect.provideService(LLMServiceTag, {
-          createChatCompletion: () => {
-            throw new Error("fallback must not run");
-          },
-        } as unknown as LLMService),
+        Effect.provideService(
+          LLMServiceTag,
+          partialFake<LLMService>({
+            createChatCompletion: () => {
+              throw new Error("fallback must not run");
+            },
+          }),
+        ),
         Effect.provideService(LoggerServiceTag, silentLogger),
       ),
     );
@@ -176,11 +183,14 @@ describe("plugin command-risk policy", () => {
       };
       const risk = await Effect.runPromise(
         resolveCommandRisk(command, agent).pipe(
-          Effect.provideService(LLMServiceTag, {
-            createChatCompletion: () => {
-              throw new Error("classifier must not run");
-            },
-          } as unknown as LLMService),
+          Effect.provideService(
+            LLMServiceTag,
+            partialFake<LLMService>({
+              createChatCompletion: () => {
+                throw new Error("classifier must not run");
+              },
+            }),
+          ),
           Effect.provideService(LoggerServiceTag, silentLogger),
         ),
       );
@@ -197,12 +207,12 @@ describe("plugin command-risk policy", () => {
       updatedAt: new Date(),
     };
     let fallbackCalls = 0;
-    const llm = {
+    const llm = partialFake<LLMService>({
       createChatCompletion: () => {
         fallbackCalls += 1;
         return Effect.succeed({ id: "1", model: "gpt-4o-mini", content: "low-risk" });
       },
-    } as unknown as LLMService;
+    });
     const run = (policyHook: Parameters<typeof resolveCommandRisk>[4]) =>
       Effect.runPromise(
         resolveCommandRisk("git add README.md", agent, undefined, undefined, policyHook).pipe(
@@ -341,11 +351,11 @@ describe("classifyCommandRisk", () => {
   });
 
   it("fails closed on an empty command or an oversized one", async () => {
-    const unusedLlm = {
+    const unusedLlm = partialFake<LLMService>({
       createChatCompletion: () => {
         throw new Error("should not be called");
       },
-    } as unknown as LLMService;
+    });
 
     const empty = await Effect.runPromise(
       classifyCommandRisk("", agent).pipe(

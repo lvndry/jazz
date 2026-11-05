@@ -2,13 +2,14 @@ import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import type { ClaimedWorkflowRun } from "@jazz/core/workflows/catch-up";
 import { describe, expect, it } from "bun:test";
 import { Deferred, Effect } from "effect";
+import { partialFake } from "./partial-fake.fixture";
 import { runTick, type TickWork, wakeTriggerTurnPrompt } from "./trigger-runner";
 
 const reminder: ReminderRecord = { id: "r1", fireAt: 0, text: "stretch", createdAt: 0 };
 
-const slowWorkflowClaim = {
+const slowWorkflowClaim = partialFake<ClaimedWorkflowRun>({
   record: { id: "slow-run" },
-} as unknown as ClaimedWorkflowRun;
+});
 
 function tickWork(overrides: Partial<TickWork<never>>): TickWork<never> {
   return {

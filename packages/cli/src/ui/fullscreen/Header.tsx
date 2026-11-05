@@ -83,7 +83,9 @@ function meterGroup(model: HeaderModel, glyphs: GlyphSet): HeaderGroup {
  * an error: the row is telling you a door is closed, not that something broke.
  */
 function connectorsGroup(connectors: readonly Connector[]): HeaderGroup | undefined {
-  if (connectors.length === 0) return undefined;
+  if (connectors.length === 0) {
+    return undefined;
+  }
   const needsAction = connectors.filter((connector) => connector.status === "renew");
   const first = needsAction[0];
   if (first !== undefined) {
@@ -135,7 +137,9 @@ export function headerGroups(model: HeaderModel, glyphs: GlyphSet = getGlyphs())
     });
   }
   const connectors = connectorsGroup(model.connectors);
-  if (connectors !== undefined) groups.push(connectors);
+  if (connectors !== undefined) {
+    groups.push(connectors);
+  }
   groups.push(meterGroup(model, glyphs));
   return groups;
 }
@@ -143,7 +147,9 @@ export function headerGroups(model: HeaderModel, glyphs: GlyphSet = getGlyphs())
 function joined(groups: readonly HeaderGroup[], gap: string): HeaderSegment[] {
   const segments: HeaderSegment[] = [];
   groups.forEach((group, index) => {
-    if (index > 0) segments.push({ text: gap, fg: THEME.muted });
+    if (index > 0) {
+      segments.push({ text: gap, fg: THEME.muted });
+    }
     segments.push(...group.segments);
   });
   return segments;
@@ -160,7 +166,9 @@ export function headerSegments(model: HeaderModel, viewport: Viewport): readonly
   const glyphs = getGlyphs();
   const groups = headerGroups(model, glyphs);
   const mark = groups[0];
-  if (mark === undefined) return [];
+  if (mark === undefined) {
+    return [];
+  }
 
   let modelGroup = groups.find((group) => group.key === "model");
   let cwdGroup = groups.find((group) => group.key === "cwd");
@@ -169,8 +177,9 @@ export function headerSegments(model: HeaderModel, viewport: Viewport): readonly
   const leftWidth = (): number => {
     let width = markWidth;
     for (const group of [modelGroup, cwdGroup]) {
-      if (group !== undefined)
+      if (group !== undefined) {
         width += terminalCellWidth(NEAR_GAP) + terminalSegmentsWidth(group.segments);
+      }
     }
     return width;
   };
@@ -179,9 +188,15 @@ export function headerSegments(model: HeaderModel, viewport: Viewport): readonly
   if (modelGroup !== undefined && model.localHost !== undefined && width() > viewport.width) {
     modelGroup = { ...modelGroup, segments: modelGroup.segments.slice(0, 1) };
   }
-  if (width() > viewport.width) cwdGroup = undefined;
-  if (width() > viewport.width) modelGroup = undefined;
-  while (right.length > 1 && width() > viewport.width) right = right.slice(1);
+  if (width() > viewport.width) {
+    cwdGroup = undefined;
+  }
+  if (width() > viewport.width) {
+    modelGroup = undefined;
+  }
+  while (right.length > 1 && width() > viewport.width) {
+    right = right.slice(1);
+  }
 
   const left: HeaderSegment[] = [
     ...mark.segments,

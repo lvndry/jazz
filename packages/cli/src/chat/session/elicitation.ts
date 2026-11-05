@@ -40,7 +40,9 @@ function askField(
 
     if (field.type === "multi-enum") {
       const options = field.options ?? [];
-      if (options.length === 0) return undefined;
+      if (options.length === 0) {
+        return undefined;
+      }
       const chosen = yield* terminal.checkbox<string>(label, {
         choices: options.map((option) => ({ name: option.label, value: option.value })),
         ...(Array.isArray(field.default) ? { default: field.default as readonly string[] } : {}),
@@ -50,7 +52,9 @@ function askField(
 
     if (field.type === "enum") {
       const options = field.options ?? [];
-      if (options.length === 0) return undefined;
+      if (options.length === 0) {
+        return undefined;
+      }
       return yield* terminal.select<string>(label, {
         choices: options.map((option) => ({ name: option.label, value: option.value })),
       });
@@ -64,7 +68,9 @@ function askField(
           return field.required ? `${field.title ?? field.name} is required` : true;
         }
         if (field.type === "number" || field.type === "integer") {
-          if (Number.isNaN(Number(trimmed))) return "Enter a number";
+          if (Number.isNaN(Number(trimmed))) {
+            return "Enter a number";
+          }
           if (field.type === "integer" && !Number.isInteger(Number(trimmed))) {
             return "Enter a whole number";
           }
@@ -74,7 +80,9 @@ function askField(
     });
 
     const trimmed = (answer ?? "").trim();
-    if (trimmed === "") return undefined;
+    if (trimmed === "") {
+      return undefined;
+    }
     return field.type === "number" || field.type === "integer" ? Number(trimmed) : trimmed;
   });
 }

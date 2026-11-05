@@ -74,8 +74,12 @@ export function createStreamPacer(
     }
     const before = reveal.shown;
     reveal = stepReveal(reveal, current.text, timers.now());
-    if (reveal.shown !== before) publish(current.id, reveal.shown);
-    if (!isRevealing(reveal)) stop();
+    if (reveal.shown !== before) {
+      publish(current.id, reveal.shown);
+    }
+    if (!isRevealing(reveal)) {
+      stop();
+    }
   };
   return {
     receive() {
@@ -96,7 +100,9 @@ export function createStreamPacer(
       if (stopTimer === undefined && isRevealing(reveal)) {
         const scheduledEpoch = epoch;
         stopTimer = timers.every(REVEAL_FRAME_MS, () => {
-          if (scheduledEpoch === epoch) tick();
+          if (scheduledEpoch === epoch) {
+            tick();
+          }
         });
       }
     },
@@ -107,9 +113,13 @@ export function createStreamPacer(
     },
     reset: forget,
     setPaced(next) {
-      if (paced === next) return;
+      if (paced === next) {
+        return;
+      }
       paced = next;
-      if (!paced) flush();
+      if (!paced) {
+        flush();
+      }
     },
   };
 }

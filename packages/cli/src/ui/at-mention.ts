@@ -45,11 +45,15 @@ export function atMentionSpan(text: string, caret: number): AtMentionSpan | null
 
   for (let index = clampedCaret - 1; index >= 0; index -= 1) {
     const character = characters[index];
-    if (character === undefined) return null;
+    if (character === undefined) {
+      return null;
+    }
 
     if (character === "@") {
       const preceding = index === 0 ? undefined : characters[index - 1];
-      if (preceding !== undefined && !/\s/.test(preceding)) return null;
+      if (preceding !== undefined && !/\s/.test(preceding)) {
+        return null;
+      }
       return {
         query: characters.slice(index + 1, clampedCaret).join(""),
         start: index,
@@ -59,7 +63,9 @@ export function atMentionSpan(text: string, caret: number): AtMentionSpan | null
 
     // Whitespace closes the candidate: whatever is under the caret is a plain
     // word, not a mention.
-    if (/\s/.test(character)) return null;
+    if (/\s/.test(character)) {
+      return null;
+    }
   }
 
   return null;

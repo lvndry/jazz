@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { Page } from "puppeteer-core";
 import { testConfigLayer } from "@/core/agent/test-config";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { partialFake } from "@/core/test-support/fakes";
 import {
   MAX_PAGE_ELEMENTS,
   MAX_PAGE_LABEL_CHARS,
@@ -122,18 +124,18 @@ describe("page flags", () => {
 
 describe("readPageSignals", () => {
   test("reports what the page evaluation returns", async () => {
-    const page = {
+    const page = partialFake<Page>({
       evaluate: async () => ({ passwordField: true, paymentField: false }),
-    } as unknown as Page;
+    });
     expect(await readPageSignals(page)).toEqual(PASSWORD_SIGNALS);
   });
 
   test("reads a page that cannot be evaluated as having neither field", async () => {
-    const page = {
+    const page = partialFake<Page>({
       evaluate: async () => {
         throw new Error("no execution context");
       },
-    } as unknown as Page;
+    });
     expect(await readPageSignals(page)).toEqual(NO_SIGNALS);
   });
 });
@@ -330,7 +332,7 @@ function fakeSession(signals: PageStructuralSignals, recorded: { flags: PageFlag
       ? { kind: "missing" }
       : { kind: "ok", backendNodeId: entry.backendNodeId, label: entry.label };
   };
-  return {
+  return partialFake<BrowserSession>({
     exclusive: async (_policy: unknown, operation: () => Promise<unknown>) => operation(),
     state: async () => ({ tab: "main", url: "https://shop.example/pay", title: "Pay" }),
     hasTab: () => true,
@@ -346,8 +348,7 @@ function fakeSession(signals: PageStructuralSignals, recorded: { flags: PageFlag
       recorded.flags = [...flags];
     },
     flagsFor: () => recorded.flags,
-    describeRef: () => 'button "Pay now"',
-  } as unknown as BrowserSession;
+  });
 }
 
 async function contextFor(
@@ -366,7 +367,11 @@ async function contextFor(
   return context;
 }
 
-function run(tool: Tool<never>, args: Record<string, unknown>, context: ToolExecutionContext) {
+function run(
+  tool: Tool<AgentConfigService>,
+  args: Record<string, unknown>,
+  context: ToolExecutionContext,
+) {
   return Effect.runPromise(
     (tool.execute(args, context) as Effect.Effect<ToolExecutionResult, never, never>).pipe(
       Effect.provide(testConfigLayer()),
@@ -375,9 +380,9 @@ function run(tool: Tool<never>, args: Record<string, unknown>, context: ToolExec
 }
 
 describe("browser tools on a flagged page", () => {
-  const snapshotTool = createBrowserSnapshotTool() as unknown as Tool<never>;
+  const snapshotTool = createBrowserSnapshotTool();
   const act = createBrowserActTools();
-  const actProposal = act.approval as unknown as Tool<never>;
+  const actProposal = act.approval;
 
   test("browser_snapshot warns and stays untrusted external content", async () => {
     const recorded = { flags: [] as PageFlagId[] };

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, mock, setSystemTime } from "bun:test";
 import { Clock, Effect, Fiber, FileSystem, Layer, Queue, Stream } from "effect";
 import { TestClock } from "effect/testing";
+import { partialFake } from "@/core/test-support/fakes";
 import { executeWithStreaming } from "./streaming-executor";
 import { ToolExecutor } from "./tool-executor";
 import { DEFAULT_MAX_ITERATIONS } from "../../constants/agent";
@@ -65,7 +66,7 @@ const mockPresentationService = {
   formatToolExecutionError: () => Effect.succeed("Tool failed"),
   presentAgentResponse: () => Effect.void,
   presentWarning: () => Effect.void,
-  renderMarkdown: (c: string) => Effect.succeed(c),
+  renderMarkdown: (content: string) => Effect.succeed(content),
   formatThinking: () => Effect.succeed(""),
   formatCompletion: () => Effect.succeed(""),
   formatWarning: () => Effect.succeed(""),
@@ -182,7 +183,7 @@ describe("executeWithStreaming", () => {
       source: "model" as const,
     };
     const requestedConversationIds: Array<string | undefined> = [];
-    const mockLLMService: LLMService = {
+    const mockLLMService: LLMService = partialFake<LLMService>({
       createStreamingChatCompletion: (
         _provider: unknown,
         llmOptions: { conversationId?: string },
@@ -230,7 +231,7 @@ describe("executeWithStreaming", () => {
       getProvider: () => Effect.fail(new Error("")),
       supportsNativeWebSearch: () => Effect.succeed(false),
       resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
-    } as unknown as LLMService;
+    });
 
     // Create Layers
     const TestLayer = Layer.mergeAll(
@@ -277,7 +278,7 @@ describe("executeWithStreaming", () => {
   it("should execute with tool calls", async () => {
     // Mock LLM returning a tool call first, then content
     let iteration = 0;
-    const mockLLMServiceWithTools: LLMService = {
+    const mockLLMServiceWithTools: LLMService = partialFake<LLMService>({
       createStreamingChatCompletion: (_1: any, _2: any) => {
         iteration++;
         if (iteration === 1) {
@@ -353,7 +354,7 @@ describe("executeWithStreaming", () => {
           });
         }
       },
-    } as unknown as LLMService;
+    });
 
     // Mock ToolExecutor to return result
     const originalExecute = ToolExecutor.executeToolCalls;
@@ -554,7 +555,7 @@ describe("executeWithStreaming", () => {
       deadline: undefined,
     };
 
-    const mockLLMService: LLMService = {
+    const mockLLMService: LLMService = partialFake<LLMService>({
       createStreamingChatCompletion: () =>
         Effect.succeed({
           stream: Stream.fromIterable([
@@ -587,7 +588,7 @@ describe("executeWithStreaming", () => {
       getProvider: () => Effect.fail(new Error("")),
       supportsNativeWebSearch: () => Effect.succeed(false),
       resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
-    } as unknown as LLMService;
+    });
 
     const TestLayer = Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, mockLogger),
@@ -801,14 +802,14 @@ function scriptedLLMService(
   createChatCompletion: LLMService["createChatCompletion"] = () =>
     Effect.fail(new LLMRequestError({ provider: "openai", message: "unused" })),
 ): LLMService {
-  return {
+  return partialFake<LLMService>({
     createStreamingChatCompletion,
     createChatCompletion,
     listProviders: () => Effect.succeed([]),
     getProvider: () => Effect.fail(new Error("")),
     supportsNativeWebSearch: () => Effect.succeed(false),
     resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
-  } as unknown as LLMService;
+  });
 }
 
 describe("executeWithStreaming cancellation", () => {

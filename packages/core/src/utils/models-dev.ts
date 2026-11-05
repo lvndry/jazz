@@ -183,13 +183,17 @@ function buildData(api: ModelsDevApi): ModelsDevData {
 
   for (const [providerId, provider] of Object.entries(api)) {
     const models = provider.models;
-    if (!models || typeof models !== "object") continue;
+    if (!models || typeof models !== "object") {
+      continue;
+    }
 
     const providerKey = providerId.toLowerCase().trim();
     const entries: ModelsDevModelEntry[] = [];
 
     for (const [id, spec] of Object.entries(models)) {
-      if (!spec || typeof spec !== "object") continue;
+      if (!spec || typeof spec !== "object") {
+        continue;
+      }
 
       const meta = toMetadata(spec);
       const modelKey = id.toLowerCase().trim();
@@ -233,10 +237,14 @@ function slimApi(api: ModelsDevApi): ModelsDevApi {
   const slim: ModelsDevApi = {};
   for (const [providerId, provider] of Object.entries(api)) {
     const models = provider?.models;
-    if (!models || typeof models !== "object") continue;
+    if (!models || typeof models !== "object") {
+      continue;
+    }
     const slimModels: Record<string, ModelsDevModelSpec> = {};
     for (const [id, spec] of Object.entries(models)) {
-      if (!spec || typeof spec !== "object") continue;
+      if (!spec || typeof spec !== "object") {
+        continue;
+      }
       slimModels[id] = {
         ...(spec.name !== undefined && { name: spec.name }),
         ...(spec.status !== undefined && { status: spec.status }),
@@ -283,7 +291,9 @@ async function loadFromDiskCache(
   try {
     const raw = await readFile(cache.path, "utf8");
     const api = JSON.parse(raw) as ModelsDevApi;
-    if (!api || typeof api !== "object") return cache.data;
+    if (!api || typeof api !== "object") {
+      return cache.data;
+    }
 
     cache.data = buildData(api);
     cache.expiry = expiresAt;
@@ -364,10 +374,14 @@ async function fetchAndCacheModelsDevData(
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    if (!response.ok) return loadFromDiskCache(cache, now + CACHE_TTL_MS);
+    if (!response.ok) {
+      return loadFromDiskCache(cache, now + CACHE_TTL_MS);
+    }
 
     const api = (await response.json()) as ModelsDevApi;
-    if (!api || typeof api !== "object") return loadFromDiskCache(cache, now + CACHE_TTL_MS);
+    if (!api || typeof api !== "object") {
+      return loadFromDiskCache(cache, now + CACHE_TTL_MS);
+    }
 
     cache.data = buildData(api);
     cache.expiry = now + CACHE_TTL_MS;
@@ -451,19 +465,27 @@ function findMetadata(
   providerId: string | undefined,
   options: { readonly anyProvider?: boolean },
 ): ModelsDevMetadata | undefined {
-  if (!map) return undefined;
+  if (!map) {
+    return undefined;
+  }
   const normalizedModel = modelId.toLowerCase().trim();
   if (providerId) {
     const providerKey = providerId.toLowerCase().trim();
     for (const key of lookupKeys(normalizedModel)) {
       const meta = map.get(`${providerKey}:${key}`);
-      if (meta) return meta;
+      if (meta) {
+        return meta;
+      }
     }
-    if (options.anyProvider === false) return undefined;
+    if (options.anyProvider === false) {
+      return undefined;
+    }
   }
   for (const key of lookupKeys(modelId)) {
     const meta = map.get(key);
-    if (meta) return meta;
+    if (meta) {
+      return meta;
+    }
   }
   return undefined;
 }
@@ -495,8 +517,9 @@ export function getModelsDevMetadataSync(
     cache.sourceUrl !== resolveApiUrl() ||
     cache.data === null ||
     Date.now() >= cache.expiry
-  )
+  ) {
     return undefined;
+  }
   return getMetadataFromMap(cache.data.metadataMap, modelId, providerId);
 }
 

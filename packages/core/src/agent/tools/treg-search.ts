@@ -62,16 +62,24 @@ async function callTinyFish(args: WebSearchArgs, token: string): Promise<SearchR
   const url = new URL(TINYFISH_SEARCH_URL);
   url.searchParams.set("query", args.query);
   url.searchParams.set("domain_type", "web");
-  if (args.fromDate) url.searchParams.set("after_date", args.fromDate);
-  if (args.toDate) url.searchParams.set("before_date", args.toDate);
+  if (args.fromDate) {
+    url.searchParams.set("after_date", args.fromDate);
+  }
+  if (args.toDate) {
+    url.searchParams.set("before_date", args.toDate);
+  }
   const response = await fetch(url, {
     headers: { "X-Treg-Token": token },
     redirect: "error",
     signal: AbortSignal.timeout(15_000),
   });
-  if (!response.ok) throw new Error(`TinyFish returned HTTP ${response.status}`);
+  if (!response.ok) {
+    throw new Error(`TinyFish returned HTTP ${response.status}`);
+  }
   const parsed = freeResponse.safeParse(await response.json());
-  if (!parsed.success) throw new Error("TinyFish returned an invalid search response");
+  if (!parsed.success) {
+    throw new Error("TinyFish returned an invalid search response");
+  }
   return { results: parsed.data.results, servedBy: "tinyfish.web.search" };
 }
 
@@ -89,9 +97,13 @@ async function callRouted(args: WebSearchArgs, token: string): Promise<SearchRes
     redirect: "error",
     signal: AbortSignal.timeout(15_000),
   });
-  if (!response.ok) throw new Error(`treg returned HTTP ${response.status}`);
+  if (!response.ok) {
+    throw new Error(`treg returned HTTP ${response.status}`);
+  }
   const parsed = routedResponse.safeParse(await response.json());
-  if (!parsed.success) throw new Error("treg returned an invalid search response");
+  if (!parsed.success) {
+    throw new Error("treg returned an invalid search response");
+  }
   return {
     results: parsed.data.output.results,
     servedBy: parsed.data._treg?.served_by ?? "treg.web.search",

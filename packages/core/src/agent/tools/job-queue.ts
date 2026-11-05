@@ -32,7 +32,9 @@ function summarizeJobStatuses(batch: JobBatchRecord): {
   cancelled: number;
 } {
   const counts = { succeeded: 0, failed: 0, pending: 0, running: 0, cancelled: 0 };
-  for (const job of batch.jobs) counts[job.status]++;
+  for (const job of batch.jobs) {
+    counts[job.status]++;
+  }
   return counts;
 }
 
@@ -218,7 +220,9 @@ These commands will run unattended, without further approval, until every job fi
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { batchId: string; jobCount: number };
       return `Enqueued batch ${data.batchId} (${data.jobCount} jobs)`;
     },
@@ -279,7 +283,9 @@ These commands will run unattended, without further approval, until every job fi
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { batches: readonly unknown[] };
       return `Listed job batches (${data.batches.length})`;
     },
@@ -319,7 +325,9 @@ These commands will run unattended, without further approval, until every job fi
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { message: string };
       return data.message;
     },

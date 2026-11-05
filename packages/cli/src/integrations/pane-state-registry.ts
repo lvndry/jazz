@@ -38,10 +38,14 @@ export function attachPaneStateReporting(
   store: PaneStateStore,
   adapterOverride?: readonly PaneStateAdapter[],
 ): void {
-  if (unsubscribe !== undefined) return;
+  if (unsubscribe !== undefined) {
+    return;
+  }
   adapters = adapterOverride ?? DEFAULT_ADAPTERS;
   const active = adapters.filter((adapter) => adapter.isActive);
-  if (active.length === 0) return;
+  if (active.length === 0) {
+    return;
+  }
   installPaneStateExitHooks(() => releaseAll());
   unsubscribe = store.subscribeSession(() => {
     const snapshot = store.getSessionSnapshot();

@@ -21,7 +21,9 @@ export function foldTurn(blocks: readonly Block[]): Block[] {
       continue;
     }
     if (block.kind === "tool" && isPlanUpdate(block)) {
-      if (planIndex !== undefined) folded[planIndex] = undefined;
+      if (planIndex !== undefined) {
+        folded[planIndex] = undefined;
+      }
       planIndex = folded.length;
       folded.push(asPlanReceipt(block));
       continue;

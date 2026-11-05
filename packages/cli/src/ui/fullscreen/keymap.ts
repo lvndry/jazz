@@ -105,21 +105,33 @@ function flagOn(record: Record<string, unknown>, key: string): boolean {
 function foldName(name: string): string {
   const folded = name.toLowerCase().replace(/[_-]/g, "");
   const aliased = NAME_ALIASES[folded];
-  if (aliased !== undefined) return aliased;
+  if (aliased !== undefined) {
+    return aliased;
+  }
   return folded.startsWith("arrow") ? folded.slice("arrow".length) : folded;
 }
 
 function letterFromCodepoint(codepoint: number): string | undefined {
-  if (codepoint >= 1 && codepoint <= 26) return String.fromCharCode(96 + codepoint);
-  if (codepoint >= 97 && codepoint <= 122) return String.fromCharCode(codepoint);
-  if (codepoint >= 65 && codepoint <= 90) return String.fromCharCode(codepoint + 32);
+  if (codepoint >= 1 && codepoint <= 26) {
+    return String.fromCharCode(96 + codepoint);
+  }
+  if (codepoint >= 97 && codepoint <= 122) {
+    return String.fromCharCode(codepoint);
+  }
+  if (codepoint >= 65 && codepoint <= 90) {
+    return String.fromCharCode(codepoint + 32);
+  }
   return undefined;
 }
 
 function applyControlLetterName(name: string): { readonly name: string; readonly ctrl: boolean } {
-  if (name.length !== 1) return { name, ctrl: false };
+  if (name.length !== 1) {
+    return { name, ctrl: false };
+  }
   const code = name.charCodeAt(0);
-  if (code < 1 || code > 26) return { name, ctrl: false };
+  if (code < 1 || code > 26) {
+    return { name, ctrl: false };
+  }
   return { name: String.fromCharCode(96 + code), ctrl: true };
 }
 
@@ -170,7 +182,9 @@ function finalizeNormalized(fields: NormalizedKey): NormalizedKey {
   const fromSequence = SEQUENCE_NAMES[sequence];
   if (fromSequence !== undefined) {
     name = fromSequence;
-    if (sequence === "\x1b[Z") shift = true;
+    if (sequence === "\x1b[Z") {
+      shift = true;
+    }
     return { ...fields, name, sequence, shift };
   }
 
@@ -194,13 +208,19 @@ function finalizeNormalized(fields: NormalizedKey): NormalizedKey {
     const codepoint = Number(kitty[1]);
     const modifier = kitty[2] === undefined ? 1 : Number(kitty[2]);
     const bits = Number.isFinite(modifier) ? modifier - 1 : 0;
-    if ((bits & 1) !== 0) shift = true;
+    if ((bits & 1) !== 0) {
+      shift = true;
+    }
     if ((bits & 2) !== 0) {
       meta = true;
       option = true;
     }
-    if ((bits & 4) !== 0) ctrl = true;
-    if ((bits & 8) !== 0) superKey = true;
+    if ((bits & 4) !== 0) {
+      ctrl = true;
+    }
+    if ((bits & 8) !== 0) {
+      superKey = true;
+    }
     const coded = CODED_KEY_NAMES[codepoint];
     if (coded !== undefined) {
       name = coded;
@@ -208,7 +228,9 @@ function finalizeNormalized(fields: NormalizedKey): NormalizedKey {
       const letter = letterFromCodepoint(codepoint);
       if (letter !== undefined) {
         name = letter;
-        if (codepoint <= 26 && !superKey) ctrl = true;
+        if (codepoint <= 26 && !superKey) {
+          ctrl = true;
+        }
       }
     }
     return { ...fields, name, sequence, ctrl, shift, meta, option, super: superKey };
@@ -218,19 +240,27 @@ function finalizeNormalized(fields: NormalizedKey): NormalizedKey {
   if (modifyOther !== null) {
     const bits = Number(modifyOther[1]) - 1;
     const codepoint = Number(modifyOther[2]);
-    if ((bits & 1) !== 0) shift = true;
+    if ((bits & 1) !== 0) {
+      shift = true;
+    }
     if ((bits & 2) !== 0) {
       meta = true;
       option = true;
     }
-    if ((bits & 4) !== 0) ctrl = true;
-    if ((bits & 8) !== 0) superKey = true;
+    if ((bits & 4) !== 0) {
+      ctrl = true;
+    }
+    if ((bits & 8) !== 0) {
+      superKey = true;
+    }
     const coded = CODED_KEY_NAMES[codepoint];
     if (coded !== undefined) {
       name = coded;
     } else {
       const letter = letterFromCodepoint(codepoint);
-      if (letter !== undefined) name = letter;
+      if (letter !== undefined) {
+        name = letter;
+      }
     }
     return { ...fields, name, sequence, ctrl, shift, meta, option, super: superKey };
   }
@@ -245,17 +275,25 @@ export function isCtrlLetter(
   },
   letter: string,
 ): boolean {
-  if (key.super === true) return false;
+  if (key.super === true) {
+    return false;
+  }
   const folded = letter.toLowerCase();
-  if (folded.length !== 1) return false;
-  if (key.ctrl && key.name === folded) return true;
+  if (folded.length !== 1) {
+    return false;
+  }
+  if (key.ctrl && key.name === folded) {
+    return true;
+  }
   if (key.name === `ctrl+${folded}` || key.name === `c+${folded}` || key.name === `ctrl${folded}`) {
     return true;
   }
   const sequence = key.sequence;
   if (sequence !== undefined && sequence.length === 1) {
     const expected = folded.charCodeAt(0) - 96;
-    if (expected >= 1 && expected <= 26 && sequence.charCodeAt(0) === expected) return true;
+    if (expected >= 1 && expected <= 26 && sequence.charCodeAt(0) === expected) {
+      return true;
+    }
   }
   return false;
 }
@@ -263,7 +301,9 @@ export function isCtrlLetter(
 export function isInterruptChord(
   key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super"> & { readonly sequence?: string },
 ): boolean {
-  if (key.super || key.shift) return false;
+  if (key.super || key.shift) {
+    return false;
+  }
   return isCtrlLetter(key, "c");
 }
 
@@ -275,7 +315,9 @@ export function isInterruptChord(
 export function isBackgroundChord(
   key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super"> & { readonly sequence?: string },
 ): boolean {
-  if (key.super || key.shift) return false;
+  if (key.super || key.shift) {
+    return false;
+  }
   return isCtrlLetter(key, "b");
 }
 
@@ -288,33 +330,51 @@ export function isBackgroundChord(
 export function isForceSendChord(
   key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "meta" | "option" | "super">,
 ): boolean {
-  if (key.name !== "return" && key.name !== "enter") return false;
-  if (key.shift || key.meta || key.option || key.super) return false;
+  if (key.name !== "return" && key.name !== "enter") {
+    return false;
+  }
+  if (key.shift || key.meta || key.option || key.super) {
+    return false;
+  }
   return key.ctrl;
 }
 
 export function isUndoChord(
   key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super">,
 ): boolean {
-  if (key.shift) return false;
-  if (key.name !== "z" && key.name !== "super+z" && key.name !== "cmd+z") return false;
+  if (key.shift) {
+    return false;
+  }
+  if (key.name !== "z" && key.name !== "super+z" && key.name !== "cmd+z") {
+    return false;
+  }
   return key.ctrl || key.super || key.name === "super+z" || key.name === "cmd+z";
 }
 
 export function isRedoChord(
   key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super">,
 ): boolean {
-  if (key.name === "y" && key.ctrl && !key.super) return true;
-  if (key.name !== "z" && key.name !== "super+z" && key.name !== "cmd+z") return false;
-  if (!key.shift) return false;
+  if (key.name === "y" && key.ctrl && !key.super) {
+    return true;
+  }
+  if (key.name !== "z" && key.name !== "super+z" && key.name !== "cmd+z") {
+    return false;
+  }
+  if (!key.shift) {
+    return false;
+  }
   return key.ctrl || key.super || key.name === "super+z" || key.name === "cmd+z";
 }
 
 export function isSelectAllChord(
   key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super">,
 ): boolean {
-  if (key.ctrl) return false;
-  if (key.name === "super+a" || key.name === "cmd+a") return true;
+  if (key.ctrl) {
+    return false;
+  }
+  if (key.name === "super+a" || key.name === "cmd+a") {
+    return true;
+  }
   return key.name === "a" && key.super;
 }
 
@@ -322,14 +382,22 @@ export function isCopyChord(
   key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super">,
 ): boolean {
   const name = key.name.toLowerCase();
-  if (name === "super+c" || name === "cmd+c") return true;
-  if (name !== "c") return false;
-  if (key.super) return true;
+  if (name === "super+c" || name === "cmd+c") {
+    return true;
+  }
+  if (name !== "c") {
+    return false;
+  }
+  if (key.super) {
+    return true;
+  }
   return key.ctrl && key.shift;
 }
 
 export function consumeKeyEvent(key: unknown): void {
-  if (key === null || typeof key !== "object") return;
+  if (key === null || typeof key !== "object") {
+    return;
+  }
   const event = key as { preventDefault?: () => void; stopPropagation?: () => void };
   event.preventDefault?.();
   event.stopPropagation?.();
@@ -350,13 +418,27 @@ export function resolveScrollKey(
   name: string,
   focus: Focus,
 ): Extract<KeyAction, { type: "scroll-transcript" }> | null {
-  if (name === "pageup") return { type: "scroll-transcript", delta: -1, unit: "page" };
-  if (name === "pagedown") return { type: "scroll-transcript", delta: 1, unit: "page" };
-  if (focus !== "transcript") return null;
-  if (name === "up") return { type: "scroll-transcript", delta: -1, unit: "line" };
-  if (name === "down") return { type: "scroll-transcript", delta: 1, unit: "line" };
-  if (name === "home") return { type: "scroll-transcript", delta: -1, unit: "end" };
-  if (name === "end") return { type: "scroll-transcript", delta: 1, unit: "end" };
+  if (name === "pageup") {
+    return { type: "scroll-transcript", delta: -1, unit: "page" };
+  }
+  if (name === "pagedown") {
+    return { type: "scroll-transcript", delta: 1, unit: "page" };
+  }
+  if (focus !== "transcript") {
+    return null;
+  }
+  if (name === "up") {
+    return { type: "scroll-transcript", delta: -1, unit: "line" };
+  }
+  if (name === "down") {
+    return { type: "scroll-transcript", delta: 1, unit: "line" };
+  }
+  if (name === "home") {
+    return { type: "scroll-transcript", delta: -1, unit: "end" };
+  }
+  if (name === "end") {
+    return { type: "scroll-transcript", delta: 1, unit: "end" };
+  }
   return null;
 }
 
@@ -396,9 +478,15 @@ export const INTERRUPT_WINDOW_MS = 750;
  *  8. otherwise leave the input for the transcript
  */
 export function resolveEscape(context: EscapeContext, now: number): KeyAction {
-  if (context.overlayOpen) return { type: "close-overlay" };
-  if (context.searchActive) return { type: "close-search" };
-  if (context.completionOpen) return { type: "dismiss-completion" };
+  if (context.overlayOpen) {
+    return { type: "close-overlay" };
+  }
+  if (context.searchActive) {
+    return { type: "close-search" };
+  }
+  if (context.completionOpen) {
+    return { type: "dismiss-completion" };
+  }
 
   if (context.runActive) {
     // A double tap interrupts. With messages queued, the user already committed
@@ -412,8 +500,12 @@ export function resolveEscape(context: EscapeContext, now: number): KeyAction {
     return { type: "arm-interrupt" };
   }
 
-  if (!context.inputEmpty) return { type: "stash-draft" };
-  if (context.focus === "transcript") return { type: "noop" };
+  if (!context.inputEmpty) {
+    return { type: "stash-draft" };
+  }
+  if (context.focus === "transcript") {
+    return { type: "noop" };
+  }
   return { type: "focus-transcript" };
 }
 
@@ -443,16 +535,22 @@ export function resolveEscapeChunk(chunk: string, context: EscapeContext, now: n
  */
 export function resolveFocusKey(key: string, focus: Focus): KeyAction {
   if (focus === "transcript") {
-    if (key === "i" || key === "\r" || key === "\n" || key === "q") return { type: "focus-input" };
+    if (key === "i" || key === "\r" || key === "\n" || key === "q") {
+      return { type: "focus-input" };
+    }
     if (["pageup", "pagedown", "up", "down", "left", "right", "home", "end", "tab"].includes(key)) {
       return { type: "noop" };
     }
-    if (isPrintableSequence(key)) return { type: "focus-input" };
+    if (isPrintableSequence(key)) {
+      return { type: "focus-input" };
+    }
     return { type: "noop" };
   }
   // Scroll keys that only exist on the transcript implicitly move focus there,
   // so PgUp works without first pressing a key whose only job is changing focus.
-  if (key === "pageup" || key === "pagedown") return { type: "focus-transcript" };
+  if (key === "pageup" || key === "pagedown") {
+    return { type: "focus-transcript" };
+  }
   return { type: "noop" };
 }
 
@@ -462,12 +560,16 @@ export function isComposerNewline(key: {
   readonly option: boolean;
   readonly meta: boolean;
 }): boolean {
-  if (key.name !== "return" && key.name !== "enter") return false;
+  if (key.name !== "return" && key.name !== "enter") {
+    return false;
+  }
   return key.shift || key.option || key.meta;
 }
 
 export function isPrintableSequence(sequence: string, ctrl = false, superKey = false): boolean {
-  if (ctrl || superKey || sequence.length === 0) return false;
+  if (ctrl || superKey || sequence.length === 0) {
+    return false;
+  }
   return [...sequence].every((character) => {
     const code = character.codePointAt(0) ?? 0;
     return code === 0x0a || (code >= 0x20 && code !== 0x7f);
@@ -492,24 +594,50 @@ export function hintsFor(
 ): readonly string[] {
   // A card that waits on a person carries its own legend under it; the footer says what
   // state the session is in rather than repeating the card's keys a second time.
-  if (overlay === "approval") return ["waiting for you"];
-  if (overlay === "panel") return runActive ? ["working", "esc to close"] : ["esc to close"];
-  if (overlay === "search") return ["enter to insert", "tab to scope", "esc to close"];
-  if (overlay === "text") return ["waiting for you"];
-  if (overlay === "question") return ["waiting for you"];
-  if (overlay === "filepicker") return ["enter to confirm", "esc to cancel"];
-  if (overlay === "theme")
+  if (overlay === "approval") {
+    return ["waiting for you"];
+  }
+  if (overlay === "panel") {
+    return runActive ? ["working", "esc to close"] : ["esc to close"];
+  }
+  if (overlay === "search") {
+    return ["enter to insert", "tab to scope", "esc to close"];
+  }
+  if (overlay === "text") {
+    return ["waiting for you"];
+  }
+  if (overlay === "question") {
+    return ["waiting for you"];
+  }
+  if (overlay === "filepicker") {
+    return ["enter to confirm", "esc to cancel"];
+  }
+  if (overlay === "theme") {
     return ["enter to keep", "esc to revert", "left right for dark or light"];
-  if (commandsOpen) return ["tab to complete"];
+  }
+  if (commandsOpen) {
+    return ["tab to complete"];
+  }
   if (focus === "transcript") {
     return ["ctrl+f to search"];
   }
   if (runActive) {
     if (queueing) {
       if (hasQueued) {
-        return ["ctrl+enter to send all", "enter to queue", "up to recall", "ctrl+x to clear"];
+        return [
+          "ctrl+enter to send all",
+          "enter to queue",
+          "tab to queue after turn",
+          "up to recall",
+          "ctrl+x to clear",
+        ];
       }
-      return ["enter to queue", "esc esc to interrupt", "ctrl+r for reasoning"];
+      return [
+        "enter to queue",
+        "tab to queue after turn",
+        "esc esc to interrupt",
+        "ctrl+r for reasoning",
+      ];
     }
     return ["esc esc to interrupt", "ctrl+r for reasoning", "ctrl+o to expand"];
   }

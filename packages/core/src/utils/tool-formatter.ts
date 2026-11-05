@@ -57,8 +57,12 @@ export function fileMutationPreview(
   maxChars: number = FILE_MUTATION_PREVIEW_CHARS,
 ): string {
   const collapsed = content.replace(/\s+/g, " ").trim();
-  if (collapsed.length === 0) return "";
-  if (collapsed.length <= maxChars) return collapsed;
+  if (collapsed.length === 0) {
+    return "";
+  }
+  if (collapsed.length <= maxChars) {
+    return collapsed;
+  }
   return `${collapsed.slice(0, maxChars)}…`;
 }
 
@@ -67,10 +71,14 @@ function extractFileMutationContent(toolName: string, args: Record<string, unkno
     return safeString(args["content"]);
   }
   const edits = args["edits"];
-  if (!Array.isArray(edits)) return "";
+  if (!Array.isArray(edits)) {
+    return "";
+  }
   const parts: string[] = [];
   for (const edit of edits) {
-    if (!isRecord(edit)) continue;
+    if (!isRecord(edit)) {
+      continue;
+    }
     const record = edit;
     const content = safeString(record["content"]);
     if (content.length > 0) {
@@ -92,8 +100,12 @@ function extractFileMutationContent(toolName: string, args: Record<string, unkno
 
 function truncateFileMutationDisplay(text: string): string {
   const visible = stripSgr(text.replace(/\r\n/g, "\n")).trim();
-  if (visible.length === 0) return "";
-  if (visible.length <= FILE_MUTATION_PREVIEW_CHARS) return visible;
+  if (visible.length === 0) {
+    return "";
+  }
+  if (visible.length <= FILE_MUTATION_PREVIEW_CHARS) {
+    return visible;
+  }
   return `${visible.slice(0, FILE_MUTATION_PREVIEW_CHARS).trimEnd()}${FILE_MUTATION_EXPAND_HINT}`;
 }
 
@@ -138,7 +150,9 @@ export function fileMutationDiffPreview(
   maxLines: number = FILE_MUTATION_PREVIEW_LINES,
 ): FileMutationDiffPreview | null {
   const record = parseFileMutationResult(result);
-  if (record === null) return null;
+  if (record === null) {
+    return null;
+  }
   const fullDiff = record["fullDiff"];
   const diff = record["diff"];
   const source =
@@ -148,7 +162,9 @@ export function fileMutationDiffPreview(
         ? diff
         : "";
   const body = diffBodyLines(source);
-  if (body.length === 0) return null;
+  if (body.length === 0) {
+    return null;
+  }
   const truncatedInResult =
     record["wasTruncated"] === true && !(typeof fullDiff === "string" && fullDiff.length > 0);
   const hidden = Math.max(0, body.length - maxLines);
@@ -167,7 +183,9 @@ export function fileMutationDiffPreview(
  */
 export function fileMutationDiffText(result: string): string | null {
   const record = parseFileMutationResult(result);
-  if (record === null) return null;
+  if (record === null) {
+    return null;
+  }
   const fullDiff = record["fullDiff"];
   const diff = record["diff"];
   const payload =
@@ -176,9 +194,13 @@ export function fileMutationDiffText(result: string): string | null {
       : typeof diff === "string"
         ? diff
         : "";
-  if (payload.length === 0) return null;
+  if (payload.length === 0) {
+    return null;
+  }
   const wasTruncated = record["wasTruncated"] === true;
-  if (!wasTruncated && !diffExceedsPreview(payload)) return null;
+  if (!wasTruncated && !diffExceedsPreview(payload)) {
+    return null;
+  }
   if (payload.length > MAX_EXPANDABLE_CHARS) {
     return (
       stripSgr(payload).slice(0, MAX_EXPANDABLE_CHARS).trimEnd() +
@@ -195,11 +217,15 @@ type FormatStyle = "plain" | "colored";
  * read as the request actually sent (`…/html/?q=…`), not the bare base URL.
  */
 function appendQueryParams(url: string, query: unknown): string {
-  if (!isRecord(query)) return url;
+  if (!isRecord(query)) {
+    return url;
+  }
   const entries = Object.entries(query).filter(
     ([, value]) => value !== undefined && value !== null,
   );
-  if (entries.length === 0) return url;
+  if (entries.length === 0) {
+    return url;
+  }
   const queryString = entries
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(safeString(value))}`)
     .join("&");
@@ -229,16 +255,24 @@ export function formatToolDisplayName(
 const MAX_ARG_VALUE_LENGTH = 240;
 
 function formatArgValue(value: unknown, maxLength: number = MAX_ARG_VALUE_LENGTH): string {
-  if (value === null || value === undefined) return "";
+  if (value === null || value === undefined) {
+    return "";
+  }
   if (typeof value === "string") {
     const trimmed = value.trim();
-    if (trimmed.length === 0) return "";
+    if (trimmed.length === 0) {
+      return "";
+    }
     return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength)}…` : trimmed;
   }
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
   try {
     const json = JSON.stringify(value);
-    if (json === undefined || json === "{}" || json === "[]") return "";
+    if (json === undefined || json === "{}" || json === "[]") {
+      return "";
+    }
     return json.length > maxLength ? `${json.slice(0, maxLength)}…` : json;
   } catch {
     return "";
@@ -275,7 +309,9 @@ export function formatToolArguments(
 
   // Helper to format parts list
   function formatParts(parts: string[]): string {
-    if (parts.length === 0) return "";
+    if (parts.length === 0) {
+      return "";
+    }
     if (usePlain) {
       return `{ ${parts.join(", ")} }`;
     }
@@ -347,8 +383,12 @@ export function formatToolArguments(
         }
       }
       const flags: string[] = [];
-      if (toolArgs["recursive"] === true) flags.push("--recursive");
-      if (toolArgs["ignoreCase"] === true) flags.push("--ignore-case");
+      if (toolArgs["recursive"] === true) {
+        flags.push("--recursive");
+      }
+      if (toolArgs["ignoreCase"] === true) {
+        flags.push("--ignore-case");
+      }
       const rawPattern = toolArgs["pattern"];
       if (
         toolArgs["regex"] === true ||
@@ -358,15 +398,21 @@ export function formatToolArguments(
       }
       if (toolArgs["filePattern"]) {
         const filePattern = safeString(toolArgs["filePattern"]);
-        if (filePattern) flags.push(`--include=${filePattern}`);
+        if (filePattern) {
+          flags.push(`--include=${filePattern}`);
+        }
       }
       if (toolArgs["exclude"]) {
         const exclude = safeString(toolArgs["exclude"]);
-        if (exclude) flags.push(`--exclude=${exclude}`);
+        if (exclude) {
+          flags.push(`--exclude=${exclude}`);
+        }
       }
       if (toolArgs["excludeDir"]) {
         const excludeDir = safeString(toolArgs["excludeDir"]);
-        if (excludeDir) flags.push(`--exclude-dir=${excludeDir}`);
+        if (excludeDir) {
+          flags.push(`--exclude-dir=${excludeDir}`);
+        }
       }
       if (flags.length > 0) {
         parts.push(
@@ -396,21 +442,33 @@ export function formatToolArguments(
     case "execute_edit_file": {
       const path = safeString(toolArgs["path"] || toolArgs["filePath"]);
       const preview = fileMutationPreview(extractFileMutationContent(toolName, toolArgs));
-      if (!path && preview.length === 0) return "";
+      if (!path && preview.length === 0) {
+        return "";
+      }
       if (usePlain) {
         const parts: string[] = [];
-        if (path) parts.push(`file: ${path}`);
-        if (preview.length > 0) parts.push(preview);
+        if (path) {
+          parts.push(`file: ${path}`);
+        }
+        if (preview.length > 0) {
+          parts.push(preview);
+        }
         return parts.join("  ");
       }
       const colored: string[] = [];
-      if (path) colored.push(formatKeyValue("file", path));
-      if (preview.length > 0) colored.push(` ${chalk.cyan(preview)}`);
+      if (path) {
+        colored.push(formatKeyValue("file", path));
+      }
+      if (preview.length > 0) {
+        colored.push(` ${chalk.cyan(preview)}`);
+      }
       return colored.join("");
     }
     case "cd": {
       const to = safeString(toolArgs["path"] || toolArgs["directory"]);
-      if (!to) return "";
+      if (!to) {
+        return "";
+      }
       return usePlain ? `{ path: ${to} }` : ` ${chalk.dim("→")} ${chalk.cyan(to)}`;
     }
     case "ls": {
@@ -423,8 +481,12 @@ export function formatToolArguments(
           parts.push(formatKeyValue("dir", dir));
         }
       }
-      if (toolArgs["all"] === true) parts.push(usePlain ? "--all" : ` ${chalk.dim("--all")}`);
-      if (toolArgs["long"] === true) parts.push(usePlain ? "--long" : ` ${chalk.dim("--long")}`);
+      if (toolArgs["all"] === true) {
+        parts.push(usePlain ? "--all" : ` ${chalk.dim("--all")}`);
+      }
+      if (toolArgs["long"] === true) {
+        parts.push(usePlain ? "--long" : ` ${chalk.dim("--long")}`);
+      }
       return formatParts(parts);
     }
     case "find": {
@@ -458,7 +520,9 @@ export function formatToolArguments(
     case "execute_command":
     case "execute_execute_command": {
       const command = safeString(toolArgs["command"]);
-      if (!command) return "";
+      if (!command) {
+        return "";
+      }
       return usePlain
         ? `{ command: "${command}" }`
         : ` ${chalk.dim("command:")} ${chalk.cyan(command)}`;
@@ -486,27 +550,35 @@ export function formatToolArguments(
       // Check common query argument names across providers. The provider
       // itself renders inside the tool name via formatToolDisplayName.
       const query = safeString(toolArgs["query"] || toolArgs["search_query"] || toolArgs["q"]);
-      if (!query) return "";
+      if (!query) {
+        return "";
+      }
       return usePlain ? `{ query: "${query}" }` : formatKeyValue("query", query);
     }
     case "mkdir": {
       const dirPath = safeString(toolArgs["path"]);
-      if (!dirPath) return "";
+      if (!dirPath) {
+        return "";
+      }
       return usePlain ? `{ path: ${dirPath} }` : formatKeyValue("path", dirPath);
     }
     case "manage_todos": {
       const todos = toolArgs["todos"];
-      if (!Array.isArray(todos)) return "";
+      if (!Array.isArray(todos)) {
+        return "";
+      }
       const ordered = todos
         .filter((todo): todo is Record<string, unknown> => isRecord(todo))
-        .sort((a, b) => {
-          const ai = a["status"] === "in_progress" ? 0 : 1;
-          const bi = b["status"] === "in_progress" ? 0 : 1;
+        .sort((left, right) => {
+          const ai = left["status"] === "in_progress" ? 0 : 1;
+          const bi = right["status"] === "in_progress" ? 0 : 1;
           return ai - bi;
         });
       const lines = ordered.flatMap((item) => {
         const content = safeString(item["content"]);
-        if (!content) return [];
+        if (!content) {
+          return [];
+        }
         const status = safeString(item["status"]) || "unknown";
         const priority = safeString(item["priority"]);
         const glyph =
@@ -525,7 +597,9 @@ export function formatToolArguments(
           priority ? `${mark} ${content} ${chalk.dim(`(${priority})`)}` : `${mark} ${content}`,
         ];
       });
-      if (lines.length === 0) return "";
+      if (lines.length === 0) {
+        return "";
+      }
       // The band can't grow unbounded: window long lists and surface the rest.
       const WINDOW = 8;
       if (usePlain && lines.length > WINDOW) {
@@ -540,12 +614,16 @@ export function formatToolArguments(
       const parts: string[] = [];
       for (const key of keys) {
         const valueStr = formatArgValue(toolArgs[key]);
-        if (valueStr.length === 0) continue;
+        if (valueStr.length === 0) {
+          continue;
+        }
         parts.push(
           usePlain ? `${key}: ${valueStr}` : `${chalk.dim(`${key}:`)} ${chalk.cyan(valueStr)}`,
         );
       }
-      if (parts.length === 0) return "";
+      if (parts.length === 0) {
+        return "";
+      }
       return usePlain ? `{ ${parts.join(", ")} }` : ` ${parts.join(", ")}`;
     }
   }
@@ -615,7 +693,9 @@ export function compactToolArguments(
       return safeString(toolArgs["command"]);
     case "http_request": {
       const url = safeString(toolArgs["url"]);
-      if (url.length === 0) return "";
+      if (url.length === 0) {
+        return "";
+      }
       return join(
         safeString(toolArgs["method"] || "GET"),
         appendQueryParams(url, toolArgs["query"]),
@@ -628,13 +708,17 @@ export function compactToolArguments(
       return "";
     case "manage_memory": {
       const command = safeString(toolArgs["command"]);
-      if (command.length === 0) return "";
+      if (command.length === 0) {
+        return "";
+      }
       if (command === "create") {
         // Mirror the tool: an omitted scope lands in the shared default scope.
         const scope = safeString(toolArgs["scope"]) || DEFAULT_MEMORY_SCOPE;
         const subject = safeString(toolArgs["subject"]);
         const topic = safeString(toolArgs["topic"]);
-        if (scope.length === 0 || subject.length === 0) return command;
+        if (scope.length === 0 || subject.length === 0) {
+          return command;
+        }
         const target = buildMemoryEntryPath({
           scope,
           subject,
@@ -658,20 +742,32 @@ export function compactToolArguments(
 function lineSpan(start: unknown, end: unknown): string {
   const first = typeof start === "number" ? start : undefined;
   const last = typeof end === "number" ? end : undefined;
-  if (first !== undefined && last !== undefined) return `${String(first)}–${String(last)}`;
-  if (first !== undefined) return `from ${String(first)}`;
-  if (last !== undefined) return `to ${String(last)}`;
+  if (first !== undefined && last !== undefined) {
+    return `${String(first)}–${String(last)}`;
+  }
+  if (first !== undefined) {
+    return `from ${String(first)}`;
+  }
+  if (last !== undefined) {
+    return `to ${String(last)}`;
+  }
   return "";
 }
 
 /** A path as a person reads it: relative inside the working directory, `~` under home. */
 function displayPath(target: string, workingDirectory: string): string {
-  if (target.length === 0) return "";
-  if (target === workingDirectory) return ".";
+  if (target.length === 0) {
+    return "";
+  }
+  if (target === workingDirectory) {
+    return ".";
+  }
   const prefix = workingDirectory.endsWith(path.sep)
     ? workingDirectory
     : workingDirectory + path.sep;
-  if (workingDirectory.length > 0 && target.startsWith(prefix)) return target.slice(prefix.length);
+  if (workingDirectory.length > 0 && target.startsWith(prefix)) {
+    return target.slice(prefix.length);
+  }
   return abbreviateHomePath(target);
 }
 
@@ -709,11 +805,15 @@ function formatLoadSkillSectionStringBody(body: string): string {
  */
 export function expandableToolResultPayload(result: string): string | null {
   const normalized = result.replace(/\r\n/g, "\n").trim();
-  if (!normalized) return null;
+  if (!normalized) {
+    return null;
+  }
   const withinCaps =
     normalized.split("\n").length <= MAX_RESULT_DISPLAY_LINES &&
     normalized.length <= MAX_RESULT_DISPLAY_CHARS;
-  if (withinCaps) return null;
+  if (withinCaps) {
+    return null;
+  }
   let pretty = normalized;
   try {
     pretty = JSON.stringify(JSON.parse(normalized), null, 2);
@@ -733,7 +833,9 @@ export function expandableToolResultPayload(result: string): string | null {
 export function formatToolResult(toolName: string, result: string): string {
   function truncateDisplayText(text: string): string {
     const normalized = text.replace(/\r\n/g, "\n").trim();
-    if (!normalized) return "";
+    if (!normalized) {
+      return "";
+    }
 
     const lines = normalized.split("\n");
     const visibleLines = lines.slice(0, MAX_RESULT_DISPLAY_LINES);
@@ -760,10 +862,14 @@ export function formatToolResult(toolName: string, result: string): string {
     }
 
     const lines = todos.flatMap((todo) => {
-      if (!isRecord(todo)) return [];
+      if (!isRecord(todo)) {
+        return [];
+      }
       const item = todo;
       const content = safeString(item["content"]);
-      if (!content) return [];
+      if (!content) {
+        return [];
+      }
 
       const status = safeString(item["status"]) || "unknown";
       const priority = safeString(item["priority"]);
@@ -807,9 +913,13 @@ export function formatToolResult(toolName: string, result: string): string {
     const truncated = parsedResult["truncated"] === true;
     const lines: string[] = [];
 
-    if (path) lines.push(path);
+    if (path) {
+      lines.push(path);
+    }
     if (content) {
-      if (lines.length > 0) lines.push("");
+      if (lines.length > 0) {
+        lines.push("");
+      }
       lines.push(content);
     }
     if (truncated) {
@@ -831,9 +941,13 @@ export function formatToolResult(toolName: string, result: string): string {
     }
 
     const lines: string[] = [];
-    if (stdout) lines.push(stdout);
+    if (stdout) {
+      lines.push(stdout);
+    }
     if (stderr) {
-      if (stdout) lines.push("");
+      if (stdout) {
+        lines.push("");
+      }
       lines.push("stderr:");
       lines.push(stderr);
     }
@@ -864,11 +978,17 @@ export function formatToolResult(toolName: string, result: string): string {
         continue;
       }
       const text = typeof value === "string" ? value.trim() : String(value);
-      if (text.length === 0) continue;
+      if (text.length === 0) {
+        continue;
+      }
       scalars.push(`${key}: ${text}`);
-      if (scalars.length >= 3) break;
+      if (scalars.length >= 3) {
+        break;
+      }
     }
-    if (scalars.length > 0) return scalars.join(" · ");
+    if (scalars.length > 0) {
+      return scalars.join(" · ");
+    }
     return JSON.stringify(parsedResult, null, 2);
   }
 
@@ -962,7 +1082,9 @@ export function formatToolResult(toolName: string, result: string): string {
         const tables = parsedResult["tables"];
         const totalLines = parsedResult["totalLines"];
         const summaryParts: string[] = [];
-        if (path) summaryParts.push(`file: ${safeString(path)}`);
+        if (path) {
+          summaryParts.push(`file: ${safeString(path)}`);
+        }
         if (Array.isArray(pagesExtracted) && pagesExtracted.length > 0) {
           summaryParts.push(`pages: ${pagesExtracted.join(", ")}`);
         }
@@ -975,7 +1097,9 @@ export function formatToolResult(toolName: string, result: string): string {
         if (Array.isArray(tables)) {
           summaryParts.push(`tables: ${tables.length}`);
         }
-        if (truncated) summaryParts.push(chalk.yellow("truncated"));
+        if (truncated) {
+          summaryParts.push(chalk.yellow("truncated"));
+        }
         return summaryParts.length > 0
           ? ` ${chalk.dim("(")}${summaryParts.join(", ")}${chalk.dim(")")}`
           : "";

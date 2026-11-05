@@ -275,7 +275,9 @@ function evidenceIsDiff(evidence: DiffEvidence): boolean {
 }
 
 export function looksLikeUnifiedDiff(language: string, lines: readonly string[]): boolean {
-  if (isDiffLanguage(language)) return true;
+  if (isDiffLanguage(language)) {
+    return true;
+  }
   return evidenceIsDiff(lines.reduce(addDiffEvidence, NO_DIFF_EVIDENCE));
 }
 
@@ -294,7 +296,9 @@ export function highlightDiffLine(
     const markerFg =
       marker === "+" ? palette.success : marker === "-" ? palette.error : palette.secondary;
     const body = line.slice(1);
-    if (body.length === 0) return [{ text: marker, fg: markerFg }];
+    if (body.length === 0) {
+      return [{ text: marker, fg: markerFg }];
+    }
     return [{ text: marker, fg: markerFg }, ...highlightCodeLine(body, "", palette)];
   }
   return highlightCodeLine(line, "", palette);
@@ -309,14 +313,22 @@ function isIdentifierPart(character: string): boolean {
 }
 
 function identifierColor(word: string, palette: Readonly<ThemeColors>): string {
-  if (KEYWORDS.has(word)) return palette.syntaxStructure;
-  if (LITERALS.has(word)) return palette.syntaxValue;
-  if (/^[A-Z]/.test(word)) return palette.syntaxType;
+  if (KEYWORDS.has(word)) {
+    return palette.syntaxStructure;
+  }
+  if (LITERALS.has(word)) {
+    return palette.syntaxValue;
+  }
+  if (/^[A-Z]/.test(word)) {
+    return palette.syntaxType;
+  }
   return palette.selected;
 }
 
 function pushSpan(spans: SyntaxSpan[], text: string, fg: string): void {
-  if (text.length === 0) return;
+  if (text.length === 0) {
+    return;
+  }
   const last = spans[spans.length - 1];
   if (last !== undefined && last.fg === fg) {
     spans[spans.length - 1] = { text: last.text + text, fg };
@@ -387,7 +399,9 @@ function paintCodeLine(
       const scanned = scanBlockCommentEnd(line, index);
       pushSpan(spans, line.slice(index, scanned.end), palette.muted);
       index = scanned.end;
-      if (!scanned.closed) break;
+      if (!scanned.closed) {
+        break;
+      }
       mode = CODE_MODE;
       continue;
     }
@@ -396,7 +410,9 @@ function paintCodeLine(
       const scanned = scanStringEnd(line, index, mode.quote);
       pushSpan(spans, line.slice(index, scanned.end), palette.syntaxValue);
       index = scanned.end;
-      if (!scanned.closed) break;
+      if (!scanned.closed) {
+        break;
+      }
       mode = CODE_MODE;
       continue;
     }
@@ -458,7 +474,9 @@ function paintCodeLine(
 
     if (/[0-9]/.test(character)) {
       let end = index + 1;
-      while (end < line.length && /[0-9_.]/.test(line[end] ?? "")) end += 1;
+      while (end < line.length && /[0-9_.]/.test(line[end] ?? "")) {
+        end += 1;
+      }
       pushSpan(spans, line.slice(index, end), palette.syntaxValue);
       index = end;
       continue;
@@ -466,7 +484,9 @@ function paintCodeLine(
 
     if (isIdentifierStart(character)) {
       let end = index + 1;
-      while (end < line.length && isIdentifierPart(line[end] ?? "")) end += 1;
+      while (end < line.length && isIdentifierPart(line[end] ?? "")) {
+        end += 1;
+      }
       const word = line.slice(index, end);
       pushSpan(spans, word, identifierColor(word, palette));
       index = end;
@@ -626,9 +646,13 @@ const SOURCE_EXTENSIONS = new Set([
  */
 export function sourceLanguageFromPath(path: string): string | undefined {
   const base = path.split(/[/\\]/).pop() ?? path;
-  if (base === "Makefile" || base === "Dockerfile" || base === "Justfile") return "bash";
+  if (base === "Makefile" || base === "Dockerfile" || base === "Justfile") {
+    return "bash";
+  }
   const dot = base.lastIndexOf(".");
-  if (dot <= 0) return undefined;
+  if (dot <= 0) {
+    return undefined;
+  }
   const ext = base.slice(dot + 1).toLowerCase();
   return SOURCE_EXTENSIONS.has(ext) ? ext : undefined;
 }
@@ -643,7 +667,9 @@ export function pathFromFileArgsPreview(args: string): string | undefined {
 }
 
 export function highlightSourceAnsi(text: string, language = ""): string {
-  if (text.length === 0) return text;
+  if (text.length === 0) {
+    return text;
+  }
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   return highlightFenceLines(language, lines)
     .map((spans) => spans.map((span) => chalk.hex(span.fg)(span.text)).join(""))

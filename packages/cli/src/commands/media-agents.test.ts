@@ -145,7 +145,9 @@ describe("suggestModelsForModality", () => {
       entry("google/gemini-3-pro-image", metadata({ generatesImage: true })),
     ]);
 
-    const ids = (await suggestModelsForModality("image", ["openrouter"])).map((s) => s.id);
+    const ids = (await suggestModelsForModality("image", ["openrouter"])).map(
+      (suggestion) => suggestion.id,
+    );
     expect(ids).not.toContain("openrouter/auto");
     expect(ids).toContain("google/gemini-3-pro-image");
   });

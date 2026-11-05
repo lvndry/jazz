@@ -247,7 +247,9 @@ export function renderChoicesAsText(choices: readonly Choice[]): string {
  */
 export function matchChoice(choices: readonly Choice[], reply: string): Choice | undefined {
   const trimmed = reply.trim();
-  if (trimmed.length === 0) return undefined;
+  if (trimmed.length === 0) {
+    return undefined;
+  }
 
   const asNumber = Number.parseInt(trimmed, 10);
   if (String(asNumber) === trimmed && asNumber >= 1 && asNumber <= choices.length) {
@@ -271,7 +273,9 @@ function openFenceAt(text: string, openAtStart: string | undefined): string | un
   let open = openAtStart;
   for (const row of text.split("\n")) {
     const match = FENCE_LINE.exec(row);
-    if (match === null) continue;
+    if (match === null) {
+      continue;
+    }
     open = open === undefined ? (match[1] ?? "").trim() : undefined;
   }
   return open;
@@ -288,7 +292,9 @@ function openFenceAt(text: string, openAtStart: string | undefined): string | un
  * source before converting it.
  */
 export function splitForSurface(rendered: string, limit: number): string[] {
-  if (rendered.length <= limit) return [rendered];
+  if (rendered.length <= limit) {
+    return [rendered];
+  }
 
   const chunks: string[] = [];
   let remaining = rendered;
@@ -296,7 +302,9 @@ export function splitForSurface(rendered: string, limit: number): string[] {
   for (;;) {
     const text = carried === undefined ? remaining : `\`\`\`${carried}\n${remaining}`;
     if (text.length <= limit) {
-      if (text.trim().length > 0) chunks.push(text);
+      if (text.trim().length > 0) {
+        chunks.push(text);
+      }
       break;
     }
     const cutWithin = (budget: number): number => {
@@ -314,13 +322,17 @@ export function splitForSurface(rendered: string, limit: number): string[] {
       open = openFenceAt(text.slice(0, end), undefined);
     }
     let chunk = text.slice(0, end).trimEnd();
-    if (open !== undefined) chunk += FENCE_CLOSE;
+    if (open !== undefined) {
+      chunk += FENCE_CLOSE;
+    }
     chunks.push(chunk);
     const rest = text.slice(end);
     // Inside code, only the line break at the cut goes: leading spaces are indentation.
     remaining = open === undefined ? rest.trimStart() : rest.replace(/^\n+/, "");
     carried = open;
-    if (remaining.length === 0) break;
+    if (remaining.length === 0) {
+      break;
+    }
   }
   return chunks;
 }

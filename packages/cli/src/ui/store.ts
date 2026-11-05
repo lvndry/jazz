@@ -15,7 +15,6 @@ import type {
 } from "@jazz/core/types/presentation-content";
 import type { ToolRiskLevel } from "@jazz/core/types/tools";
 import { useSyncExternalStore } from "react";
-import { isCommandInput } from "@/cli/chat/commands/parser";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import {
   createClassicProjection,
@@ -37,6 +36,16 @@ import {
   type TranscriptDocument,
 } from "./document";
 import type { LocalModelHosts } from "./local-model-hosts";
+import {
+  EMPTY_QUEUE_ENTRIES,
+  hasSteering,
+  isQueuedCommand,
+  queueText,
+  takeNextTurn,
+  takeSteering,
+  type QueueEntry,
+  type QueueLane,
+} from "./message-queue";
 import { sameBackgroundItems, type BackgroundItem } from "./models/background-work";
 import { SnapshotSet } from "./snapshot-set";
 import {
@@ -60,12 +69,6 @@ type ModeSwitchHandler = (mode: "safe" | "yolo") => void;
 
 const EMPTY_STREAM = "";
 const EMPTY_OUTPUT_ENTRIES: readonly OutputEntryWithId[] = [];
-const EMPTY_QUEUE: readonly string[] = [];
-
-function isQueuedCommand(entry: string): boolean {
-  const trimmed = entry.trim();
-  return isCommandInput(trimmed) && !trimmed.includes("\n");
-}
 const EMPTY_REGIONS: readonly EphemeralRegion[] = [];
 const EMPTY_SUBAGENT_RUNS: readonly SubagentRun[] = [];
 const EMPTY_CONNECTORS: ReadonlyMap<string, ConnectorStatus> = new Map();
@@ -332,7 +335,7 @@ export interface RetryNotice extends LlmRetryNotice {
 
 export interface PromptSnapshot {
   readonly prompt: PromptState | null;
-  readonly messageQueue: readonly string[];
+  readonly messageQueue: readonly QueueEntry[];
 }
 
 export interface EphemeralSnapshot {
@@ -373,7 +376,7 @@ const INITIAL_SESSION: SessionSnapshot = {
 
 const INITIAL_PROMPT: PromptSnapshot = {
   prompt: null,
-  messageQueue: EMPTY_QUEUE,
+  messageQueue: EMPTY_QUEUE_ENTRIES,
 };
 
 const INITIAL_EPHEMERAL: EphemeralSnapshot = {
@@ -403,13 +406,19 @@ class StoreSlice<T> {
   getSnapshot = (): T => this.snapshot;
 
   notify(): void {
-    for (const listener of this.listeners) listener();
+    for (const listener of this.listeners) {
+      listener();
+    }
   }
 
   set(next: T, notify = true): void {
-    if (Object.is(this.snapshot, next)) return;
+    if (Object.is(this.snapshot, next)) {
+      return;
+    }
     this.snapshot = next;
-    if (notify) this.notify();
+    if (notify) {
+      this.notify();
+    }
   }
 }
 
@@ -422,7 +431,9 @@ function patchSlice<T extends object>(slice: StoreSlice<T>, patch: Partial<T>): 
       break;
     }
   }
-  if (!changed) return;
+  if (!changed) {
+    return;
+  }
   slice.set({ ...previous, ...patch });
 }
 
@@ -476,10 +487,14 @@ export class UIStore {
   }
 
   private schedulePresentationCommit = (): void => {
-    if (this.presentationCommitScheduled || this.presentationCommitting) return;
+    if (this.presentationCommitScheduled || this.presentationCommitting) {
+      return;
+    }
     this.presentationCommitScheduled = true;
     queueMicrotask(() => {
-      if (this.presentationCommitScheduled) this.commitPresentation();
+      if (this.presentationCommitScheduled) {
+        this.commitPresentation();
+      }
     });
   };
 
@@ -503,11 +518,16 @@ export class UIStore {
     if (this.classicNotificationPending) {
       this.classicNotificationPending = false;
       if (this.classicSubscribers > 0) {
-        if (this.classicDirty) this.computeClassicProjection(true);
-        else this.output.notify();
+        if (this.classicDirty) {
+          this.computeClassicProjection(true);
+        } else {
+          this.output.notify();
+        }
       }
     }
-    for (const listener of this.presentationListeners) listener();
+    for (const listener of this.presentationListeners) {
+      listener();
+    }
   };
 
   subscribePresentation = (listener: () => void): (() => void) => {
@@ -582,7 +602,9 @@ export class UIStore {
   private readonly streamPacer: StreamPacer = createStreamPacer(
     () => {
       const entry = lastDocumentEntry(this.document);
-      if (entry === undefined || entry.id !== this.document.streamingId) return null;
+      if (entry === undefined || entry.id !== this.document.streamingId) {
+        return null;
+      }
       return entry.content.kind === "agent"
         ? { id: entry.id, text: entry.content.markdown }
         : entry.content.kind === "reasoning"
@@ -590,7 +612,9 @@ export class UIStore {
           : null;
     },
     (id, length) => {
-      if (id !== this.document.streamingId) return;
+      if (id !== this.document.streamingId) {
+        return;
+      }
       this.streamReveal = { id, length };
       this.refreshClassicProjection();
       this.schedulePresentationCommit();
@@ -612,7 +636,9 @@ export class UIStore {
     };
   };
   getOutputSnapshot = (): OutputSnapshot => {
-    if (this.classicDirty) this.computeClassicProjection(false);
+    if (this.classicDirty) {
+      this.computeClassicProjection(false);
+    }
     return this.output.getSnapshot();
   };
 
@@ -629,7 +655,9 @@ export class UIStore {
   getSubagentsSnapshot = (): SubagentsSnapshot => this.subagents.getSnapshot();
 
   private publishDocument(next: PresentationDocument): void {
-    if (Object.is(next, this.document)) return;
+    if (Object.is(next, this.document)) {
+      return;
+    }
     this.document = transcriptDocument(next);
     this.refreshClassicProjection();
     this.schedulePresentationCommit();
@@ -664,13 +692,17 @@ export class UIStore {
   }
 
   private flushOutputBatch = (): void => {
-    if (!this.batchFlushScheduled) return;
+    if (!this.batchFlushScheduled) {
+      return;
+    }
     this.batchFlushScheduled = false;
     this.doFlushBatch();
   };
 
   private doFlushBatch(): void {
-    if (this.outputBatch.length === 0) return;
+    if (this.outputBatch.length === 0) {
+      return;
+    }
     // A printed entry comes after everything streamed before it, so paced
     // text still held back lands first.
     this.streamPacer.flush();
@@ -785,7 +817,9 @@ export class UIStore {
   };
 
   addSessionCostUSD = (deltaUSD: number): void => {
-    if (!Number.isFinite(deltaUSD) || deltaUSD < 0) return;
+    if (!Number.isFinite(deltaUSD) || deltaUSD < 0) {
+      return;
+    }
     this.sessionCostUSD += deltaUSD;
     this.updateRunStats({ costUSD: this.sessionCostUSD });
   };
@@ -794,7 +828,9 @@ export class UIStore {
     readonly promptTokens: number;
     readonly completionTokens: number;
   }): void => {
-    if (!usage.promptTokens && !usage.completionTokens) return;
+    if (!usage.promptTokens && !usage.completionTokens) {
+      return;
+    }
     this.sessionPromptTokens += usage.promptTokens;
     this.sessionCompletionTokens += usage.completionTokens;
     this.updateRunStats({
@@ -813,7 +849,9 @@ export class UIStore {
         break;
       }
     }
-    if (!changed) return;
+    if (!changed) {
+      return;
+    }
     patchSlice(this.session, { runStats: next });
   };
 
@@ -849,41 +887,45 @@ export class UIStore {
     patchSlice(this.session, { backgroundHandler: top });
   };
 
-  appendToQueue = (text: string): void => {
-    if (text.length === 0) return;
-    const next = [...this.prompt.getSnapshot().messageQueue, text];
-    patchSlice(this.prompt, { messageQueue: next });
+  /**
+   * Queue a message behind the running turn. A `followup` waits for the turn to end and runs as
+   * a turn of its own; a command always keeps the `steer` lane, since it runs alone either way.
+   */
+  appendToQueue = (text: string, lane: QueueLane = "steer"): void => {
+    if (text.length === 0) {
+      return;
+    }
+    const entry: QueueEntry = { text, lane: isQueuedCommand(text) ? "steer" : lane };
+    patchSlice(this.prompt, { messageQueue: [...this.prompt.getSnapshot().messageQueue, entry] });
   };
 
-  peekQueue = (): string => this.prompt.getSnapshot().messageQueue.join("\n");
+  peekQueue = (): string => queueText(this.prompt.getSnapshot().messageQueue);
 
   takeQueue = (): string => {
     const queue = this.prompt.getSnapshot().messageQueue;
-    if (queue.length === 0) return "";
-    const value = queue.join("\n");
-    patchSlice(this.prompt, { messageQueue: EMPTY_QUEUE });
-    return value;
+    if (queue.length === 0) {
+      return "";
+    }
+    patchSlice(this.prompt, { messageQueue: EMPTY_QUEUE_ENTRIES });
+    return queueText(queue);
   };
 
   /**
-   * Pop the leading run of prose entries, leaving any slash/shell command at
-   * the head (and everything behind it) queued. Used mid-run so a queued
-   * command is never injected into the model conversation as text.
+   * Pop the steering messages a running turn picks up: `steer` entries ahead of the first
+   * slash/shell command. Follow-ups and commands stay queued, so a command is never injected
+   * into the model conversation as text and a follow-up never redirects the run.
    */
   takeQueuedProse = (): readonly string[] => {
-    const queue = this.prompt.getSnapshot().messageQueue;
-    const firstCommand = queue.findIndex(isQueuedCommand);
-    const end = firstCommand === -1 ? queue.length : firstCommand;
-    if (end === 0) return EMPTY_QUEUE;
-    patchSlice(this.prompt, { messageQueue: queue.slice(end) });
-    return queue.slice(0, end);
+    const { taken, rest } = takeSteering(this.prompt.getSnapshot().messageQueue);
+    if (taken.length === 0) {
+      return taken;
+    }
+    patchSlice(this.prompt, { messageQueue: rest });
+    return taken;
   };
 
   /** Whether `takeQueuedProse` has something to deliver to a running turn. */
-  hasQueuedProse = (): boolean => {
-    const head = this.prompt.getSnapshot().messageQueue[0];
-    return head !== undefined && !isQueuedCommand(head);
-  };
+  hasQueuedProse = (): boolean => hasSteering(this.prompt.getSnapshot().messageQueue);
 
   /** Calls `listener` once `hasQueuedProse` is true, at once when it already is; returns a cancel. */
   onceQueuedProse = (listener: () => void): (() => void) => {
@@ -901,21 +943,23 @@ export class UIStore {
   };
 
   /**
-   * Pop the next turn: a command at the head runs alone, otherwise the
-   * leading prose run is sent as one combined message.
+   * Pop the next turn between turns: a command or follow-up at the head runs alone, otherwise
+   * the leading run of steering messages is sent as one combined message.
    */
   takeQueuedTurn = (): readonly string[] => {
-    const queue = this.prompt.getSnapshot().messageQueue;
-    const head = queue[0];
-    if (head === undefined) return EMPTY_QUEUE;
-    if (!isQueuedCommand(head)) return this.takeQueuedProse();
-    patchSlice(this.prompt, { messageQueue: queue.slice(1) });
-    return [head];
+    const { taken, rest } = takeNextTurn(this.prompt.getSnapshot().messageQueue);
+    if (taken.length === 0) {
+      return taken;
+    }
+    patchSlice(this.prompt, { messageQueue: rest });
+    return taken;
   };
 
   clearQueue = (): void => {
-    if (this.prompt.getSnapshot().messageQueue.length === 0) return;
-    patchSlice(this.prompt, { messageQueue: EMPTY_QUEUE });
+    if (this.prompt.getSnapshot().messageQueue.length === 0) {
+      return;
+    }
+    patchSlice(this.prompt, { messageQueue: EMPTY_QUEUE_ENTRIES });
   };
 
   /**
@@ -944,7 +988,9 @@ export class UIStore {
   setChatBusy = (busy: boolean): void => {
     // A new turn starts the list over. Finished sub-agents stay readable between
     // turns, but the list is "this run's sub-agents", not the session's.
-    if (busy && !this.session.getSnapshot().chatBusy) this.pruneFinishedSubagentRuns();
+    if (busy && !this.session.getSnapshot().chatBusy) {
+      this.pruneFinishedSubagentRuns();
+    }
     const snapshot = this.session.getSnapshot();
     patchSlice(this.session, {
       chatBusy: busy,
@@ -976,7 +1022,9 @@ export class UIStore {
 
   takePendingReceiptDiff = (toolCallId: string): string | undefined => {
     const diffText = this.pendingReceiptDiffs.get(toolCallId);
-    if (diffText === undefined) return undefined;
+    if (diffText === undefined) {
+      return undefined;
+    }
     this.pendingReceiptDiffs.delete(toolCallId);
     return diffText;
   };
@@ -1002,8 +1050,11 @@ export class UIStore {
       .map((entry) => entry.id);
     for (const id of candidates.reverse()) {
       const expanded = !this.expandedReceiptIds.has(id);
-      if (expanded) this.expandedReceiptIds.add(id);
-      else this.expandedReceiptIds.delete(id);
+      if (expanded) {
+        this.expandedReceiptIds.add(id);
+      } else {
+        this.expandedReceiptIds.delete(id);
+      }
       this.refreshClassicProjection();
       this.schedulePresentationCommit();
       return true;
@@ -1018,12 +1069,21 @@ export class UIStore {
    */
   toggleLastReceiptOutput = (): boolean => {
     for (const entry of [...this.document.entries].reverse()) {
-      if (entry.content.kind !== "tool") continue;
+      if (entry.content.kind !== "tool") {
+        continue;
+      }
       const { detail, outputPreview } = entry.content.receipt;
-      if (detail === undefined || outputPreview === undefined) continue;
-      if (detail.trim() === outputPreview.trim()) continue;
-      if (this.expandedReceiptIds.has(entry.id)) this.expandedReceiptIds.delete(entry.id);
-      else this.expandedReceiptIds.add(entry.id);
+      if (detail === undefined || outputPreview === undefined) {
+        continue;
+      }
+      if (detail.trim() === outputPreview.trim()) {
+        continue;
+      }
+      if (this.expandedReceiptIds.has(entry.id)) {
+        this.expandedReceiptIds.delete(entry.id);
+      } else {
+        this.expandedReceiptIds.add(entry.id);
+      }
       this.refreshClassicProjection();
       this.schedulePresentationCommit();
       return true;
@@ -1039,7 +1099,9 @@ export class UIStore {
   latestReceiptDiffText = (): string | undefined => {
     let latest: string | undefined;
     for (const entry of this.document.entries) {
-      if (entry.content.kind !== "tool") continue;
+      if (entry.content.kind !== "tool") {
+        continue;
+      }
       if (
         typeof entry.content.receipt.diffText === "string" &&
         entry.content.receipt.diffText.length > 0
@@ -1157,9 +1219,13 @@ export class UIStore {
     text: string,
     channel: SubagentChannel = "response",
   ): void => {
-    if (text.length === 0) return;
+    if (text.length === 0) {
+      return;
+    }
     const region = this.ephemeralRegions.get(id);
-    if (!region) return;
+    if (!region) {
+      return;
+    }
 
     const run = this.subagentRuns.get(id);
     if (run !== undefined) {
@@ -1172,7 +1238,9 @@ export class UIStore {
     if (merged.length > 0 && incoming.length > 0) {
       merged[merged.length - 1] = (merged[merged.length - 1] ?? "") + (incoming.shift() ?? "");
     }
-    for (const line of incoming) merged.push(line);
+    for (const line of incoming) {
+      merged.push(line);
+    }
 
     const trimmed =
       merged.length > region.maxLines ? merged.slice(merged.length - region.maxLines) : merged;
@@ -1192,7 +1260,9 @@ export class UIStore {
 
   replaceEphemeral = (id: EphemeralRegionId, text: string): void => {
     const region = this.ephemeralRegions.get(id);
-    if (!region) return;
+    if (!region) {
+      return;
+    }
     const lines = text.split("\n");
     const tail =
       lines.length > region.maxLines ? lines.slice(lines.length - region.maxLines) : lines;
@@ -1206,7 +1276,9 @@ export class UIStore {
 
   collapseEphemeral = (id: EphemeralRegionId, summary: CollapseEphemeralSummary): void => {
     const region = this.ephemeralRegions.get(id);
-    if (!region) return;
+    if (!region) {
+      return;
+    }
 
     this.ephemeralRegions.delete(id);
     this.subagentCancels.delete(id);
@@ -1273,7 +1345,9 @@ export class UIStore {
   settleTurnThought = (): void => {
     const thought = this.turnThought;
     this.turnThought = NO_THOUGHT;
-    for (const id of this.turnThoughtIds) this.deferredReasoningIds.delete(id);
+    for (const id of this.turnThoughtIds) {
+      this.deferredReasoningIds.delete(id);
+    }
     this.refreshClassicProjection();
     if (thought.steps === 0) {
       this.turnThoughtIds = [];
@@ -1299,8 +1373,12 @@ export class UIStore {
 
   pushInputHistory = (message: string): void => {
     const trimmed = message.trim();
-    if (trimmed.length === 0) return;
-    if (this.inputHistory.at(-1) === trimmed) return;
+    if (trimmed.length === 0) {
+      return;
+    }
+    if (this.inputHistory.at(-1) === trimmed) {
+      return;
+    }
     this.inputHistory.push(trimmed);
     if (this.inputHistory.length > MAX_INPUT_HISTORY) {
       this.inputHistory.shift();
@@ -1330,13 +1408,17 @@ export class UIStore {
     const closing = Array.from(this.ephemeralRegions.values()).filter(
       (region) => region.outlivesTurn !== true,
     );
-    for (const region of closing) this.finishSubagentRunWith(region.id, "interrupted");
     for (const region of closing) {
-      if (region.kind !== "reasoning") continue;
+      this.finishSubagentRunWith(region.id, "interrupted");
+    }
+    for (const region of closing) {
+      if (region.kind !== "reasoning") {
+        continue;
+      }
       const content = findDocumentEntry(this.document, region.id)?.content;
-      if (content?.kind === "reasoning" && content.text.trim().length > 0)
+      if (content?.kind === "reasoning" && content.text.trim().length > 0) {
         this.collapseEphemeral(region.id, { durationMs: Date.now() - region.startedAt });
-      else {
+      } else {
         this.liveReasoningIds.delete(region.id);
         this.deferredReasoningIds.delete(region.id);
       }
@@ -1354,7 +1436,9 @@ export class UIStore {
   /** Stop a running sub-agent from its list row. False when it has ended or cannot be stopped. */
   cancelSubagent = (id: EphemeralRegionId): boolean => {
     const cancel = this.subagentCancels.get(id);
-    if (cancel === undefined || this.subagentRuns.get(id)?.status !== "running") return false;
+    if (cancel === undefined || this.subagentRuns.get(id)?.status !== "running") {
+      return false;
+    }
     this.subagentCancels.delete(id);
     cancel();
     return true;
@@ -1369,11 +1453,15 @@ export class UIStore {
   private pruneFinishedSubagentRuns(): void {
     let pruned = false;
     for (const [id, run] of this.subagentRuns) {
-      if (run.status === "running") continue;
+      if (run.status === "running") {
+        continue;
+      }
       this.subagentRuns.delete(id);
       pruned = true;
     }
-    if (pruned) this.publishSubagentRuns();
+    if (pruned) {
+      this.publishSubagentRuns();
+    }
   }
 
   /**
@@ -1386,7 +1474,9 @@ export class UIStore {
     status: Exclude<SubagentStatus, "running">,
   ): void {
     const run = this.subagentRuns.get(id);
-    if (run === undefined || run.status !== "running") return;
+    if (run === undefined || run.status !== "running") {
+      return;
+    }
     const undelivered = run.pendingMessages.length;
     this.subagentRuns.set(id, finishSubagentRun(run, status, Date.now()));
     this.publishSubagentRuns();
@@ -1407,7 +1497,9 @@ export class UIStore {
     tool: { readonly toolCallId: string; readonly name: string; readonly args: string },
   ): void => {
     const run = this.subagentRuns.get(id);
-    if (run === undefined) return;
+    if (run === undefined) {
+      return;
+    }
     this.subagentRuns.set(id, startSubagentTool(run, tool));
     this.publishSubagentRuns();
   };
@@ -1418,7 +1510,9 @@ export class UIStore {
     outcome: { readonly failed: boolean; readonly summary: string; readonly durationMs: number },
   ): void => {
     const run = this.subagentRuns.get(id);
-    if (run === undefined) return;
+    if (run === undefined) {
+      return;
+    }
     this.subagentRuns.set(id, finishSubagentTool(run, toolCallId, outcome));
     this.publishSubagentRuns();
   };
@@ -1426,9 +1520,13 @@ export class UIStore {
   /** Queue a message for a running sub-agent. False when it has finished or cannot take one. */
   sendSubagentMessage = (id: EphemeralRegionId, message: string): boolean => {
     const run = this.subagentRuns.get(id);
-    if (run === undefined) return false;
+    if (run === undefined) {
+      return false;
+    }
     const next = steerSubagentRun(run, message);
-    if (next === null) return false;
+    if (next === null) {
+      return false;
+    }
     this.subagentRuns.set(id, next);
     this.publishSubagentRuns();
     return true;
@@ -1436,19 +1534,27 @@ export class UIStore {
 
   recordSubagentParentMessage = (id: EphemeralRegionId, message: string): void => {
     const text = message.trim();
-    if (text.length === 0) return;
+    if (text.length === 0) {
+      return;
+    }
     this.appendEphemeral(id, `↳ parent: ${text}`, "tail");
     const run = this.subagentRuns.get(id);
-    if (run === undefined) return;
+    if (run === undefined) {
+      return;
+    }
     this.subagentRuns.set(id, recordParentSteer(run, text));
     this.publishSubagentRuns();
   };
 
   takeSubagentMessage = (id: EphemeralRegionId): string | undefined => {
     const run = this.subagentRuns.get(id);
-    if (run === undefined) return undefined;
+    if (run === undefined) {
+      return undefined;
+    }
     const taken = takeSubagentMessages(run);
-    if (taken.message === undefined) return undefined;
+    if (taken.message === undefined) {
+      return undefined;
+    }
     this.subagentRuns.set(id, taken.run);
     this.publishSubagentRuns();
     return taken.message;
@@ -1457,7 +1563,9 @@ export class UIStore {
   pinOpenReasoning = (): boolean => {
     let pinned = false;
     for (const region of this.ephemeralRegions.values()) {
-      if (region.kind !== "reasoning") continue;
+      if (region.kind !== "reasoning") {
+        continue;
+      }
       this.pinnedReasoningIds.add(region.id);
       pinned = true;
     }
@@ -1476,7 +1584,9 @@ export class UIStore {
     if (target === "in-place") {
       const unsettled = this.turnThoughtIds.filter((id) => !this.expandedReasoningIds.has(id));
       if (unsettled.length > 0) {
-        for (const id of unsettled) this.expandedReasoningIds.add(id);
+        for (const id of unsettled) {
+          this.expandedReasoningIds.add(id);
+        }
         this.pinOpenReasoning();
         this.flushOutputBatchNow();
         this.refreshClassicProjection();
@@ -1485,10 +1595,14 @@ export class UIStore {
       }
     }
     const value = this.expandableReasoningStack.pop();
-    if (value === undefined) return this.pinOpenReasoning();
-    if (target === "in-place")
-      for (const id of value.entryIds ?? (value.entryId === undefined ? [] : [value.entryId]))
+    if (value === undefined) {
+      return this.pinOpenReasoning();
+    }
+    if (target === "in-place") {
+      for (const id of value.entryIds ?? (value.entryId === undefined ? [] : [value.entryId])) {
         this.expandedReasoningIds.add(id);
+      }
+    }
     if (target === "in-place" && value.entryId !== undefined) {
       this.flushOutputBatchNow();
       this.refreshClassicProjection();
@@ -1515,7 +1629,9 @@ export class UIStore {
       (entry) => sourceIds.includes(entry.id) && entry.content.kind === "reasoning",
     );
     const first = sources[0];
-    if (first?.content.kind !== "reasoning") return undefined;
+    if (first?.content.kind !== "reasoning") {
+      return undefined;
+    }
     return {
       id,
       type: "streamContent",
@@ -1530,7 +1646,9 @@ export class UIStore {
   }
 
   appendStream = (kind: StreamKind, delta: string): void => {
-    if (delta.length === 0) return;
+    if (delta.length === 0) {
+      return;
+    }
     this.flushOutputBatchNow();
     const last = lastDocumentEntry(this.document);
     const matching =
@@ -1572,8 +1690,9 @@ export class UIStore {
       `output-${this.sourceNamespace}-${++this.pendingOutputIdCounter}`,
       new Date().toISOString(),
     );
-    if (next.streamingId !== undefined && this.streamReveal?.id !== next.streamingId)
+    if (next.streamingId !== undefined && this.streamReveal?.id !== next.streamingId) {
       this.streamReveal = { id: next.streamingId, length: 0 };
+    }
     this.publishDocument(next);
   }
 
@@ -1772,7 +1891,7 @@ export class UIStore {
     return this.ephemeral.getSnapshot().expandableReasoning;
   }
 
-  getMessageQueueSnapshot(): readonly string[] {
+  getMessageQueueSnapshot(): readonly QueueEntry[] {
     return this.prompt.getSnapshot().messageQueue;
   }
 

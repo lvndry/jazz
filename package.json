@@ -60,6 +60,8 @@
     "cli": "bun packages/runtime/src/main.ts",
     "prepare": "git config core.hooksPath .githooks || true",
     "lint": "bun eslint packages plugins scripts --cache --cache-strategy content --no-error-on-unmatched-pattern",
+    "dup": "bunx jscpd@latest",
+    "verify:unknown-casts": "bun run scripts/verify-no-unknown-casts.ts",
     "lint:fix": "bun eslint packages plugins scripts --fix --cache --cache-strategy content",
     "format": "bun prettier --write packages docs",
     "format:check": "bun prettier --check --log-level warn \"**/*.{ts,tsx,md}\"",

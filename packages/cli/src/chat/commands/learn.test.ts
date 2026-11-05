@@ -73,7 +73,9 @@ async function fixture() {
     ),
   );
   const saved = await runEffect(loadConversationOrNull(agent.id, conversationId));
-  if (saved === null) throw new Error("The test conversation was not saved.");
+  if (saved === null) {
+    throw new Error("The test conversation was not saved.");
+  }
   const memoryDirectory = path.join(tmpDir, "memory");
   const service = new MemoryServiceImpl({
     baseMemoryDirectory: memoryDirectory,
