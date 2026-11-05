@@ -121,7 +121,9 @@ function cachePart(steps: readonly StepStats[]): string | undefined {
   for (const step of steps) {
     const share = stepCacheShare(step);
     if (share === undefined) {
-      if ((step.promptTokens ?? 0) > 0) unreportedSteps += 1;
+      if ((step.promptTokens ?? 0) > 0) {
+        unreportedSteps += 1;
+      }
       continue;
     }
     const rate = share.read / share.input;
@@ -202,7 +204,9 @@ export function formatTurnReceipt(turn: TurnTotals): string | undefined {
     }
   }
   const cache = cachePart(steps);
-  if (cache !== undefined) parts.push(cache);
+  if (cache !== undefined) {
+    parts.push(cache);
+  }
   const throughput = turnTokensPerSecond(turn);
   if (throughput !== undefined) {
     parts.push(`${throughput.toFixed(1)} tok/s`);
