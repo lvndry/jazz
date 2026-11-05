@@ -106,6 +106,7 @@ Both values are fractions of the effective model context window. Jazz requires `
 | `logging.retentionDays`            |    `14` | Days a file in `~/.jazz/logs/` is kept after its last write                              |
 | `logging.maxTotalSizeMB`           |   `200` | Size cap for `~/.jazz/logs/`; the least recently written files are deleted first         |
 | `history.maxConversationsPerAgent` |   `100` | Conversations each agent keeps in its live history; older ones are archived, not deleted |
+| `history.toolResultRetentionDays`  |    `30` | Days an offloaded tool result is kept after its last write; `0` keeps them forever       |
 
 Individual log files also rotate at 10 MB. Conversations a goal, loop or run still uses are never
 archived. See [sizes and retention](../runtime-data/index.md#sizes-and-retention) for everything

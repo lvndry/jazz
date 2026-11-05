@@ -481,6 +481,11 @@ CI images, locked-down containers, a Telegram host that can read but not write ,
 the run continues and the placeholder says to re-run the original tool. Missing
 retrieves fail the same way. The conversation never depends on a writable disk.
 
+Offloaded files are kept 30 days (`history.toolResultRetentionDays`, 0 keeps them). A background
+sweep (`tool-result-retention.ts`, using `stale-file-sweep.ts`) deletes older ones from
+conversations that are not open, hold no turn lease and have no log write within the window.
+A retrieve for a swept file gets the same "nothing stored, rerun the tool" answer as a failed write.
+
 A result too long for its context budget is cut when it is first added to the conversation.
 When the run has `retrieve_tool_result`, the whole result is written to the same path at once,
 with a `<tool_call_id>.provenance.json` beside it when it holds untrusted content, and a line
