@@ -143,6 +143,7 @@ export function executeWithStreaming(
             toolChoice: toolsAllowed ? ("auto" as const) : ("none" as const),
             ...(reasoning !== undefined ? { reasoning } : {}),
             ...(toolHost !== undefined ? { toolHost } : {}),
+            ...(actualConversationId ? { conversationId: actualConversationId } : {}),
             ...(typeof agent.config.llm.temperature === "number"
               ? { temperature: agent.config.llm.temperature }
               : {}),

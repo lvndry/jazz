@@ -39,6 +39,7 @@ import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 import { toolResultsProtectFromIndex } from "./tool-result-clearing";
 import { appendJournalEntry, pruneJournal } from "./work-journal";
 import { messageCarriesEgressTaint } from "../execution/egress-taint";
+import { listUnlockedToolNames } from "../tools/unlocked-tools";
 import type { AgentResponse } from "../types";
 import { formatWorkState, readWorkState } from "./work-state";
 
@@ -879,10 +880,15 @@ export const Summarizer = {
       // are put back here at a stable spot so the next compaction cycle finds them again
       // by kind and keeps pinning them — kept, never summarized, for the life of the
       // conversation.
+      const unlockedToolNames = listUnlockedToolNames(currentMessages);
       const compactedMessages: ConversationMessages = [
         systemMessage,
         ...pinnedMessages,
-        { ...summaryMessage, ...(egressTainted ? { egressTainted: true as const } : {}) },
+        {
+          ...summaryMessage,
+          ...(egressTainted ? { egressTainted: true as const } : {}),
+          ...(unlockedToolNames.length > 0 ? { unlockedToolNames } : {}),
+        },
         COMPACTION_CONTINUATION_MESSAGE,
         ...sanitizedRecentMessages,
       ] as ConversationMessages;
