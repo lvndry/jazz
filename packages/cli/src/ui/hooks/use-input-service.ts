@@ -429,7 +429,9 @@ export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
 // ============================================================================
 
 function defaultFindPrevWordBoundary(text: string, cursor: number): number {
-  if (cursor <= 0) return 0;
+  if (cursor <= 0) {
+    return 0;
+  }
 
   let pos = cursor - 1;
 
@@ -447,7 +449,9 @@ function defaultFindPrevWordBoundary(text: string, cursor: number): number {
 }
 
 function defaultFindNextWordBoundary(text: string, cursor: number): number {
-  if (cursor >= text.length) return text.length;
+  if (cursor >= text.length) {
+    return text.length;
+  }
 
   let pos = cursor;
 

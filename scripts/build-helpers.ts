@@ -248,7 +248,9 @@ export async function buildStandaloneBinary(compileTarget: string): Promise<stri
   const result = await Bun.build(buildOptions);
 
   if (!result.success) {
-    for (const message of result.logs) process.stderr.write(`${message.message}\n`);
+    for (const message of result.logs) {
+      process.stderr.write(`${message.message}\n`);
+    }
     throw new Error(`Compile failed for ${compileTarget}`);
   }
 

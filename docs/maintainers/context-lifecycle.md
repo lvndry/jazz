@@ -609,11 +609,18 @@ which tool is actually eating your window. Usually it's one, and usually it's a 
 
 ## Inspecting it live
 
-| Command    | Shows                                                  |
-| ---------- | ------------------------------------------------------ |
-| `/context` | Current tokens, window size, and the biggest consumers |
-| `/compact` | Force compaction now                                   |
-| `/cost`    | Tokens and USD for this session, including sub-agents  |
+| Command    | Shows                                                                                            |
+| ---------- | ------------------------------------------------------------------------------------------------ |
+| `/context` | Current tokens, window size, the biggest consumers, and the last request's prompt-cache hit rate |
+| `/compact` | Force compaction now                                                                             |
+| `/cost`    | Tokens and USD for this session, including sub-agents                                            |
+
+Cache observability lives in `packages/core/src/agent/metrics/prompt-cache.ts`: the agent loop
+fingerprints each request (tools, system, per-message history hashes), classifies the change
+against the conversation's previous request, and emits a `prompt_cache` stream event before the
+request's `complete` event. Jazz's token usage reports cache reads as part of `promptTokens`, so
+the hit rate is `cacheReadTokens / promptTokens`; a provider that reports no cache field is
+unknown. See [reading the hit rate](../concepts/context-management.md#read-the-prompt-cache-hit-rate).
 
 And in the logs: `Conversation context approaching limit`, `Context compacted successfully`
 (with tokens saved), and trim decisions at debug level.

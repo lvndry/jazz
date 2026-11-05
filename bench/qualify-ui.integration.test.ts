@@ -179,7 +179,9 @@ test("parent and workers publish all observations using isolated styled homes", 
   }
   const uniqueHomes = new Set([...(await homes(base)), ...(await homes(head))]);
   expect(uniqueHomes.size).toBe(6);
-  for (const home of uniqueHomes) expect(await exists(home)).toBe(false);
+  for (const home of uniqueHomes) {
+    expect(await exists(home)).toBe(false);
+  }
   expect(await exists(join(base, "SHOULD_NOT_EXIST"))).toBe(false);
 }, 30_000);
 
@@ -191,7 +193,9 @@ test("worker failure releases its isolated home and does not publish reports", a
   const result = await runCli(base, head, output);
   expect(result.code).not.toBe(0);
   expect(result.stderr).toContain("synthetic fixture failure");
-  for (const home of await homes(base)) expect(await exists(home)).toBe(false);
+  for (const home of await homes(base)) {
+    expect(await exists(home)).toBe(false);
+  }
   expect(await exists(`${output}.base.json`)).toBe(false);
   expect(await exists(`${output}.head.json`)).toBe(false);
 }, 30_000);
@@ -234,5 +238,7 @@ test("a late head metric mismatch validates both sides before publishing either 
   expect(await exists(`${output}.head.json`)).toBe(false);
   const uniqueHomes = new Set([...(await homes(base)), ...(await homes(head))]);
   expect(uniqueHomes.size).toBe(6);
-  for (const home of uniqueHomes) expect(await exists(home)).toBe(false);
+  for (const home of uniqueHomes) {
+    expect(await exists(home)).toBe(false);
+  }
 }, 30_000);

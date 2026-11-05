@@ -11,6 +11,7 @@ import { expect, test } from "bun:test";
 import { guardOutput, type GuardedStream } from "./mount";
 import { observeNativeFailure, rendererInvalidation } from "./renderer-adapter";
 import { createTerminalOracle } from "./testing/terminal-oracle";
+import { viewAs } from "../../test-support/view-as";
 
 test("foreign erasure and control chunks cannot desynchronize the physical grid", async () => {
   const oracle = await createTerminalOracle({ width: 32, height: 10 });
@@ -96,9 +97,7 @@ test("native failure observation restores the exact backend method", async () =>
   const original = async (): Promise<string> => "failed";
   const backend = { presentNativeScene: original };
   const failures: Error[] = [];
-  const stop = observeNativeFailure(backend as unknown as CliRenderer, (error) =>
-    failures.push(error),
-  );
+  const stop = observeNativeFailure(viewAs<CliRenderer>(backend), (error) => failures.push(error));
   expect(await backend.presentNativeScene()).toBe("failed");
   expect(failures).toEqual([new Error("OpenTUI native output failed")]);
   stop();
@@ -110,9 +109,7 @@ test("native feed backpressure remains retryable rather than triggering fallback
   let result = "retryable-skip";
   const backend = { presentNativeScene: async () => result };
   const failures: Error[] = [];
-  const stop = observeNativeFailure(backend as unknown as CliRenderer, (error) =>
-    failures.push(error),
-  );
+  const stop = observeNativeFailure(viewAs<CliRenderer>(backend), (error) => failures.push(error));
   try {
     for (const status of ["retryable-skip", "backpressured", "blocked", "rendered"]) {
       result = status;

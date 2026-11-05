@@ -70,7 +70,9 @@ export interface SeedAgentSpec {
  * Returns whether it created one, so a bridge can say so on first start.
  */
 export function ensureSeedAgent(dataDir: string, spec: SeedAgentSpec): boolean {
-  if (existsSync(agentPath(dataDir, spec.id))) return false;
+  if (existsSync(agentPath(dataDir, spec.id))) {
+    return false;
+  }
 
   mkdirSync(`${dataDir}/agents`, { recursive: true });
   const agent: AgentFile = {

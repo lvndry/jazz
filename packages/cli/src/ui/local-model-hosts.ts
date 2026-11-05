@@ -24,7 +24,9 @@ export function resolveLocalModelHosts(
   for (const provider of LOCAL_MODEL_PROVIDERS) {
     try {
       const url = new URL(llmService.resolveLocalProviderBaseUrl(provider, config));
-      if (url.host) hosts[provider] = url.host;
+      if (url.host) {
+        hosts[provider] = url.host;
+      }
     } catch {
       // A malformed endpoint is diagnosed by the model request, not the header.
     }

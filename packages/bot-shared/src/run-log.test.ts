@@ -138,7 +138,9 @@ describe("createRunLog", () => {
     expect(files[0]).toContain("10-00-00");
     expect(files[1]).toContain("11-00-00");
     // Nothing a shell would need quoting for.
-    for (const file of files) expect(file).not.toContain(":");
+    for (const file of files) {
+      expect(file).not.toContain(":");
+    }
   });
 
   it("sanitises a conversation key that is not filename-safe", () => {

@@ -14,6 +14,7 @@ import {
   reviewPageTitle,
   suggestionChoices,
 } from "./memory-review";
+import { partialFake } from "./test-support/partial-fake";
 
 let directory: string;
 
@@ -103,7 +104,7 @@ function fakeTerminal(options: {
 } {
   const logged: string[] = [];
   const asked: { message: string; values: readonly string[] }[] = [];
-  const terminal = {
+  const terminal = partialFake<TerminalService>({
     isInteractive: options.interactive,
     log: (message: unknown) =>
       Effect.sync(() => {
@@ -122,7 +123,7 @@ function fakeTerminal(options: {
         asked.push({ message, values: choices.map((choice) => choice.value) });
         return options.answer?.(choices, asked.length - 1);
       }),
-  } as unknown as TerminalService;
+  });
   return { terminal, logged, asked };
 }
 

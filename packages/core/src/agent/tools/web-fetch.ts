@@ -38,8 +38,12 @@ const TEXTUAL_APPLICATION_TYPES = [
 
 export function isSupportedContentType(contentType: string): boolean {
   const mediaType = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (mediaType.startsWith("text/")) return true;
-  if (TEXTUAL_APPLICATION_TYPES.some((type) => type === mediaType)) return true;
+  if (mediaType.startsWith("text/")) {
+    return true;
+  }
+  if (TEXTUAL_APPLICATION_TYPES.some((type) => type === mediaType)) {
+    return true;
+  }
   return /^application\/[\w.-]+\+(json|xml|yaml)$/.test(mediaType);
 }
 
@@ -222,7 +226,9 @@ export function createWebFetchTool(): ReturnType<
         } satisfies ToolExecutionResult;
       }),
     createSummary: (result: ToolExecutionResult) => {
-      if (!result.success || !result.result) return undefined;
+      if (!result.success || !result.result) {
+        return undefined;
+      }
       const res = result.result as {
         url: string;
         title: string;

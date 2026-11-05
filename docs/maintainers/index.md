@@ -33,6 +33,7 @@ Use these pages to answer two questions: where does a change belong, and which i
 
 - [Add a service](./add-a-service.md)
 - [Add a model provider](./add-a-provider.md)
+- [Provider contract](./provider-contract.md): what the stream boundary relies on from a provider.
 - Use the architecture map to decide whether a capability is a tool, skill, MCP server, adapter, command, or surface before writing code.
 
 Every maintainer page should link to current source and nearby tests. Historical implementation plans are not runtime documentation.

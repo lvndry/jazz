@@ -55,7 +55,9 @@ describe("eventToAttributes", () => {
     });
 
     const attributes = eventToAttributes(event);
-    const inputTokens = attributes.find((a) => a.key === "gen_ai.usage.input_tokens");
+    const inputTokens = attributes.find(
+      (attribute) => attribute.key === "gen_ai.usage.input_tokens",
+    );
 
     expect(inputTokens?.value).toEqual({ intValue: "7" });
   });

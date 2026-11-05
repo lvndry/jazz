@@ -222,7 +222,9 @@ async function reverseGeocode(
   latitude: number,
   longitude: number,
 ): Promise<string | null> {
-  if (config.geocodeUrl.length === 0) return null;
+  if (config.geocodeUrl.length === 0) {
+    return null;
+  }
   try {
     const base = config.geocodeUrl.replace(/\/$/, "");
     const url = `${base}/reverse?format=jsonv2&zoom=18&addressdetails=0&lat=${latitude}&lon=${longitude}`;
@@ -230,7 +232,9 @@ async function reverseGeocode(
       headers: { "user-agent": "jazz-telegram-bot/1.0 (+https://github.com/lvndry/jazz)" },
       signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      return null;
+    }
     const data = (await response.json()) as { display_name?: string };
     return typeof data.display_name === "string" ? data.display_name : null;
   } catch (error) {
@@ -252,9 +256,13 @@ async function maybeSetTzFromLocation(
   } catch {
     return; // outside the lookup's coverage — leave the zone as-is
   }
-  if (!isValidTimeZone(detected)) return;
+  if (!isValidTimeZone(detected)) {
+    return;
+  }
   const previous = setTzForChat(bridge.config.jazzHome, STORE_FILES.timezone, chatId, detected);
-  if (previous === detected) return;
+  if (previous === detected) {
+    return;
+  }
   const hadZone = typeof previous === "string" && isValidTimeZone(previous);
   await bridge.runner.send(String(chatId), [
     line(
@@ -341,7 +349,9 @@ async function handleSuggestionTap(
   choiceId: string,
 ): Promise<ChoiceOutcome> {
   const item = suggestions.get(token)?.[Number.parseInt(choiceId, 10)];
-  if (item === undefined) return "expired";
+  if (item === undefined) {
+    return "expired";
+  }
   await bridge.surface.setChoices(chatId, messageRef, []);
   await bridge.surface.send(chatId, { body: [plainLine(item.label)], replyTo: messageRef });
   void bridge.runner
@@ -470,7 +480,9 @@ async function handleMedia(
 export function inboundFrom(message: TelegramMessage): InboundMessage | undefined {
   const chatId = message.chat?.id;
   const text = message.text?.trim();
-  if (typeof chatId !== "number" || text === undefined || text.length === 0) return undefined;
+  if (typeof chatId !== "number" || text === undefined || text.length === 0) {
+    return undefined;
+  }
   // In a private chat the sender is the chat; elsewhere Telegram always names them.
   const senderId = String(message.from?.id ?? chatId);
   return {
@@ -486,7 +498,9 @@ export function inboundFrom(message: TelegramMessage): InboundMessage | undefine
 
 export function dispatchMessage(bridge: Bridge, message: TelegramMessage | undefined): void {
   const chatId = message?.chat?.id;
-  if (typeof chatId !== "number") return;
+  if (typeof chatId !== "number") {
+    return;
+  }
   if (!bridge.config.allowedChatIds.has(chatId)) {
     console.warn(`Ignoring message from non-allowed chat ${chatId}`);
     return;
@@ -528,7 +542,9 @@ export function dispatchMessage(bridge: Bridge, message: TelegramMessage | undef
       work = handleMedia(bridge, chatId, senderId, message ?? {}, media);
     }
   }
-  if (work === undefined) return;
+  if (work === undefined) {
+    return;
+  }
 
   work.catch((error) => {
     console.error(`Handling failed for chat ${chatId}: ${String(error)}`);
@@ -617,11 +633,15 @@ async function registerWebhook(bridge: Bridge): Promise<void> {
     secret_token: config.webhookSecret,
     allowed_updates: ALLOWED_UPDATES,
   })) as { ok?: boolean } | undefined;
-  if (registered?.ok === true) bridge.health.beat();
+  if (registered?.ok === true) {
+    bridge.health.beat();
+  }
   console.log(`Registered Telegram webhook → ${config.webhookUrl}`);
   const probe = setInterval(() => {
     void bridge.surface.call("getWebhookInfo", {}).then((info) => {
-      if ((info as { ok?: boolean } | undefined)?.ok === true) bridge.health.beat();
+      if ((info as { ok?: boolean } | undefined)?.ok === true) {
+        bridge.health.beat();
+      }
     });
   }, WEBHOOK_PROBE_MS);
   probe.unref?.();
@@ -653,7 +673,9 @@ async function pollLoop(bridge: Bridge): Promise<void> {
       }
       failures = 0;
       bridge.health.beat();
-      if (!polling) break;
+      if (!polling) {
+        break;
+      }
 
       for (const update of response.result ?? []) {
         if (typeof update.update_id === "number") {
@@ -721,7 +743,9 @@ export function createBridge(
     ...(config.dynamicCta
       ? {
           onAnswered: async (turn) => {
-            if (turn.messageRef === undefined) return;
+            if (turn.messageRef === undefined) {
+              return;
+            }
             const items = await generateSuggestions({
               jazzBinary: config.jazzBinary,
               jazzHome: config.jazzHome,
@@ -737,7 +761,9 @@ export function createBridge(
             });
             console.log(`[cta] chat ${turn.chatId}: ${items.length} contextual suggestion(s)`);
             // Keep the static follow-ups already attached when the model gave nothing.
-            if (items.length === 0) return;
+            if (items.length === 0) {
+              return;
+            }
             const token = suggestions.put(items);
             await surface.setChoices(
               turn.chatId,

@@ -74,7 +74,7 @@ export class OtlpOutbox {
             JSON.stringify([
               signal,
               endpoint,
-              Object.entries(headers[signal]).sort(([a], [b]) => a.localeCompare(b)),
+              Object.entries(headers[signal]).sort(([left], [right]) => left.localeCompare(right)),
             ]),
           )
           .digest("hex")
@@ -109,7 +109,9 @@ export class OtlpOutbox {
     await this.prune();
     const prefix = `${this.destinationKeys[signal]}-`;
     for (const entry of await this.entries()) {
-      if (entry.claimed || !entry.originalFile.startsWith(prefix)) continue;
+      if (entry.claimed || !entry.originalFile.startsWith(prefix)) {
+        continue;
+      }
       const ready = path.join(this.directory, entry.originalFile);
       const claim = path.join(
         this.directory,
@@ -118,7 +120,9 @@ export class OtlpOutbox {
       try {
         await rename(ready, claim);
       } catch (error) {
-        if (missing(error)) continue;
+        if (missing(error)) {
+          continue;
+        }
         throw error;
       }
       try {
@@ -129,12 +133,16 @@ export class OtlpOutbox {
           break;
         }
         await unlink(claim);
-        if (outcome === "rejected") this.onDropped(1, "permanent");
+        if (outcome === "rejected") {
+          this.onDropped(1, "permanent");
+        }
       } catch (error) {
         try {
           await rename(claim, ready);
         } catch (restoreError) {
-          if (!missing(restoreError)) throw restoreError;
+          if (!missing(restoreError)) {
+            throw restoreError;
+          }
         }
         throw error;
       }
@@ -148,18 +156,26 @@ export class OtlpOutbox {
     let bytes = entries.reduce((sum, entry) => sum + entry.size, 0);
     let dropped = 0;
     for (const entry of entries) {
-      if (entry.claimed) continue;
-      if (now - entry.createdAt <= this.maxAgeMs && bytes <= this.maxBytes) continue;
+      if (entry.claimed) {
+        continue;
+      }
+      if (now - entry.createdAt <= this.maxAgeMs && bytes <= this.maxBytes) {
+        continue;
+      }
       try {
         await unlink(path.join(this.directory, entry.file));
       } catch (error) {
-        if (missing(error)) continue;
+        if (missing(error)) {
+          continue;
+        }
         throw error;
       }
       bytes -= entry.size;
       dropped += 1;
     }
-    if (dropped > 0) this.onDropped(dropped, "capacity_or_age");
+    if (dropped > 0) {
+      this.onDropped(dropped, "capacity_or_age");
+    }
   }
 
   private async entries(): Promise<QueueEntry[]> {
@@ -167,13 +183,17 @@ export class OtlpOutbox {
     try {
       names = await readdir(this.directory);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return [];
+      }
       throw error;
     }
     const entries = await Promise.all(
       names.map(async (file): Promise<QueueEntry | undefined> => {
         const claim = CLAIM_PATTERN.exec(file);
-        if (!ENTRY_PATTERN.test(file) && !claim) return undefined;
+        if (!ENTRY_PATTERN.test(file) && !claim) {
+          return undefined;
+        }
         const originalFile = claim?.[3] ?? file;
         if (claim) {
           const claimedAt = Number(claim[2]);
@@ -186,7 +206,9 @@ export class OtlpOutbox {
               );
               file = originalFile;
             } catch (error) {
-              if (missing(error)) return undefined;
+              if (missing(error)) {
+                return undefined;
+              }
               throw error;
             }
           }
@@ -201,13 +223,17 @@ export class OtlpOutbox {
             createdAt: Number(originalFile.slice(25, 38)),
           };
         } catch (error) {
-          if (missing(error)) return undefined;
+          if (missing(error)) {
+            return undefined;
+          }
           throw error;
         }
       }),
     );
     return entries
       .filter((entry): entry is QueueEntry => entry !== undefined)
-      .sort((a, b) => a.createdAt - b.createdAt || a.file.localeCompare(b.file));
+      .sort(
+        (left, right) => left.createdAt - right.createdAt || left.file.localeCompare(right.file),
+      );
   }
 }

@@ -30,9 +30,9 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
         return key.conversationId ? `${key.agentId}:${key.conversationId}` : key.agentId;
       }
 
-      function normalize(p: string): string {
+      function normalize(rawPath: string): string {
         // Handle quoted paths first: '"Application Support"' -> 'Application Support'
-        let normalized = p;
+        let normalized = rawPath;
         if (
           (normalized.startsWith('"') && normalized.endsWith('"')) ||
           (normalized.startsWith("'") && normalized.endsWith("'"))

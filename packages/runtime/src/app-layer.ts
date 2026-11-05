@@ -462,7 +462,9 @@ function emitCommandExecuted(
   durationMs: number,
 ): Effect.Effect<void> {
   const command = getCurrentCommandName();
-  if (command === undefined) return Effect.void;
+  if (command === undefined) {
+    return Effect.void;
+  }
 
   return emitTelemetry((telemetry) =>
     telemetry.recordCommandExecuted({
@@ -605,7 +607,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
             : Effect.succeed(result),
         ),
       )
-      .pipe(Effect.map((r) => r.exit));
+      .pipe(Effect.map((result) => result.exit));
 
     yield* emitCommandExecuted(exit, Date.now() - commandStartedAt);
 

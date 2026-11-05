@@ -20,7 +20,9 @@ import { THEME } from "./theme";
  */
 function shortenPath(path: string, homeDir: string | undefined, maxWidth: number): string {
   const display = abbreviateHomePath(path, homeDir);
-  if (display.length <= maxWidth) return display;
+  if (display.length <= maxWidth) {
+    return display;
+  }
   const segments = display.split("/");
   if (segments.length <= 3) {
     // Not much to compress — fall back to right-anchored truncation.
@@ -29,7 +31,9 @@ function shortenPath(path: string, homeDir: string | undefined, maxWidth: number
   const head = segments[0] === "" ? "" : segments[0];
   const tail = segments.slice(-2).join("/");
   const compact = `${head}/.../${tail}`;
-  if (compact.length <= maxWidth) return compact;
+  if (compact.length <= maxWidth) {
+    return compact;
+  }
   return "..." + tail.slice(Math.max(0, tail.length - (maxWidth - 3)));
 }
 
@@ -66,14 +70,18 @@ function StatusFooter({
     runStats.tokensInContext !== undefined ||
     runStats.costUSD !== undefined;
   const hasContent = status || hint || background || workingDirectory || hasRunStats;
-  if (!hasContent) return null;
+  if (!hasContent) {
+    return null;
+  }
 
   const homeDir = process.env["HOME"];
   const wd = workingDirectory ? shortenPath(workingDirectory, homeDir, 40) : null;
 
   // Build the compact stats line: "model · 12.3k/200k · $0.042"
   const statParts: string[] = [];
-  if (runStats.model) statParts.push(runStats.model);
+  if (runStats.model) {
+    statParts.push(runStats.model);
+  }
   if (runStats.tokensInContext !== undefined) {
     if (runStats.maxContextTokens) {
       statParts.push(
@@ -83,7 +91,9 @@ function StatusFooter({
       statParts.push(formatCompactCount(runStats.tokensInContext));
     }
   }
-  if (runStats.costUSD !== undefined) statParts.push(formatCost(runStats.costUSD));
+  if (runStats.costUSD !== undefined) {
+    statParts.push(formatCost(runStats.costUSD));
+  }
   // ASCII separator survives any font.
   const statLine = statParts.join(" · ");
 

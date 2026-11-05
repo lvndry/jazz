@@ -174,7 +174,9 @@ function transcript(blocks: readonly Block[], viewport: Viewport, newBelow?: num
 /** The captured colour of the first span whose text contains `needle`. */
 function colorOf(spans: readonly CapturedSpan[], needle: string): string {
   const span = spans.find((candidate) => candidate.text.includes(needle));
-  if (span === undefined) throw new Error(`no span containing ${JSON.stringify(needle)}`);
+  if (span === undefined) {
+    throw new Error(`no span containing ${JSON.stringify(needle)}`);
+  }
   const [red, green, blue] = span.fg.toInts();
   return `#${[red, green, blue]
     .map((channel) => channel.toString(16).padStart(2, "0"))
@@ -241,9 +243,13 @@ describe("terminal-cell wrapping", () => {
       viewport,
     );
 
-    for (const row of rendered.rows) expect(terminalCellWidth(row)).toBe(viewport.width);
+    for (const row of rendered.rows) {
+      expect(terminalCellWidth(row)).toBe(viewport.width);
+    }
     const text = rendered.rows.join("\n");
-    if (text.includes("👨")) expect(text).toContain(family);
+    if (text.includes("👨")) {
+      expect(text).toContain(family);
+    }
   });
 });
 
@@ -723,7 +729,9 @@ describe("reasoning is subordinate by geometry", () => {
     );
     expect(widest).toBeLessThanOrEqual(WIDE.width - 2);
     for (const row of rows) {
-      for (const segment of row.content) expect(segment.bold).not.toBe(true);
+      for (const segment of row.content) {
+        expect(segment.bold).not.toBe(true);
+      }
       expect(row.gutter[0]?.text).toBe(" ");
     }
 
@@ -986,8 +994,12 @@ describe("lanes", () => {
     expect(rows[0]?.contentWidth).toBe((plain[0]?.contentWidth ?? 0) - "lane 1".length - 2);
     // Two gutter cells for every row, delegated or not, so the content column
     // is in the same place whatever the depth.
-    for (const row of rows) expect(row.gutter).toHaveLength(2);
-    for (const row of plain) expect(row.gutter).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.gutter).toHaveLength(2);
+    }
+    for (const row of plain) {
+      expect(row.gutter).toHaveLength(2);
+    }
 
     // Two concurrent lanes are told apart in the metadata column, not in the
     // gutter. Printed in the gutter the number abutted the name and read as one
@@ -1106,7 +1118,9 @@ describe("inline emphasis", () => {
   function spanWith(spans: readonly CapturedSpan[], needle: string): CapturedSpan {
     const exact = spans.find((candidate) => candidate.text.trim() === needle);
     const span = exact ?? spans.find((candidate) => candidate.text.includes(needle));
-    if (span === undefined) throw new Error(`no span containing ${JSON.stringify(needle)}`);
+    if (span === undefined) {
+      throw new Error(`no span containing ${JSON.stringify(needle)}`);
+    }
     return span;
   }
 
@@ -1219,7 +1233,9 @@ describe("inline emphasis", () => {
     expect(rows.length).toBeGreaterThan(1);
     for (const row of rows) {
       for (const segment of row.content) {
-        if (segment.text.trim().length === 0) continue;
+        if (segment.text.trim().length === 0) {
+          continue;
+        }
         expect(segment.bold).toBe(true);
       }
     }

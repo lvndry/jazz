@@ -31,7 +31,7 @@ describe("aggregate", () => {
   it("reports total cost and per-task reliability", () => {
     const report = aggregate(perTask);
     expect(report.totalCostUSD).toBeCloseTo(0.11, 5);
-    expect(report.perTask.find((t) => t.taskId === "r2")?.passHatK).toBe(1);
+    expect(report.perTask.find((task) => task.taskId === "r2")?.passHatK).toBe(1);
   });
 
   it("is empty-safe", () => {

@@ -123,8 +123,8 @@ describe("add", () => {
 
   test("rejects once the per-agent reminder count cap is reached", async () => {
     const service = makeService();
-    for (let i = 0; i < MAX_REMINDERS_PER_AGENT; i++) {
-      const outcome = await runEffect(service.add("agent-1", "1d", `reminder ${i}`, "UTC"));
+    for (let index = 0; index < MAX_REMINDERS_PER_AGENT; index++) {
+      const outcome = await runEffect(service.add("agent-1", "1d", `reminder ${index}`, "UTC"));
       expect(outcome.success).toBe(true);
     }
     const result = await runEither(service.add("agent-1", "1d", "one too many", "UTC"));
@@ -148,7 +148,7 @@ describe("add", () => {
     expect(second.success).toBe(true);
     const list = await runEffect(service.list("agent-1"));
     expect(list.length).toBe(2);
-    expect(list.map((r) => r.text).sort()).toEqual(["first", "second"]);
+    expect(list.map((reminder) => reminder.text).sort()).toEqual(["first", "second"]);
   });
 });
 
@@ -173,8 +173,8 @@ describe("list", () => {
     await runEffect(service.add("agent-2", "30m", "for agent 2", "UTC"));
     const listOne = await runEffect(service.list("agent-1"));
     const listTwo = await runEffect(service.list("agent-2"));
-    expect(listOne.map((r) => r.text)).toEqual(["for agent 1"]);
-    expect(listTwo.map((r) => r.text)).toEqual(["for agent 2"]);
+    expect(listOne.map((reminder) => reminder.text)).toEqual(["for agent 1"]);
+    expect(listTwo.map((reminder) => reminder.text)).toEqual(["for agent 2"]);
   });
 });
 
@@ -183,7 +183,9 @@ describe("cancel", () => {
     const service = makeService();
     const added = await runEffect(service.add("agent-1", "30m", "cancel me", "UTC"));
     expect(added.success).toBe(true);
-    if (!added.success) return;
+    if (!added.success) {
+      return;
+    }
 
     const outcome = await runEffect(service.cancel("agent-1", added.reminder.id));
     expect(outcome.success).toBe(true);
@@ -222,7 +224,7 @@ describe("claimDueReminders", () => {
     }
 
     const remainingAgent1 = await runEffect(service.list("agent-1"));
-    expect(remainingAgent1.map((r) => r.text)).toEqual(["future agent 1"]);
+    expect(remainingAgent1.map((reminder) => reminder.text)).toEqual(["future agent 1"]);
 
     const remainingAgent2 = await runEffect(service.list("agent-2"));
     expect(remainingAgent2).toEqual([]);
@@ -280,7 +282,9 @@ describe("osScheduler integration", () => {
 
     const outcome = await runEffect(service.add("agent-1", "30m", "scheduled reminder", "UTC"));
     expect(outcome.success).toBe(true);
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
 
     expect(outcome.reminder.osSchedulerJobId).toBe("42");
     expect(calls).toEqual([
@@ -305,7 +309,9 @@ describe("osScheduler integration", () => {
 
     const added = await runEffect(service.add("agent-1", "30m", "reminder", "UTC"));
     expect(added.success).toBe(true);
-    if (!added.success) return;
+    if (!added.success) {
+      return;
+    }
 
     const outcome = await runEffect(service.cancel("agent-1", added.reminder.id));
     expect(outcome.success).toBe(true);
@@ -324,7 +330,9 @@ describe("osScheduler integration", () => {
 
     const added = await runEffect(service.add("agent-1", "30m", "reminder", "UTC"));
     expect(added.success).toBe(true);
-    if (!added.success) return;
+    if (!added.success) {
+      return;
+    }
 
     const outcome = await runEffect(service.cancel("agent-1", added.reminder.id));
     expect(outcome.success).toBe(true);
@@ -339,7 +347,9 @@ describe("osScheduler integration", () => {
 
     const added = await runEffect(service.add("tg_12345", "30m", "chat reminder", "UTC"));
     expect(added.success).toBe(true);
-    if (!added.success) return;
+    if (!added.success) {
+      return;
+    }
     expect(added.reminder.osSchedulerJobId).toBeUndefined();
 
     await runEffect(service.cancel("tg_12345", added.reminder.id));
@@ -354,7 +364,9 @@ describe("osScheduler integration", () => {
     for (const agentId of ["im_7", "wa_15551234567", "wag_120363", "ph_space"]) {
       const added = await runEffect(service.add(agentId, "30m", "chat reminder", "UTC"));
       expect(added.success).toBe(true);
-      if (!added.success) return;
+      if (!added.success) {
+        return;
+      }
       expect(added.reminder.osSchedulerJobId).toBeUndefined();
     }
 
@@ -367,7 +379,9 @@ describe("osScheduler integration", () => {
 
     const added = await runEffect(service.add("dc_67890", "30m", "chat reminder", "UTC"));
     expect(added.success).toBe(true);
-    if (!added.success) return;
+    if (!added.success) {
+      return;
+    }
     expect(added.reminder.osSchedulerJobId).toBeUndefined();
 
     await runEffect(service.cancel("dc_67890", added.reminder.id));
@@ -410,7 +424,9 @@ describe("at-least-once delivery", () => {
   test("a failed desktop notification keeps the reminder with the reason", async () => {
     const service = makeService(makeFakeOsScheduler().scheduler);
     const outcome = await runEffect(service.add("agent-1", "1s", "stretch", "UTC"));
-    if (!outcome.success) throw new Error("add failed");
+    if (!outcome.success) {
+      throw new Error("add failed");
+    }
     const claimed = await runEffect(claimReminder(tmpDir, "agent-1", outcome.reminder.id));
     expect(claimed?.delivery?.status).toBe("firing");
 

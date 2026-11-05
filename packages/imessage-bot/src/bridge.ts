@@ -137,7 +137,9 @@ interface BridgeConfig extends AccessConfig {
  * this file, which is what bun was given.
  */
 function serviceArgs(): readonly string[] {
-  if (runningAsJazzBinary()) return ["imessage"];
+  if (runningAsJazzBinary()) {
+    return ["imessage"];
+  }
   // Started with `bun`, so the service runs the same script entry point.
   return [join(dirname(fileURLToPath(import.meta.url)), "main.ts")];
 }
@@ -215,7 +217,9 @@ async function refreshChats(config: BridgeConfig): Promise<void> {
 
 async function chatFor(config: BridgeConfig, chatId: number): Promise<ImsgChat | undefined> {
   const cached = chatCache.get(chatId);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    return cached;
+  }
   await refreshChats(config);
   return chatCache.get(chatId);
 }
@@ -256,7 +260,9 @@ export function createCursorTracker(): {
     finished: (rowId) => {
       inFlight.delete(rowId);
       highestFinished = Math.max(highestFinished ?? rowId, rowId);
-      if (inFlight.size === 0) return highestFinished;
+      if (inFlight.size === 0) {
+        return highestFinished;
+      }
       const oldestOpen = Math.min(...inFlight);
       return highestFinished < oldestOpen ? highestFinished : oldestOpen - 1;
     },
@@ -282,11 +288,17 @@ function writeCursor(dataDir: string, rowId: number): void {
  */
 export function promptFrom(message: ImsgMessage, text: string = message.text): string {
   const parts: string[] = [];
-  if (message.replyToText !== undefined) parts.push(`[replying to: ${message.replyToText}]`);
+  if (message.replyToText !== undefined) {
+    parts.push(`[replying to: ${message.replyToText}]`);
+  }
   const body = text.trim();
-  if (body.length > 0) parts.push(body);
+  if (body.length > 0) {
+    parts.push(body);
+  }
   for (const attachment of message.attachments) {
-    if (attachment.missing) continue;
+    if (attachment.missing) {
+      continue;
+    }
     parts.push(attachment.convertedPath ?? attachment.originalPath);
   }
   return parts.join("\n");
@@ -311,12 +323,18 @@ export function questionFromSelfText(
   text: string,
   selfTrigger: string | undefined,
 ): string | undefined {
-  if (selfTrigger === undefined) return undefined;
+  if (selfTrigger === undefined) {
+    return undefined;
+  }
   const typed = text.trim();
-  if (!typed.toLowerCase().startsWith(selfTrigger)) return undefined;
+  if (!typed.toLowerCase().startsWith(selfTrigger)) {
+    return undefined;
+  }
   // The trigger is a word: "jazzy weather" is not "jazz" followed by "y weather".
   const after = typed.charAt(selfTrigger.length);
-  if (after.length > 0 && /[\p{L}\p{N}_]/u.test(after)) return undefined;
+  if (after.length > 0 && /[\p{L}\p{N}_]/u.test(after)) {
+    return undefined;
+  }
   const stripped = typed
     .slice(selfTrigger.length)
     .replace(/^[\s,:;.!?-]+/, "")
@@ -329,7 +347,9 @@ function selfPrompt(
   surface: IMessageSurface,
   message: ImsgMessage,
 ): string | undefined {
-  if (surface.wasSentByUs(message.text)) return undefined;
+  if (surface.wasSentByUs(message.text)) {
+    return undefined;
+  }
   const asked = questionFromSelfText(message.text, config.selfTrigger);
   // The reply context goes back in around the question, so "jazz summarise
   // this" sent as a reply still reaches the agent with the thing it quoted.
@@ -343,13 +363,17 @@ async function handleIncoming(
   message: ImsgMessage,
 ): Promise<void> {
   // A tapback is an event about another message, not a message to answer.
-  if (message.isReaction) return;
+  if (message.isReaction) {
+    return;
+  }
 
   if (message.isFromMe) {
     // No allow-list check: this is the account owner typing on their own Mac,
     // which is the one identity the allow-list exists to establish.
     const prompt = selfPrompt(config, surface, message);
-    if (prompt === undefined) return;
+    if (prompt === undefined) {
+      return;
+    }
     await runner.handle({
       chatId: String(message.chatId),
       senderId: ACCOUNT_OWNER_SENDER,
@@ -359,7 +383,9 @@ async function handleIncoming(
   }
 
   const raw = promptFrom(message);
-  if (raw.length === 0) return;
+  if (raw.length === 0) {
+    return;
+  }
 
   const chat = await chatFor(config, message.chatId);
   const decision = decideAccess(config, {
@@ -410,7 +436,9 @@ async function ensureImsgUsable(binary: string): Promise<boolean> {
   };
   const plan = planInstall(await checkImsg(binary), planContext);
 
-  if (plan.action === "proceed") return true;
+  if (plan.action === "proceed") {
+    return true;
+  }
   if (plan.action === "explain") {
     console.error(plan.message);
     return false;
@@ -438,7 +466,9 @@ async function ensureImsgUsable(binary: string): Promise<boolean> {
     console.error("Not installing. The iMessage bridge cannot run without it.");
     return false;
   }
-  if (!(await installImsg())) return false;
+  if (!(await installImsg())) {
+    return false;
+  }
 
   // Re-checked rather than assumed: a freshly installed `imsg` still has to get
   // past Full Disk Access, which is the failure most people actually hit, and
@@ -449,7 +479,9 @@ async function ensureImsgUsable(binary: string): Promise<boolean> {
     // person to read rather than answer.
     interactive: false,
   });
-  if (afterInstall.action === "proceed") return true;
+  if (afterInstall.action === "proceed") {
+    return true;
+  }
   console.error(afterInstall.message);
   return false;
 }
@@ -465,8 +497,12 @@ async function ensureImsgUsable(binary: string): Promise<boolean> {
  * first — because two bridges on one account both answer every message.
  */
 async function maybeOfferService(config: BridgeConfig): Promise<void> {
-  if (runningUnderLaunchd() || serviceInstalled()) return;
-  if (process.stdin.isTTY !== true) return;
+  if (runningUnderLaunchd() || serviceInstalled()) {
+    return;
+  }
+  if (process.stdin.isTTY !== true) {
+    return;
+  }
 
   console.error(
     "\nThis is running in the foreground and stops when you close the terminal.\n" +
@@ -474,7 +510,9 @@ async function maybeOfferService(config: BridgeConfig): Promise<void> {
       "macOS holds the terminal responsible for what you start from it, and this binary " +
       "for what launchd starts.",
   );
-  if (!(await confirm("Install it as a background service?"))) return;
+  if (!(await confirm("Install it as a background service?"))) {
+    return;
+  }
 
   try {
     const path = writeServicePlist({
@@ -517,7 +555,9 @@ async function maybeOfferService(config: BridgeConfig): Promise<void> {
 export async function startBridge(): Promise<void> {
   const config = loadConfig(process.stdin.isTTY === true);
 
-  if (!(await ensureImsgUsable(config.imsgBinary))) process.exit(1);
+  if (!(await ensureImsgUsable(config.imsgBinary))) {
+    process.exit(1);
+  }
 
   // `--agent` arrives as JAZZ_IMESSAGE_AGENT, so the plist carries it too.
   if (config.baseAgentId !== DEFAULT_BASE_AGENT_ID) {
@@ -595,14 +635,18 @@ export async function startBridge(): Promise<void> {
         .catch((error) => console.error(`Failed to handle message ${message.id}: ${String(error)}`))
         .finally(() => {
           const resumeFrom = cursor.finished(message.id);
-          if (resumeFrom !== undefined) writeCursor(config.jazzHome, resumeFrom);
+          if (resumeFrom !== undefined) {
+            writeCursor(config.jazzHome, resumeFrom);
+          }
         });
     },
   });
 
   const health = createHealthState(WATCHER_STALE_AFTER_MS);
   const beat = setInterval(() => {
-    if (watcher.running()) health.beat();
+    if (watcher.running()) {
+      health.beat();
+    }
   }, WATCHER_CHECK_MS);
   beat.unref?.();
   const healthPort = envPositiveInt("JAZZ_BRIDGE_HEALTH_PORT", 0);

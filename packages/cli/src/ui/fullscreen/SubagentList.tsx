@@ -52,8 +52,12 @@ function statusCell(
 function headerText(items: readonly SubagentListItem[]): string {
   const running = items.filter((item) => item.status === "running").length;
   const noun = items.length === 1 ? "subagent" : "subagents";
-  if (running === items.length) return `${String(items.length)} ${noun} running`;
-  if (running === 0) return `${String(items.length)} ${noun} finished`;
+  if (running === items.length) {
+    return `${String(items.length)} ${noun} running`;
+  }
+  if (running === 0) {
+    return `${String(items.length)} ${noun} finished`;
+  }
   return `${String(running)} of ${String(items.length)} ${noun} running`;
 }
 
@@ -68,7 +72,9 @@ function showsItems(model: SubagentListModel): boolean {
 /** The window of items that keeps the selection on screen. */
 function visibleWindow(model: SubagentListModel): { start: number; end: number } {
   const count = model.items.length;
-  if (count <= SUBAGENT_LIST_MAX_ITEMS) return { start: 0, end: count };
+  if (count <= SUBAGENT_LIST_MAX_ITEMS) {
+    return { start: 0, end: count };
+  }
   const slots = SUBAGENT_LIST_MAX_ITEMS - 1;
   const focus = Math.min(model.selected ?? 0, count - 1);
   const start = Math.max(0, Math.min(focus - slots + 1, count - slots));
@@ -76,7 +82,9 @@ function visibleWindow(model: SubagentListModel): { start: number; end: number }
 }
 
 function agentHint(model: SubagentListModel, focused: boolean): string {
-  if (!focused) return "down to manage";
+  if (!focused) {
+    return "down to manage";
+  }
   const selected = model.selected === undefined ? undefined : model.items[model.selected];
   return selected?.cancellable === true ? "enter to open · x to cancel" : "enter to open";
 }
@@ -99,12 +107,16 @@ function agentRows(
       width,
     ),
   ];
-  if (!showsItems(model)) return rows;
+  if (!showsItems(model)) {
+    return rows;
+  }
 
   const { start, end } = visibleWindow(model);
   for (let index = start; index < end; index++) {
     const item = model.items[index];
-    if (item === undefined) continue;
+    if (item === undefined) {
+      continue;
+    }
     const selected = model.selected === index;
     const inspected = model.inspecting === item.id;
     const left: LiveSegment[] = [
@@ -156,7 +168,9 @@ function agentRows(
  */
 function waitRows(model: SubagentListModel, width: number, glyphs: GlyphSet): readonly LiveRow[] {
   const waits = model.waits ?? [];
-  if (waits.length === 0) return [];
+  if (waits.length === 0) {
+    return [];
+  }
   const offset = model.items.length;
   const focused = model.selected !== undefined && model.selected >= offset;
   const noun = waits.length === 1 ? "wait" : "waits";
@@ -174,7 +188,9 @@ function waitRows(model: SubagentListModel, width: number, glyphs: GlyphSet): re
       width,
     ),
   ];
-  if (!focused) return rows;
+  if (!focused) {
+    return rows;
+  }
 
   for (const [index, wait] of waits.entries()) {
     const selected = model.selected === offset + index;
@@ -209,7 +225,9 @@ export function subagentListRows(
   glyphs: GlyphSet = getGlyphs(),
   tick = 0,
 ): readonly LiveRow[] {
-  if (model === undefined) return [];
+  if (model === undefined) {
+    return [];
+  }
   const width = Math.max(1, viewport.width);
   return [
     ...(model.items.length === 0 ? [] : agentRows(model, width, glyphs, tick)),
@@ -230,7 +248,9 @@ function SubagentListView({ model, viewport, maxRows }: SubagentListProps): Reac
   const animate = model?.items.some((item) => item.status === "running") ?? false;
 
   useEffect(() => {
-    if (!animate) return;
+    if (!animate) {
+      return;
+    }
     const timer = setInterval(() => {
       setTick((value) => value + 1);
     }, MOTION.indicator);
@@ -239,7 +259,9 @@ function SubagentListView({ model, viewport, maxRows }: SubagentListProps): Reac
 
   const allRows = subagentListRows(model, viewport, undefined, tick);
   const rows = maxRows === undefined ? allRows : allRows.slice(0, Math.max(0, maxRows));
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    return null;
+  }
 
   return (
     <box

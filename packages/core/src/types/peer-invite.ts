@@ -68,9 +68,15 @@ export type PeerInviteStatus = "active" | "expired" | "redeemed" | "revoked";
 
 /** What `list`/`accept` actually care about, derived rather than stored. */
 export function inviteStatus(record: PeerInviteRecord, now: Date): PeerInviteStatus {
-  if (record.revokedAt !== undefined) return "revoked";
-  if (record.redeemedAt !== undefined) return "redeemed";
-  if (new Date(record.expiresAt).getTime() <= now.getTime()) return "expired";
+  if (record.revokedAt !== undefined) {
+    return "revoked";
+  }
+  if (record.redeemedAt !== undefined) {
+    return "redeemed";
+  }
+  if (new Date(record.expiresAt).getTime() <= now.getTime()) {
+    return "expired";
+  }
   return "active";
 }
 

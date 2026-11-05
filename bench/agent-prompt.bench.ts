@@ -19,6 +19,7 @@ import { agentPromptBuilder, AgentPromptBuilder } from "../packages/core/src/age
 import type { AgentPromptOptions } from "../packages/core/src/agent/agent-prompt";
 import type { PersonaService } from "../packages/core/src/interfaces/persona-service";
 import type { ChatMessage } from "../packages/core/src/types/message";
+import { partialFake } from "../packages/daemon/src/partial-fake.fixture";
 
 // Point every ~/.jazz read at a throwaway directory before importing anything
 // that resolves a path from it, so a real user's journal can never change
@@ -35,7 +36,7 @@ const { journalPath } = await import("../packages/core/src/agent/context/work-jo
 
 const ANTHROPIC_HINT = { provider: "anthropic", modelId: "claude-sonnet-4-5" };
 
-const personaService = {
+const personaService = partialFake<PersonaService>({
   getPersonaByIdentifier: () =>
     Effect.succeed({
       id: "persona-1",
@@ -43,7 +44,7 @@ const personaService = {
       description: "A careful engineer.",
       systemPrompt: PROSE_PARAGRAPH.repeat(8),
     }),
-} as unknown as PersonaService;
+});
 
 const TOOL_NAMES = [
   "read_file",

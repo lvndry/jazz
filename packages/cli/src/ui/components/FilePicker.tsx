@@ -92,7 +92,9 @@ export function FilePicker({
   }, [query]);
 
   function clampCursor(nextIndex: number): number {
-    if (files.length === 0) return 0;
+    if (files.length === 0) {
+      return 0;
+    }
     return Math.max(0, Math.min(files.length - 1, nextIndex));
   }
 

@@ -68,7 +68,9 @@ function withOptionalRef(owner: string, repo: string, ref: string | undefined): 
  */
 export function parseGitHubPluginSource(raw: string): GitHubPluginSource | undefined {
   const trimmed = raw.trim();
-  if (trimmed.length === 0) return undefined;
+  if (trimmed.length === 0) {
+    return undefined;
+  }
 
   const https = HTTPS_URL.exec(trimmed);
   if (https?.[1] !== undefined && https[2] !== undefined && https[2].length > 0) {
@@ -81,7 +83,9 @@ export function parseGitHubPluginSource(raw: string): GitHubPluginSource | undef
   }
 
   const scoped = trimmed.startsWith("github:") ? trimmed.slice("github:".length) : trimmed;
-  if (/^[.~/\\]/.test(scoped)) return undefined;
+  if (/^[.~/\\]/.test(scoped)) {
+    return undefined;
+  }
   const shorthand = SHORTHAND.exec(scoped);
   if (shorthand?.[1] !== undefined && shorthand[2] !== undefined) {
     return withOptionalRef(shorthand[1], stripGitSuffix(shorthand[2]), shorthand[3]);
@@ -99,16 +103,21 @@ export function describeGitHubSource(source: GitHubPluginSource): string {
 /** GitHub wraps a tarball in a single `owner-repo-<sha>/` directory; drop that first segment. */
 function stripTopLevelDirectory(name: string): string | undefined {
   const slash = name.indexOf("/");
-  if (slash < 0) return undefined;
+  if (slash < 0) {
+    return undefined;
+  }
   const rest = name.slice(slash + 1);
   return rest.length === 0 ? undefined : rest;
 }
 
 /** Resolve a tarball entry under root, rejecting absolute paths and `..` traversal. */
 function safeDestination(root: string, relative: string): string | undefined {
-  if (path.isAbsolute(relative)) return undefined;
-  if (relative.split(/[/\\]/).some((segment) => segment === ".." || segment === ""))
+  if (path.isAbsolute(relative)) {
     return undefined;
+  }
+  if (relative.split(/[/\\]/).some((segment) => segment === ".." || segment === "")) {
+    return undefined;
+  }
   const resolved = path.resolve(root, relative);
   const withSeparator = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
   return resolved === root || resolved.startsWith(withSeparator) ? resolved : undefined;
@@ -303,7 +312,9 @@ export async function isLocalSourceDirectory(candidate: string): Promise<boolean
   try {
     const resolved = path.resolve(candidate);
     const directory = await fs.stat(resolved);
-    if (!directory.isDirectory()) return false;
+    if (!directory.isDirectory()) {
+      return false;
+    }
     const manifest = await fs.stat(path.join(resolved, "jazz-plugin.json"));
     return manifest.isFile();
   } catch {

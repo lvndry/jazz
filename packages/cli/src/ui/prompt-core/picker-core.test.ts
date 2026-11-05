@@ -19,7 +19,7 @@ const CHOICES: readonly PickerChoice[] = [
 describe("filterAndRank", () => {
   it("returns every choice when the query is empty, preserving order", () => {
     const ranked = filterAndRank(CHOICES, "");
-    expect(ranked.map((r) => r.originalIndex)).toEqual([0, 1, 2, 3]);
+    expect(ranked.map((candidate) => candidate.originalIndex)).toEqual([0, 1, 2, 3]);
   });
 
   it("ranks matches by label position, not just membership", () => {
