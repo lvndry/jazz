@@ -1,9 +1,32 @@
-import { describe, expect, it } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "bun:test";
 import {
   compareUnknownCasts,
   countUnknownCasts,
   findUnknownCasts,
+  scanUnknownCasts,
 } from "./verify-no-unknown-casts";
+
+const temporaryRoots: string[] = [];
+afterEach(() => {
+  for (const root of temporaryRoots.splice(0)) {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function repositoryWith(files: Record<string, string>): string {
+  const root = mkdtempSync(path.join(tmpdir(), "jazz-unknown-casts-"));
+  temporaryRoots.push(root);
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  for (const [name, content] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
+    writeFileSync(path.join(root, name), content);
+  }
+  return root;
+}
 
 describe("findUnknownCasts", () => {
   it("finds as, angle-bracket and union assertions to unknown", () => {
@@ -63,5 +86,29 @@ describe("compareUnknownCasts", () => {
     const repeated = findUnknownCasts("packages/a.ts", "f(x as unknown);\nf(x as unknown);");
     const report = compareUnknownCasts(repeated, countUnknownCasts(repeated.slice(0, 1)));
     expect(report.added).toHaveLength(1);
+  });
+});
+
+describe("scanUnknownCasts", () => {
+  const isRoot = process.getuid?.() === 0;
+
+  it.skipIf(isRoot)("fails naming a file it cannot read", () => {
+    const root = repositoryWith({
+      "packages/a.ts": "export const a = 1 as unknown;",
+      "scripts/b.ts": "export const b = 1;",
+    });
+    chmodSync(path.join(root, "packages/a.ts"), 0o000);
+    expect(() => scanUnknownCasts(root)).toThrow("packages/a.ts");
+  });
+
+  it("skips a tracked file that was deleted", () => {
+    const root = repositoryWith({
+      "packages/a.ts": "export const a = 1 as unknown;",
+      "packages/gone.ts": "export const gone = 1 as unknown;",
+      "scripts/b.ts": "export const b = 1;",
+    });
+    execFileSync("git", ["add", "-A"], { cwd: root });
+    rmSync(path.join(root, "packages/gone.ts"));
+    expect(scanUnknownCasts(root).map((cast) => cast.file)).toEqual(["packages/a.ts"]);
   });
 });

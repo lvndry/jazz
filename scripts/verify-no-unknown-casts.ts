@@ -4,13 +4,16 @@
  * a new one fails the check, and a removed one must be pruned so the allowance only shrinks.
  *
  * Run `bun run verify:unknown-casts`, or add `--prune` after removing casts to drop their entries.
+ * `--init` writes a first baseline and refuses to overwrite one; `--rebaseline` overwrites it and
+ * is a deliberate, reviewed change. `scripts/verify-baselines-shrink.ts` compares the baseline with
+ * the base branch's in CI, so adding an entry or raising a count fails there.
  * Entries are keyed by file and a hash of the assertion's tokens rather than by line, so moving
  * code or rebasing never invalidates the baseline.
  */
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -122,8 +125,14 @@ export function scanUnknownCasts(repositoryRoot: string): UnknownCast[] {
     let text: string;
     try {
       text = readFileSync(path.resolve(repositoryRoot, file), "utf8");
-    } catch {
-      return [];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return [];
+      }
+      throw new Error(
+        `verify-no-unknown-casts: cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
     }
     return findUnknownCasts(file, text);
   });
@@ -200,11 +209,17 @@ function writeBaseline(casts: readonly UnknownCast[]): void {
 
 function main(): void {
   const args = process.argv.slice(2);
-  if (args.some((arg) => arg !== "--prune" && arg !== "--init")) {
-    throw new Error("Usage: bun run verify:unknown-casts [--prune]");
+  if (args.some((arg) => arg !== "--prune" && arg !== "--init" && arg !== "--rebaseline")) {
+    throw new Error("Usage: bun run verify:unknown-casts [--prune | --init | --rebaseline]");
   }
   const casts = scanUnknownCasts(REPOSITORY_ROOT);
-  if (args.includes("--init")) {
+  const baselineExists = existsSync(path.resolve(REPOSITORY_ROOT, BASELINE_PATH));
+  if (args.includes("--init") && baselineExists) {
+    throw new Error(
+      "verify-no-unknown-casts: a baseline already exists; --init will not overwrite it. Raising it is a deliberate, reviewed change: use --rebaseline.",
+    );
+  }
+  if (args.includes("--init") || args.includes("--rebaseline")) {
     writeBaseline(casts);
     console.log(
       `verify-no-unknown-casts: baseline written with ${String(casts.length)} assertions.`,
