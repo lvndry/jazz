@@ -221,6 +221,11 @@ export interface ToolExecutionResult {
    * result in the untrusted envelope, and `external` provenance marks the run's `EgressTaint`.
    */
   readonly untrusted?: UntrustedProvenance;
+  /**
+   * Set on a successful result that ends the turn's tool use: the rest of the turn is a
+   * text-only reply describing the result, and the model gets no further tool step.
+   */
+  readonly concludesTurn?: boolean;
 }
 
 /**

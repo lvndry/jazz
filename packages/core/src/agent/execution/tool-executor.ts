@@ -1064,6 +1064,7 @@ export class ToolExecutor {
             ? { memoryExposure: result.memoryExposure }
             : {}),
           ...(result.untrusted !== undefined ? { untrusted: result.untrusted } : {}),
+          ...(result.success && result.concludesTurn === true ? { concludesTurn: true } : {}),
         };
       } catch (error) {
         const toolDuration = Date.now() - toolStartTime;
@@ -1545,6 +1546,8 @@ export interface ToolCallOutcome {
   readonly memoryExposure?: MemoryExposure;
   /** Carried from the tool's own result; the loop frames the result it appends. */
   readonly untrusted?: UntrustedProvenance;
+  /** Carried from the tool's own result: the turn's tool use ends here. */
+  readonly concludesTurn?: boolean;
 }
 
 /**

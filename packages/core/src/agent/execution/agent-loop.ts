@@ -370,11 +370,11 @@ interface LoopState {
   /** The tool batch in flight, until every call of it has a result in the transcript. */
   activeToolBatch: ActiveToolBatch | undefined;
   /**
-   * Set once a goal proposal is saved: accepting it is the user's decision, so the rest of
-   * the turn may only describe the plan, never start it. Later completions are asked for
-   * text only, and tool calls the provider returns anyway are dropped.
+   * Set once a tool result concludes the turn (a saved goal proposal, whose acceptance is the
+   * user's decision): the rest of the turn may only describe the result. Later completions
+   * are asked for text only, and tool calls the provider returns anyway are dropped.
    */
-  awaitingGoalDecision: boolean;
+  turnConcluded: boolean;
   /**
    * Set when the model answered before reading results its sub-agents produced: the
    * next step is told to read them first, instead of the answer standing.
@@ -1426,12 +1426,15 @@ function handleToolPhase(
     ) {
       deps.memoryOpportunities?.invalidateSnapshot();
     }
-    if (
-      toolResults.some(
-        (toolResult) => toolResult.success && toolResult.name === PROPOSE_GOAL_TOOL_NAME,
-      )
-    ) {
-      state.awaitingGoalDecision = true;
+    if (toolResults.some((toolResult) => toolResult.success && toolResult.concludesTurn === true)) {
+      state.turnConcluded = true;
+      yield* logger.debug("Tool result concluded the turn; no further tool steps", {
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        tools: toolResults
+          .filter((toolResult) => toolResult.concludesTurn === true)
+          .map((toolResult) => toolResult.name),
+      });
     }
     const missingResults: string[] = [];
     for (const toolCall of toolCalls) {
@@ -1571,9 +1574,9 @@ function handleToolPhase(
   );
 }
 
-/** Whether the next completion may call tools: not while a goal awaits a decision or the run is writing its final answer. */
+/** Whether the next completion may call tools: not once a tool result concluded the turn or the run is writing its final answer. */
 function toolsOffered(state: LoopState): boolean {
-  return !state.awaitingGoalDecision && state.finalAnswerReason === undefined;
+  return !state.turnConcluded && state.finalAnswerReason === undefined;
 }
 
 /** The instruction appended to the run's final, tool-less request. */
@@ -2407,7 +2410,7 @@ export function executeAgentLoop(
           compactedSinceLastRequest: options.historyCompacted === true,
           overflowRecoveryUsed: false,
           activeToolBatch: undefined,
-          awaitingGoalDecision: false,
+          turnConcluded: false,
           unreadSubagentNotice: undefined,
           finalAnswerReason: undefined,
         };
