@@ -121,7 +121,9 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
         const results: { path: string; name: string; type: "file" | "dir" }[] = [];
 
         for (const entryPath of entries) {
-          if (results.length >= maxResults) break;
+          if (results.length >= maxResults) {
+            break;
+          }
 
           const isDir = entryPath.endsWith("/");
           const cleanPath = isDir ? entryPath.slice(0, -1) : entryPath;
@@ -129,9 +131,13 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
 
           // Apply filter
           if (filter.type === "regex" && filter.regex) {
-            if (!filter.regex.test(name)) continue;
+            if (!filter.regex.test(name)) {
+              continue;
+            }
           } else if (filter.type === "substring" && filter.value) {
-            if (!name.includes(filter.value)) continue;
+            if (!name.includes(filter.value)) {
+              continue;
+            }
           }
 
           results.push({

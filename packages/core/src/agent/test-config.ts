@@ -3,10 +3,11 @@
  */
 import { Effect, Layer } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { partialFake } from "@/core/test-support/fakes";
 import type { AppConfig } from "@/core/types/config";
 
 export function testConfigService(appConfig: Partial<AppConfig> = {}): AgentConfigService {
-  return { appConfig: Effect.succeed(appConfig) } as unknown as AgentConfigService;
+  return partialFake<AgentConfigService>({ appConfig: Effect.succeed(appConfig) });
 }
 
 export function testConfigLayer(appConfig: Partial<AppConfig> = {}) {

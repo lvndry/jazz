@@ -92,7 +92,9 @@ export async function ensureProviderApiKey(options: {
           cancellable: true,
           placeholder: "Paste the key; esc picks another provider",
           validate: (inputValue: string): boolean | string => {
-            if (!options.required) return true;
+            if (!options.required) {
+              return true;
+            }
             if (!inputValue || inputValue.trim().length === 0) {
               return "API key cannot be empty";
             }

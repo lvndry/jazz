@@ -11,7 +11,9 @@ import type { MCPElicitationField } from "@jazz/core/types/mcp";
 export function readChoices(
   node: Record<string, unknown> | undefined,
 ): readonly { value: string; label: string }[] | undefined {
-  if (!node) return undefined;
+  if (!node) {
+    return undefined;
+  }
 
   const enumValues = node["enum"];
   if (Array.isArray(enumValues)) {
@@ -36,7 +38,9 @@ export function readChoices(
         value: String(entry["const"]),
         label: typeof entry["title"] === "string" ? entry["title"] : String(entry["const"]),
       }));
-    if (options.length > 0) return options;
+    if (options.length > 0) {
+      return options;
+    }
   }
 
   return undefined;
@@ -50,7 +54,9 @@ export function readChoices(
  * coerced to a string field and left to the user to type.
  */
 export function toElicitationFields(requestedSchema: unknown): readonly MCPElicitationField[] {
-  if (typeof requestedSchema !== "object" || requestedSchema === null) return [];
+  if (typeof requestedSchema !== "object" || requestedSchema === null) {
+    return [];
+  }
 
   const schema = requestedSchema as {
     properties?: Record<string, Record<string, unknown>>;

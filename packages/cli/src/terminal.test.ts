@@ -274,8 +274,11 @@ describe("Ink terminal semantic acceptance", () => {
         expect(store.getDocumentSnapshot().entries[0]?.content).toEqual({ kind: "user", text });
       }
     } finally {
-      if (descriptor === undefined) Reflect.deleteProperty(process.stdout, "columns");
-      else Object.defineProperty(process.stdout, "columns", descriptor);
+      if (descriptor === undefined) {
+        Reflect.deleteProperty(process.stdout, "columns");
+      } else {
+        Object.defineProperty(process.stdout, "columns", descriptor);
+      }
       store.clearOutputs();
     }
   });

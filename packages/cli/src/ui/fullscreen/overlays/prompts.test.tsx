@@ -180,7 +180,9 @@ async function expectRectangular(node: ReactNode, viewport: Viewport): Promise<v
   const { renderer, captureCharFrame } = await draw(node, viewport);
   const lines = rows(captureCharFrame());
   expect(lines).toHaveLength(viewport.height);
-  for (const line of lines) expect([...line]).toHaveLength(viewport.width);
+  for (const line of lines) {
+    expect([...line]).toHaveLength(viewport.width);
+  }
   renderer.destroy();
 }
 
@@ -193,7 +195,9 @@ async function expectFullscreen(
   const { renderer, captureCharFrame } = await draw(node, viewport);
   const lines = rows(captureCharFrame());
   expect(lines).toHaveLength(viewport.height);
-  for (const line of lines) expect([...line]).toHaveLength(viewport.width);
+  for (const line of lines) {
+    expect([...line]).toHaveLength(viewport.width);
+  }
   expect((lines[0] ?? "")[0]).toBe(getGlyphs().bandBar);
   expect(lines[viewport.height - 1]).toContain(lastRowContains);
   renderer.destroy();
@@ -992,8 +996,11 @@ describe("prompt overlays in unicode glyph mode", () => {
   });
 
   afterAll(() => {
-    if (previous === undefined) delete process.env["JAZZ_UI_GLYPHS"];
-    else process.env["JAZZ_UI_GLYPHS"] = previous;
+    if (previous === undefined) {
+      delete process.env["JAZZ_UI_GLYPHS"];
+    } else {
+      process.env["JAZZ_UI_GLYPHS"] = previous;
+    }
   });
 
   it("draws every prompt as a band with a heavy bar, never a box", async () => {

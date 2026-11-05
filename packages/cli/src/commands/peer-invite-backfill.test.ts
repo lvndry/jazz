@@ -107,8 +107,11 @@ describe("backfillAskPeerTool", () => {
   });
 
   afterEach(async () => {
-    if (previousJazzHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = previousJazzHome;
+    if (previousJazzHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = previousJazzHome;
+    }
     await nodeFs.rm(jazzHome, { recursive: true, force: true });
   });
 
@@ -283,10 +286,16 @@ describe("backfillAskPeerTool", () => {
         out.mockRestore();
         err.mockRestore();
         server.stop(true);
-        if (previousPath === undefined) delete process.env["PATH"];
-        else process.env["PATH"] = previousPath;
-        if (previousKeyring === undefined) delete process.env["JAZZ_DISABLE_KEYRING"];
-        else process.env["JAZZ_DISABLE_KEYRING"] = previousKeyring;
+        if (previousPath === undefined) {
+          delete process.env["PATH"];
+        } else {
+          process.env["PATH"] = previousPath;
+        }
+        if (previousKeyring === undefined) {
+          delete process.env["JAZZ_DISABLE_KEYRING"];
+        } else {
+          process.env["JAZZ_DISABLE_KEYRING"] = previousKeyring;
+        }
         process.exitCode = previousExitCode ?? 0;
       }
     },

@@ -199,7 +199,9 @@ export function buildTimeBudgetPressureMessage(
   elapsedMs: number,
   maxDurationMs: number,
 ): { role: "user"; content: string } | null {
-  if (maxDurationMs <= 0) return null;
+  if (maxDurationMs <= 0) {
+    return null;
+  }
   const minutesUsed = Math.round(elapsedMs / 60_000);
   const minutesBudget = Math.round(maxDurationMs / 60_000);
   return budgetPressureMessage(
@@ -217,7 +219,9 @@ export function buildTokenBudgetPressureMessage(
   totalTokens: number,
   maxTokens: number,
 ): { role: "user"; content: string } | null {
-  if (maxTokens <= 0) return null;
+  if (maxTokens <= 0) {
+    return null;
+  }
   return budgetPressureMessage(
     totalTokens / maxTokens,
     "TOKEN",
@@ -233,7 +237,9 @@ export function buildOutputTokenBudgetPressureMessage(
   completionTokens: number,
   maxOutputTokens: number,
 ): { role: "user"; content: string } | null {
-  if (maxOutputTokens <= 0) return null;
+  if (maxOutputTokens <= 0) {
+    return null;
+  }
   return budgetPressureMessage(
     completionTokens / maxOutputTokens,
     "OUTPUT TOKEN",
@@ -248,7 +254,9 @@ export function buildCostBudgetPressureMessage(
   costUSD: number,
   maxCostUSD: number,
 ): { role: "user"; content: string } | null {
-  if (maxCostUSD <= 0) return null;
+  if (maxCostUSD <= 0) {
+    return null;
+  }
   return budgetPressureMessage(
     costUSD / maxCostUSD,
     "COST",
@@ -271,7 +279,9 @@ export function buildContextPressureMessage(
   budgetTokens: number,
   thresholds?: { warnThresholdRatio: number; compactThresholdRatio: number },
 ): { role: "user"; content: string } | null {
-  if (budgetTokens <= 0) return null;
+  if (budgetTokens <= 0) {
+    return null;
+  }
   const warnRatio = thresholds?.warnThresholdRatio ?? CONTEXT_WARN_THRESHOLD_RATIO;
   const compactRatio = thresholds?.compactThresholdRatio ?? CONTEXT_COMPACT_THRESHOLD_RATIO;
   const ratio = currentTokens / budgetTokens;
@@ -461,25 +471,35 @@ async function observeWorkspaceFiles(
   recent: Map<string, WorkspaceFileActivity>,
 ): Promise<void> {
   for (const item of results) {
-    if (!item.success) continue;
+    if (!item.success) {
+      continue;
+    }
     const kind =
       item.name === "read_file"
         ? "read"
         : item.name === "execute_edit_file" || item.name === "execute_write_file"
           ? "write"
           : undefined;
-    if (kind === undefined) continue;
+    if (kind === undefined) {
+      continue;
+    }
     const value = item.result;
-    if (typeof value !== "object" || value === null || !("path" in value)) continue;
+    if (typeof value !== "object" || value === null || !("path" in value)) {
+      continue;
+    }
     const path = value.path;
-    if (typeof path !== "string") continue;
+    if (typeof path !== "string") {
+      continue;
+    }
     try {
       const canonical = await realpath(path);
       recent.delete(canonical);
       recent.set(canonical, { path: canonical, kind });
       if (recent.size > MAX_RECENT_WORKSPACE_FILES) {
         const oldest = recent.keys().next().value;
-        if (oldest !== undefined) recent.delete(oldest);
+        if (oldest !== undefined) {
+          recent.delete(oldest);
+        }
       }
     } catch {
       // A path removed by another process cannot be inspected by the workspace plugin.
@@ -499,7 +519,9 @@ export function detectMeltdown(
   recentToolCalls: TrackedToolCall[],
   windowSize = MELTDOWN_WINDOW_SIZE,
 ): boolean {
-  if (recentToolCalls.length < windowSize) return false;
+  if (recentToolCalls.length < windowSize) {
+    return false;
+  }
   const window = recentToolCalls.slice(-windowSize);
   const keys = window.map((tc) => `${tc.name}:${tc.arguments}`);
   const uniqueness = new Set(keys).size / windowSize;
@@ -1332,7 +1354,9 @@ function handleToolPhase(
       remainingRunBudget: () => remainingRunBudget(deps),
       subagents: deps.subagents,
       attachMedia: (attachment: MessageAttachment) => {
-        if (pendingAttachments.length >= MAX_ATTACHMENTS_PER_MESSAGE) return;
+        if (pendingAttachments.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
+          return;
+        }
         pendingAttachments.push(attachment);
       },
       supportedAttachmentKinds: supportedAttachmentKinds,
@@ -1655,7 +1679,9 @@ function handleToolPhase(
       toolCalls: [...(state.response.toolCalls ?? []), ...toolCalls],
       toolResults: {
         ...state.response.toolResults,
-        ...Object.fromEntries(toolResults.map((r) => [r.name, r.result])),
+        ...Object.fromEntries(
+          toolResults.map((toolResult) => [toolResult.name, toolResult.result]),
+        ),
       },
       ...(producedArtifacts.length > 0
         ? { artifacts: [...(state.response.artifacts ?? []), ...producedArtifacts] }
@@ -2034,9 +2060,9 @@ function runIteration(
     }
 
     let lastUserContent: string | undefined;
-    for (let j = state.currentMessages.length - 1; j >= 0; j--) {
-      if (state.currentMessages[j]?.role === "user") {
-        lastUserContent = state.currentMessages[j]?.content;
+    for (let messageIndex = state.currentMessages.length - 1; messageIndex >= 0; messageIndex--) {
+      if (state.currentMessages[messageIndex]?.role === "user") {
+        lastUserContent = state.currentMessages[messageIndex]?.content;
         break;
       }
     }
@@ -2550,10 +2576,18 @@ export function executeAgentLoop(
         if (options.declaredAttachmentKinds !== undefined) {
           supportedAttachmentKinds.push(...options.declaredAttachmentKinds);
         } else {
-          if (modelMetadata?.ingestImage) supportedAttachmentKinds.push("image");
-          if (modelMetadata?.ingestPdf) supportedAttachmentKinds.push("pdf");
-          if (modelMetadata?.ingestAudio) supportedAttachmentKinds.push("audio");
-          if (modelMetadata?.ingestVideo) supportedAttachmentKinds.push("video");
+          if (modelMetadata?.ingestImage) {
+            supportedAttachmentKinds.push("image");
+          }
+          if (modelMetadata?.ingestPdf) {
+            supportedAttachmentKinds.push("pdf");
+          }
+          if (modelMetadata?.ingestAudio) {
+            supportedAttachmentKinds.push("audio");
+          }
+          if (modelMetadata?.ingestVideo) {
+            supportedAttachmentKinds.push("video");
+          }
         }
 
         const deps: LoopDeps = {
@@ -2621,23 +2655,27 @@ export function executeAgentLoop(
 
         yield* reportCheckpoint(state, options, deps.context.egressTaint);
 
-        for (let i = 0; i < maxIterations && !interrupted && !stalled; i++) {
-          yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
+        for (
+          let iterationIndex = 0;
+          iterationIndex < maxIterations && !interrupted && !stalled;
+          iterationIndex++
+        ) {
+          yield* Effect.sync(() => beginIteration(runMetrics, iterationIndex + 1));
           // Iteration-budget pressure warnings: 50%, 70%, 90% — user-visible, once each.
           // The model already gets its own ephemeral nudges via buildBudgetPressureMessage;
           // this tells the person watching the run how much headroom is left.
           if (Number.isFinite(maxIterations)) {
-            const pct = (i + 1) / maxIterations;
+            const pct = (iterationIndex + 1) / maxIterations;
             const threshold = pct >= 0.9 ? 90 : pct >= 0.7 ? 70 : pct >= 0.5 ? 50 : null;
             if (threshold !== null && !state.iterationPressureWarned.includes(threshold)) {
               state.iterationPressureWarned.push(threshold);
               if (!options.internal) {
-                yield* observer.onIterationPressure(agent.name, i + 1, maxIterations);
+                yield* observer.onIterationPressure(agent.name, iterationIndex + 1, maxIterations);
               }
             }
           }
           try {
-            const iteration = runIteration(state, i, deps).pipe(
+            const iteration = runIteration(state, iterationIndex, deps).pipe(
               Effect.tapError((error) =>
                 reportFailedTurn(error, state, options, deps.context.egressTaint),
               ),
@@ -2655,7 +2693,7 @@ export function executeAgentLoop(
             if (Option.isNone(outcome)) {
               closeStoppedBatch(state, options, "the run reached its time budget");
               durationCapped = true;
-              state.iterationsUsed = i + 1;
+              state.iterationsUsed = iterationIndex + 1;
               const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
               yield* observer.onDurationCapReached(
                 agent.name,
@@ -2677,7 +2715,7 @@ export function executeAgentLoop(
             if (step.kind === "stalled") {
               finished = true;
               stalled = true;
-              state.iterationsUsed = i + 1;
+              state.iterationsUsed = iterationIndex + 1;
               break;
             }
           } finally {
@@ -2697,7 +2735,7 @@ export function executeAgentLoop(
               runCost.costUSD === undefined ? undefined : runCost.costUSD + subagents.liveCostUSD();
             if (spentWithChildren !== undefined && spentWithChildren >= maxCostUSD) {
               costCapped = true;
-              state.iterationsUsed = i + 1;
+              state.iterationsUsed = iterationIndex + 1;
               yield* observer.onCostCapReached(agent.name, maxCostUSD, spentWithChildren);
               break;
             }
@@ -2706,7 +2744,7 @@ export function executeAgentLoop(
           // A child's share of its parent's cost cap, spent together with its siblings.
           if (options.sharedCostExhausted?.() === true) {
             costCapped = true;
-            state.iterationsUsed = i + 1;
+            state.iterationsUsed = iterationIndex + 1;
             break;
           }
 
@@ -2716,7 +2754,7 @@ export function executeAgentLoop(
             const totalTokens = runMetrics.totalPromptTokens + runMetrics.totalCompletionTokens;
             if (totalTokens >= maxTokens) {
               tokenCapped = true;
-              state.iterationsUsed = i + 1;
+              state.iterationsUsed = iterationIndex + 1;
               yield* observer.onTokenCapReached(agent.name, maxTokens, totalTokens);
               break;
             }
@@ -2727,7 +2765,7 @@ export function executeAgentLoop(
             runMetrics.totalCompletionTokens >= maxOutputTokens
           ) {
             tokenCapped = true;
-            state.iterationsUsed = i + 1;
+            state.iterationsUsed = iterationIndex + 1;
             yield* observer.onOutputTokenCapReached(
               agent.name,
               maxOutputTokens,
@@ -2742,7 +2780,7 @@ export function executeAgentLoop(
           if (workTimeLeftMs(deps) === 0) {
             const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
             durationCapped = true;
-            state.iterationsUsed = i + 1;
+            state.iterationsUsed = iterationIndex + 1;
             yield* observer.onDurationCapReached(agent.name, maxDurationMs ?? elapsedMs, elapsedMs);
             break;
           }

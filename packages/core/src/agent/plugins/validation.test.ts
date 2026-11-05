@@ -1,6 +1,7 @@
 /** Exercises strict decision and skill-distribution boundary validation. */
 
 import { describe, expect, it } from "bun:test";
+import { invalidInput } from "@/core/test-support/fakes";
 import type {
   CommandRiskOutcome,
   CompactToolsInput,
@@ -79,9 +80,9 @@ describe("plugin boundary validation", () => {
     expect(() => validateCommandRiskInput({ command: "" })).toThrow("1-4000");
     expect(() => validateCommandRiskInput({ command: "x".repeat(4_001) })).toThrow("1-4000");
     expect(() =>
-      validateCommandRiskInput({ command: "git status", extra: true } as unknown as {
-        command: string;
-      }),
+      validateCommandRiskInput(
+        invalidInput<{ command: string }>({ command: "git status", extra: true }),
+      ),
     ).toThrow("exactly command");
 
     expect(() =>
@@ -105,15 +106,17 @@ describe("plugin boundary validation", () => {
       }),
     ).toThrow("sum to 1");
     expect(() =>
-      validateCommandRiskOutcome({
-        status: "answered",
-        distribution: {
-          readOnlyProbability: 0.8,
-          lowRiskProbability: 0.1,
-          highRiskProbability: 0.1,
-          extra: 0,
-        },
-      } as unknown as CommandRiskOutcome),
+      validateCommandRiskOutcome(
+        invalidInput<CommandRiskOutcome>({
+          status: "answered",
+          distribution: {
+            readOnlyProbability: 0.8,
+            lowRiskProbability: 0.1,
+            highRiskProbability: 0.1,
+            extra: 0,
+          },
+        }),
+      ),
     ).toThrow("exactly three");
   });
 
@@ -128,11 +131,13 @@ describe("plugin boundary validation", () => {
       validateCommandRiskOutcome({ status: "abstained", reason: "x".repeat(513) }),
     ).toThrow("abstention reason");
     expect(() =>
-      validateCommandRiskOutcome({
-        status: "abstained",
-        reason: "not sure",
-        extra: true,
-      } as unknown as CommandRiskOutcome),
+      validateCommandRiskOutcome(
+        invalidInput<CommandRiskOutcome>({
+          status: "abstained",
+          reason: "not sure",
+          extra: true,
+        }),
+      ),
     ).toThrow("abstention reason");
   });
 

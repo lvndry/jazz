@@ -6,18 +6,19 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect, FileSystem } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { MemorySnapshot } from "@/core/interfaces/memory-service";
+import { partialFake } from "@/core/test-support/fakes";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 
 const emptySnapshot: MemorySnapshot = { entries: [], unreadableScopes: [] };
 
 function recordingLogger(): { logger: LoggerService; warnings: string[] } {
   const warnings: string[] = [];
-  const logger = {
+  const logger = partialFake<LoggerService>({
     warn: (message: string) =>
       Effect.sync(() => {
         warnings.push(message);
       }),
-  } as unknown as LoggerService;
+  });
   return { logger, warnings };
 }
 

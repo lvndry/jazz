@@ -63,7 +63,9 @@ async function readRegularFile(filePath: string, limit: number): Promise<Uint8Ar
   if (linkStat.isSymbolicLink() || !linkStat.isFile()) {
     throw new Error(`Plugin source is not a regular non-symlink file: ${filePath}`);
   }
-  if (linkStat.size > limit) throw new Error(`Plugin source exceeds ${limit} bytes`);
+  if (linkStat.size > limit) {
+    throw new Error(`Plugin source exceeds ${limit} bytes`);
+  }
   return new Uint8Array(await fs.readFile(filePath));
 }
 
@@ -153,7 +155,9 @@ export class PluginArtifactInstaller {
         await fs.rename(partial, finalDirectory);
       } catch (error) {
         // A concurrent installer may have won the race for this same digest.
-        if ((error as NodeJS.ErrnoException).code === "ENOTEMPTY") return finalDirectory;
+        if ((error as NodeJS.ErrnoException).code === "ENOTEMPTY") {
+          return finalDirectory;
+        }
         throw error;
       }
       return finalDirectory;
@@ -169,8 +173,9 @@ export class PluginArtifactInstaller {
   async install(manifest: PluginManifest, manifestSource: URL): Promise<string> {
     const bytes = await this.acquireArtifact(manifest, manifestSource);
     const actual = createHash("sha256").update(bytes).digest("hex");
-    if (actual !== manifest.sha256)
+    if (actual !== manifest.sha256) {
       throw new Error("Plugin artifact SHA-256 does not match manifest");
+    }
 
     const finalDirectory = path.dirname(this.artifactPath(actual));
     try {
@@ -207,7 +212,9 @@ export class PluginArtifactInstaller {
             this.artifactPath(actual),
             MAX_PLUGIN_ARTIFACT_BYTES,
           );
-          if (createHash("sha256").update(existing).digest("hex") === actual) return;
+          if (createHash("sha256").update(existing).digest("hex") === actual) {
+            return;
+          }
         } catch {
           // Preserve the original rename failure below.
         }
@@ -260,11 +267,13 @@ export class PluginArtifactInstaller {
       const manifestPath = fileURLToPath(manifestSource);
       const base = await fs.realpath(path.dirname(manifestPath));
       const requested = path.resolve(base, manifest.artifact);
-      if (!isPathWithin(base, requested))
+      if (!isPathWithin(base, requested)) {
         throw new Error("Local plugin artifact escapes manifest directory");
+      }
       const real = await fs.realpath(requested);
-      if (!isPathWithin(base, real))
+      if (!isPathWithin(base, real)) {
         throw new Error("Local plugin artifact resolves outside manifest directory");
+      }
       return readRegularFile(real, MAX_PLUGIN_ARTIFACT_BYTES);
     }
     const artifactUrl = new URL(manifest.artifact, manifestSource);

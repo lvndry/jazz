@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
+import { withoutServices } from "@/core/test-support/fakes";
 import type { ToolExecutionContext } from "@/core/types";
-import type { MCPTool } from "@/core/types/mcp";
+import type { MCPJSONSchema } from "@/core/types/mcp";
 import { registerMCPServerTools } from "./mcp";
 
-const serverConfig = { name: "probe", type: "stdio" } as unknown as MCPServerConfig;
+const serverConfig: MCPServerConfig = { name: "probe", command: "probe" };
 
 const context: ToolExecutionContext = {
   agentId: "test-agent",
@@ -18,15 +19,17 @@ const context: ToolExecutionContext = {
  * carries the handler that reaches the server, so argument handling has to be
  * probed there.
  */
-async function buildTool(inputSchema: unknown) {
+async function buildTool(inputSchema: MCPJSONSchema | undefined) {
   const tools = await Effect.runPromise(
     registerMCPServerTools(serverConfig, [
-      { name: "search", description: "probe tool", inputSchema } as unknown as MCPTool,
+      { name: "search", description: "probe tool", ...(inputSchema ? { inputSchema } : {}) },
     ]),
   );
   const approval = tools[0];
   const execute = tools[1];
-  if (!approval || !execute) throw new Error("no tool pair registered");
+  if (!approval || !execute) {
+    throw new Error("no tool pair registered");
+  }
   return { approval, execute };
 }
 
@@ -40,13 +43,10 @@ async function localValidationError(
   tool: Awaited<ReturnType<typeof buildTool>>,
   args: Record<string, unknown>,
 ): Promise<string | null> {
-  const exit = await Effect.runPromiseExit(
-    tool.execute.execute(args, context) as unknown as Effect.Effect<
-      { success: boolean; error?: string },
-      unknown
-    >,
-  );
-  if (exit._tag === "Failure") return null;
+  const exit = await Effect.runPromiseExit(withoutServices(tool.execute.execute(args, context)));
+  if (exit._tag === "Failure") {
+    return null;
+  }
   return exit.value.success === false ? (exit.value.error ?? "rejected") : null;
 }
 
@@ -54,15 +54,11 @@ function parseWithAdvertisedSchema(
   tool: Awaited<ReturnType<typeof buildTool>>,
   args: Record<string, unknown>,
 ) {
-  return (
-    tool.approval.parameters as unknown as {
-      safeParse: (value: unknown) => { success: boolean; data?: unknown };
-    }
-  ).safeParse(args);
+  return tool.approval.parameters.safeParse(args);
 }
 
 /** Schemas a real MCP server can legitimately publish that the Zod conversion handles badly. */
-const LOSSY_SCHEMAS: { label: string; schema: unknown }[] = [
+const LOSSY_SCHEMAS: { label: string; schema: MCPJSONSchema | undefined }[] = [
   { label: "no input schema at all", schema: undefined },
   { label: "unresolvable $ref", schema: { $ref: "#/$defs/Args" } },
   { label: "properties without a top-level type", schema: { properties: { query: {} } } },

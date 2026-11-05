@@ -18,6 +18,7 @@ import {
   pluginChanges,
   pluginStateTag,
 } from "./plugin-manager";
+import { partialFake } from "./test-support/partial-fake";
 
 const PLUGIN_ID = "com.jazz.test.toggle";
 
@@ -74,7 +75,7 @@ function scriptedTerminal(answers: readonly boolean[]): {
 } {
   const asked: string[] = [];
   const queue = [...answers];
-  const terminal = {
+  const terminal = partialFake<TerminalService>({
     isInteractive: true,
     confirm: (message: string) =>
       Effect.sync(() => {
@@ -85,7 +86,7 @@ function scriptedTerminal(answers: readonly boolean[]): {
     info: () => Effect.void,
     success: () => Effect.void,
     log: () => Effect.void,
-  } as unknown as TerminalService;
+  });
   return { terminal, asked };
 }
 

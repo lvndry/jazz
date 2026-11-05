@@ -20,7 +20,9 @@ export function binaryAnswerIndices(
   labels: readonly string[],
   allowMultiple: boolean,
 ): { readonly yes: number; readonly no: number } | undefined {
-  if (allowMultiple || labels.length !== 2) return undefined;
+  if (allowMultiple || labels.length !== 2) {
+    return undefined;
+  }
   const yes = labels.findIndex((label) => YES_LABEL.test(label.trim()));
   const no = labels.findIndex((label) => NO_LABEL.test(label.trim()));
   return yes >= 0 && no >= 0 && yes !== no ? { yes, no } : undefined;

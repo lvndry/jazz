@@ -25,17 +25,22 @@ export function groupWorkflows(workflows: readonly WorkflowMetadata[]) {
  * Format a single workflow for display in lists.
  */
 export function formatWorkflow(
-  w: WorkflowMetadata,
+  workflow: WorkflowMetadata,
   options?: {
     statusBadge?: string;
   },
 ): string {
-  const scheduleDesc = w.schedule ? describeCronSchedule(w.schedule) : null;
-  const scheduleStr = w.schedule ? (scheduleDesc ? ` (${scheduleDesc})` : ` [${w.schedule}]`) : "";
-  const agent = w.agent ? ` (agent: ${w.agent})` : "";
+  const scheduleDesc = workflow.schedule ? describeCronSchedule(workflow.schedule) : null;
+  const scheduleStr = workflow.schedule
+    ? scheduleDesc
+      ? ` (${scheduleDesc})`
+      : ` [${workflow.schedule}]`
+    : "";
+  const agent = workflow.agent ? ` (agent: ${workflow.agent})` : "";
   const status = options?.statusBadge ?? "";
-  const problem = w.definitionError !== undefined ? `\n    cannot run: ${w.definitionError}` : "";
-  return `  ${w.name}${scheduleStr}${agent}${status}\n    ${w.description}${problem}`;
+  const problem =
+    workflow.definitionError !== undefined ? `\n    cannot run: ${workflow.definitionError}` : "";
+  return `  ${workflow.name}${scheduleStr}${agent}${status}\n    ${workflow.description}${problem}`;
 }
 
 /**

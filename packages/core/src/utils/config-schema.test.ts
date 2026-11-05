@@ -3,6 +3,7 @@ import {
   missingNamedListEntry,
   namedListEntryOf,
   checkConfigWrite,
+  type ConfigFile,
   formatConfigIssues,
   parseConfigFile,
   parseConfigInput,
@@ -343,7 +344,7 @@ describe("parseConfigFile", () => {
   });
 
   it("keeps a named companion as written", () => {
-    const companions = {
+    const companions: ConfigFile["companions"] = {
       ocr: {
         provider: "vllm",
         model: "paddleocr-vl-1.6",
@@ -354,7 +355,7 @@ describe("parseConfigFile", () => {
     };
     const { config, issues } = parseConfigFile({ companions });
     expect(issues).toEqual([]);
-    expect(config).toEqual({ companions } as unknown as typeof config);
+    expect(config).toEqual({ companions });
   });
 
   it("never lets two companions share an API key variable", () => {

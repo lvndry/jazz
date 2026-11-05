@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
+import { partialFake } from "@/core/test-support/fakes";
 import type { Persona } from "@/core/types/persona";
 import { AgentPromptBuilder, type AgentPromptOptions } from "./agent-prompt";
 
@@ -13,9 +14,9 @@ const persona: Persona = {
   updatedAt: new Date(0),
 };
 
-const personaService = {
+const personaService = partialFake<PersonaService>({
   getPersonaByIdentifier: () => Effect.succeed(persona),
-} as unknown as PersonaService;
+});
 
 const memorySource = { id: "user:run-1", text: "My favorite fruit is mango." };
 

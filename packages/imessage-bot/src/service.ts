@@ -153,7 +153,9 @@ export function carriedEnvironment(
   const carried: Record<string, string> = {};
   for (const key of CARRIED_ENV) {
     const value = overrides[key] ?? env[key];
-    if (value !== undefined && value.length > 0) carried[key] = value;
+    if (value !== undefined && value.length > 0) {
+      carried[key] = value;
+    }
   }
   return carried;
 }

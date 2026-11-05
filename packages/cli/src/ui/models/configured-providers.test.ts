@@ -14,8 +14,11 @@ describe("configuredProviderNames", () => {
         }),
       ).toEqual(["anthropic"]);
     } finally {
-      if (previous === undefined) delete process.env["OLLAMA_API_KEY"];
-      else process.env["OLLAMA_API_KEY"] = previous;
+      if (previous === undefined) {
+        delete process.env["OLLAMA_API_KEY"];
+      } else {
+        process.env["OLLAMA_API_KEY"] = previous;
+      }
     }
   });
 
@@ -30,8 +33,11 @@ describe("configuredProviderNames", () => {
         }),
       ).toContain("openai");
     } finally {
-      if (previous === undefined) delete process.env["OPENAI_API_KEY"];
-      else process.env["OPENAI_API_KEY"] = previous;
+      if (previous === undefined) {
+        delete process.env["OPENAI_API_KEY"];
+      } else {
+        process.env["OPENAI_API_KEY"] = previous;
+      }
     }
   });
 
@@ -46,8 +52,11 @@ describe("configuredProviderNames", () => {
         }),
       ).toContain("ollama");
     } finally {
-      if (previous === undefined) delete process.env["OLLAMA_API_KEY"];
-      else process.env["OLLAMA_API_KEY"] = previous;
+      if (previous === undefined) {
+        delete process.env["OLLAMA_API_KEY"];
+      } else {
+        process.env["OLLAMA_API_KEY"] = previous;
+      }
     }
   });
 });

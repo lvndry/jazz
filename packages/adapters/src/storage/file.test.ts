@@ -5,9 +5,10 @@ import { type Agent } from "@jazz/core/types/index";
 import { describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, type FileSystem, Option } from "effect";
 import { FileStorageService } from "./file";
+import { partialFake } from "../test-support/fakes";
 
 // Mock FileSystem
-const mockFS = {
+const mockFS = partialFake<FileSystem.FileSystem>({
   makeDirectory: mock(() => Effect.void),
   readFileString: mock(() => Effect.succeed("{}")),
   writeFileString: mock(() => Effect.void),
@@ -36,7 +37,7 @@ const mockFS = {
   truncate: mock(() => Effect.void),
   utimes: mock(() => Effect.void),
   writeFile: mock(() => Effect.void),
-} as unknown as FileSystem.FileSystem;
+});
 
 const AGENT: Agent = {
   id: "a1",

@@ -25,7 +25,9 @@ async function awaitCollection(reference: WeakRef<object>): Promise<void> {
   do {
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
     Bun.gc(true);
-    if (reference.deref() === undefined) return;
+    if (reference.deref() === undefined) {
+      return;
+    }
   } while (Date.now() < deadline);
 }
 

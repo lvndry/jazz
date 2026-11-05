@@ -134,9 +134,13 @@ class LineScanner implements StreamSplitScanner {
   }
 
   evaluate(text: string): number {
-    if (text.length < this.committedLength) this.reset();
+    if (text.length < this.committedLength) {
+      this.reset();
+    }
     this.commitCompletedLines(text);
-    if (text.length === 0) return 0;
+    if (text.length === 0) {
+      return 0;
+    }
 
     const partialLine = text.slice(this.committedLength);
 
@@ -290,8 +294,12 @@ class LineScanner implements StreamSplitScanner {
     // one that has just arrived in the still-unterminated partial line.
     const partialFenceMarker = matchFenceMarker(partialLine);
     if (partialFenceMarker !== null) {
-      if (this.openFenceMarker === null) return this.committedLength;
-      if (this.openFenceMarker !== partialFenceMarker) return this.openFenceStart ?? text.length;
+      if (this.openFenceMarker === null) {
+        return this.committedLength;
+      }
+      if (this.openFenceMarker !== partialFenceMarker) {
+        return this.openFenceStart ?? text.length;
+      }
       // The partial line closes the open fence.
     } else if (this.openFenceStart !== null) {
       return this.openFenceStart;
@@ -299,7 +307,9 @@ class LineScanner implements StreamSplitScanner {
 
     // Open list block: a list line whose continuation hasn't broken yet.
     const openListStart = this.findOpenListStart(text, partialLine);
-    if (openListStart !== null) return openListStart;
+    if (openListStart !== null) {
+      return openListStart;
+    }
 
     return text.length;
   }
@@ -324,7 +334,9 @@ class LineScanner implements StreamSplitScanner {
       blockLastLineEnd = this.lastListLineEnd;
     }
 
-    if (blockStart === null) return null;
+    if (blockStart === null) {
+      return null;
+    }
     return blockLastLineEnd >= text.length - SOFT_TAIL ? blockStart : null;
   }
 
@@ -337,7 +349,9 @@ class LineScanner implements StreamSplitScanner {
   private findLastSentenceEndBeforeBlank(text: string, upperBound: number): number | null {
     if (this.unclassifiedSentenceEnd !== null && this.unclassifiedSentenceEnd <= upperBound) {
       const candidate = this.unclassifiedSentenceEnd;
-      if (text[candidate] !== "\n" || candidate === upperBound) return candidate;
+      if (text[candidate] !== "\n" || candidate === upperBound) {
+        return candidate;
+      }
     }
     const beforeBlank = highestAtMost(this.sentenceEndBeforeBlankCandidates, upperBound);
     return beforeBlank === upperBound ? beforeBlank : null;
@@ -350,10 +364,18 @@ class LineScanner implements StreamSplitScanner {
    * would offer no split at all until that paragraph's newline arrived.
    */
   private findListBlockEndAtPartialLine(partialLine: string, upperBound: number): number | null {
-    if (!this.lastCommittedLineIsList) return null;
-    if (this.committedLength >= upperBound) return null;
-    if (partialLine.length === 0) return null;
-    if (isListLine(partialLine.slice(0, LIST_MARKER_PROBE))) return null;
+    if (!this.lastCommittedLineIsList) {
+      return null;
+    }
+    if (this.committedLength >= upperBound) {
+      return null;
+    }
+    if (partialLine.length === 0) {
+      return null;
+    }
+    if (isListLine(partialLine.slice(0, LIST_MARKER_PROBE))) {
+      return null;
+    }
     return this.committedLength;
   }
 
@@ -367,7 +389,9 @@ class LineScanner implements StreamSplitScanner {
    */
   private findLastBlankLine(upperBound: number): number | null {
     const occurrence = highestAtMost(this.blankLineStarts, upperBound - 1);
-    if (occurrence === null) return null;
+    if (occurrence === null) {
+      return null;
+    }
     const candidate = occurrence + 2;
     return candidate <= upperBound ? candidate : null;
   }
@@ -393,7 +417,9 @@ function highestAtMost(sorted: readonly number[], bound: number): number | null 
 
 function matchFenceMarker(line: string): string | null {
   for (const marker of FENCE_MARKERS) {
-    if (line.startsWith(marker)) return marker;
+    if (line.startsWith(marker)) {
+      return marker;
+    }
   }
   return null;
 }
@@ -420,7 +446,9 @@ function isListLine(line: string): boolean {
  */
 export function isInsideOpenStructure(text: string): boolean {
   // Open fenced code block?
-  if (findLastUnmatchedFenceStart(text) !== null) return true;
+  if (findLastUnmatchedFenceStart(text) !== null) {
+    return true;
+  }
 
   // Open table: the last non-empty line looks like a table row (`| ... |`),
   // and we haven't yet seen the next line (no trailing newline → row is in
@@ -428,7 +456,9 @@ export function isInsideOpenStructure(text: string): boolean {
   // require the line to *start* with a pipe.
   const lastNewlineIndex = text.lastIndexOf("\n");
   const lastLine = lastNewlineIndex === -1 ? text : text.slice(lastNewlineIndex + 1);
-  if (lastLine.trimStart().startsWith("|")) return true;
+  if (lastLine.trimStart().startsWith("|")) {
+    return true;
+  }
 
   return false;
 }
@@ -460,18 +490,24 @@ function findLastUnmatchedFenceStart(text: string): number | null {
 const HARD_CAP_WHITESPACE_SEARCH_WINDOW = 500;
 
 function tryHardCapFallback(text: string): number {
-  if (text.length <= MAX_PENDING_TAIL) return 0;
+  if (text.length <= MAX_PENDING_TAIL) {
+    return 0;
+  }
 
   // Prefer a newline at or before the cap.
   const newlineIndex = text.lastIndexOf("\n", MAX_PENDING_TAIL);
-  if (newlineIndex !== -1) return newlineIndex + 1;
+  if (newlineIndex !== -1) {
+    return newlineIndex + 1;
+  }
 
   // No newline within the cap. Walk back from the cap looking for a
   // whitespace boundary so we don't split mid-word.
   const searchFloor = Math.max(0, MAX_PENDING_TAIL - HARD_CAP_WHITESPACE_SEARCH_WINDOW);
   for (let index = MAX_PENDING_TAIL; index > searchFloor; index--) {
     const character = text[index];
-    if (character === " " || character === "\t") return index + 1;
+    if (character === " " || character === "\t") {
+      return index + 1;
+    }
   }
 
   // Pathological: no newline and no whitespace within the search window
@@ -489,31 +525,43 @@ function isInsideInlineRun(text: string, offset: number): boolean {
 
   // Inline code: count backticks not preceded by a backslash.
   const backticks = (prefix.match(/(?<!\\)`/g) ?? []).length;
-  if (backticks % 2 === 1) return true;
+  if (backticks % 2 === 1) {
+    return true;
+  }
 
   // Bold (**): count unmatched markers, use simple parity heuristic.
   const doubleStars = (prefix.match(/\*\*/g) ?? []).length;
-  if (doubleStars % 2 === 1) return true;
+  if (doubleStars % 2 === 1) {
+    return true;
+  }
 
   // Single-star italic: count `*` not preceded by `*` and not part of `**`.
   // Strip `**` pairs first to avoid double-counting.
   const prefixWithoutDoubleStars = prefix.replace(/\*\*/g, "");
   const singleStars = (prefixWithoutDoubleStars.match(/\*/g) ?? []).length;
-  if (singleStars % 2 === 1) return true;
+  if (singleStars % 2 === 1) {
+    return true;
+  }
 
   // Italic underscores: count unmatched `_` markers in word boundaries.
   const underscores = (prefix.match(/(?<![A-Za-z0-9])_/g) ?? []).length;
-  if (underscores % 2 === 1) return true;
+  if (underscores % 2 === 1) {
+    return true;
+  }
 
   // Link in flight: an unclosed `[` without a matching `]`.
   const openBrackets = (prefix.match(/\[/g) ?? []).length;
   const closeBrackets = (prefix.match(/\]/g) ?? []).length;
-  if (openBrackets > closeBrackets) return true;
+  if (openBrackets > closeBrackets) {
+    return true;
+  }
 
   // Link with brackets closed but parens still open: `[label](http`.
   const openParens = (prefix.match(/\]\(/g) ?? []).length;
   const closeAfterOpen = countMatchedLinkParens(prefix);
-  if (openParens > closeAfterOpen) return true;
+  if (openParens > closeAfterOpen) {
+    return true;
+  }
 
   return false;
 }

@@ -34,7 +34,9 @@ export function ScrollableSelect<T = unknown>({
     onResolve: (resolution) => {
       if (resolution.kind === "single") {
         const value = originalValueFromPicker(options, resolution.value);
-        if (value !== undefined) onSelect(value);
+        if (value !== undefined) {
+          onSelect(value);
+        }
       }
     },
     onCancel,

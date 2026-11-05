@@ -27,7 +27,9 @@ function itemSegment(rows: readonly LiveRow[], content: string): LiveSegment | u
 function itemMark(rows: readonly LiveRow[], content: string): LiveSegment | undefined {
   for (const row of rows) {
     const contentIndex = row.segments.findIndex((segment) => segment.text === content);
-    if (contentIndex >= 2) return row.segments[contentIndex - 2];
+    if (contentIndex >= 2) {
+      return row.segments[contentIndex - 2];
+    }
   }
   return undefined;
 }

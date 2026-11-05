@@ -114,8 +114,11 @@ describe("agentStoreDirectory", () => {
     try {
       return agentStoreDirectory();
     } finally {
-      if (previous === undefined) delete process.env["JAZZ_CONFIG_PATH"];
-      else process.env["JAZZ_CONFIG_PATH"] = previous;
+      if (previous === undefined) {
+        delete process.env["JAZZ_CONFIG_PATH"];
+      } else {
+        process.env["JAZZ_CONFIG_PATH"] = previous;
+      }
     }
   };
 
@@ -139,8 +142,11 @@ describe("agentStoreDirectory", () => {
     try {
       expect(agentStoreDirectory()).toBe(getJazzHomeDirectory());
     } finally {
-      if (previous === undefined) delete process.env["JAZZ_CONFIG_PATH"];
-      else process.env["JAZZ_CONFIG_PATH"] = previous;
+      if (previous === undefined) {
+        delete process.env["JAZZ_CONFIG_PATH"];
+      } else {
+        process.env["JAZZ_CONFIG_PATH"] = previous;
+      }
     }
   });
 });

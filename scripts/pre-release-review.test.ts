@@ -22,7 +22,9 @@ import {
 
 const temporary: string[] = [];
 afterEach(() => {
-  for (const directory of temporary.splice(0)) rmSync(directory, { recursive: true, force: true });
+  for (const directory of temporary.splice(0)) {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 function directory(): string {
@@ -95,13 +97,20 @@ function fixture(): { runtime: ReviewRuntime; context: ReviewContext; calls: str
     run: (program, args, input) => {
       calls.push([program, ...args]);
       if (program === "gh") {
-        if (args[0] === "api")
+        if (args[0] === "api") {
           return JSON.stringify({ tag_name: "v1.2.3", draft: false, prerelease: false });
-        if (args[1] === "list") return "[]";
-        if (args[1] === "create") return "https://github.com/owner/repo/pull/12\n";
+        }
+        if (args[1] === "list") {
+          return "[]";
+        }
+        if (args[1] === "create") {
+          return "https://github.com/owner/repo/pull/12\n";
+        }
         throw new Error("Unexpected gh call");
       }
-      if (args.includes("ls-remote") || args.includes("push")) return "";
+      if (args.includes("ls-remote") || args.includes("push")) {
+        return "";
+      }
       return execFileSync(program, [...args], {
         cwd,
         input,
@@ -323,8 +332,9 @@ describe("pre-release review artifacts", () => {
     for (const kind of ["symlink", "workflow"] as const) {
       const { runtime, context } = fixture();
       writeReport(runtime, report(context));
-      if (kind === "symlink") symlinkSync("source.ts", path.join(runtime.cwd, "link"));
-      else {
+      if (kind === "symlink") {
+        symlinkSync("source.ts", path.join(runtime.cwd, "link"));
+      } else {
         mkdirSync(path.join(runtime.cwd, ".github"));
         writeFileSync(path.join(runtime.cwd, ".github", "new-action.yml"), "on: push\n");
       }

@@ -8,6 +8,7 @@ import {
   type JobQueueService,
   type JobRecord,
 } from "@/core/interfaces/job-queue-service";
+import { partialFake } from "@/core/test-support/fakes";
 import { createJobQueueTools } from "./job-queue";
 
 function job(overrides: Partial<JobRecord> & Pick<JobRecord, "id" | "command">): JobRecord {
@@ -61,12 +62,15 @@ const BATCH: JobBatchRecord = {
   ],
 };
 
-const serviceLayer = Layer.succeed(JobQueueServiceTag, {
-  enqueueBatch: () => Effect.die("unused"),
-  getBatch: () => Effect.succeed(BATCH),
-  listActiveBatches: () => Effect.succeed([BATCH]),
-  cancelBatch: () => Effect.die("unused"),
-} as unknown as JobQueueService);
+const serviceLayer = Layer.succeed(
+  JobQueueServiceTag,
+  partialFake<JobQueueService>({
+    enqueueBatch: () => Effect.die("unused"),
+    getBatch: () => Effect.succeed(BATCH),
+    listActiveBatches: () => Effect.succeed([BATCH]),
+    cancelBatch: () => Effect.die("unused"),
+  }),
+);
 
 function listJobs() {
   const { listJobs: tool } = createJobQueueTools();

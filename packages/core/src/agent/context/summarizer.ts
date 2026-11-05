@@ -62,9 +62,13 @@ export const COMPACTION_CONTINUATION_MESSAGE: ChatMessage = {
  * the summarizer has to read.
  */
 function truncateArguments(rawArguments: string | undefined): string {
-  if (!rawArguments) return "";
+  if (!rawArguments) {
+    return "";
+  }
   const trimmed = rawArguments.trim();
-  if (trimmed.length <= MAX_RENDERED_ARGUMENT_CHARS) return trimmed;
+  if (trimmed.length <= MAX_RENDERED_ARGUMENT_CHARS) {
+    return trimmed;
+  }
   return `${trimmed.slice(0, MAX_RENDERED_ARGUMENT_CHARS)}… (${trimmed.length} chars)`;
 }
 
@@ -272,7 +276,9 @@ export function chunkForSummarizer(
   budgetTokens: number,
   hint: ModelHint,
 ): ChatMessage[][] {
-  if (budgetTokens <= 0) return [[...messages]];
+  if (budgetTokens <= 0) {
+    return [[...messages]];
+  }
 
   const chunks: ChatMessage[][] = [];
   let current: ChatMessage[] = [];
@@ -289,7 +295,9 @@ export function chunkForSummarizer(
     currentTokens += tokens;
   }
 
-  if (current.length > 0) chunks.push(current);
+  if (current.length > 0) {
+    chunks.push(current);
+  }
   return chunks;
 }
 
@@ -358,7 +366,9 @@ function resolveLocalSummarizerModel(
   LLMService | AgentConfigService
 > {
   return Effect.gen(function* () {
-    if (provider !== "llamacpp" && provider !== "vllm" && provider !== "sglang") return {};
+    if (provider !== "llamacpp" && provider !== "vllm" && provider !== "sglang") {
+      return {};
+    }
     const configService = yield* AgentConfigServiceTag;
     const llmService = yield* LLMServiceTag;
     const appConfig = yield* configService.appConfig;
@@ -553,9 +563,11 @@ export const Summarizer = {
     let recentCount = 0;
 
     // Scan backwards to fill budget
-    for (let i = middleMessages.length - 1; i >= 0; i--) {
-      const msg = middleMessages[i];
-      if (!msg) continue;
+    for (let messageIndex = middleMessages.length - 1; messageIndex >= 0; messageIndex--) {
+      const msg = middleMessages[messageIndex];
+      if (!msg) {
+        continue;
+      }
       // Calculate tokens for this single message via the calibrated counter.
       const tokens = DEFAULT_TOKEN_COUNTER.countMessage(msg, hint);
 
@@ -842,7 +854,9 @@ export const Summarizer = {
         data: Readonly<Record<string, JsonValue>>,
       ): Effect.Effect<void> =>
         Effect.gen(function* () {
-          if (Option.isNone(pluginRuntime)) return;
+          if (Option.isNone(pluginRuntime)) {
+            return;
+          }
           yield* Effect.forkDetach(
             pluginRuntime.value
               .emitLifecycleEvent({
@@ -873,7 +887,9 @@ export const Summarizer = {
       // and passes nothing; the manual /compact path supplies it so /compact is plugin-driven too.
       let workingMessages = currentMessages;
       if (reduceToolResults) {
-        if (onPhase) yield* onPhase({ phase: "prune-start" });
+        if (onPhase) {
+          yield* onPhase({ phase: "prune-start" });
+        }
         const protectedFromIndex = toolResultsProtectFromIndex(currentMessages);
         const advised = yield* reduceToolResults(currentMessages, protectedFromIndex, undefined);
         if (onPhase) {
@@ -965,8 +981,9 @@ export const Summarizer = {
         );
       }
 
-      if (onPhase)
+      if (onPhase) {
         yield* onPhase({ phase: "summarize-start", messageCount: messagesToSummarize.length });
+      }
 
       // Summarize the middle portion, merged into the earlier summary. `splitMessages`
       // has already taken that summary out of the history, so it survives only if it is

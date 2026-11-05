@@ -113,20 +113,26 @@ export function wrapProse(text: string, width: number): string[] {
       line = candidate;
       continue;
     }
-    if (line.length > 0) lines.push(line);
+    if (line.length > 0) {
+      lines.push(line);
+    }
     // A word wider than the measure is broken across rows, never clipped. On
     // this card the oversized word is typically a URL or a shell command with
     // no spaces in it — the one string the reader most needs whole.
     let rest = word;
     while (displayWidth(rest) > measure) {
       const head = sliceTerminalCells(rest, measure);
-      if (head.length === 0) break;
+      if (head.length === 0) {
+        break;
+      }
       lines.push(head);
       rest = rest.slice(head.length);
     }
     line = rest;
   }
-  if (line.length > 0) lines.push(line);
+  if (line.length > 0) {
+    lines.push(line);
+  }
   return lines.length > 0 ? lines : [""];
 }
 
@@ -163,7 +169,9 @@ const HEX_COLOR = /^#[0-9A-Fa-f]{6}$/;
 
 /** A diff row's ground: the panel tinted toward green or red, or the element tier when the panel is not a colour that can be mixed. */
 function diffBackground(sign: "+" | "-" | " " | "@"): string {
-  if (sign === " " || sign === "@") return THEME.surfaceStrong;
+  if (sign === " " || sign === "@") {
+    return THEME.surfaceStrong;
+  }
   const hue = sign === "+" ? THEME.success : THEME.error;
   return HEX_COLOR.test(THEME.surface) && HEX_COLOR.test(hue)
     ? blendHex(THEME.surface, hue, DIFF_TINT)
@@ -175,7 +183,9 @@ function clipSpans(spans: readonly SyntaxSpan[], width: number): SyntaxSpan[] {
   const clipped: SyntaxSpan[] = [];
   let remaining = width;
   for (const span of spans) {
-    if (remaining <= 0) break;
+    if (remaining <= 0) {
+      break;
+    }
     const text = clip(span.text, remaining);
     clipped.push({ text, fg: span.fg });
     remaining -= displayWidth(text);
@@ -198,7 +208,9 @@ export function commandRows(command: string, width: number): BodyRow[] {
       // Break after the last space that fits, so a flag or a path stays whole; a token
       // wider than the band is the only thing cut mid-way.
       const space = head.lastIndexOf(" ");
-      if (head.length < rest.length && space > 0) head = head.slice(0, space + 1);
+      if (head.length < rest.length && space > 0) {
+        head = head.slice(0, space + 1);
+      }
       pieces.push(head);
       rest = rest.slice(head.length);
     } while (rest.length > 0);
@@ -278,7 +290,9 @@ export function approvalBodyRows(
   });
 
   if (consequence.length > 0) {
-    if (rows.length > 0) rows.push({ kind: "blank", key: "gap" });
+    if (rows.length > 0) {
+      rows.push({ kind: "blank", key: "gap" });
+    }
     consequence.forEach((line, index) => {
       rows.push({ kind: "prose", key: `consequence:${String(index)}`, text: line });
     });
@@ -294,7 +308,9 @@ export function approvalBodyRows(
  * important row of the card is worse than one more row.
  */
 function consequenceInline(title: string, consequence: string, inner: number): boolean {
-  if (consequence.length === 0) return false;
+  if (consequence.length === 0) {
+    return false;
+  }
   return displayWidth(title) + TITLE_GAP + displayWidth(consequence) + 2 <= inner;
 }
 

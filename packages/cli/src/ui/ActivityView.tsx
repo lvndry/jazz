@@ -40,7 +40,9 @@ function useElapsedSeconds(resetKey: string, externalStart?: number): number {
 }
 
 function ElapsedText({ seconds }: { seconds: number }): React.ReactElement | null {
-  if (seconds < ELAPSED_VISIBLE_AFTER_S) return null;
+  if (seconds < ELAPSED_VISIBLE_AFTER_S) {
+    return null;
+  }
   return <Text dimColor> · {formatElapsed(seconds * 1000)}</Text>;
 }
 
@@ -204,7 +206,7 @@ export const ActivityView = React.memo(function ActivityView({
       );
 
     case "tool-execution": {
-      const uniqueNames = Array.from(new Set(activity.tools.map((t) => t.toolName)));
+      const uniqueNames = Array.from(new Set(activity.tools.map((tool) => tool.toolName)));
       const isManagingTodos = uniqueNames.includes("manage_todos");
       const classifying = activity.tools.some((tool) => tool.classifying === true);
       const label =

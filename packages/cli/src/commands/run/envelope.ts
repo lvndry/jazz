@@ -144,7 +144,9 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
   if (!options.json) {
     const answer = result.answer.trim();
     const artifacts = result.artifacts ?? [];
-    if (artifacts.length === 0) return `${answer}\n`;
+    if (artifacts.length === 0) {
+      return `${answer}\n`;
+    }
 
     // Paths go below the answer whether or not the model mentioned them. A run that writes a
     // file and does not say where is a run the user has to go hunting after, and models are

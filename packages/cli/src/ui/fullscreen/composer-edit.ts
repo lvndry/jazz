@@ -119,7 +119,9 @@ export function deleteBackward(buffer: ComposerBuffer): ComposerBuffer {
     return replaceRange(buffer, start, end, "");
   }
   const current = normalizeBuffer(buffer);
-  if (current.caret === 0) return current;
+  if (current.caret === 0) {
+    return current;
+  }
   return replaceRange(current, current.caret - 1, current.caret, "");
 }
 
@@ -129,7 +131,9 @@ export function deleteForward(buffer: ComposerBuffer): ComposerBuffer {
     return replaceRange(buffer, start, end, "");
   }
   const current = normalizeBuffer(buffer);
-  if (current.caret >= [...current.text].length) return current;
+  if (current.caret >= [...current.text].length) {
+    return current;
+  }
   return replaceRange(current, current.caret, current.caret + 1, "");
 }
 
@@ -210,7 +214,9 @@ function sameBuffer(left: ComposerBuffer, right: ComposerBuffer): boolean {
 export function commit(history: ComposerHistory, next: ComposerBuffer): ComposerHistory {
   const present = normalizeBuffer(history.present);
   const incoming = normalizeBuffer(next);
-  if (sameBuffer(present, incoming)) return history;
+  if (sameBuffer(present, incoming)) {
+    return history;
+  }
   if (present.text === incoming.text) {
     return { past: history.past, present: incoming, future: history.future };
   }
@@ -224,7 +230,9 @@ export function commit(history: ComposerHistory, next: ComposerBuffer): Composer
 
 export function undo(history: ComposerHistory): ComposerHistory {
   const previous = history.past.at(-1);
-  if (previous === undefined) return history;
+  if (previous === undefined) {
+    return history;
+  }
   return {
     past: history.past.slice(0, -1),
     present: previous,
@@ -234,7 +242,9 @@ export function undo(history: ComposerHistory): ComposerHistory {
 
 export function redo(history: ComposerHistory): ComposerHistory {
   const next = history.future[0];
-  if (next === undefined) return history;
+  if (next === undefined) {
+    return history;
+  }
   return {
     past: [...history.past, history.present],
     present: next,

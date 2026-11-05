@@ -11,12 +11,17 @@ export class TerminalScope {
   private released = false;
 
   add(cleanup: () => void): void {
-    if (this.released) cleanup();
-    else this.cleanups.push(cleanup);
+    if (this.released) {
+      cleanup();
+    } else {
+      this.cleanups.push(cleanup);
+    }
   }
 
   release(): void {
-    if (this.released) return;
+    if (this.released) {
+      return;
+    }
     this.released = true;
     let firstFailure: unknown;
     let failed = false;
@@ -24,10 +29,14 @@ export class TerminalScope {
       try {
         this.cleanups.pop()?.();
       } catch (error) {
-        if (!failed) firstFailure = error;
+        if (!failed) {
+          firstFailure = error;
+        }
         failed = true;
       }
     }
-    if (failed) throw firstFailure;
+    if (failed) {
+      throw firstFailure;
+    }
   }
 }

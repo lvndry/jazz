@@ -323,7 +323,9 @@ describe("approval overlay", () => {
     const frame = captureSpans();
 
     for (const span of allSpans(frame)) {
-      if (span.text.trim().length === 0) continue;
+      if (span.text.trim().length === 0) {
+        continue;
+      }
       expect(hexOf(span)).not.toBe(themeHex(THEME.error));
     }
 
@@ -480,7 +482,9 @@ describe("approval overlay", () => {
     );
     const wideRows = rows(wide.captureCharFrame());
     expect(wideRows).toHaveLength(WIDE.height);
-    for (const row of wideRows) expect([...row]).toHaveLength(WIDE.width);
+    for (const row of wideRows) {
+      expect([...row]).toHaveLength(WIDE.width);
+    }
     // Windowed: the panel sits on the prose column and stops short of the right edge.
     expect(wideRows.every((row) => ([...row].at(-1) ?? " ") === " ")).toBe(true);
     wide.renderer.destroy();
@@ -494,7 +498,9 @@ describe("approval overlay", () => {
     );
     const narrowRows = rows(narrow.captureCharFrame());
     expect(narrowRows).toHaveLength(NARROW.height);
-    for (const row of narrowRows) expect([...row]).toHaveLength(NARROW.width);
+    for (const row of narrowRows) {
+      expect([...row]).toHaveLength(NARROW.width);
+    }
     // Fullscreen: the band starts at column zero of row zero, and the two
     // control rows are the last rows of the viewport.
     expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().bandBar);
@@ -515,7 +521,9 @@ describe("approval overlay", () => {
     const frame = compact.captureCharFrame();
     const lines = rows(frame);
     expect(lines).toHaveLength(COMPACT.height);
-    for (const line of lines) expect([...line]).toHaveLength(COMPACT.width);
+    for (const line of lines) {
+      expect([...line]).toHaveLength(COMPACT.width);
+    }
     expect(frame).toContain("averylongmailbox@");
     expect(frame).toContain("example.com");
     expect(frame).toContain("Account");
@@ -618,7 +626,9 @@ describe("approval overlay", () => {
       );
       const frame = captureCharFrame();
       expect(rows(frame)).toHaveLength(COMPACT.height);
-      for (const row of rows(frame)) expect([...row]).toHaveLength(COMPACT.width);
+      for (const row of rows(frame)) {
+        expect([...row]).toHaveLength(COMPACT.width);
+      }
       expect(frame).toContain("TAIL");
       renderer.destroy();
     });
@@ -670,7 +680,9 @@ describe("search overlay", () => {
     const frame = captureCharFrame();
     const lines = rows(frame);
     expect(lines).toHaveLength(COMPACT.height);
-    for (const line of lines) expect([...line]).toHaveLength(COMPACT.width);
+    for (const line of lines) {
+      expect([...line]).toHaveLength(COMPACT.width);
+    }
     expect(frame).toContain("deploy");
     expect(frame).toContain("enter");
     renderer.destroy();
@@ -804,7 +816,9 @@ describe("search overlay", () => {
     );
     const wideRows = rows(wide.captureCharFrame());
     expect(wideRows).toHaveLength(WIDE.height);
-    for (const row of wideRows) expect([...row]).toHaveLength(WIDE.width);
+    for (const row of wideRows) {
+      expect([...row]).toHaveLength(WIDE.width);
+    }
     expect(wideRows.every((row) => ([...row].at(-1) ?? " ") === " ")).toBe(true);
     wide.renderer.destroy();
 
@@ -817,7 +831,9 @@ describe("search overlay", () => {
     );
     const narrowRows = rows(narrow.captureCharFrame());
     expect(narrowRows).toHaveLength(NARROW.height);
-    for (const row of narrowRows) expect([...row]).toHaveLength(NARROW.width);
+    for (const row of narrowRows) {
+      expect([...row]).toHaveLength(NARROW.width);
+    }
     expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().bandBar);
     expect(narrowRows[NARROW.height - 1]).toContain("insert");
     narrow.renderer.destroy();
@@ -913,8 +929,11 @@ describe("overlays in unicode glyph mode", () => {
   });
 
   afterAll(() => {
-    if (previous === undefined) delete process.env["JAZZ_UI_GLYPHS"];
-    else process.env["JAZZ_UI_GLYPHS"] = previous;
+    if (previous === undefined) {
+      delete process.env["JAZZ_UI_GLYPHS"];
+    } else {
+      process.env["JAZZ_UI_GLYPHS"] = previous;
+    }
   });
 
   it("draws both overlays as bands with a heavy bar, never a box", async () => {

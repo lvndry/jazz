@@ -100,7 +100,9 @@ export function createRegisterTriggerTool(): Tool<WakeTriggerToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { fireAt: string };
       return `Wake trigger set for ${data.fireAt}`;
     },
@@ -149,7 +151,9 @@ export function createListTriggersTool(): Tool<WakeTriggerToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { triggers: readonly unknown[] };
       return `Listed wake triggers (${data.triggers.length})`;
     },
@@ -194,7 +198,9 @@ export function createCancelTriggerTool(): Tool<WakeTriggerToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { message: string };
       return data.message;
     },

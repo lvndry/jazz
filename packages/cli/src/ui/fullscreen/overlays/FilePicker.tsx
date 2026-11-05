@@ -108,12 +108,20 @@ function wrapProse(text: string, width: number, maxRows: number): string[] {
       line = candidate;
       continue;
     }
-    if (line.length > 0) lines.push(line);
+    if (line.length > 0) {
+      lines.push(line);
+    }
     line = displayWidth(word) <= width ? word : clip(word, width);
   }
-  if (line.length > 0) lines.push(line);
-  if (lines.length === 0) return [""];
-  if (lines.length <= maxRows) return lines;
+  if (line.length > 0) {
+    lines.push(line);
+  }
+  if (lines.length === 0) {
+    return [""];
+  }
+  if (lines.length <= maxRows) {
+    return lines;
+  }
   const kept = lines.slice(0, maxRows);
   const last = kept[maxRows - 1] ?? "";
   kept[maxRows - 1] = clip(`${last} ${lines.slice(maxRows).join(" ")}`, width);
@@ -122,16 +130,24 @@ function wrapProse(text: string, width: number, maxRows: number): string[] {
 
 /** Derived, not remembered: see the same note on the question overlay. */
 function windowStartFor(selected: number, total: number, rows: number): number {
-  if (total <= rows) return 0;
+  if (total <= rows) {
+    return 0;
+  }
   const wanted = selected + 1 + LIST_MARGIN - rows;
   return Math.max(0, Math.min(wanted, total - rows));
 }
 
 function countLabel(model: FilePickerModel): string {
-  if (model.scanning === true) return "looking";
+  if (model.scanning === true) {
+    return "looking";
+  }
   const total = model.entries.length;
-  if (total === 0) return "nothing here";
-  if (total === 1) return "1 entry";
+  if (total === 0) {
+    return "nothing here";
+  }
+  if (total === 1) {
+    return "1 entry";
+  }
   return `${String(total)} entries`;
 }
 

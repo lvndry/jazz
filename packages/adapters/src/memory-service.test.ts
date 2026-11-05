@@ -191,7 +191,7 @@ describe("view", () => {
     const outcome = await runEffect(service.view("agent-1"));
     expect(outcome.kind).toBe("directory");
     if (outcome.kind === "directory") {
-      expect(outcome.entries.map((e) => e.name)).toEqual(["notes.txt"]);
+      expect(outcome.entries.map((entry) => entry.name)).toEqual(["notes.txt"]);
     }
   });
 
@@ -278,8 +278,8 @@ describe("create", () => {
 
   test("rejects once the per-scope file count cap is exceeded", async () => {
     const service = makeService();
-    for (let i = 0; i < MAX_MEMORY_FILES_PER_SCOPE; i++) {
-      await runEffect(service.create(`agent-1/file-${i}.txt`, "x", writeContext));
+    for (let index = 0; index < MAX_MEMORY_FILES_PER_SCOPE; index++) {
+      await runEffect(service.create(`agent-1/file-${index}.txt`, "x", writeContext));
     }
     const result = await runEither(service.create("agent-1/one-too-many.txt", "x", writeContext));
     expect(result._tag).toBe("Failure");
@@ -308,7 +308,9 @@ describe("str_replace", () => {
     );
     expect(outcome.success).toBe(true);
     const view = await runEffect(service.view("agent-1/notes.txt"));
-    if (view.kind === "file") expect(view.content).toBe("hello there");
+    if (view.kind === "file") {
+      expect(view.content).toBe("hello there");
+    }
   });
 
   test("deletes in place when new_str is omitted", async () => {
@@ -316,7 +318,9 @@ describe("str_replace", () => {
     await runEffect(service.create("agent-1/notes.txt", "hello world", writeContext));
     await runEffect(service.strReplace("agent-1/notes.txt", " world", undefined, writeContext));
     const view = await runEffect(service.view("agent-1/notes.txt"));
-    if (view.kind === "file") expect(view.content).toBe("hello");
+    if (view.kind === "file") {
+      expect(view.content).toBe("hello");
+    }
   });
 
   test("fails with no match", async () => {
@@ -346,7 +350,9 @@ describe("insert", () => {
     await runEffect(service.create("agent-1/notes.txt", "a\nb", writeContext));
     await runEffect(service.insert("agent-1/notes.txt", 1, "inserted", writeContext));
     const view = await runEffect(service.view("agent-1/notes.txt"));
-    if (view.kind === "file") expect(view.content).toBe("a\ninserted\nb");
+    if (view.kind === "file") {
+      expect(view.content).toBe("a\ninserted\nb");
+    }
   });
 
   test("rejects an out-of-range insert_line", async () => {
