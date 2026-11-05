@@ -507,7 +507,11 @@ a 16 KB cap. They are typically small, trusted argv programs, not a general shel
 is unresolved and an untyped property carries no constraint, so MCP tools forward the
 model's arguments untouched and let the server's own schema reject bad calls. Validating
 locally against the converted schema would reject or silently empty calls the server accepts.
-Builtin tools, whose schemas are authored alongside their handlers, are validated normally.
+Builtin tools, whose schemas are authored alongside their handlers, validate required values and
+meaningful inputs normally. They may set aside unknown fields, empty or null optional values,
+and fields belonging to another command of a multi-command tool. Fields carrying authority,
+destinations, revisions, credentials or budgets remain strict. The call records which fields
+were relaxed; this does not grant any permission or bypass approval.
 
 Current tool list: [tool inventory](../tools/index.md).
 
