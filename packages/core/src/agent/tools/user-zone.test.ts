@@ -3,9 +3,15 @@ import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { ReminderService } from "@/core/interfaces/reminder-service";
 import { ReminderServiceTag } from "@/core/interfaces/reminder-service";
+import {
+  WakeTriggerServiceTag,
+  type WakeTriggerService,
+} from "@/core/interfaces/wake-trigger-service";
+import { partialFake } from "@/core/test-support/fakes";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { createGetTimeTool } from "./context";
 import { createAddReminderTool } from "./reminder";
+import { createRegisterTriggerTool } from "./wake-trigger";
 
 interface Recorded {
   zone?: string;
@@ -157,5 +163,48 @@ describe("get_time", () => {
     const outcome = await runGetTime({ timeZone: "nope" }, botContext);
     expect(outcome.success).toBe(false);
     expect(outcome.error).toContain("nope");
+  });
+});
+
+describe("register_trigger with an unknown user zone", () => {
+  for (const when of ["09:00", "30m"]) {
+    test(`handles ${when} without assuming the server zone`, async () => {
+      const zones: string[] = [];
+      const service = partialFake<WakeTriggerService>({
+        add: (_agent, conversationId, _when, prompt, reason, timezone) => {
+          zones.push(timezone);
+          return Effect.succeed({
+            success: true,
+            trigger: { id: "t1", fireAt: 1_800_000, conversationId, prompt, reason, createdAt: 0 },
+          });
+        },
+      });
+      const result = await Effect.runPromise(
+        createRegisterTriggerTool()
+          .execute(
+            { when, prompt: "check", reason: "monitor" },
+            { ...botContext, conversationId: "trigger-chat" },
+          )
+          .pipe(
+            Effect.provideService(WakeTriggerServiceTag, service),
+            Effect.provide(NodeFileSystem.layer),
+          ),
+      );
+      expect(result.success).toBe(when === "30m");
+      expect(zones).toEqual(when === "30m" ? ["UTC"] : []);
+      if (when === "09:00") {
+        expect(result.error).toContain("not known");
+      }
+    });
+  }
+
+  test("attributes a bridge default to its operator", async () => {
+    const result = await runGetTime(
+      {},
+      { ...botContext, timezone: "Europe/Paris", timezoneSource: "operator-default" },
+    );
+    expect(result.result).toMatchObject({
+      timeZone: { source: "operator-default", zone: "Europe/Paris" },
+    });
   });
 });

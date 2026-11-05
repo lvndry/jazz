@@ -28,7 +28,11 @@ function contextZone(context: ToolExecutionContext, explicit?: string): UserZone
   return resolveUserZone({
     explicit,
     chatSetting: surfaceSource === "chat-setting" ? context.timezone : undefined,
-    userConfig: surfaceSource !== "chat-setting" ? context.timezone : undefined,
+    userConfig:
+      surfaceSource !== "chat-setting" && surfaceSource !== "operator-default"
+        ? context.timezone
+        : undefined,
+    operatorDefault: surfaceSource === "operator-default" ? context.timezone : undefined,
     hostIsUserDevice: context.hostIsUserDevice === true,
   });
 }

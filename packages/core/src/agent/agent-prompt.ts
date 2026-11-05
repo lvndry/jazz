@@ -301,7 +301,11 @@ export class AgentPromptBuilder {
     hash.update(`canGenerateMedia:${options.canGenerateMedia ?? true}`);
     hash.update(`displayTimeZone:${options.displayTimeZone ?? "host"}`);
     // Invalidate daily since prompts include current date
-    hash.update(new Date().toDateString());
+    hash.update(
+      new Date().toLocaleDateString("en-US", {
+        ...(options.displayTimeZone !== undefined ? { timeZone: options.displayTimeZone } : {}),
+      }),
+    );
     return hash.digest("hex");
   }
 

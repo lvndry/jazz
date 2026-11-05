@@ -182,7 +182,7 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--timezone-source <source>",
-      "Where --timezone came from: chat-setting or user-config (default user-config)",
+      "Where --timezone came from: chat-setting, user-config or operator-default (default user-config)",
     )
     .option(
       "--zone-setting-command <command>",
@@ -360,8 +360,12 @@ function registerRunCommand(program: Command): void {
           return;
         }
         const timezoneSource = options.timezoneSource ?? "user-config";
-        if (timezoneSource !== "chat-setting" && timezoneSource !== "user-config") {
-          const message = `Invalid --timezone-source "${timezoneSource}". Expected chat-setting or user-config.`;
+        if (
+          timezoneSource !== "chat-setting" &&
+          timezoneSource !== "user-config" &&
+          timezoneSource !== "operator-default"
+        ) {
+          const message = `Invalid --timezone-source "${timezoneSource}". Expected chat-setting, user-config or operator-default.`;
           if (json) {
             process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
           } else {

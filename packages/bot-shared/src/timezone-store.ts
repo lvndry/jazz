@@ -26,7 +26,7 @@ export const BOT_DEFAULT_TIMEZONE_ENV = "JAZZ_BOT_DEFAULT_TIMEZONE";
 /** A conversation's zone and where it came from. */
 export interface ChatZone {
   readonly zone: string;
-  readonly source: Extract<UserZoneSource, "chat-setting" | "user-config">;
+  readonly source: Extract<UserZoneSource, "chat-setting" | "operator-default">;
 }
 
 function storedZone(
@@ -60,7 +60,7 @@ export function chatZone(
   }
   const configured = environment[BOT_DEFAULT_TIMEZONE_ENV]?.trim() ?? "";
   const parsed = configured.length > 0 ? parseTimeZone(configured) : undefined;
-  return parsed?.ok === true ? { zone: parsed.zone, source: "user-config" } : undefined;
+  return parsed?.ok === true ? { zone: parsed.zone, source: "operator-default" } : undefined;
 }
 
 /** Persist an explicit zone for a conversation. Returns the previously stored value. */

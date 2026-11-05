@@ -97,7 +97,7 @@ available for interactive replies.
 | `--auto-approve-tools <names>`     | none            | Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier                                                                                                                                  |
 | `--propose-goals`                  | off             | Let the agent propose a goal for work that outlasts the run; the proposal waits for `jazz goal accept`                                                                                                                         |
 | `--timezone <iana-tz>`             | none            | The time zone the user is in, such as `Europe/Paris`, used to resolve clock times for reminders and wake triggers. Without it the agent asks the user for their zone before scheduling a clock time.                           |
-| `--timezone-source <source>`       | `user-config`   | Where `--timezone` came from: `chat-setting` or `user-config`. Shown to the agent so it can state its assumption.                                                                                                              |
+| `--timezone-source <source>`       | `user-config`   | Where `--timezone` came from: `chat-setting`, `user-config` or `operator-default`. Shown to the agent so it can state its assumption.                                                                                          |
 | `--zone-setting-command <command>` | none            | The command a user sends to remember their zone on this surface, such as `/tz`. The agent offers it when it asks for a zone.                                                                                                   |
 | `--watch <categories>`             | none            | Watch the run: NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `spend`, `all` (comma-separated). Alias of `--events`; pass one or the other, not both                                |
 | `--reasoning <effort>`             | agent config    | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`; a level the model does not accept runs at the nearest one it does, with a warning on stderr                                                         |
@@ -1254,3 +1254,7 @@ fullscreen interface paints in its neutral greys, keeping bold and dim for empha
 - [Configuration](./configure/jazz.md): config file and environment variables
 - [Tools](./tools/index.md): every tool and its risk tier
 - [Workflow frontmatter](./configure/workflows.md): the `WORKFLOW.md` fields
+
+The prompt's date changes at midnight in the displayed user zone, including when the
+server is in a different zone. A bot's configured fallback is labeled `operator-default`;
+it does not claim to be a preference that the user supplied.

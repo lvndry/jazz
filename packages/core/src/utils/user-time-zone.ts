@@ -12,6 +12,7 @@ export const USER_ZONE_SOURCES = [
   "explicit-in-message",
   "chat-setting",
   "user-config",
+  "operator-default",
   "interactive-host",
 ] as const;
 
@@ -67,6 +68,8 @@ export interface UserZoneInputs {
   readonly chatSetting?: string | undefined;
   /** A zone the user configured for themselves, such as a `--timezone` flag. */
   readonly userConfig?: string | undefined;
+  /** A bridge operator's explicit fallback for chats without their own setting. */
+  readonly operatorDefault?: string | undefined;
   /** Whether this process runs on the user's own device, so the host zone is the user's. */
   readonly hostIsUserDevice: boolean;
   readonly hostZone?: string | undefined;
@@ -82,6 +85,7 @@ export function resolveUserZone(inputs: UserZoneInputs): UserZone {
     ["explicit-in-message", inputs.explicit],
     ["chat-setting", inputs.chatSetting],
     ["user-config", inputs.userConfig],
+    ["operator-default", inputs.operatorDefault],
     ["interactive-host", inputs.hostIsUserDevice ? (inputs.hostZone ?? hostTimeZone()) : undefined],
   ];
   for (const [source, name] of candidates) {

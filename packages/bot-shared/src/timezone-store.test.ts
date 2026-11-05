@@ -34,7 +34,7 @@ describe("a conversation's zone", () => {
   test("the operator's explicit default applies to chats with no choice", () => {
     expect(chatZone(dataDir, FILE, 1, { [BOT_DEFAULT_TIMEZONE_ENV]: "America/Chicago" })).toEqual({
       zone: "America/Chicago",
-      source: "user-config",
+      source: "operator-default",
     });
   });
 

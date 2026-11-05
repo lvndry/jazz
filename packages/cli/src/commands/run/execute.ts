@@ -139,7 +139,7 @@ export interface RunAgentOnceOptions {
    * agent asks for it.
    */
   readonly timezone?: string | undefined;
-  readonly timezoneSource?: "chat-setting" | "user-config" | undefined;
+  readonly timezoneSource?: "chat-setting" | "user-config" | "operator-default" | undefined;
   /** The command a user sends to remember their zone on this surface, e.g. `/tz`. */
   readonly zoneSettingCommand?: string | undefined;
   readonly reasoning?: ReasoningEffort | undefined;

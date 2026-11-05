@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
 import { partialFake } from "@/core/test-support/fakes";
@@ -81,4 +81,27 @@ describe("environment block injection", () => {
     expect(result).not.toContain("{agentName}");
     expect(result).not.toContain("{agentDescription}");
   });
+});
+
+test("invalidates the prompt at midnight in its displayed zone", () => {
+  const previousZone = process.env["TZ"];
+  process.env["TZ"] = "UTC";
+  try {
+    const builder = new AgentPromptBuilder();
+    const service = personaServiceReturning("You are Jazz.");
+    const options = { ...OPTIONS, displayTimeZone: "Asia/Tokyo" };
+    setSystemTime(new Date("2026-01-01T14:59:00Z"));
+    const before = Effect.runSync(builder.buildSystemPrompt("default", options, service));
+    setSystemTime(new Date("2026-01-01T15:01:00Z"));
+    const after = Effect.runSync(builder.buildSystemPrompt("default", options, service));
+    expect(before).toContain("January 1, 2026");
+    expect(after).toContain("January 2, 2026");
+  } finally {
+    setSystemTime();
+    if (previousZone === undefined) {
+      delete process.env["TZ"];
+    } else {
+      process.env["TZ"] = previousZone;
+    }
+  }
 });
