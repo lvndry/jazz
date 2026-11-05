@@ -8,8 +8,9 @@ commits and proposes verified fixes in one pull request. This guide covers setup
 
 ## What you get
 
-- **Automatic code review** on every PR (opened / marked ready). Posts a verdict
-  plus inline, line-level comments.
+- **Automatic code review** of every push to a non-draft PR (opened, reopened, marked ready,
+  or a new commit). Posts a verdict plus inline, line-level comments, and names the commit
+  it reviewed. See [Review gate and limits](#review-gate-and-limits).
 - **On-demand PR assistant**: comment `/jazz <question>` on a PR and it answers,
   grounded in the actual diff and code (reviews, summaries, "why does X work",
   change suggestions).
@@ -59,6 +60,7 @@ configs and pass the matching provider API key to each Jazz run step.
 ```text
 .github/
   workflows/jazz.yml                     # PR review and assistant
+  workflows/jazz-review-gate.yml         # debounce, limits and supersede for automatic reviews
   workflows/pre-release-review.yml       # manual unreleased-commit review and fix PR
   jazz/
     agents/
@@ -71,6 +73,7 @@ configs and pass the matching provider API key to each Jazz run step.
       pre-release-review/WORKFLOW.md     # coverage, verification, fixes, report contract
     pre-release-review.Dockerfile        # disposable review and validation environment
 scripts/pre-release-review.ts           # trusted snapshot, report, patch and publication helper
+scripts/jazz-review-gate.ts             # gate logic and the limit constants (unit tested)
 ```
 
 The PR workflow copies the agent JSON to `~/.jazz/agents/`, substitutes the PR's
@@ -220,6 +223,46 @@ skipped**: a fork's `GITHUB_TOKEN` is read-only and has no access to your
 secrets, so the reviewer can't run there safely. If you need review on external
 contributors' PRs, that's the point where a GitHub App (with its own installation
 token) becomes the right tool instead of Actions.
+
+## Review gate and limits
+
+A push does not start a review directly. `jazz-review-gate.yml` runs on `pull_request_target`
+(so it uses the default branch's copy of the script, never code from the PR), holds no secret
+beyond the automatic `GITHUB_TOKEN`, and sits outside the credential queue below. After the
+debounce it checks that the PR is still open, not a draft and still at the pushed commit,
+applies the limits, cancels older automatic reviews of that PR that have not started, and
+dispatches `jazz.yml` with `job=code-review` and `automatic=true`. `workflow_dispatch` started
+with `GITHUB_TOKEN` does create a run, which is what makes this work. Closing or merging a PR
+cancels its queued automatic reviews. Pushes by bots and fork PRs never start reviews.
+
+Review runs are recognised by their run name, `Jazz code-review #<PR> [auto|manual] <sha>`,
+so every count comes from the workflow's own run history; nothing is stored.
+
+| Constant (`scripts/jazz-review-gate.ts`, `REVIEW_GATE_LIMITS`) | Default | Meaning                                                                                                                                                                                                                                |
+| -------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `debounceSeconds`                                              | 180     | Quiet period after a push. A newer push cancels the waiting gate run, so a burst becomes one review of the newest commit. Reviews take 8 to 20 minutes, so 3 minutes covers a fix commit followed by a follow-up push at little delay. |
+| `perPullRequestMaxReviews` / `perPullRequestWindowHours`       | 6 / 24  | Automatic reviews per PR per rolling window.                                                                                                                                                                                           |
+| `minimumGapMinutes`                                            | 10      | Minimum spacing between automatic reviews of one PR, on top of the debounce.                                                                                                                                                           |
+| `globalMaxReviews` / `globalWindowMinutes`                     | 8 / 60  | Reviews started repository-wide per rolling window. Applies to automatic, `/jazz-review` and manual dispatch alike; the per-PR budget does not.                                                                                        |
+
+When a limit blocks an automatic review the gate posts or updates one PR comment saying so
+and pointing at `/jazz-review`; the comment is removed when a later review is dispatched.
+Cancelled and skipped runs do not count. Worst-case spend: each review is capped at
+`JAZZ_MAX_COST_USD` ($2), so at most 6 x $2 = $12 per PR per day and 8 x $2 = $16 per hour
+(up to $384 per day) repository-wide.
+
+### Credential queue
+
+ChatGPT refresh tokens rotate and are shared, so the `code-review` and `assistant` jobs share
+one job-level concurrency group (`queue: max`, never `cancel-in-progress`) that covers the
+complete run through the step that saves the rotated credential. Only those jobs enter it:
+`resolve` and skipped jobs do not, so ordinary PR comments no longer wait behind reviews.
+Queued runs are cancelled only before they start. A started review is never cancelled: the
+save step is keyed on a step output written after the model step, so a cancellation in
+between could lose a rotated token. A review of an older commit that was already running
+finishes and says which commit it covered and that the PR moved. A cancelled job edits its
+placeholder comment instead of leaving "Review in progress", and a job that fails before the
+review starts reports that in its comment.
 
 ## Cost and failures
 
