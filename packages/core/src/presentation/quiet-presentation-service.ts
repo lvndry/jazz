@@ -51,7 +51,9 @@ class QuietPresentationService implements PresentationService {
   }
 
   formatToolArguments(_toolName: string, args?: Record<string, unknown>): string {
-    if (!args || Object.keys(args).length === 0) return "";
+    if (!args || Object.keys(args).length === 0) {
+      return "";
+    }
     return ` ${JSON.stringify(args)}`;
   }
 

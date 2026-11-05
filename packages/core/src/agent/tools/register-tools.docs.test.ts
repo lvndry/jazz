@@ -77,7 +77,9 @@ function documentedTools(markdown: string): Map<string, string> {
   const rowPattern = /^\|\s*`([a-z_0-9]+)`\s*\|\s*`(read-only|low-risk|high-risk|unknown)`\s*\|/gm;
   for (const match of markdown.matchAll(rowPattern)) {
     const [, name, risk] = match;
-    if (name !== undefined && risk !== undefined) documented.set(name, risk);
+    if (name !== undefined && risk !== undefined) {
+      documented.set(name, risk);
+    }
   }
   return documented;
 }

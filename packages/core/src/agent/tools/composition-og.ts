@@ -72,7 +72,9 @@ const hash = (text: string): number => {
 /** Anton is narrow; ~0.47em per character is a safe planning width. */
 const wrapTitle = (title: string): string[] => {
   const perLine = 24;
-  if (title.length <= perLine) return [title];
+  if (title.length <= perLine) {
+    return [title];
+  }
   const words = title.split(" ");
   const lines: string[] = [];
   let current = "";
@@ -84,7 +86,9 @@ const wrapTitle = (title: string): string[] => {
       current = `${current} ${word}`;
     }
   }
-  if (current.trim() !== "") lines.push(current.trim());
+  if (current.trim() !== "") {
+    lines.push(current.trim());
+  }
   if (lines.length > 2) {
     const kept = lines.slice(0, 2);
     kept[1] = `${(kept[1] ?? "").slice(0, perLine - 1)}…`;

@@ -245,9 +245,13 @@ function PromptComponent({
     priority: INPUT_HISTORY_PRIORITY,
     isActive: prompt.type === "chat" && !suggestionsVisible,
     onInput: (action) => {
-      if (action.type !== "up" && action.type !== "down") return InputResults.ignored();
+      if (action.type !== "up" && action.type !== "down") {
+        return InputResults.ignored();
+      }
       const history = store.getInputHistory();
-      if (history.length === 0) return InputResults.ignored();
+      if (history.length === 0) {
+        return InputResults.ignored();
+      }
 
       const currentValue = valueRef.current;
       const currentCursor = cursorRef.current;
@@ -264,7 +268,9 @@ function PromptComponent({
       const navigating = index !== null && currentValue === history[index];
 
       if (action.type === "up") {
-        if (!navigating && currentValue.length > 0) return InputResults.ignored();
+        if (!navigating && currentValue.length > 0) {
+          return InputResults.ignored();
+        }
         const nextIndex = navigating ? Math.max(0, index - 1) : history.length - 1;
         const recalled = history[nextIndex] ?? "";
         historyIndexRef.current = nextIndex;
@@ -273,7 +279,9 @@ function PromptComponent({
       }
 
       // down — only meaningful while navigating
-      if (!navigating) return InputResults.ignored();
+      if (!navigating) {
+        return InputResults.ignored();
+      }
       if (index >= history.length - 1) {
         historyIndexRef.current = null;
         setValueRef.current("", 0);
@@ -326,7 +334,9 @@ function PromptComponent({
   // Escape: cancel when the prompt is cancellable; otherwise (chat) clear
   // the current draft so Escape isn't a silent no-op.
   useInput((_input: string, key: { escape?: boolean }) => {
-    if (!key.escape) return;
+    if (!key.escape) {
+      return;
+    }
     if (promptRef.current.reject) {
       promptRef.current.reject();
       return;

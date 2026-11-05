@@ -39,8 +39,12 @@ function stubFetch(responses: (Response | Error)[]) {
   const impl = (async (url: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(url), init: init ?? {} });
     const next = responses.shift();
-    if (next === undefined) return new Response(null, { status: 200 });
-    if (next instanceof Error) throw next;
+    if (next === undefined) {
+      return new Response(null, { status: 200 });
+    }
+    if (next instanceof Error) {
+      throw next;
+    }
     return next;
   }) as unknown as typeof globalThis.fetch;
   return { impl, calls };

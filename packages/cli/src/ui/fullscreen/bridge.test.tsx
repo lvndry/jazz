@@ -141,7 +141,9 @@ describe("fullscreen bridge", () => {
     const text = await frame();
     const rows = text.split("\n").filter((row) => row.length > 0);
     expect(rows).toHaveLength(HEIGHT);
-    for (const row of rows) expect([...row]).toHaveLength(WIDTH);
+    for (const row of rows) {
+      expect([...row]).toHaveLength(WIDTH);
+    }
   });
 
   it("puts the active agent, model and context meter in the header from run stats", async () => {
@@ -393,7 +395,9 @@ describe("fullscreen bridge", () => {
       withHandler: boolean,
     ): Promise<string> =>
       frame(() => {
-        if (withHandler) store.setBackgroundHandler(() => {});
+        if (withHandler) {
+          store.setBackgroundHandler(() => {});
+        }
         store.setActivity({
           phase: "tool-execution",
           agentName: "jazz",
@@ -405,7 +409,9 @@ describe("fullscreen bridge", () => {
           })),
         });
       }).finally(() => {
-        if (withHandler) store.setBackgroundHandler(null);
+        if (withHandler) {
+          store.setBackgroundHandler(null);
+        }
       });
 
     it("offers ctrl+b once a call has run past the delay", async () => {
@@ -946,7 +952,9 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
     const ran: string[] = [];
     store.registerImmediateCommandRunner((text) => {
-      if (text !== "/info") return false;
+      if (text !== "/info") {
+        return false;
+      }
       ran.push(text);
       const panelId = store.beginCommandPanel();
       store.appendCommandPanel(panelId, text, {
@@ -2287,7 +2295,9 @@ describe("fullscreen bridge", () => {
         ],
       },
       (result) => {
-        if (result.kind === "select") selected.push(result.value);
+        if (result.kind === "select") {
+          selected.push(result.value);
+        }
       },
     );
     await rendered.flush();
@@ -2905,8 +2915,11 @@ describe("fullscreen bridge", () => {
       });
       await rendered.flush();
       await afterArming(rendered.flush);
-      if (typeof key === "string") rendered.mockInput.pressKey(key);
-      else rendered.mockInput.pressKey("a", key);
+      if (typeof key === "string") {
+        rendered.mockInput.pressKey(key);
+      } else {
+        rendered.mockInput.pressKey("a", key);
+      }
       await settleKeypress(rendered.flush);
 
       rendered.renderer.destroy();
@@ -2940,8 +2953,11 @@ describe("fullscreen bridge", () => {
       await rendered.flush();
       await typeInto(rendered.mockInput, rendered.flush, "queued");
 
-      if (typeof key === "string") rendered.mockInput.pressKey(key);
-      else rendered.mockInput.pressKey(key.name, { ctrl: key.ctrl });
+      if (typeof key === "string") {
+        rendered.mockInput.pressKey(key);
+      } else {
+        rendered.mockInput.pressKey(key.name, { ctrl: key.ctrl });
+      }
       await settleKeypress(rendered.flush);
       const frame = rendered.captureCharFrame();
 
@@ -2974,8 +2990,11 @@ describe("fullscreen bridge", () => {
       });
       await rendered.renderOnce();
       const pressCtrlC = async (): Promise<void> => {
-        if (typeof key === "string") rendered.mockInput.pressKey(key);
-        else rendered.mockInput.pressKey(key.name, { ctrl: key.ctrl });
+        if (typeof key === "string") {
+          rendered.mockInput.pressKey(key);
+        } else {
+          rendered.mockInput.pressKey(key.name, { ctrl: key.ctrl });
+        }
       };
 
       await pressCtrlC();
@@ -3094,8 +3113,11 @@ describe("fullscreen bridge", () => {
       await rendered.flush();
       await typeInto(rendered.mockInput, rendered.flush, "queued");
 
-      if (typeof key === "string") rendered.mockInput.pressKey(key);
-      else rendered.mockInput.pressKey(key.name, key);
+      if (typeof key === "string") {
+        rendered.mockInput.pressKey(key);
+      } else {
+        rendered.mockInput.pressKey(key.name, key);
+      }
       await settleKeypress(rendered.flush);
       const frame = rendered.captureCharFrame();
 
@@ -3198,8 +3220,11 @@ describe("fullscreen bridge", () => {
       await rendered.renderOnce();
       store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
       await rendered.flush();
-      if (typeof key === "string") rendered.mockInput.pressKey(key);
-      else rendered.mockInput.pressKey(key.name, key);
+      if (typeof key === "string") {
+        rendered.mockInput.pressKey(key);
+      } else {
+        rendered.mockInput.pressKey(key.name, key);
+      }
       await settleKeypress(rendered.flush);
 
       process.kill = originalKill;
@@ -3742,7 +3767,9 @@ describe("fullscreen bridge", () => {
         },
       ]) {
         const { outputs } = reduceEvent(accumulator, event);
-        for (const entry of outputs) store.printOutput(entry);
+        for (const entry of outputs) {
+          store.printOutput(entry);
+        }
       }
     }
 
@@ -3779,7 +3806,9 @@ describe("fullscreen bridge", () => {
           },
         ]) {
           const { outputs } = reduceEvent(accumulator, event);
-          for (const entry of outputs) store.printOutput(entry);
+          for (const entry of outputs) {
+            store.printOutput(entry);
+          }
         }
       });
       expect(text).toContain("view_memory");

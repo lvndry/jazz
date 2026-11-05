@@ -331,7 +331,9 @@ const MAX_REGEX_ITERATIONS = 100_000;
  * Without the 'g' flag, `exec()` always starts at index 0, causing an infinite loop.
  */
 function ensureGlobalRegex(regex: RegExp): RegExp {
-  if (regex.global) return regex;
+  if (regex.global) {
+    return regex;
+  }
   return new RegExp(regex.source, regex.flags + "g");
 }
 
@@ -628,16 +630,36 @@ function isEditableLines(lines: readonly string[] | EditableLines): lines is Edi
  * Returns a discriminating string the LLM can use for programmatic error handling.
  */
 function extractErrorType(error: unknown): string {
-  if (error instanceof OutOfBoundsError) return "OutOfBoundsError";
-  if (error instanceof InsertOutOfBoundsError) return "InsertOutOfBoundsError";
-  if (error instanceof PatternNotFoundError) return "PatternNotFoundError";
-  if (error instanceof InvalidPatternError) return "InvalidPatternError";
-  if (error instanceof RegexIterationLimitError) return "RegexIterationLimitError";
-  if (error instanceof PatternTooComplexError) return "PatternTooComplexError";
-  if (error instanceof SecretLineMatchError) return "SecretLineMatchError";
-  if (error instanceof FileNotFoundError) return "FileNotFoundError";
-  if (error instanceof FileReadError) return "FileReadError";
-  if (error instanceof FileWriteError) return "FileWriteError";
+  if (error instanceof OutOfBoundsError) {
+    return "OutOfBoundsError";
+  }
+  if (error instanceof InsertOutOfBoundsError) {
+    return "InsertOutOfBoundsError";
+  }
+  if (error instanceof PatternNotFoundError) {
+    return "PatternNotFoundError";
+  }
+  if (error instanceof InvalidPatternError) {
+    return "InvalidPatternError";
+  }
+  if (error instanceof RegexIterationLimitError) {
+    return "RegexIterationLimitError";
+  }
+  if (error instanceof PatternTooComplexError) {
+    return "PatternTooComplexError";
+  }
+  if (error instanceof SecretLineMatchError) {
+    return "SecretLineMatchError";
+  }
+  if (error instanceof FileNotFoundError) {
+    return "FileNotFoundError";
+  }
+  if (error instanceof FileReadError) {
+    return "FileReadError";
+  }
+  if (error instanceof FileWriteError) {
+    return "FileWriteError";
+  }
   return "UnknownError";
 }
 
@@ -726,7 +748,9 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
                 let match;
                 while ((match = regex.exec(content)) !== null && matchLineNumbers.length < 20) {
                   matchLineNumbers.push(offsetToLine(lineOffsets, match.index));
-                  if (match[0].length === 0) regex.lastIndex++;
+                  if (match[0].length === 0) {
+                    regex.lastIndex++;
+                  }
                 }
               } else if (!patternInfo.error) {
                 const searchStr = patternInfo.value || edit.pattern;

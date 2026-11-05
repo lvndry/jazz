@@ -133,8 +133,12 @@ export function resolveStreamOption(
   options: { stream?: boolean | undefined; noStream?: boolean | undefined },
   eventCategories: ReturnType<typeof parseEventCategories> | undefined,
 ): { stream?: boolean } {
-  if (options.noStream === true || options.stream === false) return { stream: false };
-  if (options.stream === true) return { stream: true };
+  if (options.noStream === true || options.stream === false) {
+    return { stream: false };
+  }
+  if (options.stream === true) {
+    return { stream: true };
+  }
   if (eventCategories?.ok === true && eventsRequireStreaming(eventCategories.types)) {
     return { stream: true };
   }

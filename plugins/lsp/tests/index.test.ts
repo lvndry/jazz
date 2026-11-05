@@ -48,7 +48,9 @@ async function readWatchEvents(watchLog: string): Promise<Array<[string, number]
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
-  if (raw === "") throw new Error("fake server never recorded a watch event");
+  if (raw === "") {
+    throw new Error("fake server never recorded a watch event");
+  }
   return JSON.parse(raw).events as Array<[string, number]>;
 }
 process.env["JAZZ_LSP_CONFIG"] = config;

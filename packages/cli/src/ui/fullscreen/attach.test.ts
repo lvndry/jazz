@@ -82,7 +82,9 @@ test("partial setup releases acquisitions even when a listener cleanup throws", 
     requestRender: () => undefined,
     presentNativeScene: nativeWriter,
     on: (event: string, listener: () => void) => {
-      if (event === "handler:error") throw setupFailure;
+      if (event === "handler:error") {
+        throw setupFailure;
+      }
       listeners.set(event, listener);
     },
     off: (event: string) => {

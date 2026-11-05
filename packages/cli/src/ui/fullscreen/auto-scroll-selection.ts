@@ -29,12 +29,16 @@ export function useAutoScrollOnDrag(
     lastY: 0,
   });
   const stop = useCallback(() => {
-    if (state.current.timer !== undefined) clearInterval(state.current.timer);
+    if (state.current.timer !== undefined) {
+      clearInterval(state.current.timer);
+    }
     state.current.timer = undefined;
   }, []);
   useLayoutEffect(() => stop, [stop, documentId]);
   useLayoutEffect(() => {
-    if (!enabled) stop();
+    if (!enabled) {
+      stop();
+    }
   }, [enabled, stop]);
   const tick = useCallback(() => {
     const {
@@ -57,7 +61,9 @@ export function useAutoScrollOnDrag(
   }, [stop]);
   const onMouseDrag = useCallback(
     (event: OTMouseEvent) => {
-      if (!committed.current.enabled) return;
+      if (!committed.current.enabled) {
+        return;
+      }
       state.current.lastY = event.y;
       if (state.current.timer === undefined) {
         state.current.timer = setInterval(tick, AUTO_SCROLL_INTERVAL_MS);

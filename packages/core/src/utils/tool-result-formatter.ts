@@ -63,7 +63,9 @@ function safeStringify(value: unknown): string {
 
 function hasLargeTextField(value: Record<string, unknown>): boolean {
   for (const [key, fieldValue] of Object.entries(value)) {
-    if (!LARGE_TEXT_FIELD_KEYS.has(key)) continue;
+    if (!LARGE_TEXT_FIELD_KEYS.has(key)) {
+      continue;
+    }
     if (typeof fieldValue === "string" && fieldValue.length > 2_000) {
       return true;
     }
@@ -73,7 +75,9 @@ function hasLargeTextField(value: Record<string, unknown>): boolean {
 
 function hasLargeArrayField(value: Record<string, unknown>): boolean {
   for (const [key, fieldValue] of Object.entries(value)) {
-    if (!LARGE_ARRAY_FIELD_KEYS.has(key)) continue;
+    if (!LARGE_ARRAY_FIELD_KEYS.has(key)) {
+      continue;
+    }
     if (Array.isArray(fieldValue) && fieldValue.length > 100) {
       return true;
     }
@@ -251,13 +255,17 @@ const ARRAY_ENTRY_STRIPPERS: Readonly<Record<string, (entry: Record<string, unkn
  * Keeps complete lines from the head plus a note about omitted lines.
  */
 function truncateLineContent(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
+  if (text.length <= maxChars) {
+    return text;
+  }
   const lines = text.split("\n");
   let charCount = 0;
   let lineCount = 0;
   for (const line of lines) {
     // +1 for the newline
-    if (charCount + line.length + 1 > maxChars - 60) break; // reserve space for truncation note
+    if (charCount + line.length + 1 > maxChars - 60) {
+      break;
+    } // reserve space for truncation note
     charCount += line.length + 1;
     lineCount++;
   }
@@ -276,7 +284,9 @@ function truncateLineContent(text: string, maxChars: number): string {
  */
 function truncateArray(arr: readonly unknown[], maxChars: number): unknown[] {
   const serialized = safeStringify(arr);
-  if (serialized.length <= maxChars) return arr as unknown[];
+  if (serialized.length <= maxChars) {
+    return arr as unknown[];
+  }
 
   const result: unknown[] = [];
   // 30 chars reserved for the "[N more items]" trailer
@@ -287,7 +297,9 @@ function truncateArray(arr: readonly unknown[], maxChars: number): unknown[] {
   for (const item of arr) {
     const itemStr = safeStringify(item);
     const cost = itemStr.length + (result.length > 0 ? 1 : 0); // comma separator
-    if (budget - cost < 0) break;
+    if (budget - cost < 0) {
+      break;
+    }
     budget -= cost;
     result.push(item);
   }
@@ -329,7 +341,9 @@ function truncateResult(result: unknown, serialized: string, maxChars: number): 
         const targetFieldLen = Math.max(500, val.length - excess - 100);
         clone[field] = truncateLineContent(val, targetFieldLen);
         const recheck = safeStringify(clone);
-        if (recheck.length <= maxChars) return recheck;
+        if (recheck.length <= maxChars) {
+          return recheck;
+        }
       }
     }
 
@@ -343,13 +357,17 @@ function truncateResult(result: unknown, serialized: string, maxChars: number): 
         const targetLen = Math.max(safeStringify(val).length - excess - 200, 200);
         clone[field] = truncateArray(val, targetLen);
         const recheck = safeStringify(clone);
-        if (recheck.length <= maxChars) return recheck;
+        if (recheck.length <= maxChars) {
+          return recheck;
+        }
       }
     }
 
     // Last resort: serialize clone and hard-truncate
     const cloneSerialized = safeStringify(clone);
-    if (cloneSerialized.length <= maxChars) return cloneSerialized;
+    if (cloneSerialized.length <= maxChars) {
+      return cloneSerialized;
+    }
   }
 
   // Fallback: hard slice with note
@@ -444,7 +462,9 @@ export function toolResultForProgress(
   result: unknown,
 ): { readonly text: string; readonly truncated: boolean } | undefined {
   const body = typeof result === "string" ? result : resultOrNothing(result);
-  if (body === undefined || body.length === 0) return undefined;
+  if (body === undefined || body.length === 0) {
+    return undefined;
+  }
   return body.length > MAX_PROGRESS_RESULT_CHARS
     ? { text: body.slice(0, MAX_PROGRESS_RESULT_CHARS), truncated: true }
     : { text: body, truncated: false };

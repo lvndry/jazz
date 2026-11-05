@@ -44,12 +44,16 @@ const externalToolCache = new Map<string, boolean>();
  */
 export function checkExternalTool(name: string, versionFlag = "--version"): Promise<boolean> {
   const cached = externalToolCache.get(name);
-  if (cached !== undefined) return Promise.resolve(cached);
+  if (cached !== undefined) {
+    return Promise.resolve(cached);
+  }
 
   return new Promise((resolve) => {
     let settled = false;
     const finish = (available: boolean) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       externalToolCache.set(name, available);
       clearTimeout(timer);
@@ -153,14 +157,20 @@ export function parseGitignoreToGlob(content: string): string[] {
 
   for (const raw of lines) {
     const line = raw.trim();
-    if (line === "" || line.startsWith("#")) continue;
-    if (line.startsWith("!")) continue; // negation not supported in fast-glob ignore array
+    if (line === "" || line.startsWith("#")) {
+      continue;
+    }
+    if (line.startsWith("!")) {
+      continue;
+    } // negation not supported in fast-glob ignore array
 
     const fromRoot = line.startsWith("/");
     const dirOnly = line.endsWith("/");
     const pattern = line.replace(/^\/+/, "").replace(/\/+$/, "");
 
-    if (pattern === "" || pattern === "**") continue;
+    if (pattern === "" || pattern === "**") {
+      continue;
+    }
 
     if (fromRoot) {
       patterns.push(pattern);
@@ -212,7 +222,9 @@ const MAX_REGEX_PATTERN_LENGTH = 1000;
  */
 export function isUnsafeRegex(pattern: string): boolean {
   // Reject patterns that are too long
-  if (pattern.length > MAX_REGEX_PATTERN_LENGTH) return true;
+  if (pattern.length > MAX_REGEX_PATTERN_LENGTH) {
+    return true;
+  }
 
   // Track nesting depth of groups and whether we're inside a quantified group
   let groupDepth = 0;
@@ -242,7 +254,9 @@ export function isUnsafeRegex(pattern: string): boolean {
       inCharClass = false;
       continue;
     }
-    if (inCharClass) continue;
+    if (inCharClass) {
+      continue;
+    }
 
     if (ch === "(") {
       groupDepth++;
@@ -257,7 +271,9 @@ export function isUnsafeRegex(pattern: string): boolean {
       const next = pattern[i + 1];
       if (next === "+" || next === "*" || next === "{") {
         // A quantified group that contains a quantifier → catastrophic backtracking
-        if (isQuantifiedGroup) return true;
+        if (isQuantifiedGroup) {
+          return true;
+        }
       }
       continue;
     }
@@ -289,7 +305,9 @@ export interface FilterPatternResult {
  * so callers can surface the error to the LLM.
  */
 export function normalizeFilterPattern(pattern?: string): FilterPatternResult {
-  if (!pattern || pattern.trim() === "") return { type: "substring" };
+  if (!pattern || pattern.trim() === "") {
+    return { type: "substring" };
+  }
   const trimmed = pattern.trim();
   if (trimmed.startsWith("re:")) {
     const body = trimmed.slice(3);

@@ -38,7 +38,9 @@ export interface PluginCommandOptions {
 
 /** Resolve a catalog id while leaving explicit files and URLs untouched. */
 function resolvePluginSource(source: string): string {
-  if (source.includes("/") || source.includes("\\") || /^[a-z]+:/i.test(source)) return source;
+  if (source.includes("/") || source.includes("\\") || /^[a-z]+:/i.test(source)) {
+    return source;
+  }
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(source)) {
     throw new Error("Plugin source must be a manifest path, HTTPS URL, or valid catalog id.");
   }
@@ -231,7 +233,9 @@ function renderInspection(
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     yield* terminal.heading("Jazz plugin");
-    for (const line of manifestSummary(inspection)) yield* terminal.log(line);
+    for (const line of manifestSummary(inspection)) {
+      yield* terminal.log(line);
+    }
   });
 }
 
@@ -243,7 +247,9 @@ export function pluginAddCommand(
     const terminal = yield* TerminalServiceTag;
     const github = parseGitHubPluginSource(source);
     const localSource = github ? false : yield* attempt(() => isLocalSourceDirectory(source));
-    if (github) yield* terminal.info(`Fetching ${github.owner}/${github.repo} from GitHub…`);
+    if (github) {
+      yield* terminal.info(`Fetching ${github.owner}/${github.repo} from GitHub…`);
+    }
     const result = yield* github
       ? attempt(() => openPluginRegistry().addFromSource({ github }))
       : localSource
@@ -251,7 +257,9 @@ export function pluginAddCommand(
             openPluginRegistry().addFromSource({ localDirectory: path.resolve(source) }),
           )
         : attempt(() => openPluginRegistry().add(resolvePluginSource(source)));
-    if (options.json === true) return printJson({ ok: true, result });
+    if (options.json === true) {
+      return printJson({ ok: true, result });
+    }
     yield* terminal.success(`Installed ${result.pluginId} at ${result.digest}.`);
     yield* terminal.info("It is not trusted or enabled. Inspect it before granting either.");
   });
@@ -263,8 +271,12 @@ export function pluginListCommand(
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const plugins = yield* attempt(() => openPluginRegistry().list());
-    if (options.json === true) return printJson({ ok: true, plugins });
-    if (plugins.length === 0) return yield* terminal.info("No plugins installed.");
+    if (options.json === true) {
+      return printJson({ ok: true, plugins });
+    }
+    if (plugins.length === 0) {
+      return yield* terminal.info("No plugins installed.");
+    }
     yield* terminal.heading(`Plugins (${plugins.length})`);
     for (const plugin of plugins) {
       yield* terminal.log(
@@ -281,7 +293,9 @@ export function pluginInspectCommand(
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const inspection = yield* attempt(() => openPluginRegistry().inspect(id));
-    if (options.json === true) return printJson({ ok: true, plugin: inspection });
+    if (options.json === true) {
+      return printJson({ ok: true, plugin: inspection });
+    }
     yield* renderInspection(terminal, inspection);
   });
 }
@@ -387,7 +401,9 @@ export function pluginRemoveCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    if (terminal.isInteractive && !(yield* terminal.confirm(`Remove plugin ${id}?`, false))) return;
+    if (terminal.isInteractive && !(yield* terminal.confirm(`Remove plugin ${id}?`, false))) {
+      return;
+    }
     if (!terminal.isInteractive) {
       return yield* Effect.fail(new Error("Plugin removal requires a local interactive terminal."));
     }
@@ -406,10 +422,16 @@ export function pluginDoctorCommand(
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const report = yield* attempt(() => openPluginRegistry().doctor(id));
-    if (options.json === true) return printJson({ ok: report.healthy, report });
+    if (options.json === true) {
+      return printJson({ ok: report.healthy, report });
+    }
     yield* renderInspection(terminal, report);
-    if (report.healthy) return yield* terminal.success("Plugin checks passed.");
-    for (const problem of report.problems) yield* terminal.error(problem);
+    if (report.healthy) {
+      return yield* terminal.success("Plugin checks passed.");
+    }
+    for (const problem of report.problems) {
+      yield* terminal.error(problem);
+    }
   });
 }
 
@@ -433,8 +455,9 @@ export function pluginSecretSetCommand(
       return yield* Effect.fail(new Error("Secret entry cancelled."));
     }
     const stored = yield* attempt(() => openPluginRegistry().setSecret(id, name, value));
-    if (!stored)
+    if (!stored) {
       return yield* Effect.fail(new Error("No secure plugin secret storage is available."));
+    }
     yield* terminal.success(`Stored secret ${name} for ${id}.`);
   });
 }
@@ -459,9 +482,12 @@ export function pluginSecretStatusCommand(
     const terminal = yield* TerminalServiceTag;
     const inspection = yield* attempt(() => openPluginRegistry().inspect(id));
     const status = inspection.secrets.find((secret) => secret.name === name);
-    if (status === undefined)
+    if (status === undefined) {
       return yield* Effect.fail(new Error(`${id} did not declare secret ${name}.`));
-    if (options.json === true) return printJson({ ok: true, status });
+    }
+    if (options.json === true) {
+      return printJson({ ok: true, status });
+    }
     yield* terminal.log(`${id}/${name}: ${status.source}`);
   });
 }

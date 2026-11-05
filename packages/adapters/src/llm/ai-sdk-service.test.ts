@@ -983,8 +983,11 @@ describe("AI SDK Service - Unit Tests", () => {
           }
         } finally {
           globalThis.fetch = actualFetch;
-          if (previousBaseUrl === undefined) delete process.env["VLLM_BASE_URL"];
-          else process.env["VLLM_BASE_URL"] = previousBaseUrl;
+          if (previousBaseUrl === undefined) {
+            delete process.env["VLLM_BASE_URL"];
+          } else {
+            process.env["VLLM_BASE_URL"] = previousBaseUrl;
+          }
         }
       },
     );
@@ -1029,8 +1032,11 @@ describe("AI SDK Service - Unit Tests", () => {
         }
       } finally {
         globalThis.fetch = actualFetch;
-        if (previousKey === undefined) delete process.env["OLLAMA_API_KEY"];
-        else process.env["OLLAMA_API_KEY"] = previousKey;
+        if (previousKey === undefined) {
+          delete process.env["OLLAMA_API_KEY"];
+        } else {
+          process.env["OLLAMA_API_KEY"] = previousKey;
+        }
       }
     });
   });
@@ -1871,7 +1877,9 @@ describe("buildProviderOptions - llamacpp reasoning", () => {
     });
 
     const providerOptions = buildProviderOptions("llamacpp", llamacppOptions("low"));
-    if (!providerOptions) throw new Error("expected llamacpp provider options");
+    if (!providerOptions) {
+      throw new Error("expected llamacpp provider options");
+    }
     await generateText({
       model: provider("qwen3-8b"),
       prompt: "hi",
@@ -1916,7 +1924,9 @@ describe("buildProviderOptions - vLLM reasoning", () => {
     });
 
     const providerOptions = buildProviderOptions("vllm", { ...options, reasoning: "medium" });
-    if (!providerOptions) throw new Error("expected vLLM provider options");
+    if (!providerOptions) {
+      throw new Error("expected vLLM provider options");
+    }
     await generateText({
       model: provider(options.model),
       prompt: "hi",
@@ -1997,7 +2007,9 @@ describe("buildProviderOptions - SGLang reasoning", () => {
       }) as typeof fetch,
     });
     const providerOptions = buildProviderOptions("sglang", { ...options, reasoning: "medium" });
-    if (!providerOptions) throw new Error("expected SGLang provider options");
+    if (!providerOptions) {
+      throw new Error("expected SGLang provider options");
+    }
     await generateText({ model: provider(options.model), prompt: "hi", providerOptions });
     expect(requestBody?.["reasoning_effort"]).toBe("medium");
   });

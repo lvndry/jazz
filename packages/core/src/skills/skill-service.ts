@@ -54,22 +54,33 @@ export function scoreSkillsForQuery(
   limit = 5,
 ): readonly SkillMetadata[] {
   const q = query.trim().toLowerCase();
-  if (q.length === 0 || skills.length === 0) return [];
+  if (q.length === 0 || skills.length === 0) {
+    return [];
+  }
 
   const scored: Array<{ skill: SkillMetadata; score: number }> = [];
   for (const skill of skills) {
     const name = skill.name.toLowerCase();
     let score = 0;
-    if (name === q) score += 100;
-    else if (name.includes(q)) score += 20;
+    if (name === q) {
+      score += 100;
+    } else if (name.includes(q)) {
+      score += 20;
+    }
 
-    if (matchesWholeWord(skill.description.toLowerCase(), q)) score += 2;
+    if (matchesWholeWord(skill.description.toLowerCase(), q)) {
+      score += 2;
+    }
 
-    if (score > 0) scored.push({ skill, score });
+    if (score > 0) {
+      scored.push({ skill, score });
+    }
   }
 
   scored.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
+    if (b.score !== a.score) {
+      return b.score - a.score;
+    }
     return a.skill.name.localeCompare(b.skill.name);
   });
 
@@ -213,7 +224,9 @@ export class SkillsLive implements SkillService {
         // Check memory cache first
         const loaded = yield* Ref.get(this.loadedSkills);
         const cached = loaded.get(skillName);
-        if (cached) return cached;
+        if (cached) {
+          return cached;
+        }
 
         // Find skill path
         const allSkills = yield* this.listSkills();
@@ -229,7 +242,9 @@ export class SkillsLive implements SkillService {
             ? yield* runtimeOption.value.listAllSkills()
             : [];
           const found = pluginSkills.find((skill) => skill.name === skillName);
-          if (!found) return yield* Effect.fail(new Error(`Skill not found: ${skillName}`));
+          if (!found) {
+            return yield* Effect.fail(new Error(`Skill not found: ${skillName}`));
+          }
           const pluginContent: SkillContent = {
             metadata,
             core: found.content,
@@ -358,7 +373,9 @@ export class SkillsLive implements SkillService {
   private getPluginSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
     return Effect.gen(function* () {
       const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
-      if (Option.isNone(runtimeOption)) return [];
+      if (Option.isNone(runtimeOption)) {
+        return [];
+      }
       const skills = yield* runtimeOption.value.listAllSkills();
       return skills.map((skill) => ({
         name: skill.name,

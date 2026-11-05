@@ -111,12 +111,16 @@ export function createViewWorkspaceTool(): Tool<WorkspaceToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { outcome: WorkspaceViewOutcome };
-      if (data.outcome.kind === "directory")
+      if (data.outcome.kind === "directory") {
         return `Listed scratchpad (${data.outcome.entries.length} item(s))`;
-      if (data.outcome.kind === "file")
+      }
+      if (data.outcome.kind === "file") {
         return `Read scratchpad file (${data.outcome.totalLines} line(s))`;
+      }
       return undefined;
     },
   });
@@ -212,7 +216,9 @@ export function createManageWorkspaceTool(): Tool<WorkspaceToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { message: string };
       return data.message;
     },

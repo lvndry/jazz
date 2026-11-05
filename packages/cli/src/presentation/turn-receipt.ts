@@ -53,8 +53,12 @@ export function turnTokensPerSecond(turn: TurnTotals): number | undefined {
   let durationMs = 0;
   for (const step of turn.steps) {
     const count = step.completionTokens;
-    if (count === undefined || !Number.isFinite(count) || count < 0) return undefined;
-    if (count === 0) continue;
+    if (count === undefined || !Number.isFinite(count) || count < 0) {
+      return undefined;
+    }
+    if (count === 0) {
+      continue;
+    }
     const measured =
       step.generationDurationMs ??
       (step.tokensPerSecond !== undefined &&
@@ -62,7 +66,9 @@ export function turnTokensPerSecond(turn: TurnTotals): number | undefined {
       step.tokensPerSecond > 0
         ? (count / step.tokensPerSecond) * 1000
         : undefined);
-    if (measured === undefined || !Number.isFinite(measured) || measured <= 0) return undefined;
+    if (measured === undefined || !Number.isFinite(measured) || measured <= 0) {
+      return undefined;
+    }
     tokens += count;
     durationMs += measured;
   }
@@ -96,7 +102,9 @@ export function formatTurnReceipt(turn: TurnTotals): string | undefined {
     }
   }
   const throughput = turnTokensPerSecond(turn);
-  if (throughput !== undefined) parts.push(`${throughput.toFixed(1)} tok/s`);
+  if (throughput !== undefined) {
+    parts.push(`${throughput.toFixed(1)} tok/s`);
+  }
   const cost = sum(steps, (step) => step.costUSD);
   if (cost !== undefined) {
     parts.push(formatCost(cost));

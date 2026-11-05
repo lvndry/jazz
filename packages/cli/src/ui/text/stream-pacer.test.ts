@@ -48,7 +48,9 @@ function fixture() {
     timers,
     events,
     accept(id: string, text: string) {
-      if (source?.id !== id) pacer.flush();
+      if (source?.id !== id) {
+        pacer.flush();
+      }
       source = { id, text };
       pacer.receive();
     },

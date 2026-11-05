@@ -171,7 +171,9 @@ export class AgentConfigServiceImpl implements AgentConfigService {
   has(key: string): Effect.Effect<boolean, never> {
     return Effect.sync(() => {
       const value = deepGet(this.currentConfig, key);
-      if (typeof value === "string") return value.trim().length > 0;
+      if (typeof value === "string") {
+        return value.trim().length > 0;
+      }
       return value !== undefined && value !== null;
     });
   }
@@ -242,8 +244,11 @@ export class AgentConfigServiceImpl implements AgentConfigService {
 
         if (secret) {
           const destination = yield* this.storeSecret(key, value);
-          if (destination === "file") deepSet(nextDocument, key, value);
-          else if (destination !== "nowhere") deepDelete(nextDocument, key);
+          if (destination === "file") {
+            deepSet(nextDocument, key, value);
+          } else if (destination !== "nowhere") {
+            deepDelete(nextDocument, key);
+          }
           if (destination === "file" || destination === "keyring") {
             nextResolvedSecrets?.set(key, value as string);
           } else if (destination === "cleared") {
@@ -292,7 +297,9 @@ export class AgentConfigServiceImpl implements AgentConfigService {
   /** Mirror a write into the merged runtime view, so readers see it without a reload. */
   private applyToRuntime(key: string, value: unknown, secret: boolean): void {
     const runtime = this.currentConfig as unknown as ConfigDocument;
-    if (secret && !structuralHomeFor(this.currentConfig, key)) return;
+    if (secret && !structuralHomeFor(this.currentConfig, key)) {
+      return;
+    }
     const mcpName = mcpServerEntryName(key, value);
     if (mcpName !== undefined) {
       patchMcpServerEntry(runtime, mcpName, value);
@@ -328,9 +335,13 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         }
 
         const stored = yield* keyringSet(this.keyringBackend, key, value);
-        if (stored) return "keyring" as const;
+        if (stored) {
+          return "keyring" as const;
+        }
 
-        if (structuralHomeFor(this.currentConfig, key)) return "file" as const;
+        if (structuralHomeFor(this.currentConfig, key)) {
+          return "file" as const;
+        }
         this.unstorableSecrets.add(key);
         return "nowhere" as const;
       }.bind(this),
@@ -383,14 +394,18 @@ export class AgentConfigServiceImpl implements AgentConfigService {
     return Effect.gen(
       function* (this: AgentConfigServiceImpl) {
         const path = this.configPath;
-        if (path === undefined) return false;
+        if (path === undefined) {
+          return false;
+        }
 
         const stat = yield* this.fs.stat(path).pipe(Effect.catch(() => Effect.succeed(undefined)));
         const modified = stat?.mtime;
         const at = Option.isOption(modified)
           ? Option.getOrUndefined(modified)?.getTime()
           : undefined;
-        if (at === undefined || at === this.loadedAt) return false;
+        if (at === undefined || at === this.loadedAt) {
+          return false;
+        }
         this.loadedAt = at;
 
         const content = yield* this.fs
@@ -476,7 +491,9 @@ function writeToDocument(document: ConfigDocument, key: string, value: unknown):
 /** Parse a config file's text into a document, or `undefined` when it is not a JSON object. */
 function parseConfigDocument(content: string): ConfigDocument | undefined {
   const parsed = safeParseJson<unknown>(content);
-  if (Option.isNone(parsed)) return undefined;
+  if (Option.isNone(parsed)) {
+    return undefined;
+  }
   return isRecord(parsed.value) ? parsed.value : undefined;
 }
 
@@ -492,7 +509,9 @@ function readConfigDocumentForWrite(
 ): Effect.Effect<ConfigDocument, never> {
   return Effect.gen(function* () {
     const exists = yield* fs.exists(path).pipe(Effect.orDie);
-    if (!exists) return {};
+    if (!exists) {
+      return {};
+    }
     const content = yield* fs.readFileString(path).pipe(Effect.orDie);
     const document = parseConfigDocument(content);
     if (document === undefined) {
@@ -529,7 +548,9 @@ function requireValidConfigFile(
   document: ConfigDocument,
 ): Effect.Effect<ConfigFile, ConfigurationError> {
   const checked = parseCheckedConfigFile(path, document);
-  if (checked.report === undefined) return Effect.succeed(checked.config);
+  if (checked.report === undefined) {
+    return Effect.succeed(checked.config);
+  }
   return Effect.fail(
     new ConfigurationError({
       field: "file",
@@ -550,11 +571,17 @@ function effectiveConfigReport(config: AppConfig): string | undefined {
 /** Remove invalid cross-layer values from the runtime view after reporting them. */
 function sanitizeEffectiveConfig(config: AppConfig): AppConfig {
   const issues = validateEffectiveConfig(config);
-  if (issues.length === 0) return config;
+  if (issues.length === 0) {
+    return config;
+  }
   const report = formatConfigIssues("the merged configuration", issues, isSecretPath);
-  if (report !== undefined) process.stderr.write(report);
+  if (report !== undefined) {
+    process.stderr.write(report);
+  }
   const sanitized = structuredClone(config) as unknown as ConfigDocument;
-  for (const issue of issues) deepDelete(sanitized, issue.removed);
+  for (const issue of issues) {
+    deepDelete(sanitized, issue.removed);
+  }
   return sanitized as unknown as AppConfig;
 }
 
@@ -868,7 +895,9 @@ function mergeConfigLayers(base: AppConfig, layers: readonly object[]): AppConfi
 function mergeInto(base: Readonly<ConfigDocument>, layer: object): ConfigDocument {
   const out: ConfigDocument = { ...base };
   for (const [key, value] of Object.entries(layer)) {
-    if (value === undefined) continue;
+    if (value === undefined) {
+      continue;
+    }
     const existing = out[key];
     out[key] = isRecord(value) && isRecord(existing) ? mergeInto(existing, value) : value;
   }
@@ -891,7 +920,9 @@ function buildRuntimeConfig(sources: RuntimeConfigSources): AppConfig {
     localOverrides ?? {},
   );
   const runtime = structuredClone(withMcp) as unknown as ConfigDocument;
-  for (const [path, value] of sources.resolvedSecrets) deepSet(runtime, path, value);
+  for (const [path, value] of sources.resolvedSecrets) {
+    deepSet(runtime, path, value);
+  }
   return runtime as unknown as AppConfig;
 }
 
@@ -901,7 +932,9 @@ function snapshotResolvedSecrets(config: AppConfig): Map<string, string> {
   const paths = new Set([...SECRET_PATHS, ...runtimeSecretPaths(config)]);
   for (const path of paths) {
     const value = deepGet(config, path);
-    if (nonEmptyString(value)) values.set(path, value);
+    if (nonEmptyString(value)) {
+      values.set(path, value);
+    }
   }
   return values;
 }
@@ -949,11 +982,17 @@ export function resolveHeldSecrets(
       { concurrency: "unbounded" },
     );
     return found.flatMap(([name, value]) => {
-      if (!nonEmptyString(value)) return [];
-      if (name !== CHATGPT_CREDENTIAL_PATH) return [{ name, value }];
+      if (!nonEmptyString(value)) {
+        return [];
+      }
+      if (name !== CHATGPT_CREDENTIAL_PATH) {
+        return [{ name, value }];
+      }
       try {
         const credential: unknown = JSON.parse(value);
-        if (credential === null || typeof credential !== "object") return [{ name, value }];
+        if (credential === null || typeof credential !== "object") {
+          return [{ name, value }];
+        }
         const record = credential as Record<string, unknown>;
         return [
           { name, value },
@@ -1009,7 +1048,9 @@ function resolveSecrets(
       const held = yield* keyringReadAll(backend);
       for (const path of candidates) {
         const value = held[path];
-        if (fromEnv.has(path) || !nonEmptyString(value)) continue;
+        if (fromEnv.has(path) || !nonEmptyString(value)) {
+          continue;
+        }
         deepSet(resolved, path, value);
       }
     }
@@ -1026,9 +1067,13 @@ function resolveSecrets(
       for (const path of migrated) {
         deepDelete(cleaned, path);
       }
-      if (droppedLegacy) delete cleaned["google"];
+      if (droppedLegacy) {
+        delete cleaned["google"];
+      }
       yield* writePrivateFile(globalConfigPath, JSON.stringify(cleaned, null, 2));
-      if (droppedLegacy) noticeLegacyGoogleRemoved(globalConfigPath);
+      if (droppedLegacy) {
+        noticeLegacyGoogleRemoved(globalConfigPath);
+      }
       return { config: resolved as unknown as AppConfig, document: cleaned };
     }
 
@@ -1046,10 +1091,14 @@ function resolveSecrets(
  */
 function dropLegacyGoogleBlock(fileRecord: Record<string, unknown>): boolean {
   const block = fileRecord["google"];
-  if (!block || typeof block !== "object") return false;
+  if (!block || typeof block !== "object") {
+    return false;
+  }
 
   const keys = Object.keys(block);
-  if (keys.length === 0) return true;
+  if (keys.length === 0) {
+    return true;
+  }
   return keys.every((key) => key === "clientId" || key === "clientSecret");
 }
 
@@ -1076,15 +1125,21 @@ function migratePlaintextSecrets(
   candidates: ReadonlySet<string>,
 ): Effect.Effect<string[], never> {
   return Effect.gen(function* () {
-    if (backend === "none") return [];
+    if (backend === "none") {
+      return [];
+    }
 
     const migrated: string[] = [];
     for (const path of candidates) {
       const fileValue = deepGet(fileRecord, path);
-      if (!nonEmptyString(fileValue)) continue;
+      if (!nonEmptyString(fileValue)) {
+        continue;
+      }
 
       const stored = yield* keyringSet(backend, path, fileValue);
-      if (stored) migrated.push(path);
+      if (stored) {
+        migrated.push(path);
+      }
     }
 
     return migrated;
@@ -1129,7 +1184,9 @@ function readOptionalConfigFile(
 ): Effect.Effect<GlobalConfigFileOnDisk | undefined, ConfigurationError> {
   return Effect.gen(function* () {
     const exists = yield* fs.exists(filePath).pipe(Effect.catch(() => Effect.succeed(false)));
-    if (!exists) return undefined;
+    if (!exists) {
+      return undefined;
+    }
 
     const content = yield* fs.readFileString(filePath).pipe(
       Effect.catch((cause) =>
@@ -1142,7 +1199,9 @@ function readOptionalConfigFile(
         ),
       ),
     );
-    if (content === undefined) return undefined;
+    if (content === undefined) {
+      return undefined;
+    }
     if (!content.trim()) {
       return yield* Effect.fail(
         new ConfigurationError({
@@ -1184,7 +1243,9 @@ function readLocalConfigFile(
   }
   return readOptionalConfigFile(fs, localConfigPath).pipe(
     Effect.map((file) => {
-      if (file === undefined) return undefined;
+      if (file === undefined) {
+        return undefined;
+      }
       const { storage: _storage, ...document } = file.document;
       return { path: file.path, document };
     }),
@@ -1409,7 +1470,9 @@ function mergeAgentsMcpIntoConfig(
   globalOverrides: Record<string, MCPServerOverride>,
   localOverrides: Record<string, MCPServerOverride>,
 ): AppConfig {
-  if (Object.keys(agentsServers).length === 0) return config;
+  if (Object.keys(agentsServers).length === 0) {
+    return config;
+  }
   return {
     ...config,
     mcpServers: mergeMcpServers(agentsServers, globalOverrides, localOverrides),
@@ -1444,7 +1507,9 @@ function forgetMcpServerSecrets(
       }
       for (const key of Object.keys(values)) {
         const account = mcpServerSecretPath(name, field, key);
-        if (!retainedAccounts.has(account)) yield* keyringDelete(backend, account);
+        if (!retainedAccounts.has(account)) {
+          yield* keyringDelete(backend, account);
+        }
       }
     }
   });
@@ -1537,7 +1602,9 @@ export function writeAgentsMcpServer(
             previousValues.set(account, previous);
           }
           const stored = backend !== "none" && (yield* keyringSet(backend, account, value));
-          if (stored) retainedAccounts.add(account);
+          if (stored) {
+            retainedAccounts.add(account);
+          }
           kept[key] = stored ? "" : value;
           (stored ? inKeyring : inFile).push(`${field}.${key}`);
         }
@@ -1663,13 +1730,17 @@ function structuralHomeFor(config: AppConfig, path: string): boolean {
  */
 function deepDelete(obj: Record<string, unknown>, path: string): void {
   const parts = splitConfigPath(path) ?? [];
-  if (parts.length === 0) return;
+  if (parts.length === 0) {
+    return;
+  }
 
   const chain: Record<string, unknown>[] = [obj];
   let cur: Record<string, unknown> = obj;
   for (let i = 0; i < parts.length - 1; i++) {
     const next = cur[parts[i] as string];
-    if (!next || typeof next !== "object") return;
+    if (!next || typeof next !== "object") {
+      return;
+    }
     cur = next as Record<string, unknown>;
     chain.push(cur);
   }
@@ -1678,7 +1749,9 @@ function deepDelete(obj: Record<string, unknown>, path: string): void {
 
   for (let i = chain.length - 1; i > 0; i--) {
     const node = chain[i] as Record<string, unknown>;
-    if (Object.keys(node).length > 0) break;
+    if (Object.keys(node).length > 0) {
+      break;
+    }
     delete (chain[i - 1] as Record<string, unknown>)[parts[i - 1] as string];
   }
 }
@@ -1703,7 +1776,9 @@ function deepSet(obj: object, path: string, value: unknown): boolean {
       cur[key] = value;
     } else {
       const next = cur[key];
-      if (Array.isArray(next)) return false;
+      if (Array.isArray(next)) {
+        return false;
+      }
       if (!next || typeof next !== "object") {
         cur[key] = {};
       }

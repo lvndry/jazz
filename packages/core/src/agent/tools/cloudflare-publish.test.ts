@@ -55,7 +55,9 @@ function fakeAccount(
       json: async () => ({ success: false, errors: [{ message }] }),
     });
     if (url.includes("/access/apps")) {
-      if (options.failAccess) return fail("Access not_enabled");
+      if (options.failAccess) {
+        return fail("Access not_enabled");
+      }
       const appId = url.match(/access\/apps\/([^/]+)\/policies(?:\?|$)/)?.[1];
       if (appId) {
         const policies = apps.find((app) => app.id === appId)?.policies ?? [];
@@ -81,23 +83,34 @@ function fakeAccount(
       apps.push(app);
       return ok(app);
     }
-    if (url.endsWith("/upload-token")) return ok({ jwt: "fake-upload-token" });
-    if (url.endsWith("/check-missing"))
+    if (url.endsWith("/upload-token")) {
+      return ok({ jwt: "fake-upload-token" });
+    }
+    if (url.endsWith("/check-missing")) {
       return ok(z.object({ hashes: z.array(z.string()) }).parse(body).hashes);
+    }
     if (url.endsWith("/assets/upload")) {
       uploads.push(body);
       return ok({});
     }
-    if (url.endsWith("/upsert-hashes")) return ok({});
+    if (url.endsWith("/upsert-hashes")) {
+      return ok({});
+    }
     if (url.endsWith("/deployments")) {
-      if (options.failDeploy) return fail("deployment refused");
-      if (!(body instanceof FormData)) throw new Error("deployment must be multipart");
+      if (options.failDeploy) {
+        return fail("deployment refused");
+      }
+      if (!(body instanceof FormData)) {
+        throw new Error("deployment must be multipart");
+      }
       production = z.record(z.string(), z.string()).parse(JSON.parse(String(body.get("manifest"))));
       expect(body.get("branch")).toBe("main");
       return ok({ url: `https://immutable.${hostname}` });
     }
     if (url.includes("/pages/projects")) {
-      if (method === "GET" && options.missingProject) return fail("missing project", 404);
+      if (method === "GET" && options.missingProject) {
+        return fail("missing project", 404);
+      }
       return ok(
         options.invalidProject
           ? {}

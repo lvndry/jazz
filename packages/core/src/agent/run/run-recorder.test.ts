@@ -113,10 +113,14 @@ describe("withRunRecording", () => {
 
     expect(exit._tag).toBe("Failure");
     const record = await Effect.runPromise(store.get(RUN_ID));
-    if (record?.state.kind !== "input-required") throw new Error("expected a parked run");
+    if (record?.state.kind !== "input-required") {
+      throw new Error("expected a parked run");
+    }
 
     expect(record.state.pending.kind).toBe("tool-approval");
-    if (record.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+    if (record.state.pending.kind !== "tool-approval") {
+      throw new Error("expected an approval");
+    }
     expect(record.state.pending.request.toolCallId).toBe("call_7");
     expect(record.state.snapshot.messages).toHaveLength(1);
     expect(record.state.snapshot.iteration).toBe(2);

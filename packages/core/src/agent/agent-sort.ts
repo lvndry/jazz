@@ -22,8 +22,12 @@ export function sortAgents<T extends Pick<Agent, "id" | "name">>(
 ): T[] {
   return [...agents].sort((a, b) => {
     if (lastUsedAgentId) {
-      if (a.id === lastUsedAgentId) return -1;
-      if (b.id === lastUsedAgentId) return 1;
+      if (a.id === lastUsedAgentId) {
+        return -1;
+      }
+      if (b.id === lastUsedAgentId) {
+        return 1;
+      }
     }
     return a.name.localeCompare(b.name);
   });

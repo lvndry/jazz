@@ -290,7 +290,9 @@ describe("MCP env and header secrets", () => {
       const original = fs.readFileSync(userMcpPath(), "utf8");
       const originalRename = nodeFs.rename;
       const rename = spyOn(nodeFs, "rename").mockImplementation(async (source, destination) => {
-        if (destination === userMcpPath()) throw new Error("Injected definition commit failure");
+        if (destination === userMcpPath()) {
+          throw new Error("Injected definition commit failure");
+        }
         return originalRename(source, destination);
       });
       const change =

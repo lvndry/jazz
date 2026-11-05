@@ -38,7 +38,9 @@ interface OccupiedDirectory {
 
 /** True when `dir` and `base` are in the same directory tree, either direction. */
 function sameDirectoryTree(dir: string, base: string): boolean {
-  if (dir === base) return true;
+  if (dir === base) {
+    return true;
+  }
   const prefixBase = base.endsWith("/") ? base : `${base}/`;
   const prefixDir = dir.endsWith("/") ? dir : `${dir}/`;
   return dir.startsWith(prefixBase) || base.startsWith(prefixDir);
@@ -67,8 +69,12 @@ function isPresent(
   updatedAt: string,
   now: number,
 ): boolean {
-  if (owner === "gone") return false;
-  if (entry.state !== "working" && entry.state !== "input-required") return false;
+  if (owner === "gone") {
+    return false;
+  }
+  if (entry.state !== "working" && entry.state !== "input-required") {
+    return false;
+  }
   const updated = Date.parse(updatedAt);
   return !Number.isNaN(updated) && now - updated <= OCCUPANCY_FRESH_WINDOW_MS;
 }
@@ -77,14 +83,19 @@ function describeEntry(entry: OccupancyEntry, band: OccupancyBand, now: number):
   if (band === "writing") {
     const secs = Math.max(0, Math.round((now - Date.parse(entry.lastMutatingAt as string)) / 1000));
     const parts = [`WRITING here — last write ${secs}s ago`];
-    if (entry.lastMutatingTool !== undefined) parts.push(`via ${entry.lastMutatingTool}`);
-    if (entry.lastMutatingPath !== undefined) parts.push(`touched ${entry.lastMutatingPath}`);
-    else if (entry.lastMutatingTool === "execute_command") {
+    if (entry.lastMutatingTool !== undefined) {
+      parts.push(`via ${entry.lastMutatingTool}`);
+    }
+    if (entry.lastMutatingPath !== undefined) {
+      parts.push(`touched ${entry.lastMutatingPath}`);
+    } else if (entry.lastMutatingTool === "execute_command") {
       parts.push("write target unknown (shell command)");
     }
     return parts.join(" · ");
   }
-  if (band === "wrote-idle") return "wrote earlier this run, idle since";
+  if (band === "wrote-idle") {
+    return "wrote earlier this run, idle since";
+  }
   return "present, reads only";
 }
 
@@ -200,11 +211,15 @@ export function createWhoIsHereTool(): Tool<OccupancyService | FileSystemContext
                   const { pid, host } = currentProcessOwner();
                   return { match: (e: OccupancyEntry) => e.pid === pid && e.host === host };
                 })();
-          if (self.match(entry)) continue;
+          if (self.match(entry)) {
+            continue;
+          }
           // One process check per entry: it is the presence gate and the reported owner
           // state, and `ps` is a sync spawn, so it is not something to do twice.
           const owner = localOwnerStatus({ pid: entry.pid, host: entry.host });
-          if (!isPresent(entry, owner, entry.updatedAt, now)) continue;
+          if (!isPresent(entry, owner, entry.updatedAt, now)) {
+            continue;
+          }
           present.push({
             entry,
             band: bandOf(entry, now),

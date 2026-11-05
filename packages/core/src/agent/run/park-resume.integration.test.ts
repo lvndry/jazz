@@ -180,7 +180,9 @@ function makeLayers(
         });
       }
       executions.push(name);
-      if (typeof args["target"] === "string") executedTargets.push(args["target"]);
+      if (typeof args["target"] === "string") {
+        executedTargets.push(args["target"]);
+      }
       return Effect.succeed({ success: true, result: "did the gated thing" });
     }),
   } as unknown as ToolRegistry;
@@ -271,8 +273,12 @@ describe("park and resume, through the real loop", () => {
 
     const parked = (await Effect.runPromise(store.list()))[0];
     expect(parked).toBeDefined();
-    if (parked?.state.kind !== "input-required") throw new Error("expected a parked run");
-    if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+    if (parked?.state.kind !== "input-required") {
+      throw new Error("expected a parked run");
+    }
+    if (parked.state.pending.kind !== "tool-approval") {
+      throw new Error("expected an approval");
+    }
     expect(parked.state.pending.request.toolCallId).toBe(TOOL_CALL.id);
     // The transcript has to carry the assistant turn holding the unanswered call, or there
     // is nothing for resume to finish.
@@ -313,7 +319,9 @@ describe("park and resume, through the real loop", () => {
 
     expect(exit._tag).toBe("Success");
     expect(executions).toEqual([]);
-    if (exit._tag === "Failure") return;
+    if (exit._tag === "Failure") {
+      return;
+    }
     expect(isRunParkRequested(exit.value)).toBe(false);
   });
 });
@@ -479,8 +487,12 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     expect(executions).toEqual([]);
 
     const parked = (await Effect.runPromise(store.list()))[0];
-    if (parked?.state.kind !== "input-required") throw new Error("expected a parked run");
-    if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+    if (parked?.state.kind !== "input-required") {
+      throw new Error("expected a parked run");
+    }
+    if (parked.state.pending.kind !== "tool-approval") {
+      throw new Error("expected an approval");
+    }
     expect(parked.state.pending.request.toolCallId).toBe(TOOL_CALL.id);
 
     // Approving it finishes the batch, and each tool runs exactly once.
@@ -517,12 +529,20 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     const askedAbout: string[] = [];
     for (let round = 0; round < 5; round += 1) {
       const parked = (await Effect.runPromise(store.list()))[0];
-      if (parked === undefined) break;
-      if (parked.state.kind !== "input-required") throw new Error("expected a parked run");
-      if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+      if (parked === undefined) {
+        break;
+      }
+      if (parked.state.kind !== "input-required") {
+        throw new Error("expected a parked run");
+      }
+      if (parked.state.pending.kind !== "tool-approval") {
+        throw new Error("expected an approval");
+      }
       askedAbout.push(parked.state.pending.request.toolCallId);
       // Nothing may have run while approvals are still outstanding.
-      if (round === 0) expect(executions).toEqual([]);
+      if (round === 0) {
+        expect(executions).toEqual([]);
+      }
       await Effect.runPromiseExit(
         resumeRun({
           runId: parked.runId,
@@ -553,7 +573,9 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     );
 
     const first = (await Effect.runPromise(store.list()))[0];
-    if (first?.state.kind !== "input-required") throw new Error("expected a parked run");
+    if (first?.state.kind !== "input-required") {
+      throw new Error("expected a parked run");
+    }
     // The first park has nothing to remember yet.
     expect(first.state.snapshot.pendingTurnAnswers).toBeUndefined();
 
@@ -565,7 +587,9 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     );
 
     const second = (await Effect.runPromise(store.list()))[0];
-    if (second?.state.kind !== "input-required") throw new Error("expected a second park");
+    if (second?.state.kind !== "input-required") {
+      throw new Error("expected a second park");
+    }
     // The second one is where it matters: without this the next resume forgets round one.
     expect(Object.keys(second.state.snapshot.pendingTurnAnswers ?? {})).toEqual([TOOL_CALL.id]);
   });
@@ -581,9 +605,15 @@ describe("the order approvals are asked in, and who each answer belongs to", () 
     const askedAbout: string[] = [];
     for (let round = 0; round < 6; round += 1) {
       const parked = (await Effect.runPromise(store.list()))[0];
-      if (parked === undefined) break;
-      if (parked.state.kind !== "input-required") throw new Error("expected a parked run");
-      if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+      if (parked === undefined) {
+        break;
+      }
+      if (parked.state.kind !== "input-required") {
+        throw new Error("expected a parked run");
+      }
+      if (parked.state.pending.kind !== "tool-approval") {
+        throw new Error("expected an approval");
+      }
       const toolCallId = parked.state.pending.request.toolCallId;
       askedAbout.push(toolCallId);
       await Effect.runPromiseExit(

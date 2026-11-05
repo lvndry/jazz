@@ -206,7 +206,9 @@ describe("promptForAgentInfo", () => {
         }) as TerminalService["search"],
         ask: (message) => {
           asked.push(message);
-          if (message.includes("server URL")) return Effect.succeed("127.0.0.1:8000");
+          if (message.includes("server URL")) {
+            return Effect.succeed("127.0.0.1:8000");
+          }
           if (message.includes("call it")) {
             return Effect.succeed("vllm-agent");
           }

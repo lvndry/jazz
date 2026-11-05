@@ -132,13 +132,19 @@ function resolveInside(root: string, relativePath: string): string {
 }
 
 function inspectBuild(result: Bun.BuildOutput): Bun.BuildArtifact {
-  if (!result.success) fail(result.logs.map((log) => log.message).join("\n") || "build failed");
+  if (!result.success) {
+    fail(result.logs.map((log) => log.message).join("\n") || "build failed");
+  }
   if (result.outputs.length !== 1 || result.outputs[0]?.kind !== "entry-point") {
     fail("build must emit exactly one entry-point artifact");
   }
-  if (!result.metafile) fail("build metadata is unavailable");
+  if (!result.metafile) {
+    fail("build metadata is unavailable");
+  }
   for (const [inputPath, input] of Object.entries(result.metafile.inputs)) {
-    if (NATIVE_OR_ASSET_INPUT.test(inputPath)) fail(`unsupported input: ${inputPath}`);
+    if (NATIVE_OR_ASSET_INPUT.test(inputPath)) {
+      fail(`unsupported input: ${inputPath}`);
+    }
     for (const imported of input.imports) {
       if (imported.external === true && !isRuntimeBuiltin(imported.path)) {
         fail(`runtime import is not self-contained: ${imported.path}`);
@@ -156,7 +162,9 @@ function inspectBuild(result: Bun.BuildOutput): Bun.BuildArtifact {
 }
 
 function isPluginModule(value: unknown): value is JazzPluginModule {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value)) {
+    return false;
+  }
   const module = value;
   return (
     module["apiVersion"] === 1 &&
@@ -188,8 +196,9 @@ export async function packPlugin(options: PackPluginOptions): Promise<PackedPlug
   );
   const entrypoint = resolveInside(pluginDirectory, source.entry);
   const entry = await fs.lstat(entrypoint).catch(() => undefined);
-  if (!entry?.isFile() || entry.isSymbolicLink())
+  if (!entry?.isFile() || entry.isSymbolicLink()) {
     fail("entry must be a regular file, not a symlink");
+  }
   const releaseDirectory = path.resolve(
     options.releaseDirectory ?? path.join(pluginDirectory, "release"),
   );
@@ -215,7 +224,9 @@ export async function packPlugin(options: PackPluginOptions): Promise<PackedPlug
     const imported = (await import(
       `${pathToFileURL(artifactPath).href}?pack-validation=${Date.now()}`
     )) as { readonly default?: unknown };
-    if (!isPluginModule(imported.default)) fail("default export does not implement plugin API v1");
+    if (!isPluginModule(imported.default)) {
+      fail("default export does not implement plugin API v1");
+    }
   } catch (error) {
     await fs.rm(artifactPath, { force: true });
     throw error;
@@ -370,20 +381,25 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
     apiVersion: 1,
     hooks: {
       register: (id) => {
-        if (hooks.has(id)) fail(`hook ${id} was registered more than once`);
+        if (hooks.has(id)) {
+          fail(`hook ${id} was registered more than once`);
+        }
         hooks.add(id);
       },
     },
     policy: {
       register: (id) => {
-        if (policyHooks.has(id)) fail(`policy hook ${id} was registered more than once`);
+        if (policyHooks.has(id)) {
+          fail(`policy hook ${id} was registered more than once`);
+        }
         policyHooks.add(id);
       },
     },
     decisions: {
       registerProvider: (provider) => {
-        if (providers.has(provider.id))
+        if (providers.has(provider.id)) {
           fail(`decision provider ${provider.id} was registered twice`);
+        }
         providers.add(provider.id);
         return {
           decide: (request, context) =>
@@ -395,32 +411,39 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
     },
     tools: {
       register: (registration) => {
-        if (!declaredTools.has(registration.name))
+        if (!declaredTools.has(registration.name)) {
           fail(`tool ${registration.name} is not declared in the manifest`);
-        if (tools.has(registration.name))
+        }
+        if (tools.has(registration.name)) {
           fail(`tool ${registration.name} was registered more than once`);
+        }
         tools.add(registration.name);
       },
     },
     commands: {
       register: (registration) => {
-        if (!declaredCommands.has(registration.name))
+        if (!declaredCommands.has(registration.name)) {
           fail(`command ${registration.name} is not declared in the manifest`);
-        if (commands.has(registration.name))
+        }
+        if (commands.has(registration.name)) {
           fail(`command ${registration.name} was registered more than once`);
+        }
         commands.add(registration.name);
       },
     },
     lifecycle: {
       register: (registration) => {
-        if (!declaredLifecycle.has(registration.event))
+        if (!declaredLifecycle.has(registration.event)) {
           fail(`lifecycle event ${registration.event} is not declared in the manifest`);
+        }
         lifecycleEvents.add(registration.event);
       },
     },
     workspace: {
       register: () => {
-        if (registeredWorkspace) fail("workspace context was registered more than once");
+        if (registeredWorkspace) {
+          fail("workspace context was registered more than once");
+        }
         registeredWorkspace = true;
       },
     },
@@ -461,7 +484,9 @@ export async function probePackedPlugin(
     const namespace = (await import(`${pathToFileURL(artifactPath).href}?probe=${Date.now()}`)) as {
       readonly default?: unknown;
     };
-    if (!isPluginModule(namespace.default)) fail("default export does not implement plugin API v1");
+    if (!isPluginModule(namespace.default)) {
+      fail("default export does not implement plugin API v1");
+    }
     module = namespace.default;
     const audit = auditRegistration(acquired.manifest, module);
     const session = await Effect.runPromise(

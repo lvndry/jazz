@@ -50,7 +50,9 @@ const BACKSLASH = String.fromCharCode(92);
 function skipEscapeSequence(text: string, start: number): number {
   let index = start + 1;
   const introducer = text[index];
-  if (introducer === undefined) return index;
+  if (introducer === undefined) {
+    return index;
+  }
 
   // CSI: ESC [ , parameter and intermediate bytes, then a final byte in
   // 0x40-0x7E. Every colour chalk emits is one of these, and so are the cursor
@@ -60,7 +62,9 @@ function skipEscapeSequence(text: string, start: number): number {
     while (index < text.length) {
       const code = text.charCodeAt(index);
       index += 1;
-      if (code >= 0x40 && code <= 0x7e) break;
+      if (code >= 0x40 && code <= 0x7e) {
+        break;
+      }
     }
     return index;
   }
@@ -78,8 +82,12 @@ function skipEscapeSequence(text: string, start: number): number {
   ) {
     index += 1;
     while (index < text.length) {
-      if (text[index] === BEL) return index + 1;
-      if (text[index] === ESC && text[index + 1] === BACKSLASH) return index + 2;
+      if (text[index] === BEL) {
+        return index + 1;
+      }
+      if (text[index] === ESC && text[index + 1] === BACKSLASH) {
+        return index + 2;
+      }
       index += 1;
     }
     return index;
@@ -115,11 +123,17 @@ const TERMINAL_HYPERLINK = new RegExp(
  * containing brackets cannot round-trip, so it keeps only its text.
  */
 export function terminalHyperlinksToMarkdown(text: string): string {
-  if (!text.includes(`${ESC}]8;`)) return text;
+  if (!text.includes(`${ESC}]8;`)) {
+    return text;
+  }
   return text.replace(TERMINAL_HYPERLINK, (_match: string, url: string, label: string) => {
-    if (url.length === 0) return label;
+    if (url.length === 0) {
+      return label;
+    }
     const visibleLabel = stripAnsiCodes(label);
-    if (/[[\]]/.test(visibleLabel)) return label;
+    if (/[[\]]/.test(visibleLabel)) {
+      return label;
+    }
     const safeUrl = url.replace(/\(/g, "%28").replace(/\)/g, "%29");
     return `[${label}](${safeUrl})`;
   });
@@ -138,7 +152,9 @@ export function terminalHyperlinksToMarkdown(text: string): string {
  * hyperlinks around every link survived it.
  */
 export function stripAnsiCodes(text: string): string {
-  if (!text.includes(ESC)) return text;
+  if (!text.includes(ESC)) {
+    return text;
+  }
   let output = "";
   let index = 0;
   while (index < text.length) {
@@ -165,7 +181,9 @@ export function getVisualWidth(text: string): number {
  */
 export function padRight(text: string, width: number): string {
   const visualWidth = getVisualWidth(text);
-  if (visualWidth >= width) return text;
+  if (visualWidth >= width) {
+    return text;
+  }
   return text + " ".repeat(width - visualWidth);
 }
 
@@ -183,10 +201,14 @@ export function wrapCommaList(items: readonly string[], width: number): string[]
       current = next;
       continue;
     }
-    if (current.length > 0) lines.push(current);
+    if (current.length > 0) {
+      lines.push(current);
+    }
     current = p;
   }
-  if (current.length > 0) lines.push(current);
+  if (current.length > 0) {
+    lines.push(current);
+  }
   return lines;
 }
 
@@ -199,10 +221,18 @@ export function wrapCommaList(items: readonly string[], width: number): string[]
  * @returns Truncated text with ellipsis in middle if needed
  */
 export function truncateMiddle(text: string, max: number): string {
-  if (max <= 0) return "";
-  if (text.length <= max) return text;
-  if (max <= 1) return "…";
-  if (max <= 10) return text.slice(0, max - 1) + "…";
+  if (max <= 0) {
+    return "";
+  }
+  if (text.length <= max) {
+    return text;
+  }
+  if (max <= 1) {
+    return "…";
+  }
+  if (max <= 10) {
+    return text.slice(0, max - 1) + "…";
+  }
   const keep = max - 1;
   const left = Math.ceil(keep * 0.6);
   const right = keep - left;
@@ -217,9 +247,15 @@ export function truncateMiddle(text: string, max: number): string {
  * @returns Truncated text with ellipsis at end if needed
  */
 export function truncate(text: string, max: number): string {
-  if (max <= 0) return "";
-  if (text.length <= max) return text;
-  if (max <= 1) return "…";
+  if (max <= 0) {
+    return "";
+  }
+  if (text.length <= max) {
+    return text;
+  }
+  if (max <= 1) {
+    return "…";
+  }
   return text.slice(0, max - 1) + "…";
 }
 
@@ -269,10 +305,14 @@ function parseAnsiSegments(text: string): TextSegment[] {
  * @returns Truncated text with ANSI sequences intact
  */
 export function truncateTailAnsiSafe(text: string, maxVisibleChars: number): string {
-  if (maxVisibleChars <= 0) return "";
+  if (maxVisibleChars <= 0) {
+    return "";
+  }
 
   const visibleLength = getVisualWidth(text);
-  if (visibleLength <= maxVisibleChars) return text;
+  if (visibleLength <= maxVisibleChars) {
+    return text;
+  }
 
   const segments = parseAnsiSegments(text);
   const charsToSkip = visibleLength - maxVisibleChars;
@@ -327,7 +367,9 @@ export function formatIsoShort(date: Date): string {
  */
 export function formatToolsLine(tools: readonly string[] | undefined, maxWidth: number): string {
   const list = tools ?? [];
-  if (list.length === 0) return "tools none configured";
+  if (list.length === 0) {
+    return "tools none configured";
+  }
   const joined = list.join(", ");
   return truncateMiddle(`tools ${list.length} — ${joined}`, Math.max(20, maxWidth - 2));
 }

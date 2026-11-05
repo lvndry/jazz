@@ -196,7 +196,9 @@ export function createInputService(terminalCapabilities: TerminalCapabilities): 
 
   function notifyTextInputSubscribers(id: string): void {
     const subscribers = textInputSubscribers.get(id);
-    if (!subscribers) return;
+    if (!subscribers) {
+      return;
+    }
     for (const subscriber of subscribers) {
       try {
         subscriber();
@@ -229,7 +231,9 @@ export function createInputService(terminalCapabilities: TerminalCapabilities): 
 
     return () => {
       const current = textInputSubscribers.get(id);
-      if (!current) return;
+      if (!current) {
+        return;
+      }
       current.delete(listener);
       if (current.size === 0) {
         textInputSubscribers.delete(id);
@@ -358,13 +362,17 @@ export function createInputHandler(config: {
       // Try action-based handler first
       if (config.onAction) {
         const result = config.onAction(event.action);
-        if (result) return result;
+        if (result) {
+          return result;
+        }
       }
 
       // Try raw input handler
       if (config.onRawInput) {
         const result = config.onRawInput(event.rawInput, event.key);
-        if (result) return result;
+        if (result) {
+          return result;
+        }
       }
 
       return { _tag: "Ignored" };

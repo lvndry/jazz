@@ -37,14 +37,17 @@ describe("instance-owned transcript layout", () => {
     for (const top of [0, 25, 800, 1300, index.length - 20]) {
       const selected = index.window(top, 20);
       expect(selected).toHaveLength(20);
-      for (let row = 0; row < selected.length; row++)
+      for (let row = 0; row < selected.length; row++) {
         expect(selected[row]?.source).toEqual(index.sourceAt(top + row));
+      }
       expect(layout.stats().cachedRows).toBeLessThanOrEqual(64);
       expect(layout.stats().cachedChunks).toBeLessThanOrEqual(4);
     }
     const source = index.sourceAt(1300);
     expect(source).toBeDefined();
-    if (source !== undefined) expect(index.sourceRow(source)).toBe(1300);
+    if (source !== undefined) {
+      expect(index.sourceRow(source)).toBe(1300);
+    }
     expect(layout.stats().sourceRows).toBe(index.length);
     layout.dispose();
     expect(layout.stats()).toEqual({ cachedRows: 0, cachedChunks: 0, sourceRows: 0 });

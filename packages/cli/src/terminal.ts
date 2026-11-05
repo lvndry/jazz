@@ -145,11 +145,15 @@ export class InkTerminalService implements TerminalService {
   }
 
   private fallbackToInk = (): void => {
-    if (this.fallbackScheduled || this.disposed || this.inkInstance !== null) return;
+    if (this.fallbackScheduled || this.disposed || this.inkInstance !== null) {
+      return;
+    }
     this.fallbackScheduled = true;
     queueMicrotask(() => {
       this.fallbackScheduled = false;
-      if (this.disposed || this.inkInstance !== null) return;
+      if (this.disposed || this.inkInstance !== null) {
+        return;
+      }
       const fullscreen = this.fullscreen;
       this.fullscreen = null;
       try {
@@ -162,7 +166,9 @@ export class InkTerminalService implements TerminalService {
   };
 
   private mountInk(): void {
-    if (this.inkInstance !== null) return;
+    if (this.inkInstance !== null) {
+      return;
+    }
     setActiveKeymap("classic");
     this.inkInstance = render(
       React.createElement(
@@ -179,7 +185,9 @@ export class InkTerminalService implements TerminalService {
    * Called when the command completes
    */
   cleanup(): void {
-    if (this.disposed) return;
+    if (this.disposed) {
+      return;
+    }
     this.disposed = true;
     store.setStreamPacing(false);
     this.unregisterRendererFallback?.();
@@ -263,7 +271,9 @@ export class InkTerminalService implements TerminalService {
 
   clear(): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      if (!this.fullscreen) console.clear();
+      if (!this.fullscreen) {
+        console.clear();
+      }
       store.clearOutputs();
       this.fullscreen?.invalidate();
     });
@@ -541,8 +551,11 @@ export class InkTerminalService implements TerminalService {
 
   setTitle(title: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      if (this.fullscreen) this.fullscreen.setTitle(title);
-      else process.stdout.write(`\x1b]0;${title.replace(/\p{Cc}/gu, "")}\x07`);
+      if (this.fullscreen) {
+        this.fullscreen.setTitle(title);
+      } else {
+        process.stdout.write(`\x1b]0;${title.replace(/\p{Cc}/gu, "")}\x07`);
+      }
     });
   }
 }

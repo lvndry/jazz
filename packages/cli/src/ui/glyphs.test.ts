@@ -49,11 +49,16 @@ const TODO_MARK_FIELDS: readonly (keyof GlyphSet)[] = [
 function everyCharacter(set: GlyphSet, exclude: readonly (keyof GlyphSet)[] = []): string[] {
   const out: string[] = [];
   for (const [key, value] of Object.entries(set)) {
-    if (exclude.includes(key as keyof GlyphSet)) continue;
-    if (typeof value === "string") out.push(...value);
-    else if (Array.isArray(value)) {
+    if (exclude.includes(key as keyof GlyphSet)) {
+      continue;
+    }
+    if (typeof value === "string") {
+      out.push(...value);
+    } else if (Array.isArray(value)) {
       for (const entry of value) {
-        if (typeof entry === "string") out.push(...entry);
+        if (typeof entry === "string") {
+          out.push(...entry);
+        }
       }
     }
   }
@@ -65,7 +70,9 @@ function describeRange(
   ranges: readonly (readonly [number, number, string])[],
 ): string | undefined {
   for (const [start, end, name] of ranges) {
-    if (codePoint >= start && codePoint <= end) return name;
+    if (codePoint >= start && codePoint <= end) {
+      return name;
+    }
   }
   return undefined;
 }
@@ -90,14 +97,19 @@ function withEnv(overrides: Record<string, string | undefined>, run: () => void)
     delete process.env[key];
   }
   for (const [key, value] of Object.entries(overrides)) {
-    if (value !== undefined) process.env[key] = value;
+    if (value !== undefined) {
+      process.env[key] = value;
+    }
   }
   try {
     run();
   } finally {
     for (const [key, value] of saved) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
     }
   }
 }
@@ -266,7 +278,9 @@ describe("font safety", () => {
     const offenders: string[] = [];
     for (const character of everyCharacter(GLYPHS.unicode, TODO_MARK_FIELDS)) {
       const codePoint = character.codePointAt(0) as number;
-      if (describeRange(codePoint, SAFE_RANGES) !== undefined) continue;
+      if (describeRange(codePoint, SAFE_RANGES) !== undefined) {
+        continue;
+      }
       const unsafe = describeRange(codePoint, KNOWN_UNSAFE);
       offenders.push(
         `${character} (U+${codePoint.toString(16).toUpperCase().padStart(4, "0")})` +
@@ -352,7 +366,9 @@ describe("activity indicator", () => {
         // test above prevents.
         let aligned = 0;
         for (let tick = 0; tick < composite; tick++) {
-          if (new Set([...laneFrame(tick, set)]).size === 1) aligned++;
+          if (new Set([...laneFrame(tick, set)]).size === 1) {
+            aligned++;
+          }
         }
         expect(aligned / composite).toBeLessThan(0.005);
       });
@@ -369,7 +385,9 @@ describe("activity indicator", () => {
 
       it("shows a healthy variety of frames", () => {
         const distinct = new Set<string>();
-        for (let tick = 0; tick < composite; tick++) distinct.add(laneFrame(tick, set));
+        for (let tick = 0; tick < composite; tick++) {
+          distinct.add(laneFrame(tick, set));
+        }
         expect(distinct.size).toBeGreaterThan(100);
       });
     });

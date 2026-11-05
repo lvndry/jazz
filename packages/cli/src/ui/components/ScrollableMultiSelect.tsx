@@ -16,8 +16,12 @@ interface ScrollableMultiSelectProps<T = unknown> {
 }
 
 function normalizeDefaultSelected<T>(defaultSelected: T | readonly T[] | undefined): readonly T[] {
-  if (defaultSelected === undefined) return [];
-  if (Array.isArray(defaultSelected)) return defaultSelected as readonly T[];
+  if (defaultSelected === undefined) {
+    return [];
+  }
+  if (Array.isArray(defaultSelected)) {
+    return defaultSelected as readonly T[];
+  }
   return [defaultSelected as T];
 }
 

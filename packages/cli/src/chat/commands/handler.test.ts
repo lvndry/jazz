@@ -280,7 +280,9 @@ describe("agent creation and fresh conversations", () => {
     const terminal = terminalFixture({
       log: (message) =>
         Effect.sync(() => {
-          if (isTerminalReport(message)) reportLabels.push(message.label);
+          if (isTerminalReport(message)) {
+            reportLabels.push(message.label);
+          }
           return undefined;
         }),
     });

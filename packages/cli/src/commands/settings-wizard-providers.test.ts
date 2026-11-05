@@ -22,8 +22,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (originalPath === undefined) delete process.env["PATH"];
-  else process.env["PATH"] = originalPath;
+  if (originalPath === undefined) {
+    delete process.env["PATH"];
+  } else {
+    process.env["PATH"] = originalPath;
+  }
 });
 
 interface Script {

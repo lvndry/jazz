@@ -214,10 +214,14 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
  * bridge would sit there looking healthy while ignoring every message.
  */
 function warnIfOnlySelfAllowed(config: BridgeConfig, selfJid: string): void {
-  if (config.allowedGroups.size > 0) return;
+  if (config.allowedGroups.size > 0) {
+    return;
+  }
   const self = normalizeJid(selfJid);
   const others = [...config.allowedNumbers].filter((number) => number !== self);
-  if (others.length > 0 || !config.allowedNumbers.has(self)) return;
+  if (others.length > 0 || !config.allowedNumbers.has(self)) {
+    return;
+  }
 
   console.error(
     `\nNothing can reach this agent yet. The only allowed number, ${self}, is the\n` +
@@ -230,9 +234,13 @@ function warnIfOnlySelfAllowed(config: BridgeConfig, selfJid: string): void {
 }
 
 function addressesBot(message: WhatsAppMessage, selfJid: string | undefined): boolean {
-  if (selfJid === undefined) return false;
+  if (selfJid === undefined) {
+    return false;
+  }
   const self = normalizeJid(selfJid);
-  if (message.mentions.some((mention) => normalizeJid(mention) === self)) return true;
+  if (message.mentions.some((mention) => normalizeJid(mention) === self)) {
+    return true;
+  }
   // A reply counts only when it replies to *us*; replying to anyone in the
   // thread is ordinary group conversation the agent has no business answering.
   return message.quotedAuthor !== undefined && normalizeJid(message.quotedAuthor) === self;
@@ -244,7 +252,9 @@ async function promptFrom(
   jazzHome: string,
 ): Promise<string> {
   const parts: string[] = [];
-  if (message.text.trim().length > 0) parts.push(message.text.trim());
+  if (message.text.trim().length > 0) {
+    parts.push(message.text.trim());
+  }
 
   if (message.media !== undefined) {
     // Jazz ingests media by path, so the job here ends at "file on disk".
@@ -252,7 +262,9 @@ async function promptFrom(
       console.error(`Failed to download an attachment: ${String(error)}`);
       return undefined;
     });
-    if (path !== undefined) parts.push(path);
+    if (path !== undefined) {
+      parts.push(path);
+    }
   }
 
   return parts.join("\n");
@@ -266,7 +278,9 @@ export async function handleIncoming(
 ): Promise<void> {
   // Our own replies echo back through the same event; answering them would be
   // an unbounded loop.
-  if (message.isFromMe) return;
+  if (message.isFromMe) {
+    return;
+  }
 
   const senderId = normalizeJid(message.senderJid);
   const incoming = {
@@ -304,7 +318,9 @@ export async function handleIncoming(
   }
 
   const prompt = await promptFrom(message, connection, config.jazzHome);
-  if (prompt.length === 0) return;
+  if (prompt.length === 0) {
+    return;
+  }
 
   await runner.handle({
     chatId: message.chatJid,
@@ -362,8 +378,9 @@ export async function startBridge(): Promise<void> {
       // minute and issues another. Printing the new one underneath left a
       // screen of dead codes that look exactly like the live one, and scanning
       // any of them is answered with "check your connection".
-      if (codesShown > 1 && process.stderr.isTTY === true)
+      if (codesShown > 1 && process.stderr.isTTY === true) {
         process.stderr.write("\u001b[2J\u001b[H");
+      }
       console.error(
         codesShown === 1
           ? "\nScan this with WhatsApp → Settings → Linked Devices:\n"
@@ -421,7 +438,9 @@ export async function startBridge(): Promise<void> {
 
   const health = createHealthState(CONNECTION_STALE_AFTER_MS);
   const beat = setInterval(() => {
-    if (connection.isOpen()) health.beat();
+    if (connection.isOpen()) {
+      health.beat();
+    }
   }, CONNECTION_CHECK_MS);
   beat.unref?.();
   const healthPort = envPositiveInt("JAZZ_BRIDGE_HEALTH_PORT", 0);

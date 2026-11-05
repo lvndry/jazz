@@ -261,7 +261,9 @@ export function ensureObjectSchemaType(schema: Record<string, unknown>): Record<
   const properties: Record<string, unknown> = {};
   let requiredEverywhere: Set<string> | undefined;
   for (const branch of branches) {
-    if (typeof branch !== "object" || branch === null) continue;
+    if (typeof branch !== "object" || branch === null) {
+      continue;
+    }
     const branchObj = branch as Record<string, unknown>;
     for (const [key, value] of Object.entries(branchProperties(branchObj))) {
       properties[key] = key in properties ? mergeBranchProperty(properties[key], value) : value;

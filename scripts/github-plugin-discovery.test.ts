@@ -58,7 +58,9 @@ describe("discoverCommunityPlugins", () => {
           content: Buffer.from(manifestText).toString("base64"),
         });
       }
-      if (url.includes("/commits/")) return response({ sha: commit });
+      if (url.includes("/commits/")) {
+        return response({ sha: commit });
+      }
       return response({ error: "not found" }, 404);
     }) as typeof fetch;
 
@@ -91,7 +93,9 @@ describe("discoverCommunityPlugins", () => {
           content: Buffer.from(manifestText).toString("base64"),
         });
       }
-      if (url.includes("/commits/")) return response({ sha: commit });
+      if (url.includes("/commits/")) {
+        return response({ sha: commit });
+      }
       return response({ error: "not found" }, 404);
     }) as typeof fetch;
 

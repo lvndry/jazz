@@ -10,19 +10,26 @@ import type { OutputEntry } from "../ui/types";
 
 /** Assertions inspect source facts; renderer parity is covered by receipt.test.tsx. */
 function receipt(entry: OutputEntry | undefined) {
-  if (entry === undefined) return undefined;
+  if (entry === undefined) {
+    return undefined;
+  }
   const content = contentFromOutput(entry);
   return content.kind === "tool" ? content.receipt : undefined;
 }
 function outputText(entry: OutputEntry | undefined): string {
-  if (entry === undefined) return "";
+  if (entry === undefined) {
+    return "";
+  }
   const content = contentFromOutput(entry);
-  if (content.kind === "notice" || content.kind === "user") return content.text;
-  if (content.kind === "tool")
+  if (content.kind === "notice" || content.kind === "user") {
+    return content.text;
+  }
+  if (content.kind === "tool") {
     return [
       content.receipt.app,
       ...receiptParts(content.receipt, getGlyphs()).map((part) => part.text),
     ].join(" ");
+  }
   return "";
 }
 
@@ -209,7 +216,9 @@ describe("activity-reducer", () => {
       });
 
       expect(result.activity!.phase).toBe("tool-execution");
-      if (result.activity!.phase !== "tool-execution") return;
+      if (result.activity!.phase !== "tool-execution") {
+        return;
+      }
       expect(result.activity!.tools[0]?.classifying).toBe(true);
       expect(result.activity!.tools[0]?.argsPreview).toContain("python3 --version");
       expect(result.outputs).toHaveLength(0);
@@ -236,7 +245,9 @@ describe("activity-reducer", () => {
       expect(a.activeTools.get("tc-1")?.classifiedRisk).toBe("read-only");
       expect(a.activeTools.get("tc-1")?.classifying).toBeUndefined();
       expect(result.activity!.phase).toBe("tool-execution");
-      if (result.activity!.phase !== "tool-execution") return;
+      if (result.activity!.phase !== "tool-execution") {
+        return;
+      }
       expect(result.activity!.tools[0]?.classifiedRisk).toBe("read-only");
       expect(result.activity!.tools[0]?.classifying).toBeUndefined();
     });

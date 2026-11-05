@@ -44,9 +44,12 @@ async function waitForCall(substrate: string, timeoutMs = 3000): Promise<string>
   const start = Date.now();
   for (;;) {
     const match = calls().find((line) => line.includes(substrate));
-    if (match !== undefined) return match;
-    if (Date.now() - start > timeoutMs)
+    if (match !== undefined) {
+      return match;
+    }
+    if (Date.now() - start > timeoutMs) {
       throw new Error(`No call matching ${substrate} yet: ${calls().join(" | ")}`);
+    }
     await new Promise((r) => setTimeout(r, 20));
   }
 }
@@ -135,10 +138,14 @@ describe("herdrPaneAdapter", () => {
     for (const line of calls()) {
       const seq = line.match(/--seq (\d+)/);
       const state = line.match(/--state (\w+)/);
-      if (seq === null || state === null) continue;
+      if (seq === null || state === null) {
+        continue;
+      }
       const stateName = state[1];
       const seqNum = Number(seq[1]);
-      if (stateName !== undefined) seqByState.set(stateName, seqNum);
+      if (stateName !== undefined) {
+        seqByState.set(stateName, seqNum);
+      }
     }
     const working = seqByState.get("working");
     const idle = seqByState.get("idle");

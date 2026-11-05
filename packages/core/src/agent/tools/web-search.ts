@@ -202,7 +202,9 @@ export function createWebSearchTool(): ReturnType<
       });
     },
     createSummary: function createSearchSummary(result: ToolExecutionResult): string | undefined {
-      if (!result.success || !result.result) return undefined;
+      if (!result.success || !result.result) {
+        return undefined;
+      }
 
       const searchResult = result.result as WebSearchResult;
       return `Found ${searchResult.totalResults} results for "${searchResult.query}" using ${searchResult.provider}`;
@@ -725,7 +727,9 @@ function executeLinkupSearch(
 
     const results: WebSearchItem[] = [];
     for (const result of response.results ?? []) {
-      if (result.type !== "text") continue;
+      if (result.type !== "text") {
+        continue;
+      }
       results.push({
         title: result.name,
         url: result.url,

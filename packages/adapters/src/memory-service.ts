@@ -175,7 +175,9 @@ function discoverScopes(
       .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     const scopes: string[] = [];
     for (const name of names) {
-      if (isReservedMemorySegment(name)) continue;
+      if (isReservedMemorySegment(name)) {
+        continue;
+      }
       const info = yield* Effect.tryPromise({
         try: () => nodeFs.lstat(path.join(baseDirectory, name)),
         catch: toError,
@@ -205,7 +207,9 @@ function listDirectoryEntries(
         try: () => nodeFs.lstat(entryPath),
         catch: toError,
       }).pipe(Effect.catch(() => Effect.succeed(null)));
-      if (!info) continue;
+      if (!info) {
+        continue;
+      }
       if (info.isSymbolicLink()) {
         continue;
       }
@@ -283,7 +287,9 @@ function isMemoryEntryOrigin(value: unknown): value is MemoryEntryOrigin {
 }
 
 function isMemoryFailureSignature(value: unknown): value is MemoryFailureSignature {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
   const candidate = value as Record<string, unknown>;
   if (candidate["kind"] === "misfire") {
     return typeof candidate["toolName"] === "string" && typeof candidate["errorClass"] === "string";
@@ -292,7 +298,9 @@ function isMemoryFailureSignature(value: unknown): value is MemoryFailureSignatu
 }
 
 function isMemoryEntryCredit(value: unknown): value is MemoryEntryCredit {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
   const candidate = value as Record<string, unknown>;
   return (
     typeof candidate["helped"] === "number" &&
@@ -340,7 +348,9 @@ function readScopeProvenance(
           typeof parsed === "object" && parsed !== null
             ? (parsed as { files?: unknown }).files
             : undefined;
-        if (typeof files !== "object" || files === null) throw new Error("malformed sidecar");
+        if (typeof files !== "object" || files === null) {
+          throw new Error("malformed sidecar");
+        }
 
         const now = new Date().toISOString();
         const sanitized: Record<string, MemoryFileProvenance> = {};
@@ -632,9 +642,13 @@ function forgetProvenance(
   return Effect.gen(function* () {
     const provenance = yield* readProvenanceForWrite(fs, scopeRoot);
     const removed = keysUnder(provenance.files, relativePath);
-    if (removed.length === 0) return;
+    if (removed.length === 0) {
+      return;
+    }
     const files = { ...provenance.files };
-    for (const key of removed) delete files[key];
+    for (const key of removed) {
+      delete files[key];
+    }
     yield* writeScopeProvenance(scopeRoot, { files });
   });
 }
@@ -662,7 +676,9 @@ function moveProvenance(
     const files = { ...provenance.files };
     const now = new Date().toISOString();
 
-    for (const key of moved) delete files[key];
+    for (const key of moved) {
+      delete files[key];
+    }
 
     for (const key of moved) {
       const existing = provenance.files[key];
@@ -678,7 +694,9 @@ function moveProvenance(
       };
     }
 
-    if (moved.length === 0) return;
+    if (moved.length === 0) {
+      return;
+    }
     yield* writeScopeProvenance(scopeRoot, { files });
   });
 }
@@ -691,7 +709,9 @@ function touchViewed(
   return Effect.gen(function* () {
     const provenance = yield* readProvenanceForWrite(fs, scopeRoot);
     const existing = provenance.files[relativePath];
-    if (existing === undefined) return;
+    if (existing === undefined) {
+      return;
+    }
     yield* writeScopeProvenance(scopeRoot, {
       files: {
         ...provenance.files,
@@ -809,7 +829,9 @@ export class MemoryServiceImpl implements MemoryService {
     const maxFilesPerScope = this.maxFilesPerScope;
     const maxTotalBytesPerScope = this.maxTotalBytesPerScope;
     return Effect.gen(function* () {
-      if (options.addedBytes <= 0 && !options.addsFile) return;
+      if (options.addedBytes <= 0 && !options.addsFile) {
+        return;
+      }
 
       const stats = yield* walkMemoryTree(fs, root);
       if (options.addsFile && stats.fileCount + 1 > maxFilesPerScope) {
@@ -1098,7 +1120,9 @@ export class MemoryServiceImpl implements MemoryService {
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolved = this.resolveScope(virtualPath);
-        if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
+        if (!resolved.ok) {
+          return resolved.failure satisfies MemoryMutationOutcome;
+        }
         const { scope, rest } = resolved;
 
         return yield* this.withMemoryWriteLock(
@@ -1177,7 +1201,9 @@ export class MemoryServiceImpl implements MemoryService {
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolved = this.resolveScope(virtualPath);
-        if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
+        if (!resolved.ok) {
+          return resolved.failure satisfies MemoryMutationOutcome;
+        }
         const { scope, rest } = resolved;
 
         return yield* this.withMemoryWriteLock(
@@ -1264,7 +1290,9 @@ export class MemoryServiceImpl implements MemoryService {
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolved = this.resolveScope(virtualPath);
-        if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
+        if (!resolved.ok) {
+          return resolved.failure satisfies MemoryMutationOutcome;
+        }
         const { scope, rest } = resolved;
 
         return yield* this.withMemoryWriteLock(
@@ -1336,7 +1364,9 @@ export class MemoryServiceImpl implements MemoryService {
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolved = this.resolveScope(virtualPath);
-        if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
+        if (!resolved.ok) {
+          return resolved.failure satisfies MemoryMutationOutcome;
+        }
         const { scope, rest } = resolved;
 
         return yield* this.withMemoryWriteLock(scope, this.deleteWhileLocked(scope, rest));
@@ -1411,9 +1441,13 @@ export class MemoryServiceImpl implements MemoryService {
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolvedOld = this.resolveScope(oldVirtualPath);
-        if (!resolvedOld.ok) return resolvedOld.failure satisfies MemoryMutationOutcome;
+        if (!resolvedOld.ok) {
+          return resolvedOld.failure satisfies MemoryMutationOutcome;
+        }
         const resolvedNew = this.resolveScope(newVirtualPath);
-        if (!resolvedNew.ok) return resolvedNew.failure satisfies MemoryMutationOutcome;
+        if (!resolvedNew.ok) {
+          return resolvedNew.failure satisfies MemoryMutationOutcome;
+        }
 
         if (resolvedOld.scope !== resolvedNew.scope) {
           return {

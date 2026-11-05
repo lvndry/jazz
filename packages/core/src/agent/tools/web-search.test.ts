@@ -66,7 +66,9 @@ describe("WebSearchTool", () => {
       getOrElse: vi.fn().mockImplementation((key: string) => {
         const provider = key.split(".")[1];
         const apiKey = provider === undefined ? undefined : apiKeys[provider];
-        if (apiKey) return Effect.succeed(apiKey);
+        if (apiKey) {
+          return Effect.succeed(apiKey);
+        }
         return Effect.succeed("");
       }),
       getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("API key not found"))),

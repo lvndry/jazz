@@ -123,7 +123,9 @@ export function createManageTodosTool(): Tool<never> {
     hidden: false,
     validate: makeZodValidator(parameters),
     createSummary: (result: ToolExecutionResult) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as ReturnType<typeof computeStats>;
       return `Todos updated: ${data.completed}/${data.totalItems} done, ${data.inProgress} in progress, ${data.pending} pending`;
     },
@@ -176,7 +178,9 @@ export function createListTodosTool(): Tool<never> {
     riskLevel: "read-only",
     hidden: false,
     createSummary: (result: ToolExecutionResult) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { totalItems: number };
       return data.totalItems === 0 ? "No todos" : `${data.totalItems} todo(s)`;
     },

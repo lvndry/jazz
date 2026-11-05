@@ -374,7 +374,9 @@ describe("SchedulerService", () => {
     const id = `${testWorkflowName}/default`;
 
     it("should schedule tech-digest cron expression 0 8 * * * without error", async () => {
-      if (process.platform !== "darwin") return;
+      if (process.platform !== "darwin") {
+        return;
+      }
 
       const program = Effect.gen(function* () {
         const scheduler = yield* SchedulerServiceTag;
@@ -406,7 +408,9 @@ describe("SchedulerService", () => {
     });
 
     it("should schedule 6-field cron expression without error", async () => {
-      if (process.platform !== "darwin") return;
+      if (process.platform !== "darwin") {
+        return;
+      }
 
       const program = Effect.gen(function* () {
         const scheduler = yield* SchedulerServiceTag;
@@ -436,7 +440,9 @@ describe("SchedulerService", () => {
     });
 
     it("should write plist with log paths in the jazz home, not cwd", async () => {
-      if (process.platform !== "darwin") return;
+      if (process.platform !== "darwin") {
+        return;
+      }
 
       const program = Effect.gen(function* () {
         const scheduler = yield* SchedulerServiceTag;
@@ -470,7 +476,9 @@ describe("SchedulerService", () => {
     });
 
     it("should accept schedule with leading/trailing whitespace (trim regression)", async () => {
-      if (process.platform !== "darwin") return;
+      if (process.platform !== "darwin") {
+        return;
+      }
 
       const program = Effect.gen(function* () {
         const scheduler = yield* SchedulerServiceTag;

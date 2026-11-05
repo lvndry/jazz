@@ -108,7 +108,9 @@ export function listWorkflowsCommand(options: { readonly json?: boolean } = {}) 
         for (const r of history) {
           if (r.status === "running") {
             const startedAtMs = Date.parse(r.startedAt);
-            if (!Number.isFinite(startedAtMs)) continue;
+            if (!Number.isFinite(startedAtMs)) {
+              continue;
+            }
             if (Date.now() - startedAtMs > STALE_THRESHOLD_MS) {
               stale.add(r.workflowName);
             } else {
@@ -146,10 +148,18 @@ export function listWorkflowsCommand(options: { readonly json?: boolean } = {}) 
     const { local, global } = groupWorkflows(workflows);
 
     function statusBadge(w: WorkflowMetadata): string {
-      if (runningNames.has(w.name)) return " ● running";
-      if (staleNames.has(w.name)) return " ✗ failed (stale)";
-      if (scheduledNames.has(w.name)) return " ○ scheduled";
-      if (w.schedule) return " — not scheduled";
+      if (runningNames.has(w.name)) {
+        return " ● running";
+      }
+      if (staleNames.has(w.name)) {
+        return " ✗ failed (stale)";
+      }
+      if (scheduledNames.has(w.name)) {
+        return " ○ scheduled";
+      }
+      if (w.schedule) {
+        return " — not scheduled";
+      }
       return "";
     }
 

@@ -21,7 +21,9 @@ type Defined<T> = T extends readonly (infer Item)[]
 
 /** Zod optional properties allow explicit undefined; durable facts omit those keys. */
 function defined<T>(value: T): Defined<T> {
-  if (Array.isArray(value)) return value.map((item: unknown) => defined(item)) as Defined<T>;
+  if (Array.isArray(value)) {
+    return value.map((item: unknown) => defined(item)) as Defined<T>;
+  }
   if (typeof value === "object" && value !== null) {
     return Object.fromEntries(
       Object.entries(value)

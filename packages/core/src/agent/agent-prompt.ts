@@ -203,7 +203,9 @@ function getSkillIndexLineFromOption(s: {
   readonly description: string;
 }): string {
   const desc = s.description.trim();
-  if (desc.length === 0) return s.name;
+  if (desc.length === 0) {
+    return s.name;
+  }
   return desc;
 }
 
@@ -372,7 +374,9 @@ export class AgentPromptBuilder {
           persona.systemPrompt,
         );
         const cached = this.systemPromptCache.get(cacheKey);
-        if (cached) return cached;
+        if (cached) {
+          return cached;
+        }
         const { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory, tty } =
           yield* this.getSystemInfo();
 

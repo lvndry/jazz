@@ -17,8 +17,11 @@ describe("saved secrets over the file backend", () => {
   });
 
   afterEach(() => {
-    if (originalJazzHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = originalJazzHome;
+    if (originalJazzHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = originalJazzHome;
+    }
     fs.rmSync(home, { recursive: true, force: true });
   });
 

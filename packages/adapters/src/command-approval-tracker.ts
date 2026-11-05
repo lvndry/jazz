@@ -69,7 +69,9 @@ export function loadCommandApprovals(): Effect.Effect<
         ),
       );
 
-    if (content === "") return {};
+    if (content === "") {
+      return {};
+    }
 
     const decoded = decodeStateFile(content, "command-approvals.json", COMMAND_APPROVALS_KIND);
     return decoded.status === "ok" ? decoded.content : {};
@@ -137,7 +139,9 @@ export function bumpPromotionThreshold(
   return Effect.gen(function* () {
     const approvals = yield* loadCommandApprovals();
     const existing = approvals[command];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     const currentThreshold = existing.nextPromptAt;
     approvals[command] = {

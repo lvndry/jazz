@@ -189,7 +189,9 @@ function manageAgents() {
     let previouslyOpenedId: string | undefined;
     while (true) {
       const selectedAgent = yield* showAgentList(listedAgents, lastUsedAgentId, previouslyOpenedId);
-      if (selectedAgent === null) break;
+      if (selectedAgent === null) {
+        break;
+      }
       previouslyOpenedId = selectedAgent.id;
       const action = yield* showAgentActions(selectedAgent, "Back to agents", { withStart: false });
       switch (action) {
@@ -334,7 +336,9 @@ function copyOrEditCredential(
       hidden: true,
       keys: ["e", "c"],
     });
-    if (action === "e") return "edit";
+    if (action === "e") {
+      return "edit";
+    }
     if (action === "c") {
       yield* copyCredential(terminal, credential, label);
       return "copy";
@@ -438,7 +442,9 @@ export function configureLLMProviders() {
             `${providerDisplay} server API key (only if it runs with --api-key; leave empty to keep current):`,
             { simple: true, secret: true, cancellable: true },
           );
-          if (serverKey === undefined) continue;
+          if (serverKey === undefined) {
+            continue;
+          }
           if (serverKey?.trim()) {
             yield* configService.set(`llm.${provider}.api_key`, serverKey);
             yield* terminal.success(`${providerDisplay} API key updated.`);
@@ -456,7 +462,9 @@ export function configureLLMProviders() {
             "Ollama Cloud API key (only for :cloud models; leave empty to keep current):",
             { simple: true, secret: true, cancellable: true },
           );
-          if (cloudKey === undefined) continue;
+          if (cloudKey === undefined) {
+            continue;
+          }
           if (cloudKey?.trim()) {
             yield* configService.set(`llm.${provider}.api_key`, cloudKey);
             yield* terminal.success("Ollama Cloud API key updated.");
@@ -498,7 +506,9 @@ export function configureLLMProviders() {
             }
             continue;
           }
-          if (credentialAction !== "e") continue;
+          if (credentialAction !== "e") {
+            continue;
+          }
           const accountAction = yield* terminal.select<"keep" | "switch" | "sign-out">(
             "You are signed in to ChatGPT.",
             {
@@ -525,14 +535,18 @@ export function configureLLMProviders() {
       const keyAction = existingKey
         ? yield* copyOrEditCredential(terminal, providerDisplay, existingKey)
         : "edit";
-      if (keyAction === undefined) continue;
+      if (keyAction === undefined) {
+        continue;
+      }
 
       if (keyAction === "edit") {
         const apiKey = yield* terminal.ask(
           `Enter API Key for ${providerDisplay} (leave empty to keep current):`,
           { simple: true, secret: true, cancellable: true },
         );
-        if (apiKey === undefined) continue;
+        if (apiKey === undefined) {
+          continue;
+        }
 
         if (apiKey?.trim()) {
           yield* configService.set(`llm.${provider}.api_key`, apiKey);
@@ -643,7 +657,9 @@ function configureWebSearchProviders() {
           `Enter API Key for ${provider} (leave empty to keep current):`,
           { simple: true, secret: true, cancellable: true },
         );
-        if (apiKey === undefined) continue;
+        if (apiKey === undefined) {
+          continue;
+        }
 
         if (apiKey?.trim()) {
           yield* configService.set(`web_search.${provider}.api_key`, apiKey);
@@ -1253,12 +1269,16 @@ function configureHttpApproval() {
         { name: "Use a URL allowlist; approve other requests one by one", value: "list" },
       ],
     });
-    if (selection === undefined) return;
+    if (selection === undefined) {
+      return;
+    }
     if (selection === "allow") {
       yield* configService.set("network.httpApproval", undefined);
       yield* terminal.success("HTTP requests and web fetches run automatically.");
     } else {
-      if (current === "allow") yield* configService.set("network.httpApproval", []);
+      if (current === "allow") {
+        yield* configService.set("network.httpApproval", []);
+      }
       yield* terminal.success(
         "Requests outside network.httpApproval require one-call approval. Edit URL entries in your config file.",
       );
@@ -1283,7 +1303,9 @@ function configureBrowser() {
         ],
       },
     );
-    if (selection === undefined) return;
+    if (selection === undefined) {
+      return;
+    }
     yield* configService.set("browser.headless", selection === "true");
     yield* terminal.success(
       selection === "true"

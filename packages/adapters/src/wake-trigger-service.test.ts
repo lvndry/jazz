@@ -175,7 +175,9 @@ describe("cancel", () => {
       service.add("agent-1", "conv-1", "30m", "cancel me", "reason", "UTC"),
     );
     expect(added.success).toBe(true);
-    if (!added.success) return;
+    if (!added.success) {
+      return;
+    }
 
     const outcome = await runEffect(service.cancel("agent-1", added.trigger.id));
     expect(outcome.success).toBe(true);
@@ -261,7 +263,9 @@ describe("claimDueWakeTriggers", () => {
     const lockPath = path.join(tmpDir, "agent-1.lock");
     let lockSeen = false;
     const watcher = setInterval(() => {
-      if (fsSync.existsSync(lockPath)) lockSeen = true;
+      if (fsSync.existsSync(lockPath)) {
+        lockSeen = true;
+      }
     }, 1);
 
     await runEffect(claimDueWakeTriggers(tmpDir, Date.now()));
@@ -294,7 +298,9 @@ describe("osScheduler integration", () => {
       service.add("agent-1", "conv-1", "30m", "scheduled prompt", "reason", "UTC"),
     );
     expect(outcome.success).toBe(true);
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
 
     expect(outcome.trigger.osSchedulerJobId).toBe("42");
     expect(calls).toEqual([
@@ -323,7 +329,9 @@ describe("osScheduler integration", () => {
       service.add("agent-1", "conv-1", "30m", "prompt", "reason", "UTC"),
     );
     expect(added.success).toBe(true);
-    if (!added.success) return;
+    if (!added.success) {
+      return;
+    }
 
     const outcome = await runEffect(service.cancel("agent-1", added.trigger.id));
     expect(outcome.success).toBe(true);
@@ -344,7 +352,9 @@ describe("osScheduler integration", () => {
       service.add("agent-1", "conv-1", "30m", "prompt", "reason", "UTC"),
     );
     expect(added.success).toBe(true);
-    if (!added.success) return;
+    if (!added.success) {
+      return;
+    }
 
     const outcome = await runEffect(service.cancel("agent-1", added.trigger.id));
     expect(outcome.success).toBe(true);
@@ -425,7 +435,9 @@ describe("at-least-once delivery", () => {
   async function dueTrigger(): Promise<string> {
     const service = makeService(makeFakeOsScheduler().scheduler);
     const outcome = await runEffect(service.add("agent-1", "conv-1", "1s", "check", "r", "UTC"));
-    if (!outcome.success) throw new Error("add failed");
+    if (!outcome.success) {
+      throw new Error("add failed");
+    }
     return outcome.trigger.id;
   }
 

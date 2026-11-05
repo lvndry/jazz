@@ -53,13 +53,19 @@ export function createVtObserver(columns: number, rows: number): VtObserver {
   let parsing = false;
   return {
     accept(bytes) {
-      if (disposed) throw new Error("Terminal observer is disposed");
+      if (disposed) {
+        throw new Error("Terminal observer is disposed");
+      }
       bytesAccepted += bytes.byteLength;
       pending.push(Uint8Array.from(bytes));
     },
     async drain() {
-      if (disposed) throw new Error("Terminal observer is disposed");
-      if (parsing) throw new Error("Terminal output is already being drained");
+      if (disposed) {
+        throw new Error("Terminal observer is disposed");
+      }
+      if (parsing) {
+        throw new Error("Terminal output is already being drained");
+      }
       parsing = true;
       try {
         while (pending.length > 0) {
@@ -74,14 +80,21 @@ export function createVtObserver(columns: number, rows: number): VtObserver {
       }
     },
     resize(nextColumns, nextRows) {
-      if (disposed) throw new Error("Terminal observer is disposed");
-      if (parsing || pending.length > 0) throw new Error("Drain terminal output before resizing");
+      if (disposed) {
+        throw new Error("Terminal observer is disposed");
+      }
+      if (parsing || pending.length > 0) {
+        throw new Error("Drain terminal output before resizing");
+      }
       terminal.resize(nextColumns, nextRows);
     },
     captureGrid() {
-      if (disposed) throw new Error("Terminal observer is disposed");
-      if (parsing || pending.length > 0)
+      if (disposed) {
+        throw new Error("Terminal observer is disposed");
+      }
+      if (parsing || pending.length > 0) {
         throw new Error("Drain terminal output before capturing the grid");
+      }
       const buffer = terminal.buffer.active;
       const cells = Array.from({ length: terminal.rows }, (_, row) => {
         const line = buffer.getLine(buffer.baseY + row);
@@ -95,7 +108,9 @@ export function createVtObserver(columns: number, rows: number): VtObserver {
     },
     outputBytes: () => bytesAccepted,
     dispose() {
-      if (disposed) return;
+      if (disposed) {
+        return;
+      }
       disposed = true;
       pending = [];
       terminal.dispose();
@@ -118,9 +133,13 @@ export function nativeGrid(buffer: OptimizedBuffer): TerminalGrid {
     let segment = 0;
     return Array.from({ length: buffer.width }, (_, column): GridCell => {
       const index = row * buffer.width + column;
-      if (continuation(index)) return { chars: "", width: 0 };
+      if (continuation(index)) {
+        return { chars: "", width: 0 };
+      }
       let width = 1;
-      while (column + width < buffer.width && continuation(index + width)) width++;
+      while (column + width < buffer.width && continuation(index + width)) {
+        width++;
+      }
       return { chars: segments[segment++] ?? " ", width };
     });
   });
@@ -140,8 +159,12 @@ export function compareTerminalGrids(
     for (let column = 0; column < expected.columns; column++) {
       const intended = expected.cells[row]?.[column];
       const observed = actual.cells[row]?.[column];
-      if (intended?.chars !== observed?.chars) mismatches.push({ column, row, field: "chars" });
-      if (intended?.width !== observed?.width) mismatches.push({ column, row, field: "width" });
+      if (intended?.chars !== observed?.chars) {
+        mismatches.push({ column, row, field: "chars" });
+      }
+      if (intended?.width !== observed?.width) {
+        mismatches.push({ column, row, field: "width" });
+      }
     }
   }
   return mismatches;
@@ -242,7 +265,9 @@ export async function createTerminalOracle(options: {
     render: (next) =>
       flushSync(() => {
         node = next;
-        for (const listener of listeners) listener();
+        for (const listener of listeners) {
+          listener();
+        }
       }),
     flush,
     async resize(columns, rows) {
@@ -262,7 +287,9 @@ export async function createTerminalOracle(options: {
     },
     input: (bytes) => input.write(bytes),
     dispose() {
-      if (disposed) return;
+      if (disposed) {
+        return;
+      }
       disposed = true;
       try {
         flushSync(() => root.unmount());

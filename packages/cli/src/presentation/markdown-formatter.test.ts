@@ -73,7 +73,9 @@ describe("markdown-formatter", () => {
           const wrapped = wrapToWidth(`Source: ${hyperlink(url, url)}`, width);
           const targets = linkTargets(wrapped);
           expect(targets.length).toBeGreaterThan(0);
-          for (const target of targets) expect(target).toBe(url);
+          for (const target of targets) {
+            expect(target).toBe(url);
+          }
         }
       }
     });
@@ -113,7 +115,9 @@ describe("markdown-formatter", () => {
       const wrapped = wrapToWidth(hyperlink(noSep, noSep), 40);
       const lines = stripAnsiCodes(wrapped).split("\n");
       expect(lines.length).toBeGreaterThan(1);
-      for (const line of lines) expect(line.length).toBeLessThanOrEqual(40);
+      for (const line of lines) {
+        expect(line.length).toBeLessThanOrEqual(40);
+      }
       expect(visibleUnwrapped(wrapped)).toBe(noSep);
       expect(linkTargets(wrapped).every((t) => t === noSep)).toBe(true);
     });

@@ -106,7 +106,9 @@ function handlerBundleId(plistXml: string, scheme: "http" | "https"): string | n
   const parts = (arrayMatch?.[1] ?? "").split(/<\/dict>\s*(?=<dict>)/);
   for (const part of parts) {
     const schemeMatch = part.match(/<key>LSHandlerURLScheme<\/key>\s*<string>([^<]+)<\/string>/);
-    if (schemeMatch?.[1] !== scheme) continue;
+    if (schemeMatch?.[1] !== scheme) {
+      continue;
+    }
     const roles = [
       ...part.matchAll(/<key>LSHandlerRoleAll<\/key>\s*<string>([^<]+)<\/string>/g),
     ].map((m) => m[1]);

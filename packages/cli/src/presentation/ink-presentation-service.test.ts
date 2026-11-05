@@ -381,7 +381,9 @@ describe("InkStreamingRenderer", () => {
       const appendedDeltas: string[] = [];
       const originalAppend = store.appendStream;
       store.appendStream = (kind, delta): void => {
-        if (kind === "response") appendedDeltas.push(delta);
+        if (kind === "response") {
+          appendedDeltas.push(delta);
+        }
         originalAppend(kind, delta);
       };
       try {
@@ -428,7 +430,9 @@ describe("InkStreamingRenderer", () => {
       const appendedDeltas: string[] = [];
       const originalAppend = store.appendStream;
       store.appendStream = (kind, delta): void => {
-        if (kind === "response") appendedDeltas.push(delta);
+        if (kind === "response") {
+          appendedDeltas.push(delta);
+        }
         originalAppend(kind, delta);
       };
       try {
@@ -574,7 +578,9 @@ describe("InkStreamingRenderer", () => {
       const calls: { delta: string }[] = [];
       const originalAppend = store.appendStream;
       store.appendStream = (kind, delta): void => {
-        if (kind === "response") calls.push({ delta });
+        if (kind === "response") {
+          calls.push({ delta });
+        }
         originalAppend(kind, delta);
       };
       try {
@@ -637,7 +643,9 @@ describe("InkStreamingRenderer", () => {
       const calls: { delta: string }[] = [];
       const originalAppend = store.appendStream;
       store.appendStream = (kind, delta): void => {
-        if (kind === "response") calls.push({ delta });
+        if (kind === "response") {
+          calls.push({ delta });
+        }
         originalAppend(kind, delta);
       };
       try {
@@ -761,7 +769,9 @@ describe("InkStreamingRenderer", () => {
       const originalCollapse = store.collapseEphemeral;
       const lines: string[] = [];
       store.collapseEphemeral = (id, summary) => {
-        if (summary.line !== undefined) lines.push(summary.line);
+        if (summary.line !== undefined) {
+          lines.push(summary.line);
+        }
         originalCollapse(id, summary);
       };
       try {
@@ -1340,7 +1350,9 @@ describe("InkStreamingRenderer", () => {
       const appendedDeltas: string[] = [];
       const originalAppend = store.appendStream;
       store.appendStream = (kind, delta): void => {
-        if (kind === "response") appendedDeltas.push(delta);
+        if (kind === "response") {
+          appendedDeltas.push(delta);
+        }
         originalAppend(kind, delta);
       };
       try {
@@ -1610,7 +1622,9 @@ describe("InkStreamingRenderer", () => {
         originalFinalize();
       };
       store.printOutput = (entry): string => {
-        if (entry.type === "error") events.push("error");
+        if (entry.type === "error") {
+          events.push("error");
+        }
         return originalPrint(entry);
       };
       try {
@@ -1691,7 +1705,9 @@ describe("InkStreamingRenderer", () => {
       const appendedDeltas: string[] = [];
       const originalAppend = store.appendStream;
       store.appendStream = (kind, delta): void => {
-        if (kind === "response") appendedDeltas.push(delta);
+        if (kind === "response") {
+          appendedDeltas.push(delta);
+        }
         originalAppend(kind, delta);
       };
       try {
@@ -1779,7 +1795,9 @@ describe("InkStreamingRenderer", () => {
       const appendedDeltas: string[] = [];
       const originalAppend = store.appendStream;
       store.appendStream = (kind, delta): void => {
-        if (kind === "response") appendedDeltas.push(delta);
+        if (kind === "response") {
+          appendedDeltas.push(delta);
+        }
         originalAppend(kind, delta);
       };
       try {
@@ -1815,7 +1833,9 @@ describe("InkStreamingRenderer", () => {
       let appendCount = 0;
       const originalAppend = store.appendStream;
       store.appendStream = (kind, delta): void => {
-        if (kind === "response") appendCount += 1;
+        if (kind === "response") {
+          appendCount += 1;
+        }
         originalAppend(kind, delta);
       };
       try {
@@ -1853,7 +1873,9 @@ describe("InkStreamingRenderer", () => {
       const appendedDeltas: string[] = [];
       const originalAppend = store.appendStream;
       store.appendStream = (kind, delta): void => {
-        if (kind === "response") appendedDeltas.push(delta);
+        if (kind === "response") {
+          appendedDeltas.push(delta);
+        }
         originalAppend(kind, delta);
       };
       try {
@@ -1898,7 +1920,9 @@ describe("InkStreamingRenderer", () => {
       const appendedDeltas: string[] = [];
       const originalAppend = store.appendStream;
       store.appendStream = (kind, delta): void => {
-        if (kind === "response") appendedDeltas.push(delta);
+        if (kind === "response") {
+          appendedDeltas.push(delta);
+        }
         originalAppend(kind, delta);
       };
       try {
@@ -1958,7 +1982,9 @@ async function waitForPromptType(type: PromptState["type"]): Promise<PromptState
   const started = Date.now();
   while (Date.now() - started < 1000) {
     const prompt = store.getPromptSnapshot();
-    if (prompt?.type === type) return prompt;
+    if (prompt?.type === type) {
+      return prompt;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(

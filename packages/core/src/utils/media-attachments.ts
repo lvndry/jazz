@@ -61,7 +61,9 @@ export async function resolveMediaAttachments(
     const trimmed = rawPath.trim();
     const absolutePath = isAbsolute(trimmed) ? trimmed : resolve(process.cwd(), trimmed);
 
-    if (seen.has(absolutePath)) continue;
+    if (seen.has(absolutePath)) {
+      continue;
+    }
     seen.add(absolutePath);
 
     const classified = classifyAttachmentPath(absolutePath);

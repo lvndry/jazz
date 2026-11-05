@@ -207,7 +207,9 @@ function wizardSession() {
               lastUsedAgentId,
               previouslyOpenedId,
             );
-            if (selectedAgent === null) break;
+            if (selectedAgent === null) {
+              break;
+            }
             previouslyOpenedId = selectedAgent.id;
             const action = yield* showAgentActions(selectedAgent);
             switch (action) {

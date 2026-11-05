@@ -45,9 +45,12 @@ function documentSync(capabilities: Record<string, unknown>): {
   readonly change: TextDocumentSyncKind;
 } {
   const sync = capabilities["textDocumentSync"];
-  if (typeof sync === "number")
+  if (typeof sync === "number") {
     return { openClose: sync !== 0, change: sync === 1 || sync === 2 ? sync : 0 };
-  if (sync === null || typeof sync !== "object") return { openClose: false, change: 0 };
+  }
+  if (sync === null || typeof sync !== "object") {
+    return { openClose: false, change: 0 };
+  }
   const options = sync as { openClose?: unknown; change?: unknown };
   return {
     openClose: options.openClose === true,
@@ -113,15 +116,21 @@ async function runningServer(
   let promise = servers.get(id);
   if (!promise) {
     const failed = failedStarts.get(id);
-    if (failed && Date.now() - failed.at < FAILED_SERVER_RETRY_MS) throw failed.error;
+    if (failed && Date.now() - failed.at < FAILED_SERVER_RETRY_MS) {
+      throw failed.error;
+    }
     failedStarts.delete(id);
     promise = start(selected, signal);
     servers.set(id, promise);
     void promise.then(
       () => failedStarts.delete(id),
       (error: unknown) => {
-        if (servers.get(id) === promise) servers.delete(id);
-        if (!signal.aborted) failedStarts.set(id, { at: Date.now(), error });
+        if (servers.get(id) === promise) {
+          servers.delete(id);
+        }
+        if (!signal.aborted) {
+          failedStarts.set(id, { at: Date.now(), error });
+        }
       },
     );
   }
@@ -130,7 +139,9 @@ async function runningServer(
     servers.delete(id);
     return runningServer(selected, signal);
   }
-  if (server.timer) clearTimeout(server.timer);
+  if (server.timer) {
+    clearTimeout(server.timer);
+  }
   server.timer = setTimeout(() => {
     void server.transport.close();
     servers.delete(id);
@@ -185,8 +196,9 @@ export async function document(
       const previous = server.documents.get(uri);
       if (previous !== undefined) {
         server.documents.delete(uri);
-        if (documentSync(server.capabilities).openClose)
+        if (documentSync(server.capabilities).openClose) {
           server.transport.notify("textDocument/didClose", { textDocument: { uri } });
+        }
       }
       server.transport.forgetDocument(uri);
       server.transport.notifyDeleted(uri);
@@ -200,10 +212,11 @@ export async function document(
   if (!previous) {
     server.documents.set(uri, { text, version: 1 });
     server.transport.setDocumentVersion(uri, 1);
-    if (sync.openClose)
+    if (sync.openClose) {
       server.transport.notify("textDocument/didOpen", {
         textDocument: { uri, languageId: selected.languageId, version: 1, text },
       });
+    }
   } else if (previous.text !== text) {
     const version = previous.version + 1;
     server.documents.set(uri, { text, version });
@@ -253,7 +266,9 @@ export async function ambientDiagnostics(
   signal: AbortSignal,
 ): Promise<unknown[]> {
   const { server, uri, text, changed } = await document(selected, signal);
-  if (text === undefined) return [];
+  if (text === undefined) {
+    return [];
+  }
   if (server.capabilities["diagnosticProvider"]) {
     const response = await server.transport.request(
       "textDocument/diagnostic",
@@ -268,7 +283,9 @@ export async function ambientDiagnostics(
       ? (response.items as unknown[])
       : [];
   }
-  if (!changed) return server.transport.currentDiagnostics(uri) ?? [];
+  if (!changed) {
+    return server.transport.currentDiagnostics(uri) ?? [];
+  }
   return server.transport.waitForNonemptyDiagnostics(uri, signal, AMBIENT_DIAGNOSTIC_WAIT_MS);
 }
 
@@ -284,8 +301,9 @@ export function position(line: unknown, character: unknown): Position {
     !Number.isInteger(character) ||
     (line as number) < 1 ||
     (character as number) < 1
-  )
+  ) {
     throw new Error("line and character must be positive, 1-based integers");
+  }
   return { line: (line as number) - 1, character: (character as number) - 1 };
 }
 
@@ -299,19 +317,25 @@ export async function query(
   const { server, uri, text } = await document(selected, signal);
   const textDocument = { uri };
   // The file vanished after selection: nothing to ask it about.
-  if (text === undefined) return null;
+  if (text === undefined) {
+    return null;
+  }
   if (method === "textDocument/diagnostic") {
     if (server.capabilities["diagnosticProvider"]) {
       return server.transport.request(method, { textDocument }, signal);
     }
     return server.transport.waitForDiagnostics(uri, signal, DIAGNOSTIC_WAIT_MS);
   }
-  if (method === "workspace/symbol")
+  if (method === "workspace/symbol") {
     return server.transport.request(method, { query: args["query"] }, signal);
+  }
   const params: Record<string, unknown> = { textDocument };
-  if (args["line"] !== undefined) params["position"] = position(args["line"], args["character"]);
-  if (method === "textDocument/references")
+  if (args["line"] !== undefined) {
+    params["position"] = position(args["line"], args["character"]);
+  }
+  if (method === "textDocument/references") {
     params["context"] = { includeDeclaration: args["includeDeclaration"] !== false };
+  }
   if (method === "textDocument/codeAction") {
     const start = position(args["startLine"], args["startCharacter"]);
     const end = position(args["endLine"], args["endCharacter"]);
@@ -326,7 +350,9 @@ export async function query(
       insertSpaces: args["insertSpaces"] ?? true,
     };
   }
-  if (method === "textDocument/rename") params["newName"] = args["newName"];
+  if (method === "textDocument/rename") {
+    params["newName"] = args["newName"];
+  }
   return server.transport.request(method, params, signal);
 }
 
@@ -343,7 +369,8 @@ export async function resolveCodeAction(
     typeof provider !== "object" ||
     !("resolveProvider" in provider) ||
     provider.resolveProvider !== true
-  )
+  ) {
     return action;
+  }
   return server.transport.request("codeAction/resolve", action, signal);
 }

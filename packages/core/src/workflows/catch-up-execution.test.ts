@@ -64,8 +64,11 @@ describe("claimed workflow execution", () => {
 
   afterEach(() => {
     runner.mockRestore();
-    if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = previousHome;
+    if (previousHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = previousHome;
+    }
     rmSync(home, { recursive: true, force: true });
   });
 

@@ -81,7 +81,9 @@ function resolveToolDisplayMetadata(
   context: ToolExecutionContext,
 ): Effect.Effect<Record<string, unknown> | undefined, never, AgentConfigService> {
   return Effect.gen(function* () {
-    if (name !== "web_search") return undefined;
+    if (name !== "web_search") {
+      return undefined;
+    }
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
     const provider =
@@ -230,7 +232,9 @@ function resolveEligibleCommandRisk(
   if (context.resolveCommandRisk !== undefined) {
     return context.resolveCommandRisk(command, conversationMessages);
   }
-  if (context.parentAgent === undefined) return Effect.succeed("high-risk");
+  if (context.parentAgent === undefined) {
+    return Effect.succeed("high-risk");
+  }
   return resolveCommandRisk(command, context.parentAgent, conversationMessages, runMetrics);
 }
 
@@ -371,7 +375,9 @@ export class ToolExecutor {
   > {
     return Effect.gen(function* () {
       const httpApproved = httpToolIsApproved(name, args, context.httpApproval);
-      if (httpApproved === true) return undefined;
+      if (httpApproved === true) {
+        return undefined;
+      }
       const httpGated = httpApproved === false;
       const taintGated = () =>
         context.egressTaint !== undefined &&
@@ -502,7 +508,9 @@ export class ToolExecutor {
         riskLevel: ToolRiskLevel,
         callArgs: Record<string, unknown>,
       ) => {
-        if (context.toolActivity === undefined) return;
+        if (context.toolActivity === undefined) {
+          return;
+        }
         const rawPath = callArgs["path"] ?? callArgs["source"] ?? callArgs["destination"];
         context.toolActivity.record({
           toolName,
@@ -1229,14 +1237,20 @@ export class ToolExecutor {
        */
       const preclassifiedRisk = new Map<string, ToolRiskLevel>();
       const parkTheBatch = Effect.gen(function* () {
-        if (context.parkWhenUnattended !== true) return undefined;
-        if (presentationService.canPromptForApproval?.() === true) return undefined;
+        if (context.parkWhenUnattended !== true) {
+          return undefined;
+        }
+        if (presentationService.canPromptForApproval?.() === true) {
+          return undefined;
+        }
 
         const needsAnswering: ToolCall[] = [];
         let firstRequest: Parameters<typeof presentationService.requestApproval>[0] | undefined;
         for (const toolCall of toolCalls) {
           const name = toolCall.function.name;
-          if (context.resolvedApprovals?.get(toolCall.id) !== undefined) continue;
+          if (context.resolvedApprovals?.get(toolCall.id) !== undefined) {
+            continue;
+          }
 
           const parsedArguments = parseToolCallArguments(toolCall);
           // Malformed arguments are the per-call path's error to report, not this one's.
@@ -1245,7 +1259,9 @@ export class ToolExecutor {
           }
           const args = parsedArguments.args;
           const httpApproved = httpToolIsApproved(name, args, context.httpApproval);
-          if (httpApproved === true) continue;
+          if (httpApproved === true) {
+            continue;
+          }
 
           const toolMeta = toolMetaByName.get(name);
           const plainGateRisk = plainToolGateRisk(toolMeta, args);
@@ -1301,8 +1317,12 @@ export class ToolExecutor {
               toolCallId: toolCall.id,
               approvalPhase: "preflight",
             }).pipe(Effect.catch(() => Effect.succeed(undefined)));
-            if (probe === undefined || !isApprovalRequiredResult(probe.result)) continue;
-            if (!isRequestBoundToTool(toolMeta, probe.result)) continue;
+            if (probe === undefined || !isApprovalRequiredResult(probe.result)) {
+              continue;
+            }
+            if (!isRequestBoundToTool(toolMeta, probe.result)) {
+              continue;
+            }
             request = probe.result;
           }
 
@@ -1369,7 +1389,9 @@ export class ToolExecutor {
           }
         }
 
-        if (needsAnswering.length === 0 || firstRequest === undefined) return undefined;
+        if (needsAnswering.length === 0 || firstRequest === undefined) {
+          return undefined;
+        }
 
         // One at a time, however many the turn needs. Each park carries the answers already
         // given, so the next round sees them and stops on the next unanswered one rather
@@ -1393,7 +1415,9 @@ export class ToolExecutor {
       });
 
       const park = yield* parkTheBatch;
-      if (park !== undefined) return yield* Effect.fail(park);
+      if (park !== undefined) {
+        return yield* Effect.fail(park);
+      }
 
       const settleToolBatch = (toolFibers: ReadonlyArray<Fiber.Fiber<ToolCallOutcome, Error>>) =>
         Effect.gen(function* () {
@@ -1634,7 +1658,9 @@ function detachInFlightToolCalls(
     for (let index = 0; index < toolFibers.length; index++) {
       const fiber = toolFibers[index];
       const toolCall = toolCalls[index];
-      if (fiber === undefined || toolCall === undefined) continue;
+      if (fiber === undefined || toolCall === undefined) {
+        continue;
+      }
       const name = toolCall.type === "function" ? toolCall.function.name : "unknown";
 
       const poll = yield* Effect.sync(() => Option.fromUndefinedOr(fiber.pollUnsafe()));
@@ -1711,10 +1737,16 @@ function isCommandAutoApproved(
   executeArgs: Record<string, unknown>,
   allowedCommands: readonly string[] | undefined,
 ): boolean {
-  if (!allowedCommands?.length) return false;
-  if (toolName !== "execute_command") return false;
+  if (!allowedCommands?.length) {
+    return false;
+  }
+  if (toolName !== "execute_command") {
+    return false;
+  }
   const command = executeArgs["command"];
-  if (typeof command !== "string") return false;
+  if (typeof command !== "string") {
+    return false;
+  }
   return isCommandCoveredByAllowlist(command, allowedCommands);
 }
 
@@ -1726,7 +1758,9 @@ function isToolNameAutoApproved(
   toolName: string,
   approvedTools: readonly string[] | undefined,
 ): boolean {
-  if (!approvedTools?.length) return false;
+  if (!approvedTools?.length) {
+    return false;
+  }
   return approvedTools.includes(toolName);
 }
 

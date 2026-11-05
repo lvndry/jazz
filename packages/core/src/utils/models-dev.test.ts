@@ -70,12 +70,21 @@ beforeEach(async () => {
 
 afterEach(async () => {
   global.fetch = originalFetch;
-  if (originalOffline === undefined) delete process.env["JAZZ_OFFLINE"];
-  else process.env["JAZZ_OFFLINE"] = originalOffline;
-  if (originalJazzHome === undefined) delete process.env["JAZZ_HOME"];
-  else process.env["JAZZ_HOME"] = originalJazzHome;
-  if (originalMirror === undefined) delete process.env["JAZZ_MODELS_DEV_URL"];
-  else process.env["JAZZ_MODELS_DEV_URL"] = originalMirror;
+  if (originalOffline === undefined) {
+    delete process.env["JAZZ_OFFLINE"];
+  } else {
+    process.env["JAZZ_OFFLINE"] = originalOffline;
+  }
+  if (originalJazzHome === undefined) {
+    delete process.env["JAZZ_HOME"];
+  } else {
+    process.env["JAZZ_HOME"] = originalJazzHome;
+  }
+  if (originalMirror === undefined) {
+    delete process.env["JAZZ_MODELS_DEV_URL"];
+  } else {
+    process.env["JAZZ_MODELS_DEV_URL"] = originalMirror;
+  }
   clearModelsDevCache();
   await rm(jazzHome, { recursive: true, force: true });
 });
@@ -271,8 +280,11 @@ describe("models-dev mirror override", () => {
       await getModelsDevProviderModels("anthropic");
       expect(fetchMock.mock.calls[0]?.[0]).toBe("http://mirror.internal/api.json");
     } finally {
-      if (originalMirror === undefined) delete process.env["JAZZ_MODELS_DEV_URL"];
-      else process.env["JAZZ_MODELS_DEV_URL"] = originalMirror;
+      if (originalMirror === undefined) {
+        delete process.env["JAZZ_MODELS_DEV_URL"];
+      } else {
+        process.env["JAZZ_MODELS_DEV_URL"] = originalMirror;
+      }
     }
   });
 });
@@ -293,8 +305,11 @@ describe("models-dev snapshots per catalog", () => {
       await getModelsDevProviderModels("anthropic");
       expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
-      if (originalMirror === undefined) delete process.env["JAZZ_MODELS_DEV_URL"];
-      else process.env["JAZZ_MODELS_DEV_URL"] = originalMirror;
+      if (originalMirror === undefined) {
+        delete process.env["JAZZ_MODELS_DEV_URL"];
+      } else {
+        process.env["JAZZ_MODELS_DEV_URL"] = originalMirror;
+      }
     }
   });
 });

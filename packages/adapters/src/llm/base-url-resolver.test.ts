@@ -25,8 +25,11 @@ describe("resolveLocalProviderBaseUrl", () => {
 
   afterEach(() => {
     for (const v of ENV_VARS) {
-      if (saved[v] === undefined) delete process.env[v];
-      else process.env[v] = saved[v];
+      if (saved[v] === undefined) {
+        delete process.env[v];
+      } else {
+        process.env[v] = saved[v];
+      }
     }
   });
 
@@ -121,8 +124,11 @@ describe("resolveOllamaRequestBaseUrl", () => {
 
   afterEach(() => {
     for (const v of ENV_VARS) {
-      if (saved[v] === undefined) delete process.env[v];
-      else process.env[v] = saved[v];
+      if (saved[v] === undefined) {
+        delete process.env[v];
+      } else {
+        process.env[v] = saved[v];
+      }
     }
   });
 

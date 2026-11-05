@@ -206,7 +206,9 @@ function typedConfigValue(
       : Effect.succeed(raw.trim());
   }
   const input = parseConfigInput(path, raw);
-  if (input.ok) return Effect.succeed(input.value);
+  if (input.ok) {
+    return Effect.succeed(input.value);
+  }
   switch (input.reason) {
     case "unknown-key":
       return Effect.fail(unknownSettingError(path, input.suggestion));

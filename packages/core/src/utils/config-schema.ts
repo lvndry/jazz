@@ -676,7 +676,9 @@ const namedCompanionShape = {
 
 /** An `http(s)` URL with no `user:password@`; a credential belongs in the keyring. */
 function isPlainHttpUrl(value: string): boolean {
-  if (!URL.canParse(value)) return false;
+  if (!URL.canParse(value)) {
+    return false;
+  }
   const url = new URL(value);
   return (
     (url.protocol === "http:" || url.protocol === "https:") &&
@@ -755,12 +757,16 @@ function unwrap(schema: z.ZodType): z.ZodType {
  * every option.
  */
 function selectedOption(union: z.ZodDiscriminatedUnion, value: unknown): z.ZodType | undefined {
-  if (value === null || typeof value !== "object") return undefined;
+  if (value === null || typeof value !== "object") {
+    return undefined;
+  }
   const discriminator = union.def.discriminator;
   const selector = (value as Record<string, unknown>)[discriminator];
   return (union.options as readonly z.ZodType[]).find((option) => {
     const inner = unwrap(option);
-    if (!(inner instanceof z.ZodObject)) return false;
+    if (!(inner instanceof z.ZodObject)) {
+      return false;
+    }
     const field = inner.shape[discriminator] as z.ZodType | undefined;
     return field instanceof z.ZodLiteral && field.values.has(selector as never);
   });
@@ -774,12 +780,16 @@ function childSchema(
   const inner = unwrap(schema);
   if (inner instanceof z.ZodDiscriminatedUnion) {
     const selected = selectedOption(inner, value);
-    if (selected !== undefined) return childSchema(selected, segment, value);
+    if (selected !== undefined) {
+      return childSchema(selected, segment, value);
+    }
   }
   if (inner instanceof z.ZodUnion) {
     for (const option of inner.options as readonly z.ZodType[]) {
       const child = childSchema(option, segment);
-      if (child !== undefined) return child;
+      if (child !== undefined) {
+        return child;
+      }
     }
     return undefined;
   }
@@ -806,7 +816,9 @@ function schemaFrom(root: z.ZodType, path: Path, value?: unknown): z.ZodType | u
   let current: z.ZodType | undefined = root;
   let currentValue = value;
   for (const segment of path) {
-    if (current === undefined) return undefined;
+    if (current === undefined) {
+      return undefined;
+    }
     current = childSchema(current, segment, currentValue);
     currentValue =
       currentValue !== null && typeof currentValue === "object"
@@ -835,14 +847,20 @@ export function formatConfigPath(path: Path): string {
 }
 
 function formatList(items: readonly string[]): string {
-  if (items.length <= 1) return items[0] ?? "";
-  if (items.length === 2) return `${items[0]} or ${items[1]}`;
+  if (items.length <= 1) {
+    return items[0] ?? "";
+  }
+  if (items.length === 2) {
+    return `${items[0]} or ${items[1]}`;
+  }
   return `${items.slice(0, -1).join(", ")}, or ${items[items.length - 1]}`;
 }
 
 function describeNumber(schema: z.ZodNumber): string {
   const described = expectedDescriptions.get(schema);
-  if (described !== undefined) return described;
+  if (described !== undefined) {
+    return described;
+  }
   const kind = schema.isInt ? "a whole number" : "a number";
   return kind;
 }
@@ -853,15 +871,27 @@ function alternatives(schema: z.ZodType): string[] {
   if (described !== undefined) {
     return [described];
   }
-  if (inner instanceof z.ZodBoolean) return ["true", "false"];
-  if (inner instanceof z.ZodEnum) return inner.options.map(String);
-  if (inner instanceof z.ZodLiteral) return [...inner.values].map(String);
+  if (inner instanceof z.ZodBoolean) {
+    return ["true", "false"];
+  }
+  if (inner instanceof z.ZodEnum) {
+    return inner.options.map(String);
+  }
+  if (inner instanceof z.ZodLiteral) {
+    return [...inner.values].map(String);
+  }
   if (inner instanceof z.ZodUnion) {
     return (inner.options as readonly z.ZodType[]).flatMap(alternatives);
   }
-  if (inner instanceof z.ZodNumber) return [describeNumber(inner)];
-  if (inner instanceof z.ZodString) return ["text"];
-  if (inner instanceof z.ZodArray) return ["a list"];
+  if (inner instanceof z.ZodNumber) {
+    return [describeNumber(inner)];
+  }
+  if (inner instanceof z.ZodString) {
+    return ["text"];
+  }
+  if (inner instanceof z.ZodArray) {
+    return ["a list"];
+  }
   return ["an object"];
 }
 
@@ -914,7 +944,9 @@ export function validateEffectiveConfig(
 ): readonly ConfigIssue[] {
   const warn = config.context?.warnThresholdRatio;
   const compact = config.context?.compactThresholdRatio;
-  if (warn === undefined || compact === undefined || warn < compact) return [];
+  if (warn === undefined || compact === undefined || warn < compact) {
+    return [];
+  }
   return [
     {
       kind: "invalid-value",
@@ -937,7 +969,9 @@ function removalPath(path: Path): Path {
 
 /** A missing required child makes its containing object invalid, so discard that object whole. */
 function issueRemovalPath(path: Path, actual: unknown): Path {
-  if (actual === undefined && path.length > 1) return removalPath(path.slice(0, -1));
+  if (actual === undefined && path.length > 1) {
+    return removalPath(path.slice(0, -1));
+  }
   return removalPath(path);
 }
 
@@ -952,7 +986,9 @@ function removeAll(root: Record<string, unknown>, paths: readonly Path[]): void 
           : undefined;
     }
     const last = path[path.length - 1];
-    if (last === undefined || parent === null || typeof parent !== "object") continue;
+    if (last === undefined || parent === null || typeof parent !== "object") {
+      continue;
+    }
     if (Array.isArray(parent) && typeof last === "number") {
       const indices = listRemovals.get(parent) ?? new Set<number>();
       indices.add(last);
@@ -971,7 +1007,9 @@ function removeAll(root: Record<string, unknown>, paths: readonly Path[]): void 
 function valueAtPath(root: Record<string, unknown>, path: Path): unknown {
   let value: unknown = root;
   for (const segment of path) {
-    if (value === null || typeof value !== "object") return undefined;
+    if (value === null || typeof value !== "object") {
+      return undefined;
+    }
     value = (value as Record<PropertyKey, unknown>)[segment];
   }
   return value;
@@ -993,7 +1031,9 @@ export function parseConfigFile(contents: Readonly<Record<string, unknown>>): Co
 
   for (let pass = 0; pass < MAX_PARSE_PASSES; pass++) {
     const result = ConfigFileSchema.safeParse(working, { reportInput: true });
-    if (result.success) return { config: result.data, issues };
+    if (result.success) {
+      return { config: result.data, issues };
+    }
 
     const removals: Path[] = [];
     for (const issue of result.error.issues) {
@@ -1029,7 +1069,9 @@ export function parseConfigFile(contents: Readonly<Record<string, unknown>>): Co
       removals.push(removed);
     }
 
-    if (removals.some((path) => path.length === 0)) return { config: {}, issues };
+    if (removals.some((path) => path.length === 0)) {
+      return { config: {}, issues };
+    }
     removeAll(working, removals);
   }
 
@@ -1037,8 +1079,12 @@ export function parseConfigFile(contents: Readonly<Record<string, unknown>>): Co
 }
 
 function describeActual(actual: unknown, redacted: boolean): string {
-  if (actual === undefined) return "nothing";
-  if (redacted) return Array.isArray(actual) ? "a list" : `a ${typeof actual}`;
+  if (actual === undefined) {
+    return "nothing";
+  }
+  if (redacted) {
+    return Array.isArray(actual) ? "a list" : `a ${typeof actual}`;
+  }
   const rendered = JSON.stringify(actual) ?? `a ${typeof actual}`;
   return rendered.length > 60 ? `${rendered.slice(0, 57)}...` : rendered;
 }
@@ -1055,7 +1101,9 @@ export function formatConfigIssues(
   issues: readonly ConfigIssue[],
   isSecretPath: (path: string) => boolean,
 ): string | undefined {
-  if (issues.length === 0) return undefined;
+  if (issues.length === 0) {
+    return undefined;
+  }
   const lines = issues.map((issue) => {
     const entry = issue.removed === issue.path ? "" : ` (${issue.removed} is ignored as a whole)`;
     if (issue.kind === "unknown-key") {
@@ -1090,9 +1138,13 @@ const MCP_SERVERS = "mcpServers";
  * (`mcpServers.<name>.enabled` / `.trusted`) carry a boolean and stay on the generic dotted path.
  */
 export function mcpServerEntryName(path: string, value: unknown): string | undefined {
-  if (!isRecord(value)) return undefined;
+  if (!isRecord(value)) {
+    return undefined;
+  }
   const prefix = `${MCP_SERVERS}.`;
-  if (!path.startsWith(prefix)) return undefined;
+  if (!path.startsWith(prefix)) {
+    return undefined;
+  }
   const name = path.slice(prefix.length);
   if (name === "" || name.split(".").some((segment) => unsafePathSegments.has(segment))) {
     return undefined;
@@ -1111,9 +1163,13 @@ function suggestPath(segments: readonly string[]): string | undefined {
   for (let depth = 0; depth < segments.length; depth++) {
     const prefix = segments.slice(0, depth);
     const segment = segments[depth] as string;
-    if (schemaAt([...prefix, segment]) !== undefined) continue;
+    if (schemaAt([...prefix, segment]) !== undefined) {
+      continue;
+    }
     const guess = closestMatch(segment, knownKeysAt(prefix));
-    if (guess === undefined) return undefined;
+    if (guess === undefined) {
+      return undefined;
+    }
     const suggested = [...prefix, guess, ...segments.slice(depth + 1)];
     return schemaAt(suggested) === undefined ? undefined : joinConfigPath(suggested);
   }
@@ -1126,7 +1182,9 @@ function suggestPath(segments: readonly string[]): string | undefined {
  */
 export function resolveConfigPath(path: string): ConfigPathResolution {
   const segments = parsePath(path);
-  if (segments === undefined) return { known: false };
+  if (segments === undefined) {
+    return { known: false };
+  }
   const schema = schemaAt(segments);
   if (schema === undefined) {
     const suggestion = suggestPath(segments);
@@ -1151,9 +1209,15 @@ export type ConfigInput =
 
 function valueKind(schema: z.ZodType): ConfigValueKind {
   const inner = unwrap(schema);
-  if (inner instanceof z.ZodNumber) return inner.isInt ? "whole-number" : "number";
-  if (inner instanceof z.ZodBoolean) return "boolean";
-  if (inner instanceof z.ZodString) return "text";
+  if (inner instanceof z.ZodNumber) {
+    return inner.isInt ? "whole-number" : "number";
+  }
+  if (inner instanceof z.ZodBoolean) {
+    return "boolean";
+  }
+  if (inner instanceof z.ZodString) {
+    return "text";
+  }
   return "choice";
 }
 
@@ -1164,11 +1228,17 @@ function readings(raw: string): readonly (string | number | boolean)[] {
   const trimmed = raw.trim();
   const lowered = trimmed.toLowerCase();
   const out: (string | number | boolean)[] = [raw, lowered];
-  if (TRUE_LITERALS.has(lowered)) out.push(true);
-  if (FALSE_LITERALS.has(lowered)) out.push(false);
+  if (TRUE_LITERALS.has(lowered)) {
+    out.push(true);
+  }
+  if (FALSE_LITERALS.has(lowered)) {
+    out.push(false);
+  }
   // Number() rather than parseFloat: "600000ms" must be refused, not read as its prefix.
   const numeric = Number(trimmed);
-  if (trimmed !== "" && Number.isFinite(numeric)) out.push(numeric);
+  if (trimmed !== "" && Number.isFinite(numeric)) {
+    out.push(numeric);
+  }
   return out;
 }
 
@@ -1187,11 +1257,15 @@ export function parseConfigInput(path: string, raw: string): ConfigInput {
       ? { ok: false, reason: "unknown-key" }
       : { ok: false, reason: "unknown-key", suggestion: resolution.suggestion };
   }
-  if (resolution.structured) return { ok: false, reason: "structured" };
+  if (resolution.structured) {
+    return { ok: false, reason: "structured" };
+  }
 
   const schema = schemaAt(parsePath(path) ?? []) as z.ZodType;
   for (const reading of readings(raw)) {
-    if (schema.safeParse(reading).success) return { ok: true, value: reading };
+    if (schema.safeParse(reading).success) {
+      return { ok: true, value: reading };
+    }
   }
   return {
     ok: false,
@@ -1218,14 +1292,18 @@ export function checkConfigWrite(path: string, value: unknown): ConfigWriteCheck
   if (segments === undefined || schema === undefined) {
     return { ok: false, problem: `"${path}" is not a setting` };
   }
-  if (value === undefined) return { ok: true };
+  if (value === undefined) {
+    return { ok: true };
+  }
   return checkAgainst(schema, segments, value);
 }
 
 /** Validate `value` against `schema` rooted at `prefix`, naming the offending path on failure. */
 function checkAgainst(schema: z.ZodType, prefix: Path, value: unknown): ConfigWriteCheck {
   const result = schema.safeParse(value);
-  if (result.success) return { ok: true };
+  if (result.success) {
+    return { ok: true };
+  }
   const issue = result.error.issues[0];
   const relativePath = issue?.path ?? [];
   const expected =

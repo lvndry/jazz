@@ -71,7 +71,9 @@ export async function stopDaemonProcess(port: number): Promise<StopDaemonResult>
   } catch (error) {
     await clearDaemonPid(port);
     const detail = toError(error).message;
-    if (!isProcessAlive(pid)) return { kind: "stopped", pid };
+    if (!isProcessAlive(pid)) {
+      return { kind: "stopped", pid };
+    }
     return { kind: "failed", pid, detail };
   }
 
@@ -103,10 +105,14 @@ export async function findListenerPid(port: number): Promise<number | undefined>
     });
     const stdout = await new Response(child.stdout).text();
     const code = await child.exited;
-    if (code !== 0) return undefined;
+    if (code !== 0) {
+      return undefined;
+    }
     for (const line of stdout.split("\n")) {
       const pid = Number.parseInt(line.trim(), 10);
-      if (Number.isInteger(pid) && pid > 0) return pid;
+      if (Number.isInteger(pid) && pid > 0) {
+        return pid;
+      }
     }
   } catch {
     return undefined;
@@ -149,7 +155,9 @@ export async function waitForDaemonHealth(
   while (Date.now() < deadline) {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(1_000) });
-      if (response.ok) return true;
+      if (response.ok) {
+        return true;
+      }
     } catch {
       // keep polling
     }

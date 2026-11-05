@@ -146,14 +146,18 @@ export function protectedZoneStartIndex(
   for (let index = messages.length - 1; index >= 1; index--) {
     if (messages[index]?.role === "user") {
       turnsFound++;
-      if (turnsFound >= protectedTurns) return index;
+      if (turnsFound >= protectedTurns) {
+        return index;
+      }
     }
   }
 
   // Fewer complete turns than requested: protect from the earliest user message.
   if (turnsFound > 0) {
     for (let index = 1; index < messages.length; index++) {
-      if (messages[index]?.role === "user") return index;
+      if (messages[index]?.role === "user") {
+        return index;
+      }
     }
   }
 
@@ -254,7 +258,9 @@ export class ContextWindowManager {
 
     for (let i = protectedStartIndex - 1; i >= 1; i--) {
       const msg = messages[i];
-      if (!msg || protectedIndices.has(i)) continue;
+      if (!msg || protectedIndices.has(i)) {
+        continue;
+      }
 
       const tokens = this.counter.countMessage(msg, this.modelHint);
 
@@ -276,7 +282,9 @@ export class ContextWindowManager {
     // Process non-protected messages (validate tool integrity)
     for (const idx of recentIndices) {
       const msg = messages[idx];
-      if (!msg) continue;
+      if (!msg) {
+        continue;
+      }
 
       if (msg.role === "tool" && msg.tool_call_id) {
         const assistantIdx = toolCallToAssistant.get(msg.tool_call_id);

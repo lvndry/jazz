@@ -37,7 +37,9 @@ it("cancels edge scrolling on drag end, occlusion, document switch and unmount",
     drag();
     expect(calls).toEqual([-3]);
     expect(activeTimers()).toBe(1);
-    for (const tick of scheduled.values()) tick();
+    for (const tick of scheduled.values()) {
+      tick();
+    }
     expect(calls).toEqual([-3, -3]);
     handlers?.onMouseDragEnd();
     expect(activeTimers()).toBe(0);
@@ -54,7 +56,9 @@ it("cancels edge scrolling on drag end, occlusion, document switch and unmount",
     rendered.renderer.destroy();
     expect(activeTimers()).toBe(0);
   } finally {
-    if (!rendered.renderer.isDestroyed) rendered.renderer.destroy();
+    if (!rendered.renderer.isDestroyed) {
+      rendered.renderer.destroy();
+    }
     interval.mockRestore();
     clear.mockRestore();
   }

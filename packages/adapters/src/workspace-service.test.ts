@@ -140,7 +140,9 @@ describe("str_replace", () => {
     const outcome = await runEffect(service.strReplace("agent-1", "notes.txt", "world", "there"));
     expect(outcome.success).toBe(true);
     const view = await runEffect(service.view("agent-1", "notes.txt"));
-    if (view.kind === "file") expect(view.content).toBe("hello there");
+    if (view.kind === "file") {
+      expect(view.content).toBe("hello there");
+    }
   });
 
   test("fails with no match", async () => {
@@ -158,7 +160,9 @@ describe("insert", () => {
     await runEffect(service.create("agent-1", "notes.txt", "a\nb"));
     await runEffect(service.insert("agent-1", "notes.txt", 1, "inserted"));
     const view = await runEffect(service.view("agent-1", "notes.txt"));
-    if (view.kind === "file") expect(view.content).toBe("a\ninserted\nb");
+    if (view.kind === "file") {
+      expect(view.content).toBe("a\ninserted\nb");
+    }
   });
 });
 

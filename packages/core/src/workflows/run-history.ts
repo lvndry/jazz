@@ -71,7 +71,9 @@ type ScheduleFields = Pick<WorkflowRunRecord, "workflowName" | "scheduleLabel" |
  * migration does: a scheduled one was the workflow's single `default` schedule.
  */
 export function runScheduleLabel(record: Omit<ScheduleFields, "workflowName">): string {
-  if (record.scheduleLabel !== undefined) return record.scheduleLabel;
+  if (record.scheduleLabel !== undefined) {
+    return record.scheduleLabel;
+  }
   return record.triggeredBy === "scheduled" ? "default" : MANUAL_RUN_LABEL;
 }
 
@@ -92,10 +94,16 @@ export function lastCompletedRunAt(
 ): string | undefined {
   let latest: string | undefined;
   for (const record of history) {
-    if (record.workflowName !== workflowName || record.status !== "completed") continue;
-    if (runScheduleLabel(record) !== label) continue;
+    if (record.workflowName !== workflowName || record.status !== "completed") {
+      continue;
+    }
+    if (runScheduleLabel(record) !== label) {
+      continue;
+    }
     const completedAt = record.completedAt ?? record.startedAt;
-    if (latest === undefined || completedAt > latest) latest = completedAt;
+    if (latest === undefined || completedAt > latest) {
+      latest = completedAt;
+    }
   }
   return latest;
 }

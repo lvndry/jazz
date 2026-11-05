@@ -800,14 +800,18 @@ describe("withIdleTimeout", () => {
 
   it("passes a healthy stream through untouched", async () => {
     const seen: number[] = [];
-    for await (const value of withIdleTimeout(slowButAlive(), 1_000)) seen.push(value);
+    for await (const value of withIdleTimeout(slowButAlive(), 1_000)) {
+      seen.push(value);
+    }
     expect(seen).toEqual([1, 2, 3]);
   });
 
   it("does not fail a stream that is slow but still producing", async () => {
     // Each gap is under the budget even though the total exceeds it.
     const seen: number[] = [];
-    for await (const value of withIdleTimeout(slowButAlive(), 50)) seen.push(value);
+    for await (const value of withIdleTimeout(slowButAlive(), 50)) {
+      seen.push(value);
+    }
     expect(seen).toEqual([1, 2, 3]);
   });
 
@@ -846,7 +850,9 @@ describe("withIdleTimeout", () => {
   it("abandons a stream that stalls without closing", async () => {
     const seen: number[] = [];
     const drain = async (): Promise<void> => {
-      for await (const value of withIdleTimeout(never(), 60)) seen.push(value);
+      for await (const value of withIdleTimeout(never(), 60)) {
+        seen.push(value);
+      }
     };
     await expect(drain()).rejects.toThrow(StreamIdleTimeoutError);
     // The part that did arrive was still delivered.

@@ -202,7 +202,9 @@ describe("executeWithoutStreaming tool event emission", () => {
     const events: StreamEvent[] = [];
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
+      if (trimmed.length === 0) {
+        continue;
+      }
       try {
         events.push(JSON.parse(trimmed) as StreamEvent);
       } catch {

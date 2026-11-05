@@ -46,8 +46,11 @@ beforeEach(async () => {
 
 afterEach(async () => {
   server?.stop(true);
-  if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-  else process.env["JAZZ_HOME"] = previousHome;
+  if (previousHome === undefined) {
+    delete process.env["JAZZ_HOME"];
+  } else {
+    process.env["JAZZ_HOME"] = previousHome;
+  }
   await nodeFs.rm(jazzHome, { recursive: true, force: true });
 });
 
@@ -77,7 +80,9 @@ async function ask(
   args: { peer: string; question: string },
 ): Promise<ToolExecutionResult> {
   const tool = createAskPeerTool(configured);
-  if (tool === undefined) throw new Error("expected ask_peer to exist");
+  if (tool === undefined) {
+    throw new Error("expected ask_peer to exist");
+  }
   return Effect.runPromise(
     tool
       .execute(args, { agentId: "agent-1" } as ToolExecutionContext)

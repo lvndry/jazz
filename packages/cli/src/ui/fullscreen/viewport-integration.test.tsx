@@ -29,10 +29,14 @@ const live: Block = {
 const markers = (frame: string) => frame.match(/history-\d+/g);
 
 function transcriptSurface(node: Renderable): TranscriptSurfaceRenderable | undefined {
-  if (node instanceof TranscriptSurfaceRenderable) return node;
+  if (node instanceof TranscriptSurfaceRenderable) {
+    return node;
+  }
   for (const child of node.getChildren()) {
     const surface = transcriptSurface(child);
-    if (surface !== undefined) return surface;
+    if (surface !== undefined) {
+      return surface;
+    }
   }
   return undefined;
 }
@@ -114,7 +118,9 @@ it("routes native selection drag through anchored navigation and cancels it on r
     delay?: number,
   ) => {
     const id = ++serial as unknown as ReturnType<typeof setInterval>;
-    if (delay === 50) scheduled.set(id, callback as () => void);
+    if (delay === 50) {
+      scheduled.set(id, callback as () => void);
+    }
     return id;
   }) as typeof globalThis.setInterval);
   const clear = spyOn(globalThis, "clearInterval").mockImplementation((id) => {
@@ -151,7 +157,9 @@ it("routes native selection drag through anchored navigation and cancels it on r
     expect(surface?.scrollTop).toBe(0);
     expect(scheduled.size).toBe(1);
     updateForTest(() => {
-      for (const tick of scheduled.values()) tick();
+      for (const tick of scheduled.values()) {
+        tick();
+      }
     });
     await rendered.flush();
     expect(markers(rendered.captureCharFrame())).not.toEqual(before);

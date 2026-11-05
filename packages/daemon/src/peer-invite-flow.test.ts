@@ -37,8 +37,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-  else process.env["JAZZ_HOME"] = previousHome;
+  if (previousHome === undefined) {
+    delete process.env["JAZZ_HOME"];
+  } else {
+    process.env["JAZZ_HOME"] = previousHome;
+  }
   await nodeFs.rm(jazzHome, { recursive: true, force: true });
 });
 
@@ -67,7 +70,9 @@ function fakeConfigLayer() {
     has: () => Effect.succeed(false),
     set: <A>(key: string, value: A) =>
       Effect.sync(() => {
-        if (key === "peers") peers = value as unknown as readonly PeerConfig[];
+        if (key === "peers") {
+          peers = value as unknown as readonly PeerConfig[];
+        }
         revision += 1;
       }),
     revision: Effect.sync(() => revision),

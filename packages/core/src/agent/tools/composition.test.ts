@@ -122,8 +122,11 @@ describe("create_composition without a browser", () => {
   });
 
   afterAll(() => {
-    if (previousJazzHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = previousJazzHome;
+    if (previousJazzHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = previousJazzHome;
+    }
     rmSync(jazzHome, { recursive: true, force: true });
   });
 
@@ -216,8 +219,11 @@ describe("create_composition htmlPath source", () => {
   });
 
   afterAll(() => {
-    if (previousJazzHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = previousJazzHome;
+    if (previousJazzHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = previousJazzHome;
+    }
     rmSync(jazzHome, { recursive: true, force: true });
     rmSync(sourceDir, { recursive: true, force: true });
   });

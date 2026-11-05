@@ -81,7 +81,9 @@ export function createSuggestionStore(limit: number = SUGGESTION_STORE_LIMIT): S
       stored.set(token, items);
       while (stored.size > limit) {
         const oldest = stored.keys().next();
-        if (oldest.done) break;
+        if (oldest.done) {
+          break;
+        }
         stored.delete(oldest.value);
       }
       return token;
@@ -98,7 +100,9 @@ export function ensureThreeWithGoDeeper(items: readonly Suggestion[]): Suggestio
   const hasGoDeeper = items.some((item) => /deeper/i.test(item.label));
   let result = hasGoDeeper ? [...items] : [GO_DEEPER, ...items];
   for (const fallback of FALLBACKS) {
-    if (result.length >= SUGGESTION_COUNT) break;
+    if (result.length >= SUGGESTION_COUNT) {
+      break;
+    }
     result = [...result, fallback];
   }
   return result.slice(0, SUGGESTION_COUNT);
@@ -107,14 +111,18 @@ export function ensureThreeWithGoDeeper(items: readonly Suggestion[]): Suggestio
 /** Read the model's JSON array of `{label, prompt}` back out of its answer. */
 export function parseSuggestions(answer: string): Suggestion[] {
   const match = /\[[\s\S]*\]/.exec(answer);
-  if (!match) return [];
+  if (!match) {
+    return [];
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(match[0]) as unknown;
   } catch {
     return [];
   }
-  if (!Array.isArray(parsed)) return [];
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
   const items: Suggestion[] = [];
   for (const entry of parsed) {
     const record = entry as { label?: unknown; prompt?: unknown } | null;
@@ -129,7 +137,9 @@ export function parseSuggestions(answer: string): Suggestion[] {
         prompt: record.prompt.trim().slice(0, PROMPT_MAX_CHARS),
       });
     }
-    if (items.length >= SUGGESTION_COUNT) break;
+    if (items.length >= SUGGESTION_COUNT) {
+      break;
+    }
   }
   return items.length === 0 ? [] : ensureThreeWithGoDeeper(items);
 }
@@ -148,7 +158,9 @@ export interface SuggestionRunOptions {
 }
 
 function ensureSuggestAgent(options: SuggestionRunOptions): void {
-  if (existsSync(agentPath(options.sandbox.home, options.suggestAgentId))) return;
+  if (existsSync(agentPath(options.sandbox.home, options.suggestAgentId))) {
+    return;
+  }
   const template = readAgentFile(options.jazzHome, options.baseAgentId);
   template.id = options.suggestAgentId;
   template.name = options.suggestAgentId;

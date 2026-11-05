@@ -47,7 +47,9 @@ describe("loadServers", () => {
     const servers = await loadServers();
     expect(servers).toHaveLength(1);
     const server = servers[0];
-    if (server === undefined) throw new Error("expected one server");
+    if (server === undefined) {
+      throw new Error("expected one server");
+    }
     expect(server.extensions[".tsx"]).toBe("typescriptreact");
     expect(server.extensions[".ts"]).toBe("typescript");
   });
@@ -97,7 +99,9 @@ describe("loadServers", () => {
 describe("selectServer", () => {
   it("opens each dialect under its own language ID", async () => {
     await writeConfig([reactEntry]);
-    for (const name of ["sample.ts", "Sample.tsx"]) await writeFile(join(temp, name), "");
+    for (const name of ["sample.ts", "Sample.tsx"]) {
+      await writeFile(join(temp, name), "");
+    }
     const ts = await selectServer(join(temp, "sample.ts"), temp);
     const tsx = await selectServer(join(temp, "Sample.tsx"), temp);
     expect(ts.languageId).toBe("typescript");

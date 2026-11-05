@@ -108,7 +108,9 @@ let isolationDecision: boolean | undefined;
  * when both are available.
  */
 export function chatIsolationEnabled(): boolean {
-  if (isolationDecision !== undefined) return isolationDecision;
+  if (isolationDecision !== undefined) {
+    return isolationDecision;
+  }
 
   const flag = parseFlag(process.env["JAZZ_BOT_CHAT_ISOLATION"]);
   if (flag === false) {
@@ -132,10 +134,18 @@ export function chatIsolationEnabled(): boolean {
 }
 
 function missingIsolationRequirement(): string | null {
-  if (process.getuid?.() !== 0) return "the bridge is not running as root, so it cannot change uid";
-  if (Bun.which("setpriv") === null) return "`setpriv` is not installed in this image";
-  if (Bun.which("useradd") === null) return "`useradd` is not installed in this image";
-  if (Bun.which("chmod") === null) return "`chmod` is not installed in this image";
+  if (process.getuid?.() !== 0) {
+    return "the bridge is not running as root, so it cannot change uid";
+  }
+  if (Bun.which("setpriv") === null) {
+    return "`setpriv` is not installed in this image";
+  }
+  if (Bun.which("useradd") === null) {
+    return "`useradd` is not installed in this image";
+  }
+  if (Bun.which("chmod") === null) {
+    return "`chmod` is not installed in this image";
+  }
   return null;
 }
 
@@ -155,7 +165,9 @@ export function sandboxDirectory(dataDir: string): string {
  * only need a path behave exactly as they did before sandboxes existed.
  */
 export function chatHome(dataDir: string, agentId: string): string {
-  if (!chatIsolationEnabled()) return dataDir;
+  if (!chatIsolationEnabled()) {
+    return dataDir;
+  }
   return join(sandboxDirectory(dataDir), agentId);
 }
 
@@ -169,7 +181,9 @@ export function chatHome(dataDir: string, agentId: string): string {
  */
 export function operatorGid(dataDir: string): number {
   const configured = Number.parseInt(process.env["JAZZ_BOT_OPERATOR_GID"]?.trim() ?? "", 10);
-  if (Number.isInteger(configured) && configured >= 0) return configured;
+  if (Number.isInteger(configured) && configured >= 0) {
+    return configured;
+  }
   return statSync(dataDir).gid;
 }
 
@@ -181,13 +195,19 @@ function uidMapPath(dataDir: string): string {
 
 function readUidMap(dataDir: string): UidMap {
   const path = uidMapPath(dataDir);
-  if (!existsSync(path)) return {};
+  if (!existsSync(path)) {
+    return {};
+  }
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    if (!isRecord(parsed)) return {};
+    if (!isRecord(parsed)) {
+      return {};
+    }
     const map: UidMap = {};
     for (const [agentId, uid] of Object.entries(parsed)) {
-      if (typeof uid === "number" && Number.isInteger(uid)) map[agentId] = uid;
+      if (typeof uid === "number" && Number.isInteger(uid)) {
+        map[agentId] = uid;
+      }
     }
     return map;
   } catch {
@@ -226,14 +246,18 @@ function run(command: string[]): { ok: boolean; stderr: string } {
  * are recreated from the persisted uid map after every rebuild.
  */
 function ensureAccount(uid: number): void {
-  if (run(["getent", "passwd", String(uid)]).ok) return;
+  if (run(["getent", "passwd", String(uid)]).ok) {
+    return;
+  }
   const name = accountName(uid);
   // A private primary group, never the operator group: a conversation that
   // shared the operator group would read every other conversation's files
   // through the group bits that exist for the human operator.
   if (!run(["getent", "group", String(uid)]).ok) {
     const group = run(["groupadd", "--gid", String(uid), name]);
-    if (!group.ok) throw new Error(`Could not create group ${name} (${uid}): ${group.stderr}`);
+    if (!group.ok) {
+      throw new Error(`Could not create group ${name} (${uid}): ${group.stderr}`);
+    }
   }
   const user = run([
     "useradd",
@@ -246,7 +270,9 @@ function ensureAccount(uid: number): void {
     "/usr/sbin/nologin",
     name,
   ]);
-  if (!user.ok) throw new Error(`Could not create account ${name} (${uid}): ${user.stderr}`);
+  if (!user.ok) {
+    throw new Error(`Could not create account ${name} (${uid}): ${user.stderr}`);
+  }
 }
 
 /**
@@ -282,7 +308,9 @@ export function setMode(path: string, mode: number): void {
  * install.
  */
 function linkShared(home: PinnedDirectory, name: string, target: string): void {
-  if (!home.isAbsent(name) || !existsSync(target)) return;
+  if (!home.isAbsent(name) || !existsSync(target)) {
+    return;
+  }
   try {
     home.link(name, target);
   } catch (error) {
@@ -338,7 +366,9 @@ export function addAutoApprovedCommand(sandbox: ChatSandbox, commandKey: string)
     const current = Array.isArray(existing)
       ? existing.filter((entry): entry is string => typeof entry === "string")
       : [];
-    if (current.includes(commandKey)) return;
+    if (current.includes(commandKey)) {
+      return;
+    }
     config[AUTO_APPROVED_COMMANDS_KEY] = [...current, commandKey];
     home.writeBytes(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, {
       owner: ownership?.owner,
@@ -376,7 +406,9 @@ export function ensureChatSandbox(dataDir: string, agentId: string): ChatSandbox
 
   const cacheKey = `${dataDir}\u0000${agentId}`;
   const alreadyProvisioned = provisioned.get(cacheKey);
-  if (alreadyProvisioned !== undefined) return alreadyProvisioned;
+  if (alreadyProvisioned !== undefined) {
+    return alreadyProvisioned;
+  }
 
   const gid = operatorGid(dataDir);
   const root = sandboxDirectory(dataDir);
@@ -427,7 +459,9 @@ export function ensureChatSandbox(dataDir: string, agentId: string): ChatSandbox
  * when the conversation runs as the bridge's own user and there is nobody to hand them to.
  */
 export function sandboxOwnership(sandbox: ChatSandbox): Ownership | undefined {
-  if (!sandbox.isolated || sandbox.uid === null || sandbox.gid === null) return undefined;
+  if (!sandbox.isolated || sandbox.uid === null || sandbox.gid === null) {
+    return undefined;
+  }
   return {
     owner: { uid: sandbox.uid, gid: sandbox.gid },
     directoryMode: SANDBOX_HOME_MODE,
@@ -446,7 +480,9 @@ export function sandboxOwnership(sandbox: ChatSandbox): Ownership | undefined {
  */
 export function adoptIntoSandbox(sandbox: ChatSandbox, ...paths: readonly string[]): void {
   const owner = sandboxOwnership(sandbox)?.owner;
-  if (owner === undefined) return;
+  if (owner === undefined) {
+    return;
+  }
   for (const path of paths) {
     try {
       lchownSync(path, owner.uid, owner.gid);
@@ -458,9 +494,13 @@ export function adoptIntoSandbox(sandbox: ChatSandbox, ...paths: readonly string
 
 /** Every conversation home that exists, newest allocation last. */
 export function listChatSandboxes(dataDir: string): { agentId: string; home: string }[] {
-  if (!chatIsolationEnabled()) return [];
+  if (!chatIsolationEnabled()) {
+    return [];
+  }
   const root = sandboxDirectory(dataDir);
-  if (!existsSync(root)) return [];
+  if (!existsSync(root)) {
+    return [];
+  }
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => ({ agentId: entry.name, home: join(root, entry.name) }));
@@ -468,7 +508,9 @@ export function listChatSandboxes(dataDir: string): { agentId: string; home: str
 
 /** Wrap a command so it runs as the sandbox's uid with no supplementary groups. */
 export function sandboxCommand(sandbox: ChatSandbox, command: string[]): string[] {
-  if (!sandbox.isolated || sandbox.uid === null) return command;
+  if (!sandbox.isolated || sandbox.uid === null) {
+    return command;
+  }
   return [
     "setpriv",
     "--reuid",
@@ -522,7 +564,9 @@ export function sandboxEnv(
   // the operator's environment, where JAZZ_HOME is unset and the run would
   // resolve their own Jazz home instead of the bridge's.
   const withHome = { ...withSurface, JAZZ_HOME: sandbox.home };
-  if (!sandbox.isolated) return withHome;
+  if (!sandbox.isolated) {
+    return withHome;
+  }
   return {
     ...withHome,
     HOME: sandbox.home,

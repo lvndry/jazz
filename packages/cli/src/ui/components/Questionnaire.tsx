@@ -115,14 +115,18 @@ export function Questionnaire({
         const isTyping = state.cursor === customOptionIndex && effectiveAllowCustom;
         if (!isTyping && binary !== undefined && (action.char === "y" || action.char === "n")) {
           const answer = suggestions[action.char === "y" ? binary.yes : binary.no];
-          if (answer !== undefined) onSubmit(answer.value);
+          if (answer !== undefined) {
+            onSubmit(answer.value);
+          }
           return InputResults.consumed();
         }
         if (!isTyping && action.char >= "1" && action.char <= "9") {
           const index = parseInt(action.char, 10) - 1;
           if (index < Math.min(suggestions.length, MAX_QUICK_PICK)) {
             dispatch({ kind: "quickPick", index });
-            if (!allowMultiple) dispatch({ kind: "submit" });
+            if (!allowMultiple) {
+              dispatch({ kind: "submit" });
+            }
             return InputResults.consumed();
           }
         }
@@ -196,7 +200,9 @@ export function Questionnaire({
               <TextInput
                 inputId="questionnaire-inline-custom"
                 onSubmit={(value) => {
-                  if (value.trim()) onSubmit(value.trim());
+                  if (value.trim()) {
+                    onSubmit(value.trim());
+                  }
                 }}
               />
             ) : (

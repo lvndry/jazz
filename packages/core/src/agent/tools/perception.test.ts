@@ -25,7 +25,9 @@ import { AgentRunner } from "../agent-runner";
 mock.module("@/core/utils/models-dev", () => ({
   ...modelsDevActual,
   getModelsDevProviderModels: async (providerId: string) => {
-    if (providerId !== "openai") throw new Error(`provider ${providerId} not in catalog`);
+    if (providerId !== "openai") {
+      throw new Error(`provider ${providerId} not in catalog`);
+    }
     return [
       {
         id: "gpt-5-vision",

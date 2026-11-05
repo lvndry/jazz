@@ -17,7 +17,9 @@ import { scheduleId } from "@jazz/core/workflows/scheduler-service";
 import { Effect } from "effect";
 
 function formatMissedTime(scheduledAt: Date | undefined): string {
-  if (!scheduledAt) return "unknown time";
+  if (!scheduledAt) {
+    return "unknown time";
+  }
 
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());

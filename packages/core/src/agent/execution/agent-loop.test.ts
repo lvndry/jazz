@@ -2715,7 +2715,9 @@ describe("executeAgentLoop context window accounting", () => {
   // would resolve the real catalog — which carries no ollama provider at all.
   function seedCatalog(catalog: unknown): void {
     const jazzHome = process.env["JAZZ_HOME"];
-    if (jazzHome === undefined) throw new Error("JAZZ_HOME is not set for this test");
+    if (jazzHome === undefined) {
+      throw new Error("JAZZ_HOME is not set for this test");
+    }
     writeFileSync(join(jazzHome, "cache", "models-dev.json"), JSON.stringify(catalog));
     clearModelsDevCache();
   }
@@ -2730,10 +2732,16 @@ describe("executeAgentLoop context window accounting", () => {
 
   afterEach(() => {
     clearModelsDevCache();
-    if (originalJazzHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = originalJazzHome;
-    if (originalOffline === undefined) delete process.env["JAZZ_OFFLINE"];
-    else process.env["JAZZ_OFFLINE"] = originalOffline;
+    if (originalJazzHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = originalJazzHome;
+    }
+    if (originalOffline === undefined) {
+      delete process.env["JAZZ_OFFLINE"];
+    } else {
+      process.env["JAZZ_OFFLINE"] = originalOffline;
+    }
   });
 
   // ~500k characters ≈ 143k tokens at qwen's 3.5 chars/token: over 80% of the pinned
@@ -2875,7 +2883,9 @@ describe("executeAgentLoop context window accounting", () => {
     const results = await toolResultsSeenByModel(20_000, 60_000);
     expect(results).toHaveLength(PROTECTED_TOOL_CYCLES + 1);
     expect(results[0]).toStartWith("[tool result");
-    for (const recent of results.slice(1)) expect(recent).toStartWith("recent ");
+    for (const recent of results.slice(1)) {
+      expect(recent).toStartWith("recent ");
+    }
   });
 
   async function clearRunRequestAndHistory(

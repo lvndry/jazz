@@ -195,8 +195,12 @@ describe("treg web search", () => {
       for (const stage of ["free", "routed"] as const) {
         const fetchMock = mock(async (_url: URL | string, options: RequestInit) => {
           const routed = (options.headers as Record<string, string>)["X-Treg-Route-Exclude"];
-          if (stage === "routed" && !routed) return Response.json({ results: [] });
-          if (stage === "free" && routed) return found("Fallback");
+          if (stage === "routed" && !routed) {
+            return Response.json({ results: [] });
+          }
+          if (stage === "free" && routed) {
+            return found("Fallback");
+          }
           return originalFetch(redirect.url, options);
         });
         global.fetch = fetchMock as unknown as typeof fetch;

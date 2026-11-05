@@ -26,7 +26,9 @@ async function buildTool(inputSchema: unknown) {
   );
   const approval = tools[0];
   const execute = tools[1];
-  if (!approval || !execute) throw new Error("no tool pair registered");
+  if (!approval || !execute) {
+    throw new Error("no tool pair registered");
+  }
   return { approval, execute };
 }
 
@@ -46,7 +48,9 @@ async function localValidationError(
       unknown
     >,
   );
-  if (exit._tag === "Failure") return null;
+  if (exit._tag === "Failure") {
+    return null;
+  }
   return exit.value.success === false ? (exit.value.error ?? "rejected") : null;
 }
 

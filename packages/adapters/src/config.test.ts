@@ -329,7 +329,9 @@ describe("createConfigLayer", () => {
       rename: mock((from: string, to: string) =>
         Effect.sync(() => {
           const content = fileContents.get(from);
-          if (content !== undefined) fileContents.set(to, content);
+          if (content !== undefined) {
+            fileContents.set(to, content);
+          }
           fileContents.delete(from);
         }),
       ),

@@ -78,8 +78,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (originalJazzHome === undefined) delete process.env["JAZZ_HOME"];
-  else process.env["JAZZ_HOME"] = originalJazzHome;
+  if (originalJazzHome === undefined) {
+    delete process.env["JAZZ_HOME"];
+  } else {
+    process.env["JAZZ_HOME"] = originalJazzHome;
+  }
   rmSync(jazzHome, { recursive: true, force: true });
 });
 

@@ -989,7 +989,9 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           };
         }),
       createSummary: (result) => {
-        if (!result.success) return `Sub-agent failed: ${result.error}`;
+        if (!result.success) {
+          return `Sub-agent failed: ${result.error}`;
+        }
         const content = String(result.result);
         return `Sub-agent returned ${content.length} chars`;
       },
@@ -1274,7 +1276,9 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           };
         }),
       createSummary: (result) => {
-        if (!result.success) return `Summarization failed: ${result.error}`;
+        if (!result.success) {
+          return `Summarization failed: ${result.error}`;
+        }
         const content = String(result.result);
         return `Context summarized (${content.length} chars)`;
       },

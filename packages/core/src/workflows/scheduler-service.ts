@@ -72,7 +72,9 @@ export function scheduleId(entry: Pick<ScheduledWorkflow, "workflowName" | "labe
  */
 export function parseScheduleId(id: string): { workflowName: string; label?: string } {
   const separator = id.indexOf("/");
-  if (separator === -1) return { workflowName: id };
+  if (separator === -1) {
+    return { workflowName: id };
+  }
   const label = id.slice(separator + 1);
   return { workflowName: id.slice(0, separator), ...(label.length > 0 && { label }) };
 }
@@ -465,9 +467,13 @@ function readStoredSchedules(): Effect.Effect<readonly StoredSchedule[], Error> 
         try: () => fs.readFile(file, "utf-8"),
         catch: toError,
       }).pipe(Effect.catch(() => Effect.succeed(null)));
-      if (content === null) continue;
+      if (content === null) {
+        continue;
+      }
       const parsed = parseScheduledWorkflow(content);
-      if (parsed) stored.push({ entry: parsed.entry, file, legacy: parsed.legacy });
+      if (parsed) {
+        stored.push({ entry: parsed.entry, file, legacy: parsed.legacy });
+      }
     }
     return stored;
   });

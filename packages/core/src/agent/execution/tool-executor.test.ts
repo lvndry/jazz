@@ -1748,7 +1748,9 @@ describe("bound media during approval preflight", () => {
           context: ToolExecutionContext,
         ) => {
           const tool = tools.find((candidate) => candidate.name === name);
-          if (tool !== undefined) return tool.execute(args, context);
+          if (tool !== undefined) {
+            return tool.execute(args, context);
+          }
           return Effect.sync(() => {
             siblingExecutions++;
             return { success: true, result: "done" };
@@ -1821,16 +1823,18 @@ describe("bound media during approval preflight", () => {
           resolvedApprovals: new Map([["sibling", { approved: true }]]),
         });
         expect(resumed._tag).toBe("Success");
-        if (Result.isSuccess(resumed))
+        if (Result.isSuccess(resumed)) {
           expect(resumed.success.map((result) => result.success)).toEqual([true, true]);
+        }
         expect(child).toHaveBeenCalledTimes(1);
         expect(siblingExecutions).toBe(1);
         const standalone = await run({ ...context, getAutoApprovePolicy: () => "high-risk" }, [
           calls[0]!,
         ]);
         expect(standalone._tag).toBe("Success");
-        if (Result.isSuccess(standalone))
+        if (Result.isSuccess(standalone)) {
           expect(standalone.success.map((result) => result.success)).toEqual([true]);
+        }
         expect(child).toHaveBeenCalledTimes(2);
       } finally {
         child.mockRestore();

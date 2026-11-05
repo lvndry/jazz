@@ -651,7 +651,9 @@ describe("AgentRunner", () => {
       try {
         const program = Effect.gen(function* () {
           const registry = yield* ToolRegistryTag;
-          for (const tool of createSubagentTools()) yield* registry.registerTool(tool);
+          for (const tool of createSubagentTools()) {
+            yield* registry.registerTool(tool);
+          }
           return yield* AgentRunner.run({
             ...defaultOptions,
             agent: {
@@ -1286,7 +1288,9 @@ describe("AgentRunner", () => {
             stream: false,
             maxIterations: 1,
             checkQueuedMessage: () => {
-              if (!waiting) return undefined;
+              if (!waiting) {
+                return undefined;
+              }
               waiting = false;
               return { content, ...(typed ? { typed: ownText } : {}) };
             },
@@ -1380,7 +1384,9 @@ describe("AgentRunner", () => {
     ).getMockImplementation();
     afterEach(() => {
       const getToolMock = mockToolRegistry.getTool as Mock<ToolRegistry["getTool"]>;
-      if (originalGetTool !== undefined) getToolMock.mockImplementation(originalGetTool);
+      if (originalGetTool !== undefined) {
+        getToolMock.mockImplementation(originalGetTool);
+      }
     });
 
     /** Gives `tool1` an alias and a gated execute half, as the real shell tool has. */
@@ -1447,7 +1453,9 @@ describe("AgentRunner", () => {
     ).getMockImplementation();
     afterEach(() => {
       const getToolMock = mockToolRegistry.getTool as Mock<ToolRegistry["getTool"]>;
-      if (originalGetTool !== undefined) getToolMock.mockImplementation(originalGetTool);
+      if (originalGetTool !== undefined) {
+        getToolMock.mockImplementation(originalGetTool);
+      }
     });
 
     /** Gives `tool1` companions, as `spawn_subagent` has `wait_subagents`. */

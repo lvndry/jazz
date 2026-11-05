@@ -72,7 +72,9 @@ describe("installTerminalLifecycle", () => {
         pid: 1,
         on: (event: string, listener: () => void) => listeners.set(event, listener),
         off: (event: string, listener: () => void) => {
-          if (listeners.get(event) === listener) listeners.delete(event);
+          if (listeners.get(event) === listener) {
+            listeners.delete(event);
+          }
         },
         kill: (_pid: number, signal: string) => kills.push(signal),
       },
@@ -248,7 +250,9 @@ describe("installTerminalLifecycle", () => {
     const failingRuntime = {
       ...runtime,
       on(event: string, listener: () => void) {
-        if (event === "SIGCONT") throw failure;
+        if (event === "SIGCONT") {
+          throw failure;
+        }
         runtime.on(event, listener);
       },
     };
@@ -390,7 +394,9 @@ describe("repaintAfterResize", () => {
         return renders;
       },
       resize: () => {
-        for (const listener of [...listeners]) listener();
+        for (const listener of [...listeners]) {
+          listener();
+        }
       },
       on: (_event: "resize", listener: () => void) => listeners.add(listener),
       off: (_event: "resize", listener: () => void) => listeners.delete(listener),

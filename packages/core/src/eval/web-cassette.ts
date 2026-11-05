@@ -17,8 +17,11 @@ export function requestKey(input: RequestInfo | URL, init?: RequestInit): string
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   const method = (init?.method ?? "GET").toUpperCase();
   let body = "";
-  if (typeof init?.body === "string") body = init.body;
-  else if (init?.body instanceof URLSearchParams) body = init.body.toString();
+  if (typeof init?.body === "string") {
+    body = init.body;
+  } else if (init?.body instanceof URLSearchParams) {
+    body = init.body.toString();
+  }
   return `${method} ${url} ${body}`;
 }
 
@@ -139,7 +142,9 @@ export function installWebCassette(
     const key = requestKey(input, init);
     if (mode === "replay") {
       const entry = cassette[key];
-      if (!entry) throw new Error(`web-cassette replay miss: ${key}`);
+      if (!entry) {
+        throw new Error(`web-cassette replay miss: ${key}`);
+      }
       return new Response(entry.body, { status: entry.status, headers: entry.headers });
     }
     const res = await realFetch(input, init);

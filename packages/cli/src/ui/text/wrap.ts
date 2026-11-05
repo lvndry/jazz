@@ -92,7 +92,9 @@ export function wrapStyledSpans<Span extends StyledText>(
         }
         const pieces = wrapTerminalCells(word, width);
         for (const [pieceIndex, text] of pieces.entries()) {
-          if (pieceIndex > 0) breakLine();
+          if (pieceIndex > 0) {
+            breakLine();
+          }
           push({ ...span, text });
           used += terminalCellWidth(text);
         }

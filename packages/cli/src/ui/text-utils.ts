@@ -26,7 +26,9 @@ export function isWordChar(char: string): boolean {
  *
  */
 export function findPrevWordBoundary(value: string, cursor: number): number {
-  if (cursor === 0) return 0;
+  if (cursor === 0) {
+    return 0;
+  }
 
   let i = cursor;
 
@@ -35,7 +37,9 @@ export function findPrevWordBoundary(value: string, cursor: number): number {
   if (i > 0 && charBefore !== undefined && isWordChar(charBefore)) {
     while (i > 0) {
       const char = value[i - 1];
-      if (char === undefined || !isWordChar(char)) break;
+      if (char === undefined || !isWordChar(char)) {
+        break;
+      }
       i--;
     }
     return i;
@@ -44,14 +48,18 @@ export function findPrevWordBoundary(value: string, cursor: number): number {
   // Skip backward through non-word characters
   while (i > 0) {
     const char = value[i - 1];
-    if (char === undefined || isWordChar(char)) break;
+    if (char === undefined || isWordChar(char)) {
+      break;
+    }
     i--;
   }
 
   // Skip backward through word characters to find the start
   while (i > 0) {
     const char = value[i - 1];
-    if (char === undefined || !isWordChar(char)) break;
+    if (char === undefined || !isWordChar(char)) {
+      break;
+    }
     i--;
   }
 
@@ -68,7 +76,9 @@ export function findPrevWordBoundary(value: string, cursor: number): number {
  *
  */
 export function findNextWordBoundary(value: string, cursor: number): number {
-  if (cursor >= value.length) return value.length;
+  if (cursor >= value.length) {
+    return value.length;
+  }
 
   let i = cursor;
 
@@ -77,7 +87,9 @@ export function findNextWordBoundary(value: string, cursor: number): number {
   if (i < value.length && charAt !== undefined && isWordChar(charAt)) {
     while (i < value.length) {
       const char = value[i];
-      if (char === undefined || !isWordChar(char)) break;
+      if (char === undefined || !isWordChar(char)) {
+        break;
+      }
       i++;
     }
     return i;
@@ -86,14 +98,18 @@ export function findNextWordBoundary(value: string, cursor: number): number {
   // Skip forward through non-word characters
   while (i < value.length) {
     const char = value[i];
-    if (char === undefined || isWordChar(char)) break;
+    if (char === undefined || isWordChar(char)) {
+      break;
+    }
     i++;
   }
 
   // Skip forward through word characters to find the end
   while (i < value.length) {
     const char = value[i];
-    if (char === undefined || !isWordChar(char)) break;
+    if (char === undefined || !isWordChar(char)) {
+      break;
+    }
     i++;
   }
 

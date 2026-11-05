@@ -59,7 +59,9 @@ export interface ReviewRuntime {
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
   const value = env[key];
-  if (!value) throw new Error(`Missing ${key}`);
+  if (!value) {
+    throw new Error(`Missing ${key}`);
+  }
   return value;
 }
 
@@ -78,7 +80,9 @@ function text(value: unknown, label: string): string {
 }
 
 function strings(value: unknown, label: string): readonly string[] {
-  if (!Array.isArray(value)) throw new Error(`Invalid ${label}`);
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid ${label}`);
+  }
   return value.map((item: unknown) => text(item, label));
 }
 
@@ -120,13 +124,17 @@ export function validateReviewReport(value: unknown, context: ReviewContext): Re
   const reviewedFiles = strings(report["reviewedFiles"], "reviewedFiles");
   exactCoverage(reviewedCommits, context.commits, "commit");
   exactCoverage(reviewedFiles, context.changedFiles, "file");
-  if (!Array.isArray(report["findings"])) throw new Error("Invalid findings");
+  if (!Array.isArray(report["findings"])) {
+    throw new Error("Invalid findings");
+  }
   const changedFiles = new Set(context.changedFiles);
   const findings = report["findings"].map((item: unknown): Finding => {
     const finding = object(item);
     const findingPath = text(finding["path"], "finding path");
     validateReviewPath(findingPath);
-    if (!changedFiles.has(findingPath)) throw new Error("Finding outside review scope");
+    if (!changedFiles.has(findingPath)) {
+      throw new Error("Finding outside review scope");
+    }
     if (finding["status"] !== "fixed" && finding["status"] !== "unresolved") {
       throw new Error("Invalid finding status");
     }
@@ -146,7 +154,9 @@ function command(
   args: readonly string[],
   input?: string,
 ): string {
-  if (runtime.run) return runtime.run(program, args, input);
+  if (runtime.run) {
+    return runtime.run(program, args, input);
+  }
   return execFileSync(program, [...args], {
     cwd: runtime.cwd,
     env: {
@@ -182,7 +192,9 @@ function git(runtime: ReviewRuntime, args: readonly string[], input?: string): s
 
 function repository(runtime: ReviewRuntime): string {
   const repo = required(runtime.env, "GITHUB_REPOSITORY");
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error("Invalid GITHUB_REPOSITORY");
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    throw new Error("Invalid GITHUB_REPOSITORY");
+  }
   return repo;
 }
 
@@ -230,7 +242,11 @@ function scope(
         .filter(Boolean),
     ),
   ];
-  for (const commit of commits) if (!SHA.test(commit)) throw new Error("Invalid commit SHA");
+  for (const commit of commits) {
+    if (!SHA.test(commit)) {
+      throw new Error("Invalid commit SHA");
+    }
+  }
   changedFiles.forEach(validateReviewPath);
   return { mainSha, releaseSha, releaseTag, branch: branchFor(mainSha), commits, changedFiles };
 }
@@ -246,18 +262,21 @@ function pinnedScope(runtime: ReviewRuntime): ReviewContext {
 
 function output(runtime: ReviewRuntime, values: Readonly<Record<string, string>>): void {
   const destination = runtime.env["GITHUB_OUTPUT"];
-  if (destination)
+  if (destination) {
     appendFileSync(
       destination,
       Object.entries(values)
         .map(([key, value]) => `${key}=${value}\n`)
         .join(""),
     );
+  }
 }
 
 function summary(runtime: ReviewRuntime, message: string): void {
   const destination = runtime.env["GITHUB_STEP_SUMMARY"];
-  if (destination) appendFileSync(destination, `${message}\n`);
+  if (destination) {
+    appendFileSync(destination, `${message}\n`);
+  }
 }
 
 function reviewFile(runtime: ReviewRuntime, name: string): string {
@@ -269,10 +288,13 @@ export function readReviewArtifact(file: string, limit: number): string {
   const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const info = fstatSync(fd);
-    if (!info.isFile() || info.size > limit)
+    if (!info.isFile() || info.size > limit) {
       throw new Error("Invalid or oversized review artifact");
+    }
     const contents = readFileSync(fd);
-    if (contents.length > limit) throw new Error("Oversized review artifact");
+    if (contents.length > limit) {
+      throw new Error("Oversized review artifact");
+    }
     return contents.toString("utf8");
   } finally {
     closeSync(fd);
@@ -303,9 +325,12 @@ function existingPullRequest(
       "url",
     ]),
   );
-  if (!Array.isArray(response) || response.length > 1)
+  if (!Array.isArray(response) || response.length > 1) {
     throw new Error("Invalid pull request lookup");
-  if (response.length === 0) return undefined;
+  }
+  if (response.length === 0) {
+    return undefined;
+  }
   return { url: text(object(response[0])["url"], "pull request URL") };
 }
 
@@ -331,13 +356,18 @@ function prepare(runtime: ReviewRuntime): void {
     branch: context.branch,
     should_review: String(context.commits.length > 0 && prior === undefined),
   });
-  if (prior) summary(runtime, `Pre-release review already open: ${prior.url}`);
-  else if (context.commits.length === 0) summary(runtime, `No main commits since ${tag}.`);
+  if (prior) {
+    summary(runtime, `Pre-release review already open: ${prior.url}`);
+  } else if (context.commits.length === 0) {
+    summary(runtime, `No main commits since ${tag}.`);
+  }
 }
 
 function checkReportPatch(report: ReviewReport, patch: string): void {
   const fixed = report["findings"].some((finding) => finding["status"] === "fixed");
-  if (patch.length > 0 !== fixed) throw new Error("Fixed findings and patch must agree");
+  if (patch.length > 0 !== fixed) {
+    throw new Error("Fixed findings and patch must agree");
+  }
 }
 
 /** Read raw index entries after staging/application; no new symlinks or submodules may publish. */
@@ -346,15 +376,21 @@ export function validateIndexChanges(raw: string): void {
   for (let i = 0; i < parts.length - 1; i += 2) {
     const header = parts[i];
     const file = parts[i + 1];
-    if (header === undefined || file === undefined) throw new Error("Malformed index diff");
+    if (header === undefined || file === undefined) {
+      throw new Error("Malformed index diff");
+    }
     const modes = /^:[0-7]{6} ([0-7]{6}) [a-f0-9]+ [a-f0-9]+ [A-Z]$/.exec(header);
-    if (!modes) throw new Error("Malformed index diff");
+    if (!modes) {
+      throw new Error("Malformed index diff");
+    }
     validatePatchPath(file);
     if (modes[1] !== "000000" && modes[1] !== "100644" && modes[1] !== "100755") {
       throw new Error("Symlink and submodule changes cannot be published");
     }
   }
-  if (parts.at(-1) !== "" || parts.length % 2 !== 1) throw new Error("Malformed index diff");
+  if (parts.at(-1) !== "" || parts.length % 2 !== 1) {
+    throw new Error("Malformed index diff");
+  }
 }
 
 function validatePatchPath(file: string): void {
@@ -396,13 +432,17 @@ function collect(runtime: ReviewRuntime): void {
     "--no-renames",
     context.mainSha,
   ]);
-  if (Buffer.byteLength(patch) > PATCH_LIMIT) throw new Error("Review patch exceeds 10 MiB");
+  if (Buffer.byteLength(patch) > PATCH_LIMIT) {
+    throw new Error("Review patch exceeds 10 MiB");
+  }
   checkReportPatch(report, patch);
   const destination = reviewFile(runtime, "changes.patch");
   try {
     unlinkSync(destination);
   } catch (error) {
-    if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
+      throw error;
+    }
   }
   writeFileSync(destination, patch, { flag: "wx" });
   output(runtime, { has_changes: String(patch.length > 0) });
@@ -415,10 +455,14 @@ function collect(runtime: ReviewRuntime): void {
 /** Validate every numstat path before git apply touches the publisher's clean checkout. */
 export function validatePatchPaths(numstat: string): void {
   const entries = numstat.split("\0");
-  if (entries.pop() !== "") throw new Error("Malformed patch paths");
+  if (entries.pop() !== "") {
+    throw new Error("Malformed patch paths");
+  }
   for (let i = 0; i < entries.length; i++) {
     const match = /^(?:\d+|-)\t(?:\d+|-)\t([\s\S]*)$/.exec(entries[i] ?? "");
-    if (!match) throw new Error("Malformed patch paths");
+    if (!match) {
+      throw new Error("Malformed patch paths");
+    }
     if (match[1] === "") {
       validatePatchPath(entries[++i] ?? "");
       validatePatchPath(entries[++i] ?? "");
@@ -485,8 +529,9 @@ function publish(runtime: ReviewRuntime): void {
   validatePatchPaths(git(runtime, ["apply", "--numstat", "-z", "-"], patch));
   git(runtime, ["apply", "--index", "--whitespace=nowarn", "-"], patch);
   validateIndex(runtime, context);
-  if (git(runtime, ["diff", "--cached", "--name-only"]).length === 0)
+  if (git(runtime, ["diff", "--cached", "--name-only"]).length === 0) {
     throw new Error("Patch has no changes");
+  }
   git(runtime, ["switch", "-c", context.branch]);
   git(runtime, [
     "-c",

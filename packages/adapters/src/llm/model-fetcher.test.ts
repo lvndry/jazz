@@ -64,7 +64,9 @@ mock.module("@jazz/core/utils/models-dev", () => ({
   getModelsDevMap: mock(() => Promise.resolve(new Map())),
   getMetadataFromMap: mock(() => modelsDevMetadata),
   getModelsDevProviderModels: mock(() => {
-    if (modelsDevProviderError) return Promise.reject(modelsDevProviderError);
+    if (modelsDevProviderError) {
+      return Promise.reject(modelsDevProviderError);
+    }
     return Promise.resolve(modelsDevProviderModels);
   }),
 }));
@@ -87,14 +89,16 @@ function mockOllamaFetch(responses: { tags: unknown; show: unknown }): string[] 
   const requestedUrls: string[] = [];
   global.fetch = mock((url: string) => {
     requestedUrls.push(url);
-    if (url.endsWith("/api/tags"))
+    if (url.endsWith("/api/tags")) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(responses.tags) });
-    if (url.endsWith("/api/show"))
+    }
+    if (url.endsWith("/api/show")) {
       return Promise.resolve({
         ok: true,
         status: 200,
         json: () => Promise.resolve(responses.show),
       });
+    }
     return Promise.resolve({ ok: false, status: 404, statusText: "Not Found" });
   }) as unknown as typeof fetch;
   return requestedUrls;
@@ -535,10 +539,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/api/tags"))
+      if (url.endsWith("/api/tags")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
-      if (url.endsWith("/api/show"))
+      }
+      if (url.endsWith("/api/show")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -611,10 +617,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models"))
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(modelsResponse) });
-      if (url.endsWith("/props"))
+      }
+      if (url.endsWith("/props")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(propsResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -675,10 +683,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models"))
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(modelsResponse) });
-      if (url.endsWith("/props"))
+      }
+      if (url.endsWith("/props")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(propsResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -695,10 +705,12 @@ describe("ModelFetcher", () => {
     const modelsResponse = { data: [{ id: "tinyllama" }] };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models"))
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(modelsResponse) });
-      if (url.endsWith("/props"))
+      }
+      if (url.endsWith("/props")) {
         return Promise.resolve({ ok: false, status: 404, statusText: "Not Found" });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -719,10 +731,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models"))
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(modelsResponse) });
-      if (url.endsWith("/props"))
+      }
+      if (url.endsWith("/props")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(propsResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -735,8 +749,9 @@ describe("ModelFetcher", () => {
 
   it("returns a friendly error when llama.cpp has no model loaded", async () => {
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models"))
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -808,10 +823,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/api/tags"))
+      if (url.endsWith("/api/tags")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
-      if (url.endsWith("/api/show"))
+      }
+      if (url.endsWith("/api/show")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -835,10 +852,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/api/tags"))
+      if (url.endsWith("/api/tags")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
-      if (url.endsWith("/api/show"))
+      }
+      if (url.endsWith("/api/show")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -884,10 +903,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/api/tags"))
+      if (url.endsWith("/api/tags")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
-      if (url.endsWith("/api/show"))
+      }
+      if (url.endsWith("/api/show")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -907,10 +928,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/api/tags"))
+      if (url.endsWith("/api/tags")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
-      if (url.endsWith("/api/show"))
+      }
+      if (url.endsWith("/api/show")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -931,10 +954,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/api/tags"))
+      if (url.endsWith("/api/tags")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
-      if (url.endsWith("/api/show"))
+      }
+      if (url.endsWith("/api/show")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -953,10 +978,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models"))
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockModelsResponse) });
-      if (url.endsWith("/props"))
+      }
+      if (url.endsWith("/props")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockPropsResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -977,10 +1004,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models"))
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockModelsResponse) });
-      if (url.endsWith("/props"))
+      }
+      if (url.endsWith("/props")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockPropsResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -1000,10 +1029,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/api/tags"))
+      if (url.endsWith("/api/tags")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
-      if (url.endsWith("/api/show"))
+      }
+      if (url.endsWith("/api/show")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -1024,10 +1055,12 @@ describe("ModelFetcher", () => {
     };
 
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/api/tags"))
+      if (url.endsWith("/api/tags")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockTagsResponse) });
-      if (url.endsWith("/api/show"))
+      }
+      if (url.endsWith("/api/show")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockShowResponse) });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -1220,16 +1253,18 @@ describe("ModelFetcher", () => {
 describe("fetchLlamaCppServerModel", () => {
   it("returns the served model id and the server's context window", async () => {
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models"))
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ data: [{ id: "qwen2.5-coder-7b" }] }),
         });
-      if (url.endsWith("/props"))
+      }
+      if (url.endsWith("/props")) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ default_generation_settings: { n_ctx: 16384 } }),
         });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -1241,12 +1276,15 @@ describe("fetchLlamaCppServerModel", () => {
 
   it("returns only the model id when /props is unreachable", async () => {
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models"))
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ data: [{ id: "tinyllama" }] }),
         });
-      if (url.endsWith("/props")) return Promise.resolve({ ok: false, status: 404 });
+      }
+      if (url.endsWith("/props")) {
+        return Promise.resolve({ ok: false, status: 404 });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -1257,12 +1295,15 @@ describe("fetchLlamaCppServerModel", () => {
 
   it("falls back to max_model_len from /v1/models when /props is unavailable", async () => {
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models"))
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ data: [{ id: "model", max_model_len: 65536 }] }),
         });
-      if (url.endsWith("/props")) return Promise.resolve({ ok: false, status: 404 });
+      }
+      if (url.endsWith("/props")) {
+        return Promise.resolve({ ok: false, status: 404 });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -1274,7 +1315,7 @@ describe("fetchLlamaCppServerModel", () => {
 
   it("uses /props n_ctx instead of a model-card length", async () => {
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models"))
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({
           ok: true,
           json: () =>
@@ -1282,11 +1323,13 @@ describe("fetchLlamaCppServerModel", () => {
               data: [{ id: "some-model", max_model_len: 131072 }],
             }),
         });
-      if (url.endsWith("/props"))
+      }
+      if (url.endsWith("/props")) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ default_generation_settings: { n_ctx: 16384 } }),
         });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -1298,8 +1341,12 @@ describe("fetchLlamaCppServerModel", () => {
 
   it("returns empty when llama.cpp requires auth and no API key is provided", async () => {
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models")) return Promise.resolve({ ok: false, status: 401 });
-      if (url.endsWith("/props")) return Promise.resolve({ ok: false, status: 401 });
+      if (url.endsWith("/v1/models")) {
+        return Promise.resolve({ ok: false, status: 401 });
+      }
+      if (url.endsWith("/props")) {
+        return Promise.resolve({ ok: false, status: 401 });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -1309,8 +1356,10 @@ describe("fetchLlamaCppServerModel", () => {
   it("passes API key as Bearer token to authenticated llama.cpp", async () => {
     global.fetch = mock((url: string, init?: RequestInit) => {
       const authHeader = (init?.headers as Record<string, string>)?.["Authorization"];
-      if (authHeader !== "Bearer test-key") return Promise.resolve({ ok: false, status: 401 });
-      if (url.endsWith("/v1/models"))
+      if (authHeader !== "Bearer test-key") {
+        return Promise.resolve({ ok: false, status: 401 });
+      }
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({
           ok: true,
           json: () =>
@@ -1318,11 +1367,13 @@ describe("fetchLlamaCppServerModel", () => {
               data: [{ id: "qwen3.8-27b" }],
             }),
         });
-      if (url.endsWith("/props"))
+      }
+      if (url.endsWith("/props")) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ default_generation_settings: { n_ctx: 65536 } }),
         });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -1334,12 +1385,15 @@ describe("fetchLlamaCppServerModel", () => {
 
   it("returns only the context window when /v1/models is unreachable", async () => {
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models")) return Promise.resolve({ ok: false, status: 503 });
-      if (url.endsWith("/props"))
+      if (url.endsWith("/v1/models")) {
+        return Promise.resolve({ ok: false, status: 503 });
+      }
+      if (url.endsWith("/props")) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ default_generation_settings: { n_ctx: 8192 } }),
         });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -1358,13 +1412,15 @@ describe("fetchLlamaCppServerModel", () => {
 
   it("ignores an empty model list", async () => {
     global.fetch = mock((url: string) => {
-      if (url.endsWith("/v1/models"))
+      if (url.endsWith("/v1/models")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
-      if (url.endsWith("/props"))
+      }
+      if (url.endsWith("/props")) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ default_generation_settings: { n_ctx: 4096 } }),
         });
+      }
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
@@ -1482,12 +1538,16 @@ describe("Ollama probes at run start", () => {
       pending[0]?.(new Response(null, { status: 503 }));
       expect(await old).toEqual({});
       const follower = show();
-      for (const resolve of pending.slice(1)) resolve(Response.json({ capabilities: ["tools"] }));
+      for (const resolve of pending.slice(1)) {
+        resolve(Response.json({ capabilities: ["tools"] }));
+      }
       expect(await replacement).toEqual({ capabilities: ["tools"] });
       expect(await follower).toEqual({ capabilities: ["tools"] });
       expect(pending).toHaveLength(2);
     } finally {
-      for (const resolve of pending) resolve(new Response(null, { status: 503 }));
+      for (const resolve of pending) {
+        resolve(new Response(null, { status: 503 }));
+      }
       now.mockRestore();
       globalThis.fetch = originalFetch;
     }
@@ -1502,7 +1562,9 @@ describe("Ollama probes at run start", () => {
       const networkSignals: AbortSignal[] = [];
       globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
         const signal = init?.signal;
-        if (signal) networkSignals.push(signal);
+        if (signal) {
+          networkSignals.push(signal);
+        }
         return new Promise<Response>((resolve, reject) => {
           pending.push({ url: String(input), resolve });
           signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
@@ -1534,7 +1596,9 @@ describe("Ollama probes at run start", () => {
         expect(await fetchOllamaModelDetails("http://ollama.test/api", "gemma4")).toEqual(expected);
         expect(pending).toHaveLength(2);
       } finally {
-        for (const request of pending) request.resolve(new Response(null, { status: 503 }));
+        for (const request of pending) {
+          request.resolve(new Response(null, { status: 503 }));
+        }
         globalThis.fetch = originalFetch;
       }
     },
@@ -1563,8 +1627,12 @@ describe("Ollama probes at run start", () => {
       const removed = spyOn(controller.signal, "removeEventListener");
       const pending: ((response: Response) => void)[] = [];
       globalThis.fetch = mock(() => {
-        if (outcome === "failure") return Promise.reject(new Error("connection refused"));
-        if (outcome === "success") return Promise.resolve(Response.json({}));
+        if (outcome === "failure") {
+          return Promise.reject(new Error("connection refused"));
+        }
+        if (outcome === "success") {
+          return Promise.resolve(Response.json({}));
+        }
         return new Promise<Response>((resolve) => pending.push(resolve));
       }) as unknown as typeof fetch;
       try {
@@ -1573,7 +1641,9 @@ describe("Ollama probes at run start", () => {
           "gemma4",
           controller.signal,
         );
-        if (outcome === "abort") controller.abort();
+        if (outcome === "abort") {
+          controller.abort();
+        }
         expect(await result).toEqual({});
         const listeners = added.mock.calls
           .filter(([type]) => type === "abort")
@@ -1587,7 +1657,9 @@ describe("Ollama probes at run start", () => {
           ).toBe(true);
         }
       } finally {
-        for (const resolve of pending) resolve(Response.json({}));
+        for (const resolve of pending) {
+          resolve(Response.json({}));
+        }
         added.mockRestore();
         removed.mockRestore();
         globalThis.fetch = originalFetch;

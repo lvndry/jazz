@@ -71,7 +71,9 @@ const parentAgent: Agent = {
 
 function getSpawnTool() {
   const tool = createSubagentTools().find((t) => t.name === "spawn_subagent");
-  if (!tool) throw new Error("spawn_subagent tool not found");
+  if (!tool) {
+    throw new Error("spawn_subagent tool not found");
+  }
   return tool;
 }
 
@@ -194,7 +196,9 @@ describe("summarize_context", () => {
 
     try {
       const tool = createSubagentTools().find((t) => t.name === "summarize_context");
-      if (!tool) throw new Error("summarize_context tool not found");
+      if (!tool) {
+        throw new Error("summarize_context tool not found");
+      }
 
       let compacted: ReadonlyArray<{ content: string; kind?: string }> | undefined;
       const context: Record<string, unknown> = {
@@ -246,7 +250,9 @@ describe("summarize_context", () => {
 
     try {
       const tool = createSubagentTools().find((t) => t.name === "summarize_context");
-      if (!tool) throw new Error("summarize_context tool not found");
+      if (!tool) {
+        throw new Error("summarize_context tool not found");
+      }
 
       const context: Record<string, unknown> = {
         conversationId: "conv-summarize-gate",

@@ -51,13 +51,17 @@ export function createChoiceTokens(limit: number = CHOICE_TOKEN_LIMIT): ChoiceTo
       // Insertion-ordered, so the first key is the oldest.
       if (refs.size > limit) {
         const oldest = refs.keys().next();
-        if (!oldest.done) refs.delete(oldest.value);
+        if (!oldest.done) {
+          refs.delete(oldest.value);
+        }
       }
       return `${CHOICE_CALLBACK_PREFIX}:${token}`;
     },
     read(payload: string): ChoiceRef | undefined {
       const [prefix, token] = payload.split(":");
-      if (prefix !== CHOICE_CALLBACK_PREFIX || token === undefined) return undefined;
+      if (prefix !== CHOICE_CALLBACK_PREFIX || token === undefined) {
+        return undefined;
+      }
       return refs.get(token);
     },
     get size() {

@@ -107,7 +107,9 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       }
     }
 
-    if (args.ignoreCase) cmdArgs.push("-i");
+    if (args.ignoreCase) {
+      cmdArgs.push("-i");
+    }
 
     cmdArgs.push("-n");
 
@@ -119,9 +121,15 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       cmdArgs.push("-C", args.contextLines.toString());
     }
 
-    if (args.filePattern) cmdArgs.push("-g", args.filePattern);
-    if (args.exclude) cmdArgs.push("-g", `!${args.exclude}`);
-    if (args.excludeDir) cmdArgs.push("-g", `!${args.excludeDir}/`);
+    if (args.filePattern) {
+      cmdArgs.push("-g", args.filePattern);
+    }
+    if (args.exclude) {
+      cmdArgs.push("-g", `!${args.exclude}`);
+    }
+    if (args.excludeDir) {
+      cmdArgs.push("-g", `!${args.excludeDir}/`);
+    }
 
     cmdArgs.push("-m", maxResults.toString());
 
@@ -148,11 +156,18 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     // Always include filename in output (grep omits it for single-file searches)
     cmdArgs.push("-H", "--null", "--color=never", "--binary-files=without-match");
 
-    if (recursive && isDirectory) cmdArgs.push("-r");
-    if (args.ignoreCase) cmdArgs.push("-i");
+    if (recursive && isDirectory) {
+      cmdArgs.push("-r");
+    }
+    if (args.ignoreCase) {
+      cmdArgs.push("-i");
+    }
 
-    if (outputMode === "files") cmdArgs.push("-l");
-    else cmdArgs.push("-n");
+    if (outputMode === "files") {
+      cmdArgs.push("-l");
+    } else {
+      cmdArgs.push("-n");
+    }
 
     if (
       outputMode === "content" &&
@@ -162,9 +177,15 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       cmdArgs.push("-C", args.contextLines.toString());
     }
 
-    if (args.filePattern) cmdArgs.push("--include", args.filePattern);
-    if (args.exclude) cmdArgs.push("--exclude", args.exclude);
-    if (args.excludeDir) cmdArgs.push("--exclude-dir", args.excludeDir);
+    if (args.filePattern) {
+      cmdArgs.push("--include", args.filePattern);
+    }
+    if (args.exclude) {
+      cmdArgs.push("--exclude", args.exclude);
+    }
+    if (args.excludeDir) {
+      cmdArgs.push("--exclude-dir", args.excludeDir);
+    }
 
     cmdArgs.push("-m", maxResults.toString());
 
@@ -191,10 +212,14 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     const cmdArgs = ripgrep
       ? ["--json", "--color=never", "--no-config"]
       : ["-H", "--null", "--color=never", "--binary-files=without-match"];
-    if (args.ignoreCase) cmdArgs.push("-i");
+    if (args.ignoreCase) {
+      cmdArgs.push("-i");
+    }
     cmdArgs.push("-n", ...context, "-m", maxResults.toString());
     if (ripgrep) {
-      if (!resolved.isRegex) cmdArgs.push("--fixed-strings");
+      if (!resolved.isRegex) {
+        cmdArgs.push("--fixed-strings");
+      }
     } else {
       cmdArgs.push(resolved.isRegex ? "-E" : "-F");
     }
@@ -224,9 +249,13 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         continue;
       }
       const separator = stdout.indexOf("\0", offset);
-      if (separator < 0) break;
+      if (separator < 0) {
+        break;
+      }
       const end = stdout.indexOf("\n", separator + 1);
-      if (end < 0) break;
+      if (end < 0) {
+        break;
+      }
       records.push({
         file: stdout.slice(offset, separator),
         payload: stdout.slice(separator + 1, end),
@@ -249,21 +278,29 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     const records: SearchRecord[] = [];
     let previous: { file: string; line: number } | undefined;
     for (const line of stdout.split("\n")) {
-      if (!line) continue;
+      if (!line) {
+        continue;
+      }
       let record: unknown;
       try {
         record = JSON.parse(line);
       } catch {
         continue;
       }
-      if (!isRecord(record)) continue;
+      if (!isRecord(record)) {
+        continue;
+      }
       if (record["type"] === "end") {
         records.push(null);
         continue;
       }
-      if (record["type"] !== "match" && record["type"] !== "context") continue;
+      if (record["type"] !== "match" && record["type"] !== "context") {
+        continue;
+      }
       const data = record["data"];
-      if (!isRecord(data) || !isRecord(data["path"]) || !isRecord(data["lines"])) continue;
+      if (!isRecord(data) || !isRecord(data["path"]) || !isRecord(data["lines"])) {
+        continue;
+      }
       const file = data["path"]["text"];
       const text = data["lines"]["text"];
       const lineNumber = data["line_number"];
@@ -273,10 +310,12 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         typeof lineNumber !== "number" ||
         !Number.isSafeInteger(lineNumber) ||
         lineNumber < 1
-      )
+      ) {
         continue;
-      if (previous && (previous.file !== file || lineNumber > previous.line + 1))
+      }
+      if (previous && (previous.file !== file || lineNumber > previous.line + 1)) {
         records.push(null);
+      }
       previous = { file, line: lineNumber };
       records.push({
         file,
@@ -311,7 +350,9 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     payload: string;
   }): ParsedContentLine | null {
     const parsed = record.payload.match(/^(\d+)([:-])(.*)$/s);
-    if (!parsed || record.file.length === 0) return null;
+    if (!parsed || record.file.length === 0) {
+      return null;
+    }
     return {
       file: record.file,
       line: Number(parsed[1]),
@@ -346,13 +387,17 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
     for (const line of lines) {
       if (line === null) {
-        if (currentBlock.length > 0) blocks.push(currentBlock);
+        if (currentBlock.length > 0) {
+          blocks.push(currentBlock);
+        }
         currentBlock = [];
         continue;
       }
       currentBlock.push(line);
     }
-    if (currentBlock.length > 0) blocks.push(currentBlock);
+    if (currentBlock.length > 0) {
+      blocks.push(currentBlock);
+    }
 
     const matches: ContentMatch[] = [];
     const seenMatches = new Map<string, number>();
@@ -371,9 +416,13 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
       for (let i = 0; i < matchIndexes.length; i++) {
         const matchIndex = matchIndexes[i];
-        if (typeof matchIndex !== "number") continue;
+        if (typeof matchIndex !== "number") {
+          continue;
+        }
         const matchEntry = entries[matchIndex];
-        if (!matchEntry) continue;
+        if (!matchEntry) {
+          continue;
+        }
 
         const key = `${matchEntry.file}:${matchEntry.line}`;
 
@@ -387,21 +436,29 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         if (includeContext) {
           for (let j = prevMatchIndex + 1; j < matchIndex; j++) {
             const entry = entries[j];
-            if (!entry || entry.kind !== "context" || entry.file !== matchEntry.file) continue;
+            if (!entry || entry.kind !== "context" || entry.file !== matchEntry.file) {
+              continue;
+            }
             contextBefore.push({ line: entry.line, text: entry.text });
           }
           for (let j = matchIndex + 1; j < nextMatchIndex; j++) {
             const entry = entries[j];
-            if (!entry || entry.kind !== "context" || entry.file !== matchEntry.file) continue;
+            if (!entry || entry.kind !== "context" || entry.file !== matchEntry.file) {
+              continue;
+            }
             contextAfter.push({ line: entry.line, text: entry.text });
           }
         }
 
         const existingIndex = seenMatches.get(key);
         if (typeof existingIndex === "number") {
-          if (!includeContext) continue;
+          if (!includeContext) {
+            continue;
+          }
           const existing = matches[existingIndex];
-          if (!existing) continue;
+          if (!existing) {
+            continue;
+          }
           existing.contextBefore = mergeContextLines(existing.contextBefore, contextBefore);
           existing.contextAfter = mergeContextLines(existing.contextAfter, contextAfter);
           continue;

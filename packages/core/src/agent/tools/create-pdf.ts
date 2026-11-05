@@ -226,7 +226,9 @@ export function createPdfTool(
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { path: string };
       return `Wrote ${data.path}`;
     },

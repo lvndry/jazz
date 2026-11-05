@@ -168,7 +168,9 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
             // Apply regex filter if needed
             if (filter && filter.type === "regex" && filter.regex) {
-              if (!filter.regex.test(entryName)) continue;
+              if (!filter.regex.test(entryName)) {
+                continue;
+              }
             }
 
             results.push({
@@ -209,7 +211,9 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       // De-duplicate and sort
       const seen = new Set<string>();
       allResults = allResults.filter((r) => {
-        if (seen.has(r.path)) return false;
+        if (seen.has(r.path)) {
+          return false;
+        }
         seen.add(r.path);
         return true;
       });
@@ -229,9 +233,13 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     const caseSensitive = args.caseSensitive ?? false;
 
     // Type filter
-    if (typeFilter === "file") fdArgs.push("--type", "f");
-    else if (typeFilter === "dir") fdArgs.push("--type", "d");
-    else if (typeFilter === "symlink") fdArgs.push("--type", "l");
+    if (typeFilter === "file") {
+      fdArgs.push("--type", "f");
+    } else if (typeFilter === "dir") {
+      fdArgs.push("--type", "d");
+    } else if (typeFilter === "symlink") {
+      fdArgs.push("--type", "l");
+    }
 
     // Depth
     fdArgs.push("--max-depth", maxDepth.toString());
@@ -240,11 +248,16 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     }
 
     // Case
-    if (caseSensitive) fdArgs.push("--case-sensitive");
-    else fdArgs.push("--ignore-case");
+    if (caseSensitive) {
+      fdArgs.push("--case-sensitive");
+    } else {
+      fdArgs.push("--ignore-case");
+    }
 
     // Hidden
-    if (args.includeHidden) fdArgs.push("--hidden");
+    if (args.includeHidden) {
+      fdArgs.push("--hidden");
+    }
 
     // Exclusions
     if (args.excludePaths) {
@@ -254,7 +267,9 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     }
 
     // Size
-    if (args.size) fdArgs.push("--size", args.size);
+    if (args.size) {
+      fdArgs.push("--size", args.size);
+    }
 
     // Mtime
     if (args.mtime) {
@@ -321,12 +336,18 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       expr.push("-path", "*/.*", "-prune", "-o");
     }
 
-    if (args.pathPattern) expr.push("-path", args.pathPattern);
+    if (args.pathPattern) {
+      expr.push("-path", args.pathPattern);
+    }
 
     // Type
-    if (typeFilter === "dir") expr.push("-type", "d");
-    else if (typeFilter === "file") expr.push("-type", "f");
-    else if (typeFilter === "symlink") expr.push("-type", "l");
+    if (typeFilter === "dir") {
+      expr.push("-type", "d");
+    } else if (typeFilter === "file") {
+      expr.push("-type", "f");
+    } else if (typeFilter === "symlink") {
+      expr.push("-type", "l");
+    }
 
     // Name
     if (args.name) {
@@ -345,14 +366,20 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       }
     }
 
-    if (args.size) expr.push("-size", args.size);
-    if (args.mtime) expr.push("-mtime", args.mtime);
+    if (args.size) {
+      expr.push("-size", args.size);
+    }
+    if (args.mtime) {
+      expr.push("-mtime", args.mtime);
+    }
 
     if (args.excludePaths && args.excludePaths.length > 0) {
       expr.push("-print");
     }
 
-    if (expr.length > 0) findArgs.push(...expr);
+    if (expr.length > 0) {
+      findArgs.push(...expr);
+    }
     return findArgs;
   }
 
@@ -371,10 +398,15 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         const cleanPath = isDir ? trimmed.slice(0, -1) : trimmed;
         const name = cleanPath.split("/").pop() || "";
         let type: "file" | "dir" | "symlink";
-        if (typeFilter === "dir") type = "dir";
-        else if (typeFilter === "symlink") type = "symlink";
-        else if (typeFilter === "file") type = "file";
-        else type = isDir ? "dir" : "file";
+        if (typeFilter === "dir") {
+          type = "dir";
+        } else if (typeFilter === "symlink") {
+          type = "symlink";
+        } else if (typeFilter === "file") {
+          type = "file";
+        } else {
+          type = isDir ? "dir" : "file";
+        }
         return { path: cleanPath, name, type, mtimeMs: 0 };
       });
   }
@@ -592,13 +624,17 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
             if (useSmart && allExtResults.length >= Math.min(maxResults / 2, 10)) {
               break;
             }
-            if (allExtResults.length >= maxResults) break;
+            if (allExtResults.length >= maxResults) {
+              break;
+            }
           }
 
           // De-duplicate
           const seen = new Set<string>();
           allExtResults = allExtResults.filter((r) => {
-            if (seen.has(r.path)) return false;
+            if (seen.has(r.path)) {
+              return false;
+            }
             seen.add(r.path);
             return true;
           });

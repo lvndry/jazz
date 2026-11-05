@@ -158,11 +158,15 @@ function listCandidates(role: CompanionRole): Effect.Effect<CandidateList, never
     for (const item of providerItems) {
       if (!item.configured) {
         const hasCapable = yield* Effect.promise(() => catalogHasRole(item.name, role));
-        if (hasCapable) missingKeyProviders.push(item.name);
+        if (hasCapable) {
+          missingKeyProviders.push(item.name);
+        }
         continue;
       }
       const provider = yield* llmService.getProvider(item.name).pipe(Effect.option);
-      if (Option.isNone(provider)) continue;
+      if (Option.isNone(provider)) {
+        continue;
+      }
       for (const model of filterCapableModels(provider.value.supportedModels, role)) {
         available.push({
           id: `${item.name}/${model.modelId}` as `${string}/${string}`,
@@ -180,9 +184,15 @@ async function catalogHasRole(providerId: string, role: CompanionRole): Promise<
   try {
     const entries = await getModelsDevProviderModels(providerId);
     return entries.some((entry) => {
-      if (entry.status === "deprecated") return false;
-      if (!entry.inputModalities.includes("text")) return false;
-      if (!entry.outputModalities.includes("text")) return false;
+      if (entry.status === "deprecated") {
+        return false;
+      }
+      if (!entry.inputModalities.includes("text")) {
+        return false;
+      }
+      if (!entry.outputModalities.includes("text")) {
+        return false;
+      }
       return modelSupportsRole(entry.metadata, role);
     });
   } catch {
@@ -246,8 +256,12 @@ function buildCompanionAgent(
  */
 function refusesRole(target: CompanionTarget, role: CompanionRole): string | undefined {
   const [action, modality] = role.split(":") as [string, MediaModality];
-  if (action !== "analyze" || target.accepts === undefined) return undefined;
-  if (target.accepts.includes(modality)) return undefined;
+  if (action !== "analyze" || target.accepts === undefined) {
+    return undefined;
+  }
+  if (target.accepts.includes(modality)) {
+    return undefined;
+  }
   return `Companion "${target.binding}" does not accept ${modality} (accepts: ${target.accepts.join(", ")}). Bind another companion under companions["${role}"].`;
 }
 
@@ -372,7 +386,9 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
       sessionCompanions.set(sessionCompanionKey(parentAgent.id, role), binding);
 
       const agentServiceOption = yield* Effect.serviceOption(AgentServiceTag);
-      if (Option.isNone(agentServiceOption)) return;
+      if (Option.isNone(agentServiceOption)) {
+        return;
+      }
       const agentService = agentServiceOption.value;
       yield* agentService.getAgent(parentAgent.id).pipe(
         Effect.flatMap((stored) =>
@@ -477,7 +493,9 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
             companionAgent.config.llm.provider,
             companionAgent.config.llm.model,
           ));
-      if (childCostUnknown) context.recordChildCostUnknown?.();
+      if (childCostUnknown) {
+        context.recordChildCostUnknown?.();
+      }
 
       yield* presentation.collapseEphemeralRegion(regionId, label, {
         status: "completed",
@@ -900,7 +918,9 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           : { success: false, result: null, error: attempt.error };
       }),
     createSummary: (result) => {
-      if (!result.success) return `analyze_media failed: ${result.error}`;
+      if (!result.success) {
+        return `analyze_media failed: ${result.error}`;
+      }
       const content = String(result.result);
       return `Companion analyzed the media (${content.length} chars)`;
     },
@@ -1013,7 +1033,9 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           : { success: false, result: null, error: attempt.error };
       }),
     createSummary: (result) => {
-      if (!result.success) return `generate_media failed: ${result.error}`;
+      if (!result.success) {
+        return `generate_media failed: ${result.error}`;
+      }
       const paths = (result.result as { paths?: readonly string[] }).paths ?? [];
       return `Companion generated ${paths.length} file(s): ${paths.join(", ")}`;
     },

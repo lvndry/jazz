@@ -271,7 +271,9 @@ export class WorkflowsLive implements WorkflowService {
         // Check memory cache first
         const loaded = yield* Ref.get(this.loadedWorkflows);
         const cached = loaded.get(workflowName);
-        if (cached) return cached;
+        if (cached) {
+          return cached;
+        }
 
         // Find workflow path
         const allWorkflows = yield* this.listWorkflows();

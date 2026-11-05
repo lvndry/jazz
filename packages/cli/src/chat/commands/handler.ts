@@ -205,8 +205,9 @@ export function handleSpecialCommand(
 
       case "create": {
         const created = yield* Effect.result(createAgentCommand());
-        if (created._tag === "Failure")
+        if (created._tag === "Failure") {
           yield* terminal.error(`Failed to create agent: ${created.failure.message}`);
+        }
         return { shouldContinue: true, skipTranscriptRepaint: true };
       }
 
@@ -445,7 +446,9 @@ function handleDetachCommand(
           : []),
       ]),
     );
-    for (const warning of preview.warnings) yield* terminal.warn(warning);
+    for (const warning of preview.warnings) {
+      yield* terminal.warn(warning);
+    }
     const approved = yield* terminal.confirm(
       `Copy this state to ${preview.hostName} and continue there?`,
       false,
@@ -621,7 +624,9 @@ function handleExportCommand(
       "",
     ];
     for (const message of conversationHistory) {
-      if (!message.content) continue;
+      if (!message.content) {
+        continue;
+      }
       const speaker = message.role === "user" ? "You" : agent.name;
       lines.push(`## ${speaker}`, "", message.content, "");
     }
@@ -1231,7 +1236,9 @@ export function announceAgentSwitch(
 
 /** Human-readable size for a tool result, so a decision line reads "Bash · 8.2k chars". */
 function formatCharCount(chars: number): string {
-  if (chars < 1000) return `${chars} chars`;
+  if (chars < 1000) {
+    return `${chars} chars`;
+  }
   return `${(chars / 1000).toFixed(1)}k chars`;
 }
 
@@ -1248,7 +1255,9 @@ function compactionPhaseLines(event: CompactionProgress): string[] {
           : `Reviewing tool results with the ${event.plugin} plugin…`,
       ];
     case "prune-done": {
-      if (event.decisions.length === 0) return ["No stale tool results to prune."];
+      if (event.decisions.length === 0) {
+        return ["No stale tool results to prune."];
+      }
       const counts: Record<string, number> = { keep: 0, truncate: 0, drop: 0 };
       const detail: string[] = [];
       for (const decision of event.decisions) {
@@ -1372,7 +1381,9 @@ function handleCompactCommand(
     let reclaimedPercent = 0;
     let drainStartedAt: number | undefined;
     const renderRegion = (): Effect.Effect<void> => {
-      if (replaceRegion === undefined) return Effect.void;
+      if (replaceRegion === undefined) {
+        return Effect.void;
+      }
       const drainElapsedMs = drainStartedAt === undefined ? 0 : Date.now() - drainStartedAt;
       const meter = renderCompactionMeter(
         drainedPercent(meterPlan, drainElapsedMs, reclaimedPercent),
@@ -1394,7 +1405,9 @@ function handleCompactCommand(
           phaseLines.splice(0, Math.max(0, phaseLines.length - COMPACTION_PANEL_DETAIL_LINES));
           return renderRegion();
         }
-        if (lines.length === 0) return Effect.void;
+        if (lines.length === 0) {
+          return Effect.void;
+        }
         const text = (firstAppend ? "" : "\n") + lines.join("\n");
         firstAppend = false;
         return presentationService.appendEphemeralRegion(regionId, text);
@@ -1504,7 +1517,9 @@ function copyToClipboard(text: string): Promise<void> {
       const child = spawn(candidate.cmd, candidate.args);
       let advanced = false;
       const advance = (): void => {
-        if (advanced) return;
+        if (advanced) {
+          return;
+        }
         advanced = true;
         resolve(tryCandidate(index + 1));
       };
@@ -1513,7 +1528,9 @@ function copyToClipboard(text: string): Promise<void> {
       child.stdin.on("error", advance);
       child.on("error", advance);
       child.on("close", (code) => {
-        if (advanced) return;
+        if (advanced) {
+          return;
+        }
         if (code === 0) {
           advanced = true;
           resolve();
@@ -1809,9 +1826,13 @@ function handleLimitCommand(
 
   const parseValue = (raw: string): number | null | "invalid" => {
     const lower = raw.toLowerCase();
-    if (lower === "clear" || lower === "none" || lower === "off") return null;
+    if (lower === "clear" || lower === "none" || lower === "off") {
+      return null;
+    }
     const parsed = Number(raw);
-    if (!Number.isFinite(parsed) || parsed <= 0) return "invalid";
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return "invalid";
+    }
     return parsed;
   };
 
@@ -2206,7 +2227,9 @@ function handlePluginCommand(
   return Effect.gen(function* () {
     const name = args[0] ?? "";
     const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
-    if (Option.isNone(runtimeOption)) return { shouldContinue: true };
+    if (Option.isNone(runtimeOption)) {
+      return { shouldContinue: true };
+    }
     const outcome = yield* runtimeOption.value.runAgentCommand(agentId, name, args.slice(1));
     return outcome.message !== undefined && outcome.message.length > 0
       ? { shouldContinue: true, resendMessage: outcome.message }
@@ -2260,7 +2283,9 @@ export function bindPromptArguments(
     } else {
       unfilled.forEach((argument, index) => {
         const value = positional[index];
-        if (value !== undefined) bound[argument.name] = value;
+        if (value !== undefined) {
+          bound[argument.name] = value;
+        }
       });
     }
   }
@@ -2335,8 +2360,12 @@ function handleRunMcpPromptCommand(
     // them, which is the only place completion/complete is reachable without
     // an autocomplete-aware composer.
     for (const argument of declared) {
-      if (bound[argument.name] !== undefined) continue;
-      if (argument.required !== true) continue;
+      if (bound[argument.name] !== undefined) {
+        continue;
+      }
+      if (argument.required !== true) {
+        continue;
+      }
 
       const label = argument.description
         ? `${argument.name} — ${argument.description}`
@@ -2529,8 +2558,12 @@ function handleInfoCommand(
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
     const durationParts: string[] = [];
-    if (hours > 0) durationParts.push(`${hours}h`);
-    if (minutes % 60 > 0 || hours > 0) durationParts.push(`${minutes % 60}m`);
+    if (hours > 0) {
+      durationParts.push(`${hours}h`);
+    }
+    if (minutes % 60 > 0 || hours > 0) {
+      durationParts.push(`${minutes % 60}m`);
+    }
     durationParts.push(`${seconds % 60}s`);
     const duration = durationParts.join(" ");
 
@@ -2779,7 +2812,9 @@ function mcpStatusGlyph(kind: McpStatusKind): string {
 }
 
 function describeMcpTransport(config: MCPServerConfig): string {
-  if (isHttpConfig(config)) return `http · ${config.url}`;
+  if (isHttpConfig(config)) {
+    return `http · ${config.url}`;
+  }
   return `stdio · ${config.command}${config.args?.length ? ` ${config.args.join(" ")}` : ""}`;
 }
 
@@ -2851,7 +2886,9 @@ function runMcpServerAction(
         const result = yield* mcpManager.connectServer(config).pipe(Effect.result);
         if (result._tag === "Failure") {
           yield* terminal.error(result.failure.reason);
-          if (result.failure.suggestion) yield* terminal.info(result.failure.suggestion);
+          if (result.failure.suggestion) {
+            yield* terminal.info(result.failure.suggestion);
+          }
           return;
         }
         yield* terminal.success(`Connected to ${config.name}`);
@@ -2862,7 +2899,9 @@ function runMcpServerAction(
         const result = yield* mcpManager.connectServer(config).pipe(Effect.result);
         if (result._tag === "Failure") {
           yield* terminal.error(result.failure.reason);
-          if (result.failure.suggestion) yield* terminal.info(result.failure.suggestion);
+          if (result.failure.suggestion) {
+            yield* terminal.info(result.failure.suggestion);
+          }
           return;
         }
         yield* terminal.success(`Reconnected to ${config.name}`);
@@ -2874,7 +2913,9 @@ function runMcpServerAction(
         return;
       }
       case "authenticate": {
-        if (!isHttpConfig(config)) return;
+        if (!isHttpConfig(config)) {
+          return;
+        }
         yield* terminal.info(`Starting authorization for ${config.name}...`);
         const result = yield* authorizeServer(config.name, config.url, (url) => {
           process.stdout.write(`\nIf your browser did not open, visit:\n${url}\n\n`);
@@ -2887,7 +2928,9 @@ function runMcpServerAction(
         return;
       }
       case "logout": {
-        if (!isHttpConfig(config)) return;
+        if (!isHttpConfig(config)) {
+          return;
+        }
         yield* clearServerAuth(config.name, config.url);
         yield* terminal.success(`Cleared stored credentials for ${config.name}.`);
         return;
@@ -2920,7 +2963,9 @@ function runMcpServerDetail(
       choices: mcpServerActions(status),
     });
 
-    if (!action || action === "back") return;
+    if (!action || action === "back") {
+      return;
+    }
 
     yield* runMcpServerAction(terminal, mcpManager, configService, status, action);
   });
@@ -2964,7 +3009,9 @@ function runMcpOverlay(
       }
 
       const status = statuses.find((s) => s.config.name === selectedName);
-      if (!status) continue;
+      if (!status) {
+        continue;
+      }
 
       yield* runMcpServerDetail(terminal, mcpManager, configService, status);
     }

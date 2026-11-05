@@ -69,7 +69,9 @@ function walkWorkspaceTree(
     for (const name of names) {
       const entryPath = path.join(dir, name);
       const info = yield* fs.stat(entryPath).pipe(Effect.catch(() => Effect.succeed(null)));
-      if (!info) continue;
+      if (!info) {
+        continue;
+      }
       if (info.type === "Directory") {
         const nested = yield* walkWorkspaceTree(fs, entryPath);
         totalBytes += nested.totalBytes;
@@ -98,7 +100,9 @@ function listDirectoryEntries(
     for (const name of visible) {
       const entryPath = path.join(dir, name);
       const info = yield* fs.stat(entryPath).pipe(Effect.catch(() => Effect.succeed(null)));
-      if (!info) continue;
+      if (!info) {
+        continue;
+      }
 
       if (info.type === "Directory") {
         entries.push({ name: `${name}/`, kind: "directory", sizeBytes: 0 });

@@ -390,7 +390,9 @@ export class CLIPresentationService implements PresentationService {
         yield* this.writeOutput(`\n${chalk.dim("Suggestions:")}\n`);
         for (let i = 0; i < request.suggestions.length; i++) {
           const suggestion = request.suggestions[i];
-          if (!suggestion) continue;
+          if (!suggestion) {
+            continue;
+          }
           const label = suggestion.label ?? suggestion.value;
           const description = suggestion.description ? ` - ${suggestion.description}` : "";
           yield* this.writeOutput(
@@ -402,7 +404,9 @@ export class CLIPresentationService implements PresentationService {
 
       yield* this.writeOutput(`${separator}\n`);
 
-      if (!this.interactive) return { kind: "unavailable" } as const;
+      if (!this.interactive) {
+        return { kind: "unavailable" } as const;
+      }
       const response = yield* this.ask("Your response:", {});
       const answer = (response ?? "").trim();
       return answer.length > 0

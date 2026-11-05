@@ -745,14 +745,18 @@ describe("choosing which progress events to receive", () => {
     // should not have to enumerate it.
     for (const raw of [null, "", "  ", ",,"]) {
       const parsed = parseProgressEvents(raw);
-      if ("unknownKind" in parsed) throw new Error("expected kinds");
+      if ("unknownKind" in parsed) {
+        throw new Error("expected kinds");
+      }
       expect(parsed.kinds.size, JSON.stringify(raw)).toBe(3);
     }
   });
 
   it("narrows to what was asked for", () => {
     const parsed = parseProgressEvents("approval-required, tool-started");
-    if ("unknownKind" in parsed) throw new Error("expected kinds");
+    if ("unknownKind" in parsed) {
+      throw new Error("expected kinds");
+    }
 
     expect([...parsed.kinds].sort()).toEqual(["approval-required", "tool-started"]);
     expect(parsed.kinds.has("tool-finished")).toBe(false);
@@ -1693,7 +1697,9 @@ describe("the daemon's attention routes", () => {
       const until = async (text: string) => {
         while (!seen.includes(text)) {
           const chunk = await reader.read();
-          if (chunk.done) throw new Error(`stream ended before ${text}`);
+          if (chunk.done) {
+            throw new Error(`stream ended before ${text}`);
+          }
           seen += decoder.decode(chunk.value);
         }
       };

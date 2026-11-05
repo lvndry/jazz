@@ -44,14 +44,18 @@ describe("classifyTurnOutcome", () => {
   it("carries the transcript the parked turn produced, so it can still be saved", () => {
     const outcome = classifyTurnOutcome({ ok: false, error: park() });
 
-    if (outcome.kind !== "parked") throw new Error("expected a park");
+    if (outcome.kind !== "parked") {
+      throw new Error("expected a park");
+    }
     expect(outcome.messages).toEqual(TRANSCRIPT);
   });
 
   it("names the run to resume and what it stopped on", () => {
     const outcome = classifyTurnOutcome({ ok: false, error: park() });
 
-    if (outcome.kind !== "parked") throw new Error("expected a park");
+    if (outcome.kind !== "parked") {
+      throw new Error("expected a park");
+    }
     expect(outcome.runId).toBe("run-1");
     expect(outcome.waitingOn).toBe("execute_command");
     expect(outcome.expiresAt).toBe("2026-01-02T00:00:00Z");

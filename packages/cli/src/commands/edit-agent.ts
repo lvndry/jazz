@@ -707,7 +707,9 @@ async function promptForAgentUpdates(
           force: true,
           reason: providerResult.failure.message,
         });
-        if (keyResult === "cancelled") continue;
+        if (keyResult === "cancelled") {
+          continue;
+        }
         providerInfo = await Effect.runPromise(llmService.getProvider(llmProvider));
       } else if (providerResult._tag === "Failure") {
         throw providerResult.failure;
@@ -1070,7 +1072,9 @@ function promptForMaxContextTokens(
         cancellable: true,
         validate: (input: string) => {
           const trimmed = input.trim();
-          if (trimmed.length === 0) return true;
+          if (trimmed.length === 0) {
+            return true;
+          }
           const parsed = Number(trimmed);
           if (!Number.isInteger(parsed) || parsed < MIN_AGENT_MAX_CONTEXT_TOKENS) {
             return `Enter a whole number of at least ${MIN_AGENT_MAX_CONTEXT_TOKENS.toLocaleString()}, or leave blank to remove the limit.`;
@@ -1081,9 +1085,13 @@ function promptForMaxContextTokens(
     )
     .pipe(
       Effect.map((answer) => {
-        if (answer === undefined) return undefined;
+        if (answer === undefined) {
+          return undefined;
+        }
         const trimmed = answer.trim();
-        if (trimmed.length === 0) return null;
+        if (trimmed.length === 0) {
+          return null;
+        }
         const parsed = Number(trimmed);
         return Number.isInteger(parsed) && parsed >= MIN_AGENT_MAX_CONTEXT_TOKENS ? parsed : null;
       }),

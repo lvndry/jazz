@@ -68,7 +68,9 @@ const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
 
 async function runFailure<A, E>(effect: Effect.Effect<A, E>): Promise<E | null> {
   const exit = await Effect.runPromise(Effect.exit(effect));
-  if (Exit.isSuccess(exit)) return null;
+  if (Exit.isSuccess(exit)) {
+    return null;
+  }
   return Option.getOrNull(Cause.findErrorOption(exit.cause));
 }
 
@@ -79,8 +81,11 @@ beforeEach(() => {
 
 afterEach(() => {
   global.fetch = originalFetch;
-  if (originalOffline === undefined) delete process.env["JAZZ_OFFLINE"];
-  else process.env["JAZZ_OFFLINE"] = originalOffline;
+  if (originalOffline === undefined) {
+    delete process.env["JAZZ_OFFLINE"];
+  } else {
+    process.env["JAZZ_OFFLINE"] = originalOffline;
+  }
   rmSync(cacheDir, { recursive: true, force: true });
 });
 

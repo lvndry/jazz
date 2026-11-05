@@ -37,8 +37,12 @@ function compareVersions(v1: string, v2: string): number {
     const part1 = parts1[i] || 0;
     const part2 = parts2[i] || 0;
 
-    if (part1 > part2) return 1;
-    if (part1 < part2) return -1;
+    if (part1 > part2) {
+      return 1;
+    }
+    if (part1 < part2) {
+      return -1;
+    }
   }
 
   return 0;
@@ -278,19 +282,27 @@ function detectPackageManager(): Effect.Effect<PackageManagerInfo, UpdateInstall
     // Fallback: Check available package managers in order of preference
     // Check bun first
     const bunInfo = yield* getPackageManagerVersion("bun");
-    if (bunInfo) return bunInfo;
+    if (bunInfo) {
+      return bunInfo;
+    }
 
     // Check pnpm
     const pnpmInfo = yield* getPackageManagerVersion("pnpm");
-    if (pnpmInfo) return pnpmInfo;
+    if (pnpmInfo) {
+      return pnpmInfo;
+    }
 
     // Check yarn
     const yarnInfo = yield* getPackageManagerVersion("yarn");
-    if (yarnInfo) return yarnInfo;
+    if (yarnInfo) {
+      return yarnInfo;
+    }
 
     // Check npm
     const npmInfo = yield* getPackageManagerVersion("npm");
-    if (npmInfo) return npmInfo;
+    if (npmInfo) {
+      return npmInfo;
+    }
 
     // None of the package managers are installed
     return yield* Effect.fail(

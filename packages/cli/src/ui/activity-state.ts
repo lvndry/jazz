@@ -74,8 +74,12 @@ export type ActivityState =
  * Structural equality check for ActivityState to deduplicate React renders.
  */
 export function isActivityEqual(a: ActivityState, b: ActivityState): boolean {
-  if (a === b) return true;
-  if (a.phase !== b.phase) return false;
+  if (a === b) {
+    return true;
+  }
+  if (a.phase !== b.phase) {
+    return false;
+  }
 
   switch (a.phase) {
     case "idle":
@@ -98,8 +102,12 @@ export function isActivityEqual(a: ActivityState, b: ActivityState): boolean {
 
     case "tool-execution": {
       const bTools = (b as typeof a).tools;
-      if (a.agentName !== (b as typeof a).agentName) return false;
-      if (a.tools.length !== bTools.length) return false;
+      if (a.agentName !== (b as typeof a).agentName) {
+        return false;
+      }
+      if (a.tools.length !== bTools.length) {
+        return false;
+      }
       const sameTools = a.tools.every(
         (t, i) =>
           t.toolCallId === bTools[i]!.toolCallId &&
@@ -108,11 +116,15 @@ export function isActivityEqual(a: ActivityState, b: ActivityState): boolean {
           t.classifying === bTools[i]!.classifying &&
           t.classifiedRisk === bTools[i]!.classifiedRisk,
       );
-      if (!sameTools) return false;
+      if (!sameTools) {
+        return false;
+      }
 
       const aTodos = a.todoSnapshot ?? [];
       const bTodos = (b as typeof a).todoSnapshot ?? [];
-      if (aTodos.length !== bTodos.length) return false;
+      if (aTodos.length !== bTodos.length) {
+        return false;
+      }
       return aTodos.every(
         (todo, i) =>
           todo.content === bTodos[i]!.content &&

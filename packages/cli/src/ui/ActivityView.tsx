@@ -40,7 +40,9 @@ function useElapsedSeconds(resetKey: string, externalStart?: number): number {
 }
 
 function ElapsedText({ seconds }: { seconds: number }): React.ReactElement | null {
-  if (seconds < ELAPSED_VISIBLE_AFTER_S) return null;
+  if (seconds < ELAPSED_VISIBLE_AFTER_S) {
+    return null;
+  }
   return <Text dimColor> · {formatElapsed(seconds * 1000)}</Text>;
 }
 

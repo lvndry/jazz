@@ -157,7 +157,9 @@ function deadline<T>(
   });
   return Promise.race([Promise.resolve().then(() => work(controller.signal)), timeout]).finally(
     () => {
-      if (timer !== undefined) clearTimeout(timer);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
       outer?.removeEventListener("abort", onAbort);
     },
   );
@@ -187,8 +189,9 @@ export function createPluginSession(
 
       const registerPlugin = (plugin: LoadedPlugin): void => {
         const manifest = validatePluginManifest(plugin.manifest);
-        if (plugin.module.apiVersion !== manifest.hostApi)
+        if (plugin.module.apiVersion !== manifest.hostApi) {
           throw new Error("module API version does not match manifest");
+        }
         pluginNameById.set(manifest.id, manifest.name);
         const declarations = new Map(
           manifest.secrets.map((declaration) => [declaration.name, declaration]),
@@ -198,9 +201,12 @@ export function createPluginSession(
           apiVersion: 1,
           hooks: {
             register: (id, handler) => {
-              if (!manifest.hooks.includes(id))
+              if (!manifest.hooks.includes(id)) {
                 throw new Error(`plugin did not declare hook ${id}`);
-              if (hooks.has(id)) throw new Error(`hook ${id} already has a handler in this run`);
+              }
+              if (hooks.has(id)) {
+                throw new Error(`hook ${id} already has a handler in this run`);
+              }
               hooks.set(id, {
                 pluginId: manifest.id,
                 handler: handler as unknown as AdvisoryHookHandler<"route.skills">,
@@ -209,10 +215,12 @@ export function createPluginSession(
           },
           policy: {
             register: (id, handler) => {
-              if (!manifest.policyHooks.includes(id))
+              if (!manifest.policyHooks.includes(id)) {
                 throw new Error(`plugin did not declare policy hook ${id}`);
-              if (policyHooks.has(id))
+              }
+              if (policyHooks.has(id)) {
                 throw new Error(`policy hook ${id} already has a handler in this run`);
+              }
               policyHooks.set(id, {
                 pluginId: manifest.id,
                 handler: handler as unknown as PolicyHookHandler<"classify.command-risk">,
@@ -221,10 +229,12 @@ export function createPluginSession(
           },
           decisions: {
             registerProvider: (provider) => {
-              if (!manifest.decisionProviders.includes(provider.id))
+              if (!manifest.decisionProviders.includes(provider.id)) {
                 throw new Error(`plugin did not declare decision provider ${provider.id}`);
-              if (providers.has(provider.id))
+              }
+              if (providers.has(provider.id)) {
                 throw new Error(`decision provider ${provider.id} already registered`);
+              }
               providers.add(provider.id);
               return createDecisionClient(provider);
             },
@@ -232,19 +242,23 @@ export function createPluginSession(
           tools: {
             register: (registration) => {
               const declaration = manifest.tools.find((tool) => tool.name === registration.name);
-              if (declaration === undefined)
+              if (declaration === undefined) {
                 throw new Error(`plugin did not declare tool ${registration.name}`);
-              if (tools.has(registration.name))
+              }
+              if (tools.has(registration.name)) {
                 throw new Error(`tool ${registration.name} already has a handler in this run`);
+              }
               if (
                 (registration.prepare === undefined) !==
                 (registration.executePrepared === undefined)
-              )
+              ) {
                 throw new Error(
                   `tool ${registration.name} must register both prepare and executePrepared`,
                 );
-              if (registration.prepare !== undefined && declaration.riskLevel === "read-only")
+              }
+              if (registration.prepare !== undefined && declaration.riskLevel === "read-only") {
                 throw new Error(`read-only tool ${registration.name} cannot prepare a mutation`);
+              }
               tools.set(registration.name, {
                 pluginId: manifest.id,
                 declaration,
@@ -261,10 +275,12 @@ export function createPluginSession(
               const declaration = manifest.commands.find(
                 (command) => command.name === registration.name,
               );
-              if (declaration === undefined)
+              if (declaration === undefined) {
                 throw new Error(`plugin did not declare command ${registration.name}`);
-              if (commands.has(registration.name))
+              }
+              if (commands.has(registration.name)) {
                 throw new Error(`command ${registration.name} already has a handler in this run`);
+              }
               commands.set(registration.name, {
                 pluginId: manifest.id,
                 declaration,
@@ -274,8 +290,9 @@ export function createPluginSession(
           },
           lifecycle: {
             register: (registration) => {
-              if (!manifest.lifecycleHooks.includes(registration.event))
+              if (!manifest.lifecycleHooks.includes(registration.event)) {
                 throw new Error(`plugin did not declare lifecycle event ${registration.event}`);
+              }
               const existing = lifecycle.get(registration.event) ?? [];
               existing.push({ pluginId: manifest.id, handler: registration.handler });
               lifecycle.set(registration.event, existing);
@@ -283,21 +300,25 @@ export function createPluginSession(
           },
           workspace: {
             register: (handler) => {
-              if (manifest.workspace !== true)
+              if (manifest.workspace !== true) {
                 throw new Error(`plugin did not declare workspace context: ${manifest.id}`);
-              if (workspace.has(manifest.id))
+              }
+              if (workspace.has(manifest.id)) {
                 throw new Error(`plugin ${manifest.id} already registered workspace context`);
+              }
               workspace.set(manifest.id, handler);
             },
           },
           secrets: {
             get: async (name) => {
               const declaration = declarations.get(name);
-              if (!declaration)
+              if (!declaration) {
                 throw new Error(`secret ${name} was not declared by ${manifest.id}`);
+              }
               const value = await options.resolveSecret(manifest.id, declaration);
-              if (declaration.required && value === undefined)
+              if (declaration.required && value === undefined) {
                 throw new Error(`required secret ${name} is unavailable`);
+              }
               return value;
             },
           },
@@ -307,23 +328,27 @@ export function createPluginSession(
           return {
             decide: async (unvalidatedRequest, context) => {
               const request = validateDecisionRequest(unvalidatedRequest);
-              if (closed || disabledProviders.has(provider.id))
+              if (closed || disabledProviders.has(provider.id)) {
                 return abstainedBatch(provider.id, request, "provider unavailable");
+              }
               const bound = provider.maxCostUSDPerBatch;
-              if (options.maxCostUSD !== undefined && bound === undefined)
+              if (options.maxCostUSD !== undefined && bound === undefined) {
                 return abstainedBatch(
                   provider.id,
                   request,
                   "provider has no reservable cost bound",
                 );
+              }
               const current = options.currentRunCostUSD?.();
-              if (options.maxCostUSD !== undefined && current === undefined)
+              if (options.maxCostUSD !== undefined && current === undefined) {
                 return abstainedBatch(provider.id, request, "run cost is unavailable");
+              }
               if (
                 options.maxCostUSD !== undefined &&
                 (current ?? 0) + reservedCostUSD + (bound ?? 0) > options.maxCostUSD
-              )
+              ) {
                 return abstainedBatch(provider.id, request, "run cost budget exhausted");
+              }
               reservedCostUSD += bound ?? 0;
               const started = Date.now();
               try {
@@ -340,7 +365,9 @@ export function createPluginSession(
                   options.maxCostUSD !== undefined &&
                   provider.networkBacked === true &&
                   result.costUSD === undefined;
-                if (exceededBound || missingCappedCost) disabledProviders.add(provider.id);
+                if (exceededBound || missingCappedCost) {
+                  disabledProviders.add(provider.id);
+                }
                 if (options.metrics !== undefined) {
                   recordDecisionUsage(options.metrics, {
                     ...(result.usage && {
@@ -382,22 +409,29 @@ export function createPluginSession(
         plugin.module.register(api);
       };
 
-      for (const plugin of options.plugins) registerPlugin(plugin);
+      for (const plugin of options.plugins) {
+        registerPlugin(plugin);
+      }
 
       return {
         runHook: (id, rawInput) =>
           Effect.promise(async () => {
-            if (closed) return abstainedRoute("plugin session closed");
+            if (closed) {
+              return abstainedRoute("plugin session closed");
+            }
             const registration = hooks.get(id);
-            if (!registration) return abstainedRoute("no plugin handler");
+            if (!registration) {
+              return abstainedRoute("no plugin handler");
+            }
             try {
               const input = validateSkillRouteInput(rawInput);
               const outcome = await deadline(
                 (signal) => registration.handler(input, { signal }),
                 timeoutMs,
               );
-              if (outcome.status === "answered")
+              if (outcome.status === "answered") {
                 validateSkillRouteDistribution(input, outcome.distribution);
+              }
               return outcome;
             } catch (error) {
               options.reportFailure?.(registration.pluginId, toError(error).message);
@@ -406,9 +440,13 @@ export function createPluginSession(
           }),
         runPolicyHook: (id, rawInput) =>
           Effect.promise(async () => {
-            if (closed) return abstainedPolicy("plugin session closed");
+            if (closed) {
+              return abstainedPolicy("plugin session closed");
+            }
             const registration = policyHooks.get(id);
-            if (!registration) return abstainedPolicy("no plugin policy handler");
+            if (!registration) {
+              return abstainedPolicy("no plugin policy handler");
+            }
             try {
               const input = validateCommandRiskInput(rawInput);
               return validateCommandRiskOutcome(
@@ -421,9 +459,13 @@ export function createPluginSession(
           }),
         runCompactTools: (rawInput) =>
           Effect.promise(async () => {
-            if (closed) return abstainedCompact("plugin session closed");
+            if (closed) {
+              return abstainedCompact("plugin session closed");
+            }
             const registration = hooks.get("compact.tools");
-            if (!registration) return abstainedCompact("no plugin handler");
+            if (!registration) {
+              return abstainedCompact("no plugin handler");
+            }
             try {
               const input = validateCompactToolsInput(rawInput);
               const outcome = await deadline(
@@ -441,9 +483,13 @@ export function createPluginSession(
           }),
         runClassifyPage: (rawInput) =>
           Effect.promise(async () => {
-            if (closed) return abstainedClassifyPage("plugin session closed");
+            if (closed) {
+              return abstainedClassifyPage("plugin session closed");
+            }
             const registration = hooks.get("classify.page");
-            if (!registration) return abstainedClassifyPage("no plugin handler");
+            if (!registration) {
+              return abstainedClassifyPage("no plugin handler");
+            }
             try {
               const input = validateClassifyPageInput(rawInput);
               const outcome = await deadline(
@@ -461,9 +507,13 @@ export function createPluginSession(
           }),
         runRouteSnapshot: (rawInput) =>
           Effect.promise(async () => {
-            if (closed) return abstainedRouteSnapshot("plugin session closed");
+            if (closed) {
+              return abstainedRouteSnapshot("plugin session closed");
+            }
             const registration = hooks.get("route.snapshot");
-            if (!registration) return abstainedRouteSnapshot("no plugin handler");
+            if (!registration) {
+              return abstainedRouteSnapshot("no plugin handler");
+            }
             try {
               const input = validateRouteSnapshotInput(rawInput);
               const outcome = await deadline(
@@ -482,9 +532,13 @@ export function createPluginSession(
           }),
         runMemoryPassGate: (rawInput) =>
           Effect.promise(async () => {
-            if (closed) return abstainedMemoryPassGate("plugin session closed");
+            if (closed) {
+              return abstainedMemoryPassGate("plugin session closed");
+            }
             const registration = hooks.get("gate.memory-pass");
-            if (!registration) return abstainedMemoryPassGate("no plugin handler");
+            if (!registration) {
+              return abstainedMemoryPassGate("no plugin handler");
+            }
             try {
               const input = validateMemoryPassGateInput(rawInput);
               const outcome = await deadline(
@@ -503,26 +557,35 @@ export function createPluginSession(
           }),
         runWorkspace: (rawInput) =>
           Effect.promise(async () => {
-            if (closed || workspace.size === 0) return undefined;
+            if (closed || workspace.size === 0) {
+              return undefined;
+            }
             const files = rawInput.files.slice(0, MAX_PLUGIN_WORKSPACE_FILES);
             const input: WorkspaceContextInput = { cwd: rawInput.cwd, files };
             const responses = await Promise.all(
               [...workspace].map(async ([pluginId, handler]) => {
-                if (disabledWorkspace.has(pluginId)) return undefined;
+                if (disabledWorkspace.has(pluginId)) {
+                  return undefined;
+                }
                 try {
                   const output = await deadline(
                     (signal) => handler(input, { signal }),
                     workspaceTimeoutMs,
                   );
-                  if (output === undefined) return undefined;
+                  if (output === undefined) {
+                    return undefined;
+                  }
                   if (
                     typeof output !== "object" ||
                     output === null ||
                     typeof output.content !== "string"
-                  )
+                  ) {
                     throw new Error("plugin returned invalid workspace context");
+                  }
                   const content = output.content.trim();
-                  if (!content) return undefined;
+                  if (!content) {
+                    return undefined;
+                  }
                   return `[${pluginNameById.get(pluginId) ?? pluginId}]\n${content.slice(0, MAX_PLUGIN_WORKSPACE_CONTENT_CHARS)}`;
                 } catch (error) {
                   disabledWorkspace.add(pluginId);
@@ -538,7 +601,9 @@ export function createPluginSession(
           }),
         describeHook: (id) => {
           const registration = hooks.get(id);
-          if (!registration) return undefined;
+          if (!registration) {
+            return undefined;
+          }
           return {
             pluginId: registration.pluginId,
             pluginName: pluginNameById.get(registration.pluginId) ?? registration.pluginId,
@@ -548,9 +613,13 @@ export function createPluginSession(
           [...tools.values()].map(({ pluginId, declaration }) => ({ ...declaration, pluginId })),
         runTool: (name, args, cwd) =>
           Effect.promise(async () => {
-            if (closed) return toolError("plugin session closed");
+            if (closed) {
+              return toolError("plugin session closed");
+            }
             const registered = tools.get(name);
-            if (!registered) return toolError(`no plugin handler for tool ${name}`);
+            if (!registered) {
+              return toolError(`no plugin handler for tool ${name}`);
+            }
             try {
               return await deadline(
                 (signal) => registered.handler(args, { signal, cwd }),
@@ -563,9 +632,13 @@ export function createPluginSession(
           }),
         prepareTool: (name, args, cwd) =>
           Effect.promise(async (): Promise<PluginToolPreparation | PluginToolResult> => {
-            if (closed) return toolError("plugin session closed");
+            if (closed) {
+              return toolError("plugin session closed");
+            }
             const registered = tools.get(name);
-            if (!registered) return toolError(`no plugin handler for tool ${name}`);
+            if (!registered) {
+              return toolError(`no plugin handler for tool ${name}`);
+            }
             if (!registered.prepare) {
               return {
                 message: `Plugin: ${registered.pluginId}\nTool: ${name}\nArguments: ${JSON.stringify(args).slice(0, PLUGIN_ARGUMENT_PREVIEW_CHARS)}`,
@@ -587,8 +660,9 @@ export function createPluginSession(
                     result.previewDiff.length > MAX_PLUGIN_APPROVAL_DIFF_CHARS)) ||
                 serialized === undefined ||
                 serialized.length > MAX_PLUGIN_PREPARED_JSON_CHARS
-              )
+              ) {
                 return toolError(`tool ${name} returned an invalid approval proposal`);
+              }
               return { ...result, prepared: JSON.parse(serialized) as JsonValue };
             } catch (error) {
               options.reportFailure?.(registered.pluginId, toError(error).message);
@@ -597,9 +671,13 @@ export function createPluginSession(
           }),
         executePreparedTool: (name, args, prepared, cwd) =>
           Effect.promise(async () => {
-            if (closed) return toolError("plugin session closed");
+            if (closed) {
+              return toolError("plugin session closed");
+            }
             const registered = tools.get(name);
-            if (!registered) return toolError(`no plugin handler for tool ${name}`);
+            if (!registered) {
+              return toolError(`no plugin handler for tool ${name}`);
+            }
             try {
               return registered.executePrepared
                 ? await deadline(
@@ -618,7 +696,9 @@ export function createPluginSession(
           }),
         emitLifecycle: (event: LifecycleEvent) =>
           Effect.promise(async () => {
-            if (closed) return;
+            if (closed) {
+              return;
+            }
             const handlers = lifecycle.get(event.event) ?? [];
             await Promise.allSettled(
               handlers.map(async (registered) => {
@@ -642,9 +722,13 @@ export function createPluginSession(
           [...commands.values()].map(({ pluginId, declaration }) => ({ ...declaration, pluginId })),
         runCommand: (name, args) =>
           Effect.promise(async (): Promise<PluginCommandResult> => {
-            if (closed) return {};
+            if (closed) {
+              return {};
+            }
             const registered = commands.get(name);
-            if (!registered) return {};
+            if (!registered) {
+              return {};
+            }
             try {
               return await deadline(
                 (signal) => registered.handler({ args }, { signal }),
@@ -657,7 +741,9 @@ export function createPluginSession(
           }),
         close: () =>
           Effect.promise(async () => {
-            if (closed) return;
+            if (closed) {
+              return;
+            }
             closed = true;
             await Promise.allSettled(
               options.plugins.map(({ module }) =>

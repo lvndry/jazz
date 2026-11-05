@@ -103,7 +103,9 @@ describe("MCP tool registration", () => {
   test("names the declared annotations in the approval prompt", async () => {
     const tools = await build(false, tool("drop_table", { destructiveHint: true }));
     const approval = tools[0];
-    if (!approval) throw new Error("no approval tool");
+    if (!approval) {
+      throw new Error("no approval tool");
+    }
 
     const result = (await Effect.runPromise(
       approval.execute(
@@ -131,7 +133,9 @@ describe("MCP tool output", () => {
 
   async function callWith(reply: { structuredContent?: unknown; content?: unknown }) {
     const [readTool] = await build(true, tool("read_notes", { readOnlyHint: true }));
-    if (readTool === undefined) throw new Error("expected a tool");
+    if (readTool === undefined) {
+      throw new Error("expected a tool");
+    }
     const manager = {
       isConnected: () => Effect.succeed(true),
       callTool: () => Effect.succeed(reply),

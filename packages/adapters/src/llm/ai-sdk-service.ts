@@ -278,7 +278,9 @@ export function mergeProviderOverridesIntoLLMConfig(
   const merged: Record<string, unknown> = { ...(baseLLMConfig ?? {}) };
   for (const [field, byProvider] of fieldsByOverride) {
     for (const [provider, value] of Object.entries(byProvider ?? {})) {
-      if (typeof value !== "string" || value.length === 0) continue;
+      if (typeof value !== "string" || value.length === 0) {
+        continue;
+      }
       const existingProviderConfig =
         merged[provider] && typeof merged[provider] === "object"
           ? (merged[provider] as Record<string, unknown>)
@@ -304,8 +306,12 @@ function parseToolArguments(input: string): Record<string, unknown> {
 function toAISDKToolChoice(
   toolChoice: ChatCompletionOptions["toolChoice"],
 ): AISDKToolChoice | undefined {
-  if (!toolChoice) return undefined;
-  if (toolChoice === "auto" || toolChoice === "none") return toolChoice;
+  if (!toolChoice) {
+    return undefined;
+  }
+  if (toolChoice === "auto" || toolChoice === "none") {
+    return toolChoice;
+  }
 
   return {
     type: "tool",
@@ -361,7 +367,9 @@ function buildAttachmentParts(
   resolved: ResolvedAttachments | undefined,
   inlineAllowed: boolean,
 ): { parts: FilePart[]; notes: string[] } {
-  if (attachments === undefined || attachments.length === 0) return { parts: [], notes: [] };
+  if (attachments === undefined || attachments.length === 0) {
+    return { parts: [], notes: [] };
+  }
 
   const parts: FilePart[] = [];
   const notes: string[] = [];
@@ -671,12 +679,20 @@ export function applyConversationCacheBreakpoint(
   providerName: string | undefined,
   targetIndex: number = messages.length - 1,
 ): ModelMessage[] {
-  if (!providerName || !PREFIX_CACHE_PROVIDERS.has(providerName)) return messages;
-  if (messages.length < 2) return messages;
+  if (!providerName || !PREFIX_CACHE_PROVIDERS.has(providerName)) {
+    return messages;
+  }
+  if (messages.length < 2) {
+    return messages;
+  }
 
-  if (targetIndex < 1 || targetIndex > messages.length - 1) return messages;
+  if (targetIndex < 1 || targetIndex > messages.length - 1) {
+    return messages;
+  }
   const target = messages[targetIndex];
-  if (!target || target.role === "system") return messages;
+  if (!target || target.role === "system") {
+    return messages;
+  }
 
   const cache = cacheControlProviderOptions(providerName);
   const content = target.content;
@@ -690,11 +706,15 @@ export function applyConversationCacheBreakpoint(
     return next;
   }
 
-  if (!Array.isArray(content) || content.length === 0) return messages;
+  if (!Array.isArray(content) || content.length === 0) {
+    return messages;
+  }
 
   const parts = content.slice();
   const lastPart = parts[parts.length - 1];
-  if (lastPart === undefined || typeof lastPart !== "object") return messages;
+  if (lastPart === undefined || typeof lastPart !== "object") {
+    return messages;
+  }
 
   const existing =
     "providerOptions" in lastPart &&
@@ -1292,7 +1312,9 @@ function selectModel(
             return {
               processChunk: (parsedChunk: unknown) => {
                 const cost = orcaRouterResponseCostUSD(parsedChunk);
-                if (cost !== undefined) billedCostUSD = cost;
+                if (cost !== undefined) {
+                  billedCostUSD = cost;
+                }
               },
               buildMetadata: () =>
                 billedCostUSD === undefined ? undefined : { orcarouter: { billedCostUSD } },
@@ -1418,7 +1440,9 @@ export function buildProviderCacheFingerprint(
   providerName: ProviderName,
   llmConfig?: LLMConfig,
 ): string {
-  if (!llmConfig) return "";
+  if (!llmConfig) {
+    return "";
+  }
 
   switch (providerName) {
     case "ollama": {
@@ -1454,8 +1478,12 @@ export function buildProviderCacheFingerprint(
 function toProviderEffort(
   selection: ReasoningSelection | undefined,
 ): "disable" | "low" | "medium" | "high" | undefined {
-  if (!selection) return undefined;
-  if (selection === "disable") return "disable";
+  if (!selection) {
+    return undefined;
+  }
+  if (selection === "disable") {
+    return "disable";
+  }
   return selection === "minimal"
     ? "low"
     : selection === "xhigh" || selection === "max"
@@ -1526,7 +1554,9 @@ function buildResolvedReasoningOptions(
       };
     }
     case "anthropic.messages.extended-thinking": {
-      if (selection === "disable") return undefined;
+      if (selection === "disable") {
+        return undefined;
+      }
       return {
         anthropic: {
           thinking: {
@@ -1541,7 +1571,9 @@ function buildResolvedReasoningOptions(
       };
     }
     case "anthropic.messages.adaptive-thinking": {
-      if (selection === "disable") return undefined;
+      if (selection === "disable") {
+        return undefined;
+      }
       return {
         anthropic: {
           thinking: { type: "adaptive" },
@@ -1560,7 +1592,9 @@ function buildResolvedReasoningOptions(
         [providerName]: { reasoningEffort: selection === "disable" ? "none" : selection },
       };
     case "openai-compatible.chat.template-thinking-budget": {
-      if (selection === "disable") return undefined;
+      if (selection === "disable") {
+        return undefined;
+      }
       return {
         [providerName]: {
           chat_template_kwargs: {
@@ -1595,7 +1629,9 @@ export function buildProviderOptions(
     control,
     options.conversationId,
   );
-  if (resolved !== undefined) return resolved;
+  if (resolved !== undefined) {
+    return resolved;
+  }
   if (control && control.kind !== "unknown") {
     return buildProviderOptions(providerName, { ...options, reasoning: "disable" });
   }
@@ -1886,7 +1922,9 @@ function localRequestBaseUrl(
   modelId: string,
   llmConfig?: LLMConfig,
 ): string | undefined {
-  if (!isLocalServerProvider(provider)) return undefined;
+  if (!isLocalServerProvider(provider)) {
+    return undefined;
+  }
   return provider === "ollama"
     ? resolveOllamaRequestBaseUrl(modelId, llmConfig)
     : resolveLocalProviderBaseUrl(provider, llmConfig);
@@ -1917,7 +1955,9 @@ class AISDKService implements LLMService {
 
   private async refreshRuntimeConfigIfChanged(): Promise<void> {
     const latestRevision = Effect.runSync(this.configService.revision);
-    if (latestRevision === this.lastSeenConfigRevision) return;
+    if (latestRevision === this.lastSeenConfigRevision) {
+      return;
+    }
 
     const latest = await Effect.runPromise(this.configService.appConfig);
     const llmChanged =

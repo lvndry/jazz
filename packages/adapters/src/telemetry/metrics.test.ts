@@ -67,7 +67,9 @@ describe("OtlpMetricsSink", () => {
         .flatMap((scope) => scope.metrics)
         .find((item) => item.descriptor.name === "jazz.agent.runs");
       expect(metric?.dataPointType).toBe(DataPointType.SUM);
-      if (metric?.dataPointType !== DataPointType.SUM) return undefined;
+      if (metric?.dataPointType !== DataPointType.SUM) {
+        return undefined;
+      }
       return metric.dataPoints.find((point) => point.attributes["status"] === status)?.value;
     };
     expect(runCount(0, "error")).toBe(0);
@@ -155,7 +157,9 @@ describe("OtlpMetricsSink", () => {
       expect(requests).toBeGreaterThanOrEqual(2);
       expect(new TextDecoder().decode(payloads[1])).toContain("jazz.telemetry.export.failures");
     } finally {
-      if (timeout) clearTimeout(timeout);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
       await sink.close();
       await server.stop(true);
     }

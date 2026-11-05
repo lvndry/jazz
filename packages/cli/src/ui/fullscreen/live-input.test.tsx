@@ -58,7 +58,9 @@ describe("wide and composed text", () => {
     );
     const text = row?.segments.map((segment) => segment.text).join("") ?? "";
     expect(terminalCellWidth(text)).toBe(MIN_WIDTH);
-    if (text.includes("👨")) expect(text).toContain("👨‍👩‍👧‍👦");
+    if (text.includes("👨")) {
+      expect(text).toContain("👨‍👩‍👧‍👦");
+    }
   });
 });
 
@@ -137,7 +139,9 @@ function tool(app: string, operation: string, phase: number, elapsedMs = 1000): 
  */
 function live(overrides: Partial<LiveModel> = {}): LiveModel {
   const model: LiveModel = { tools: [], hiddenTools: [], reservedRows: 0, ...overrides };
-  if (overrides.reservedRows !== undefined) return model;
+  if (overrides.reservedRows !== undefined) {
+    return model;
+  }
   const needed =
     model.tools.length +
     (model.hiddenTools.length > 0 ? 1 : 0) +
@@ -454,7 +458,9 @@ describe("live zone", () => {
 
     const { height, frame } = await bandHeight(model, { width: MIN_WIDTH });
     expect(height).toBe(LIVE_ZONE_MAX_ROWS);
-    for (const row of rowsOf(frame)) expect(terminalCellWidth(row)).toBe(MIN_WIDTH);
+    for (const row of rowsOf(frame)) {
+      expect(terminalCellWidth(row)).toBe(MIN_WIDTH);
+    }
   });
 
   it("renders the todo checklist as a windowed panel, leading with the active item", async () => {

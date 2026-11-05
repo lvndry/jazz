@@ -101,9 +101,12 @@ function formatSubagentCollapseLine(label: string, outcome: EphemeralRegionColla
   if (outcome.status === "completed") {
     const seconds = (outcome.durationMs / 1000).toFixed(1);
     const parts = [`${label} completed`, `${seconds}s`];
-    if (outcome.totalTokens !== undefined)
+    if (outcome.totalTokens !== undefined) {
       parts.push(`${formatCompactCount(outcome.totalTokens)} tok`);
-    if (outcome.costUSD !== undefined) parts.push(formatCost(outcome.costUSD));
+    }
+    if (outcome.costUSD !== undefined) {
+      parts.push(formatCost(outcome.costUSD));
+    }
     return chalk.dim(chalk.italic(`${glyphs.success} ${parts.join(" · ")}`));
   }
   const verb = outcome.status === "failed" ? "failed" : "interrupted";
@@ -166,8 +169,12 @@ type BufferedStreamDelta =
     };
 
 function sameBufferTarget(a: BufferedStreamDelta, b: BufferedStreamDelta): boolean {
-  if (a.target !== b.target) return false;
-  if (a.target === "stream" && b.target === "stream") return a.kind === b.kind;
+  if (a.target !== b.target) {
+    return false;
+  }
+  if (a.target === "stream" && b.target === "stream") {
+    return a.kind === b.kind;
+  }
   if (a.target === "ephemeral" && b.target === "ephemeral") {
     return a.regionId === b.regionId && a.channel === b.channel;
   }
@@ -270,14 +277,19 @@ export class InkStreamingRenderer implements StreamingRenderer {
     this.textBufferMs =
       streamingConfig?.textBufferMs ?? InkStreamingRenderer.DEFAULT_TEXT_BUFFER_MS;
     this.acc = createAccumulator(agentName);
-    if (this.streamTarget.kind === "scrollback")
+    if (this.streamTarget.kind === "scrollback") {
       store.setCollapseReasoning(displayConfig.collapseReasoning !== false);
+    }
   }
 
   /** Retire timers and retained input without publishing into a replacement conversation. */
   private discardStaleWork(): void {
-    if (this.updateTimeoutId !== null) clearTimeout(this.updateTimeoutId);
-    if (this.streamFlushTimeoutId !== null) clearTimeout(this.streamFlushTimeoutId);
+    if (this.updateTimeoutId !== null) {
+      clearTimeout(this.updateTimeoutId);
+    }
+    if (this.streamFlushTimeoutId !== null) {
+      clearTimeout(this.streamFlushTimeoutId);
+    }
     this.updateTimeoutId = null;
     this.streamFlushTimeoutId = null;
     this.pendingActivity = null;
@@ -291,7 +303,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * or `appendEphemeral` for a panel region.
    */
   private dispatchBufferedDelta(entry: BufferedStreamDelta): void {
-    if (!this.documentLease()) return;
+    if (!this.documentLease()) {
+      return;
+    }
     if (entry.target === "stream") {
       store.appendStream(entry.kind, entry.delta);
     } else {
@@ -306,7 +320,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * pre-buffering behavior for callers that opt out.
    */
   private bufferStreamDelta(entry: BufferedStreamDelta): void {
-    if (entry.delta.length === 0) return;
+    if (entry.delta.length === 0) {
+      return;
+    }
     if (this.textBufferMs <= 0) {
       this.dispatchBufferedDelta(entry);
       return;
@@ -321,7 +337,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
 
     this.streamBuffer.push(entry);
-    if (this.streamFlushTimeoutId !== null) return;
+    if (this.streamFlushTimeoutId !== null) {
+      return;
+    }
 
     this.scheduleBufferFlush(this.textBufferMs);
   }
@@ -422,7 +440,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * block) doesn't keep the live area silent indefinitely.
    */
   private shouldDeferForOpenStructure(): boolean {
-    if (!isInsideOpenStructure(this.cumulativeResponseText)) return false;
+    if (!isInsideOpenStructure(this.cumulativeResponseText)) {
+      return false;
+    }
     if (this.adaptiveDeferStartedAt === null) {
       this.adaptiveDeferStartedAt = Date.now();
       return true;
@@ -451,7 +471,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
     // Manual flush short-circuits adaptive deferral — drop the wait timer.
     this.adaptiveDeferStartedAt = null;
-    if (this.streamBuffer.length === 0) return;
+    if (this.streamBuffer.length === 0) {
+      return;
+    }
     const buffered = this.streamBuffer;
     this.streamBuffer = [];
 
@@ -537,14 +559,18 @@ export class InkStreamingRenderer implements StreamingRenderer {
    */
   setInterruptHandler(handler: (() => void) | null): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      if (this.streamTarget.kind === "ephemeral") return;
+      if (this.streamTarget.kind === "ephemeral") {
+        return;
+      }
       store.setInterruptHandler(handler);
     });
   }
 
   setBackgroundHandler(handler: (() => void) | null): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      if (this.streamTarget.kind === "ephemeral") return;
+      if (this.streamTarget.kind === "ephemeral") {
+        return;
+      }
       store.setBackgroundHandler(handler);
     });
   }
@@ -591,7 +617,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   /** Collapse the active reasoning panel (if any) with a duration+token summary. */
   private collapseReasoningRegion(tokens?: number): void {
-    if (this.reasoningRegionId === null) return;
+    if (this.reasoningRegionId === null) {
+      return;
+    }
 
     const durationMs = Date.now() - this.reasoningStartedAt;
     const seconds = (durationMs / 1000).toFixed(1);
@@ -624,7 +652,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
         // Flush any in-flight buffered deltas BEFORE finalizing the stream
         // so they land in the slice that's about to settle, not the next one.
         this.flushStreamBuffer();
-        if (this.streamTarget.kind === "scrollback") store.finalizeStream();
+        if (this.streamTarget.kind === "scrollback") {
+          store.finalizeStream();
+        }
       }
 
       // Close any open reasoning panel before non-reasoning events. Tokens
@@ -726,7 +756,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (event.type === "error") {
         this.acc.activeTools.clear();
         // The turn ends here, so what it thought settles above the error.
-        if (this.streamTarget.kind === "scrollback") store.settleTurnThought();
+        if (this.streamTarget.kind === "scrollback") {
+          store.settleTurnThought();
+        }
       }
 
       const result = reduceEvent(this.acc, event);
@@ -751,13 +783,14 @@ export class InkStreamingRenderer implements StreamingRenderer {
                 : content.kind === "notice"
                   ? content.text
                   : undefined;
-            if (text !== undefined)
+            if (text !== undefined) {
               this.bufferStreamDelta({
                 target: "ephemeral",
                 regionId: this.streamTarget.regionId,
                 delta: `\n${text}`,
                 channel: "note",
               });
+            }
           }
         }
       } else {
@@ -770,7 +803,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
         // What the turn thought so far settles as one line just above the
         // answer it led to. Printed here rather than updated later, because
         // Ink's static scrollback never repaints a line it has written.
-        if (this.streamTarget.kind === "scrollback") store.settleTurnThought();
+        if (this.streamTarget.kind === "scrollback") {
+          store.settleTurnThought();
+        }
         // Reasoning was finalized by thinking_complete (or there was none).
         // Reset stream-text bookkeeping for the new response stream.
         this.seenLength = 0;
@@ -845,7 +880,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
     // turn settles, so neither leaves a hanging tail in scrollback.
     this.flushStreamBuffer();
     this.collapseReasoningRegion();
-    if (this.streamTarget.kind === "scrollback") store.finalizeStream();
+    if (this.streamTarget.kind === "scrollback") {
+      store.finalizeStream();
+    }
     // A complete event is the terminal boundary for the renderer, even when
     // an execution path did not deliver a matching tool completion event.
     // Clear the accumulator so a tool from this turn cannot reappear when the
@@ -860,7 +897,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.printOutro(event);
     }
 
-    if (this.streamTarget.kind === "scrollback") store.setActivity({ phase: "idle" });
+    if (this.streamTarget.kind === "scrollback") {
+      store.setActivity({ phase: "idle" });
+    }
     // Defensive reset so a reused renderer instance starts clean even if no
     // text_start fires before the next text_chunk.
     this.seenLength = 0;
@@ -870,9 +909,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   /** Compute the new portion of the accumulated stream text, based on seenLength. */
   private consumeTextDelta(event: Extract<StreamEvent, { type: "text_chunk" }>): string {
-    if (event.sequence !== this.acc.lastAppliedTextSequence) return "";
+    if (event.sequence !== this.acc.lastAppliedTextSequence) {
+      return "";
+    }
     const next = event.accumulated;
-    if (next.length <= this.seenLength) return "";
+    if (next.length <= this.seenLength) {
+      return "";
+    }
     const delta = next.slice(this.seenLength);
     this.seenLength = next.length;
     return delta;
@@ -880,7 +923,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   private printFinalResponse(event: Extract<StreamEvent, { type: "complete" }>): void {
     const markdown = event.response.content?.trim() ?? "";
-    if (markdown.length === 0) return;
+    if (markdown.length === 0) {
+      return;
+    }
     if (this.streamTarget.kind === "ephemeral") {
       this.bufferStreamDelta({
         target: "ephemeral",
@@ -952,14 +997,20 @@ export class InkStreamingRenderer implements StreamingRenderer {
         : {}),
     });
 
-    if ((event.response.toolCalls?.length ?? 0) > 0) return;
+    if ((event.response.toolCalls?.length ?? 0) > 0) {
+      return;
+    }
 
-    if (this.streamTarget.kind === "scrollback") store.settleTurnThought();
+    if (this.streamTarget.kind === "scrollback") {
+      store.settleTurnThought();
+    }
     const finishedAt = Date.now();
     const turn: TurnTotals = { ...this.turn, finishedAt };
     this.turn = EMPTY_TURN;
     const line = formatTurnReceipt(turn);
-    if (line === undefined) return;
+    if (line === undefined) {
+      return;
+    }
 
     if (this.streamTarget.kind === "ephemeral") {
       this.bufferStreamDelta({
@@ -992,11 +1043,15 @@ export class InkStreamingRenderer implements StreamingRenderer {
   ): number | undefined {
     const provider = this.acc.currentProvider;
     const model = this.acc.currentModel;
-    if (!usage || !provider || !model) return undefined;
+    if (!usage || !provider || !model) {
+      return undefined;
+    }
     const computeCost = (meta: UsageCostPricing | undefined): number | null =>
       computeUsageCostUSD(usage, meta);
     const rollIntoFooter = (totalCost: number): void => {
-      if (!this.documentLease()) return;
+      if (!this.documentLease()) {
+        return;
+      }
       this.acc.cumulativeCostUSD += totalCost;
       // Accumulate into the shared session total so sub-agent renderers add
       // to the footer rather than overwriting it with their own figure.
@@ -1017,14 +1072,18 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const cachedMeta = getModelsDevMetadataSync(model, provider);
     if (cachedMeta !== undefined) {
       const totalCost = computeCost(cachedMeta);
-      if (totalCost === null) return undefined;
+      if (totalCost === null) {
+        return undefined;
+      }
       rollIntoFooter(totalCost);
       return totalCost;
     }
     void getModelsDevMetadata(model, provider)
       .then((meta) => {
         const totalCost = computeCost(meta);
-        if (totalCost !== null) rollIntoFooter(totalCost);
+        if (totalCost !== null) {
+          rollIntoFooter(totalCost);
+        }
       })
       .catch(() => {
         /* pricing unavailable */
@@ -1134,7 +1193,9 @@ function inkStopSummary(): InterruptSummary | null {
   const session = store.getSessionSnapshot();
   const entries = store.getDocumentSnapshot().entries;
   let start = entries.length;
-  while (start > 0 && entries[start - 1]?.content.kind !== "user") start -= 1;
+  while (start > 0 && entries[start - 1]?.content.kind !== "user") {
+    start -= 1;
+  }
   const turnEntries = entries.slice(start);
   // The fullscreen bridge settles the stop the moment the keys are pressed; a second
   // summary when the run unwinds would print the same block twice.
@@ -1581,7 +1642,9 @@ export class InkPresentationService implements PresentationService {
       ...(request.previewDiff === undefined ? [] : [request.previewDiff]),
     ].join("\n\n");
     store.clearExpandableDiff();
-    if (needsDetails) store.setExpandableDiff(details);
+    if (needsDetails) {
+      store.setExpandableDiff(details);
+    }
 
     const toolDisplayName = request.toolName;
     const rawCommand =
@@ -1640,7 +1703,9 @@ export class InkPresentationService implements PresentationService {
     const choices: Array<{ label: string; value: string }> = [
       { label: `Yes, ${facts.intent.accept}`, value: "yes" },
     ];
-    if (needsDetails) choices.push({ label: "View the full request", value: "view_details" });
+    if (needsDetails) {
+      choices.push({ label: "View the full request", value: "view_details" });
+    }
     const editable = facts.editableArg;
     if (editable !== undefined && typeof request.executeArgs[editable] === "string") {
       choices.push({ label: `Edit the ${editable} first`, value: "edit" });

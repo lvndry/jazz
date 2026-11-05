@@ -55,7 +55,9 @@ export function handleRenameCommand(
             cancellable: true,
             validate: (input) => input.trim().length > 0 || "Enter a conversation title.",
           });
-    if (entered === undefined) return { shouldContinue: true, skipTranscriptRepaint: true };
+    if (entered === undefined) {
+      return { shouldContinue: true, skipTranscriptRepaint: true };
+    }
     const title = entered.trim();
     if (title.length === 0) {
       yield* terminal.error("Enter a conversation title.");

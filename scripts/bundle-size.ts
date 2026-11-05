@@ -47,7 +47,9 @@ const result = await Bun.build({
 });
 
 if (!result.success || result.metafile === undefined) {
-  for (const message of result.logs) process.stderr.write(`${message.message}\n`);
+  for (const message of result.logs) {
+    process.stderr.write(`${message.message}\n`);
+  }
   throw new Error("Build for analysis failed");
 }
 

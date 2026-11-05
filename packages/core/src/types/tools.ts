@@ -121,7 +121,9 @@ export function shouldAutoApprove(
   }
 
   // true or "high-risk" means approve everything
-  if (policy === true || policy === "high-risk") return true;
+  if (policy === true || policy === "high-risk") {
+    return true;
+  }
 
   // "low-risk" approves read-only and low-risk
   if (policy === "low-risk") {
@@ -369,7 +371,9 @@ export type ApprovalOutcome =
  * Type guard to check if a tool result requires approval
  */
 export function isApprovalRequiredResult(result: unknown): result is ApprovalRequiredResult {
-  if (!result || typeof result !== "object") return false;
+  if (!result || typeof result !== "object") {
+    return false;
+  }
   const r = result as Record<string, unknown>;
   return (
     r["approvalRequired"] === true &&

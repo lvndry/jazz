@@ -9,9 +9,13 @@ export function configuredProviderNames(config: AppConfig): string[] {
   const llm = config.llm;
   if (llm !== undefined) {
     for (const [name, value] of Object.entries(llm)) {
-      if (value === undefined || typeof value !== "object") continue;
+      if (value === undefined || typeof value !== "object") {
+        continue;
+      }
       const key = (value as { api_key?: unknown }).api_key;
-      if (typeof key === "string" && key.length > 0) names.push(name);
+      if (typeof key === "string" && key.length > 0) {
+        names.push(name);
+      }
     }
   }
   if (isChatGPTSignedIn(llm)) {

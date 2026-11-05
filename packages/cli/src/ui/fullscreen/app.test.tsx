@@ -74,7 +74,9 @@ describe("fullscreen frame", () => {
   it("fills the terminal exactly, with chrome anchored top and bottom", async () => {
     const frame = await frameOf(sampleView());
     expect(frame.rows).toHaveLength(HEIGHT);
-    for (const row of frame.rows) expect([...row]).toHaveLength(WIDTH);
+    for (const row of frame.rows) {
+      expect([...row]).toHaveLength(WIDTH);
+    }
   });
 
   async function groundOfEmptyCells(): Promise<readonly string[]> {
@@ -168,8 +170,11 @@ describe("fullscreen frame", () => {
       expect(inkDensity(frame.rows)).toBeLessThanOrEqual(0.22);
       expect(breathingShare(frame.rows)).toBeGreaterThanOrEqual(0.4);
     } finally {
-      if (previous === undefined) delete process.env["JAZZ_UI_GLYPHS"];
-      else process.env["JAZZ_UI_GLYPHS"] = previous;
+      if (previous === undefined) {
+        delete process.env["JAZZ_UI_GLYPHS"];
+      } else {
+        process.env["JAZZ_UI_GLYPHS"] = previous;
+      }
     }
   });
 
@@ -231,7 +236,9 @@ describe("fullscreen frame", () => {
     expect(frame.text).not.toContain("jazz needs");
     expect(frame.text).toContain("Ask anything");
     expect(frame.rows).toHaveLength(MIN_HEIGHT);
-    for (const row of frame.rows) expect([...row]).toHaveLength(MIN_WIDTH);
+    for (const row of frame.rows) {
+      expect([...row]).toHaveLength(MIN_WIDTH);
+    }
   });
 
   it("shows a clipped resize hint below the compact floor", async () => {
@@ -277,13 +284,17 @@ describe("fullscreen frame", () => {
   it("holds its shape at the narrow end of the supported range", async () => {
     const frame = await frameOf(sampleView(), 80, 24);
     expect(frame.rows).toHaveLength(24);
-    for (const row of frame.rows) expect([...row]).toHaveLength(80);
+    for (const row of frame.rows) {
+      expect([...row]).toHaveLength(80);
+    }
   });
 
   it("holds its shape on a very wide terminal and spends the extra columns", async () => {
     const frame = await frameOf(sampleView(), 200, 40);
     expect(frame.rows).toHaveLength(40);
-    for (const row of frame.rows) expect([...row]).toHaveLength(200);
+    for (const row of frame.rows) {
+      expect([...row]).toHaveLength(200);
+    }
     expect(frame.rows.some((row) => row.trimEnd().length > 120)).toBe(true);
   });
 });
@@ -553,7 +564,9 @@ describe("transcript wheel and type-to-input", () => {
         }}
         onAction={() => undefined}
         onKey={(key) => {
-          if (!isPrintableSequence(key.sequence, key.ctrl, key.super)) return false;
+          if (!isPrintableSequence(key.sequence, key.ctrl, key.super)) {
+            return false;
+          }
           setDraft((value) => value + key.sequence);
           return true;
         }}
@@ -608,8 +621,11 @@ describe("Ctrl+C", () => {
     flush: () => Promise<void>,
     key: string | { name: string; ctrl: boolean },
   ): Promise<void> {
-    if (typeof key === "string") mockInput.pressKey(key);
-    else mockInput.pressKey(key.name, { ctrl: key.ctrl });
+    if (typeof key === "string") {
+      mockInput.pressKey(key);
+    } else {
+      mockInput.pressKey(key.name, { ctrl: key.ctrl });
+    }
     await settle(flush, 100);
   }
 
@@ -703,8 +719,11 @@ describe("Ctrl+C", () => {
         { width: 80, height: 16, exitOnCtrlC: false, kittyKeyboard: true },
       );
       await renderOnce();
-      if (typeof key === "string") mockInput.pressKey(key);
-      else mockInput.pressKey(key.name, key);
+      if (typeof key === "string") {
+        mockInput.pressKey(key);
+      } else {
+        mockInput.pressKey(key.name, key);
+      }
       await settle(flush, 100);
       const frame = captureCharFrame();
       renderer.destroy();
@@ -736,8 +755,11 @@ describe("Ctrl+C", () => {
         { width: 80, height: 16, exitOnCtrlC: false, kittyKeyboard: true },
       );
       await renderOnce();
-      if (typeof key === "string") mockInput.pressKey(key);
-      else mockInput.pressKey(key.name, key);
+      if (typeof key === "string") {
+        mockInput.pressKey(key);
+      } else {
+        mockInput.pressKey(key.name, key);
+      }
       await settle(flush, 100);
       renderer.destroy();
       sigint.restore();
@@ -775,7 +797,9 @@ function CompletedTurnApp(): React.ReactNode {
       }}
       onAction={() => undefined}
       onKey={(key) => {
-        if (!isPrintableSequence(key.sequence, key.ctrl, key.super)) return false;
+        if (!isPrintableSequence(key.sequence, key.ctrl, key.super)) {
+          return false;
+        }
         setDraft((value) => value + key.sequence);
         return true;
       }}

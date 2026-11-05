@@ -18,7 +18,9 @@ export function recordStorePath(dataDir: string, fileName: string): string {
 /** Reads the store. Returns `{}` when the file is absent, `null` when it exists but won't parse. */
 export function readRecordStore<V>(path: string): Record<string, V> | null {
   try {
-    if (!existsSync(path)) return {};
+    if (!existsSync(path)) {
+      return {};
+    }
     const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as Record<string, V>;
@@ -44,7 +46,9 @@ export function writeRecordStore<V>(path: string, value: Record<string, V>): voi
  * being written.
  */
 export function preserveCorruptFile(path: string): void {
-  if (!existsSync(path)) return;
+  if (!existsSync(path)) {
+    return;
+  }
   try {
     renameSync(path, `${path}.corrupt`);
     console.error(`Corrupt ${path} preserved as ${path}.corrupt`);

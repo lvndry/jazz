@@ -399,7 +399,9 @@ export function suggestAgentName(
     return base || "agent";
   }
   let suffix = 2;
-  while (taken.has(`${base}-${String(suffix)}`)) suffix += 1;
+  while (taken.has(`${base}-${String(suffix)}`)) {
+    suffix += 1;
+  }
   return `${base}-${String(suffix)}`;
 }
 
@@ -414,7 +416,9 @@ function countActingTools(
       let acting = 0;
       for (const name of names) {
         const tool = yield* toolRegistry.getTool(name).pipe(Effect.option);
-        if (tool._tag === "Some" && tool.value.riskLevel !== "read-only") acting += 1;
+        if (tool._tag === "Some" && tool.value.riskLevel !== "read-only") {
+          acting += 1;
+        }
       }
       counts.set(category, acting);
     }
@@ -517,7 +521,9 @@ function stepAfterReasoning(state: WizardState): WizardStep {
 
 /** Where the persona step goes when the user presses ESC to go back. */
 function personaBackStep(state: WizardState): WizardStep {
-  if (state.llmProvider === "ollama") return "ollamaContext";
+  if (state.llmProvider === "ollama") {
+    return "ollamaContext";
+  }
   return state.isReasoningModel ? "reasoning" : "model";
 }
 

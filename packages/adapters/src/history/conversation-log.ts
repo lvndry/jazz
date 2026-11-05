@@ -380,7 +380,9 @@ export function parseConversationLogLine(
   version = CONVERSATION_LOG_VERSION,
 ): ConversationLogEvent | null {
   const trimmed = line.trim();
-  if (trimmed.length === 0) return null;
+  if (trimmed.length === 0) {
+    return null;
+  }
 
   let parsed: unknown;
   try {
@@ -388,14 +390,18 @@ export function parseConversationLogLine(
   } catch {
     return null;
   }
-  if (!isRecordObject(parsed)) return null;
+  if (!isRecordObject(parsed)) {
+    return null;
+  }
 
   const at = optionalString(parsed["at"]) ?? new Date(0).toISOString();
   switch (parsed["type"]) {
     case "conversation": {
       const agentId = optionalString(parsed["agentId"]);
       const conversationId = optionalString(parsed["conversationId"]);
-      if (!agentId || !conversationId) return null;
+      if (!agentId || !conversationId) {
+        return null;
+      }
       const title = optionalString(parsed["title"]);
       return {
         type: "conversation",
@@ -413,11 +419,15 @@ export function parseConversationLogLine(
     }
     case "message": {
       const message = parsed["message"];
-      if (!isRecordObject(message) || typeof message["content"] !== "string") return null;
+      if (!isRecordObject(message) || typeof message["content"] !== "string") {
+        return null;
+      }
       const role = message["role"];
       // `system` is absent by design, and a log carrying one is from a format that no
       // longer exists — drop it rather than replay a stale prompt into a transcript.
-      if (role !== "user" && role !== "assistant" && role !== "tool") return null;
+      if (role !== "user" && role !== "assistant" && role !== "tool") {
+        return null;
+      }
       // `role`/`content` are checked above, but narrowing a variable read out of `message`
       // doesn't narrow `message` itself — the checks already guarantee this at runtime.
       const id = optionalString(parsed["id"]);
@@ -434,13 +444,19 @@ export function parseConversationLogLine(
       const id = optionalString(parsed["id"]);
       const parentId = parsed["parentId"];
       const keep = parsed["keep"];
-      if (id === undefined || !Array.isArray(keep)) return null;
+      if (id === undefined || !Array.isArray(keep)) {
+        return null;
+      }
       const runs: KeepRun[] = [];
       for (const run of keep) {
-        if (!isRecordObject(run)) return null;
+        if (!isRecordObject(run)) {
+          return null;
+        }
         const from = optionalString(run["from"]);
         const through = optionalString(run["through"]);
-        if (from === undefined || through === undefined) return null;
+        if (from === undefined || through === undefined) {
+          return null;
+        }
         runs.push({ from, through });
       }
       return {
@@ -453,12 +469,16 @@ export function parseConversationLogLine(
     }
     case "leaf": {
       const id = parsed["id"];
-      if (typeof id !== "string" && id !== null) return null;
+      if (typeof id !== "string" && id !== null) {
+        return null;
+      }
       return { type: "leaf", at, id };
     }
     case "meta": {
       const title = optionalString(parsed["title"]);
-      if (title === undefined) return null;
+      if (title === undefined) {
+        return null;
+      }
       return {
         type: "meta",
         at,
@@ -474,7 +494,9 @@ export function parseConversationLogLine(
     case "ui-append":
     case "ui-update": {
       const entries = parsed["entries"];
-      if (!Array.isArray(entries)) return null;
+      if (!Array.isArray(entries)) {
+        return null;
+      }
       const accepted: ConversationUiEntry[] = [];
       const ids = new Set<string>();
       for (const [index, entry] of entries.entries()) {
@@ -489,8 +511,9 @@ export function parseConversationLogLine(
             Object.keys(entry).some((key) => key !== "type" && key !== "message") ||
             typeof entry["message"] !== "string" ||
             !isTerminalOutputKind(entry["type"])
-          )
+          ) {
             return null;
+          }
           const type = entry["type"];
           const text = Bun.stripANSI(entry["message"]);
           source = {
@@ -504,7 +527,9 @@ export function parseConversationLogLine(
                 : { kind: "notice", text, tone: type === "streamContent" ? "log" : type },
           };
         }
-        if (ids.has(source.id)) return null;
+        if (ids.has(source.id)) {
+          return null;
+        }
         ids.add(source.id);
         accepted.push(source);
       }
@@ -522,7 +547,9 @@ function acceptUiUpdateIds(
 ): boolean {
   const seen = new Set<string>();
   for (const entry of entries) {
-    if (!ids.has(entry.id) || seen.has(entry.id)) return false;
+    if (!ids.has(entry.id) || seen.has(entry.id)) {
+      return false;
+    }
     seen.add(entry.id);
   }
   return true;
@@ -532,10 +559,14 @@ function acceptUiUpdateIds(
 function acceptUiEntryIds(entries: readonly ConversationUiEntry[], ids: Set<string>): boolean {
   const added = new Set<string>();
   for (const entry of entries) {
-    if (ids.has(entry.id) || added.has(entry.id)) return false;
+    if (ids.has(entry.id) || added.has(entry.id)) {
+      return false;
+    }
     added.add(entry.id);
   }
-  for (const id of added) ids.add(id);
+  for (const id of added) {
+    ids.add(id);
+  }
   return true;
 }
 
@@ -545,14 +576,22 @@ function parseConversationLogRecords(lines: readonly string[]): (ConversationLog
   let uiIds = new Set<string>();
   return lines.map((line, index) => {
     const event = parseConversationLogLine(line, index, version);
-    if (event?.type === "conversation") version = event.version;
+    if (event?.type === "conversation") {
+      version = event.version;
+    }
     if (event?.type === "ui-transcript" || event?.type === "ui-append") {
       const nextIds = event.type === "ui-transcript" ? new Set<string>() : uiIds;
-      if (!acceptUiEntryIds(event.entries, nextIds)) return null;
+      if (!acceptUiEntryIds(event.entries, nextIds)) {
+        return null;
+      }
       uiIds = nextIds;
     }
-    if (event?.type === "ui-update" && !acceptUiUpdateIds(event.entries, uiIds)) return null;
-    if (event?.type === "ui-reset") uiIds = new Set<string>();
+    if (event?.type === "ui-update" && !acceptUiUpdateIds(event.entries, uiIds)) {
+      return null;
+    }
+    if (event?.type === "ui-reset") {
+      uiIds = new Set<string>();
+    }
     return event;
   });
 }
@@ -587,7 +626,9 @@ export function deriveConversationTitle(
   const firstUserMessage = messages.find((message) => message.role === "user");
   const typed = firstUserMessage === undefined ? "" : typedText(firstUserMessage);
   const firstLine = typed.replace(/\s+/g, " ").trim();
-  if (firstLine.length === 0) return undefined;
+  if (firstLine.length === 0) {
+    return undefined;
+  }
   return firstLine.length > DERIVED_TITLE_CHARS
     ? `${firstLine.slice(0, DERIVED_TITLE_CHARS - 1).trimEnd()}…`
     : firstLine;
@@ -599,7 +640,9 @@ export function deriveConversationTitle(
  * itself.
  */
 function isLegacyUserTitle(title: string, firstUserMessage: ChatMessage | undefined): boolean {
-  if (firstUserMessage === undefined) return true;
+  if (firstUserMessage === undefined) {
+    return true;
+  }
   const typed = typedText(firstUserMessage).replace(/\s+/g, " ").trim();
   const stem = title.endsWith("…") ? title.slice(0, -1).trimEnd() : title;
   return stem.length === 0 || !typed.startsWith(stem);
@@ -632,8 +675,12 @@ export function resolveConversationTitle(
   let userTitle: string | undefined;
   let storedTitle: string | undefined;
   for (const event of events) {
-    if (event.type !== "conversation" && event.type !== "meta") continue;
-    if (!isStoredTitle(event.title, header)) continue;
+    if (event.type !== "conversation" && event.type !== "meta") {
+      continue;
+    }
+    if (!isStoredTitle(event.title, header)) {
+      continue;
+    }
     const isUser =
       event.titleSource === "user" ||
       (!marksSource && isLegacyUserTitle(event.title, firstUserMessage));
@@ -706,18 +753,24 @@ export function reduceConversationLog(
         break;
       case "ui-transcript": {
         const nextIds = new Set<string>();
-        if (!acceptUiEntryIds(event.entries, nextIds)) break;
+        if (!acceptUiEntryIds(event.entries, nextIds)) {
+          break;
+        }
         uiIds = nextIds;
         uiTranscript = [...event.entries];
         break;
       }
       case "ui-append":
-        if (!acceptUiEntryIds(event.entries, uiIds)) break;
+        if (!acceptUiEntryIds(event.entries, uiIds)) {
+          break;
+        }
         uiTranscript ??= [];
         uiTranscript.push(...event.entries);
         break;
       case "ui-update": {
-        if (uiTranscript === undefined || !acceptUiUpdateIds(event.entries, uiIds)) break;
+        if (uiTranscript === undefined || !acceptUiUpdateIds(event.entries, uiIds)) {
+          break;
+        }
         const replacements = new Map(event.entries.map((entry) => [entry.id, entry]));
         uiTranscript = uiTranscript.map((entry) => replacements.get(entry.id) ?? entry);
         break;
@@ -729,7 +782,9 @@ export function reduceConversationLog(
     }
   }
 
-  if (!header) return null;
+  if (!header) {
+    return null;
+  }
   const messages = contextPath(
     buildConversationTree(events.map(treeEvent), header.conversationId),
   ).messages.map(({ id, message }) => ({ ...message, entryId: id }));
@@ -829,7 +884,9 @@ export function readConversationLog(
     const fs = yield* FileSystem.FileSystem;
     const logPath = conversationLogPath(agentId, conversationId, historyDirectory);
     const content = yield* readLogContent(fs, logPath);
-    if (content === null) return null;
+    if (content === null) {
+      return null;
+    }
     const events = parseConversationLog(content);
     yield* requireReadableLogVersion(events, logPath);
     return reduceConversationLog(events);
@@ -855,15 +912,23 @@ export function listConversationLogs(
 
     const infos: ConversationLogFileInfo[] = [];
     for (const name of names) {
-      if (!name.endsWith(CONVERSATION_LOG_EXTENSION)) continue;
+      if (!name.endsWith(CONVERSATION_LOG_EXTENSION)) {
+        continue;
+      }
       const filePath = path.join(directory, name);
       const info = yield* fs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(null)));
-      if (!info || info.type !== "File") continue;
+      if (!info || info.type !== "File") {
+        continue;
+      }
 
       const headerLine = yield* Effect.promise(() => readFirstLine(filePath));
-      if (headerLine === null) continue;
+      if (headerLine === null) {
+        continue;
+      }
       const header = parseConversationLogLine(headerLine);
-      if (header?.type !== "conversation") continue;
+      if (header?.type !== "conversation") {
+        continue;
+      }
 
       infos.push({
         agentId: header.agentId,
@@ -910,7 +975,9 @@ export function listAgentsWithConversations(
       const info = yield* fs
         .stat(path.join(root, name))
         .pipe(Effect.catch(() => Effect.succeed(null)));
-      if (info?.type === "Directory") agents.push(name);
+      if (info?.type === "Directory") {
+        agents.push(name);
+      }
     }
     return agents;
   });
@@ -1074,7 +1141,9 @@ const validatedUiEntries = new WeakSet<ConversationUiEntry>();
 
 function uiEntryFingerprint(entry: ConversationUiEntry): string {
   const cached = uiEntryFingerprints.get(entry);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    return cached;
+  }
   const result = createHash("sha256")
     .update(JSON.stringify(presentationEntrySchema.parse(entry)))
     .digest("hex");
@@ -1216,7 +1285,9 @@ export function migratePresentationLog(content: string): string | null {
   const lines = content.split("\n");
   const events = parseConversationLogRecords(lines);
   const header = events.find((event) => event?.type === "conversation");
-  if (header?.type !== "conversation" || header.version >= CONVERSATION_LOG_VERSION) return null;
+  if (header?.type !== "conversation" || header.version >= CONVERSATION_LOG_VERSION) {
+    return null;
+  }
   // Messages get the ids and parents a reader of the old format derives (see
   // `conversation-tree.ts`), so a conversation read before the upgrade keeps its ids after it.
   let ordinal = 0;
@@ -1236,7 +1307,9 @@ export function migratePresentationLog(content: string): string | null {
     } else if (event?.type === "rewrite") {
       previous = null;
     } else {
-      if (event?.type === "message") ordinal += 1;
+      if (event?.type === "message") {
+        ordinal += 1;
+      }
       upgraded.push(line);
     }
   });
@@ -1277,7 +1350,9 @@ export function migrateLegacyTitles(content: string): string | null {
 function appendStateFromContent(content: string): AppendState | null {
   const events = parseConversationLog(content);
   const conversation = reduceConversationLog(events);
-  if (!conversation) return null;
+  if (!conversation) {
+    return null;
+  }
   const uiTranscript = conversation.uiTranscript ?? [];
   return {
     tree: treeAppendState(
@@ -1303,13 +1378,17 @@ function loadAppendState(
     appendStateCache.delete(logPath);
 
     const read = yield* readLogContent(fs, logPath);
-    if (read === null) return { state: null, needsLeadingNewline: false };
+    if (read === null) {
+      return { state: null, needsLeadingNewline: false };
+    }
 
     yield* requireReadableLogVersion(parseConversationLog(read), logPath);
     let content = migratePresentationLog(read) ?? read;
     content = migrateLegacyTitles(content) ?? content;
     const collapsed = collapseSupersededUiEvents(content);
-    if (collapsed !== null) content = collapsed;
+    if (collapsed !== null) {
+      content = collapsed;
+    }
     if (content !== read) {
       yield* writeFileStringAtomic(logPath, content, {
         mode: stateFileMode(),
@@ -1365,7 +1444,9 @@ export function readConversationBranches(
       fs,
       conversationLogPath(agentId, conversationId, historyDirectory),
     );
-    if (read === null) return [];
+    if (read === null) {
+      return [];
+    }
     const events = parseConversationLog(read);
     return conversationBranches(buildConversationTree(events.map(treeEvent), conversationId));
   });
@@ -1500,7 +1581,9 @@ export function recordConversationTranscript(
 
     let state = loaded.state;
     const chunks: string[] = [];
-    if (loaded.needsLeadingNewline) chunks.push("\n");
+    if (loaded.needsLeadingNewline) {
+      chunks.push("\n");
+    }
 
     const title = (input.title ?? "").trim();
     const userTitle = input.titleSource === "user" && title.length > 0 ? title : undefined;

@@ -59,7 +59,9 @@ describe("configureWebSearch", () => {
     const terminal = stubTerminal({
       select: (() => {
         selectCalls += 1;
-        if (selectCalls === 1) return Effect.succeed("tavily");
+        if (selectCalls === 1) {
+          return Effect.succeed("tavily");
+        }
         return Effect.succeed("back");
       }) as TerminalService["select"],
       ask: () => Effect.succeed(undefined),
@@ -85,12 +87,16 @@ describe("configureWebSearch", () => {
     const terminal = stubTerminal({
       select: (() => {
         selectCalls += 1;
-        if (selectCalls === 1) return Effect.succeed("tavily");
+        if (selectCalls === 1) {
+          return Effect.succeed("tavily");
+        }
         return Effect.succeed("linkup");
       }) as TerminalService["select"],
       ask: (message) => {
         askedFor.push(message);
-        if (message.includes("tavily")) return Effect.succeed(undefined);
+        if (message.includes("tavily")) {
+          return Effect.succeed(undefined);
+        }
         return Effect.succeed("linkup-key");
       },
     });

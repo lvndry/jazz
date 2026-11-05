@@ -72,7 +72,9 @@ export function regressions(base: PerformanceReport, head: PerformanceReport): r
   for (const row of head.results) {
     const key = `${row.suite}/${row.name}`;
     const previous = prior.get(key);
-    if (previous === undefined) continue;
+    if (previous === undefined) {
+      continue;
+    }
     if (previous.perSample.length !== row.perSample.length) {
       throw new Error(
         `${key} has unpaired samples: ${previous.perSample.length} base, ${row.perSample.length} head`,
@@ -93,7 +95,9 @@ export function regressions(base: PerformanceReport, head: PerformanceReport): r
       }
     }
   }
-  if (compared === 0) throw new Error("Reports have no comparable benchmark rows");
+  if (compared === 0) {
+    throw new Error("Reports have no comparable benchmark rows");
+  }
   return failures;
 }
 
@@ -117,14 +121,16 @@ export function absoluteRegressions(
       continue;
     }
     for (const row of rows) {
-      if (rule.maxP95Ms !== undefined && row.p95Ms > rule.maxP95Ms)
+      if (rule.maxP95Ms !== undefined && row.p95Ms > rule.maxP95Ms) {
         failures.push(`${row.suite}/${row.name} exceeds ${rule.maxP95Ms} ms p95: ${row.p95Ms}`);
+      }
       for (const [metric, maximum] of Object.entries(rule.metrics ?? {})) {
         const value = row.metrics?.[metric];
-        if (value === undefined || value > maximum)
+        if (value === undefined || value > maximum) {
           failures.push(
             `${row.suite}/${row.name} ${metric}: ${value ?? "missing"}, maximum ${maximum}`,
           );
+        }
       }
     }
   }
@@ -138,8 +144,9 @@ export function sizeRegressions(
   label: string,
 ): readonly string[] {
   const failures: string[] = [];
-  if (headBytes > budgets.binaryMaxBytes)
+  if (headBytes > budgets.binaryMaxBytes) {
     failures.push(`${label} exceeds ${budgets.binaryMaxBytes} bytes: ${headBytes} bytes`);
+  }
   if (
     headBytes > baseBytes * (1 + budgets.binaryRelativeAllowance) &&
     headBytes > baseBytes + budgets.binaryNoiseBytes
@@ -156,7 +163,9 @@ if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
   const binary = args[0] === "--binary";
   if (args[0] === "--absolute") {
     const path = args[1];
-    if (path === undefined) throw new Error("Expected head report path");
+    if (path === undefined) {
+      throw new Error("Expected head report path");
+    }
     const failures = absoluteRegressions(
       reportSchema.parse(JSON.parse(readFileSync(path, "utf8"))),
     );
@@ -164,8 +173,9 @@ if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
     process.exitCode = failures.length === 0 ? 0 : 1;
   } else {
     const [basePath, headPath] = binary ? args.slice(1) : args;
-    if (basePath === undefined || headPath === undefined)
+    if (basePath === undefined || headPath === undefined) {
       throw new Error("Expected base and head paths");
+    }
     const failures = binary
       ? [
           ...sizeRegressions(statSync(basePath).size, statSync(headPath).size, "release binary"),
@@ -179,7 +189,9 @@ if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
           reportSchema.parse(JSON.parse(readFileSync(basePath, "utf8"))),
           reportSchema.parse(JSON.parse(readFileSync(headPath, "utf8"))),
         );
-    for (const failure of failures) console.error(failure);
+    for (const failure of failures) {
+      console.error(failure);
+    }
     console.log(
       failures.length === 0
         ? "Performance budgets passed"

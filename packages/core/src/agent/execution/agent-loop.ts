@@ -193,7 +193,9 @@ export function buildTimeBudgetPressureMessage(
   elapsedMs: number,
   maxDurationMs: number,
 ): { role: "user"; content: string } | null {
-  if (maxDurationMs <= 0) return null;
+  if (maxDurationMs <= 0) {
+    return null;
+  }
   const minutesUsed = Math.round(elapsedMs / 60_000);
   const minutesBudget = Math.round(maxDurationMs / 60_000);
   return budgetPressureMessage(
@@ -211,7 +213,9 @@ export function buildTokenBudgetPressureMessage(
   totalTokens: number,
   maxTokens: number,
 ): { role: "user"; content: string } | null {
-  if (maxTokens <= 0) return null;
+  if (maxTokens <= 0) {
+    return null;
+  }
   return budgetPressureMessage(
     totalTokens / maxTokens,
     "TOKEN",
@@ -227,7 +231,9 @@ export function buildOutputTokenBudgetPressureMessage(
   completionTokens: number,
   maxOutputTokens: number,
 ): { role: "user"; content: string } | null {
-  if (maxOutputTokens <= 0) return null;
+  if (maxOutputTokens <= 0) {
+    return null;
+  }
   return budgetPressureMessage(
     completionTokens / maxOutputTokens,
     "OUTPUT TOKEN",
@@ -242,7 +248,9 @@ export function buildCostBudgetPressureMessage(
   costUSD: number,
   maxCostUSD: number,
 ): { role: "user"; content: string } | null {
-  if (maxCostUSD <= 0) return null;
+  if (maxCostUSD <= 0) {
+    return null;
+  }
   return budgetPressureMessage(
     costUSD / maxCostUSD,
     "COST",
@@ -265,7 +273,9 @@ export function buildContextPressureMessage(
   budgetTokens: number,
   thresholds?: { warnThresholdRatio: number; compactThresholdRatio: number },
 ): { role: "user"; content: string } | null {
-  if (budgetTokens <= 0) return null;
+  if (budgetTokens <= 0) {
+    return null;
+  }
   const warnRatio = thresholds?.warnThresholdRatio ?? CONTEXT_WARN_THRESHOLD_RATIO;
   const compactRatio = thresholds?.compactThresholdRatio ?? CONTEXT_COMPACT_THRESHOLD_RATIO;
   const ratio = currentTokens / budgetTokens;
@@ -455,25 +465,35 @@ async function observeWorkspaceFiles(
   recent: Map<string, WorkspaceFileActivity>,
 ): Promise<void> {
   for (const item of results) {
-    if (!item.success) continue;
+    if (!item.success) {
+      continue;
+    }
     const kind =
       item.name === "read_file"
         ? "read"
         : item.name === "execute_edit_file" || item.name === "execute_write_file"
           ? "write"
           : undefined;
-    if (kind === undefined) continue;
+    if (kind === undefined) {
+      continue;
+    }
     const value = item.result;
-    if (typeof value !== "object" || value === null || !("path" in value)) continue;
+    if (typeof value !== "object" || value === null || !("path" in value)) {
+      continue;
+    }
     const path = value.path;
-    if (typeof path !== "string") continue;
+    if (typeof path !== "string") {
+      continue;
+    }
     try {
       const canonical = await realpath(path);
       recent.delete(canonical);
       recent.set(canonical, { path: canonical, kind });
       if (recent.size > MAX_RECENT_WORKSPACE_FILES) {
         const oldest = recent.keys().next().value;
-        if (oldest !== undefined) recent.delete(oldest);
+        if (oldest !== undefined) {
+          recent.delete(oldest);
+        }
       }
     } catch {
       // A path removed by another process cannot be inspected by the workspace plugin.
@@ -493,7 +513,9 @@ export function detectMeltdown(
   recentToolCalls: TrackedToolCall[],
   windowSize = MELTDOWN_WINDOW_SIZE,
 ): boolean {
-  if (recentToolCalls.length < windowSize) return false;
+  if (recentToolCalls.length < windowSize) {
+    return false;
+  }
   const window = recentToolCalls.slice(-windowSize);
   const keys = window.map((tc) => `${tc.name}:${tc.arguments}`);
   const uniqueness = new Set(keys).size / windowSize;
@@ -1305,7 +1327,9 @@ function handleToolPhase(
       remainingRunBudget: () => remainingRunBudget(deps),
       subagents: deps.subagents,
       attachMedia: (attachment: MessageAttachment) => {
-        if (pendingAttachments.length >= MAX_ATTACHMENTS_PER_MESSAGE) return;
+        if (pendingAttachments.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
+          return;
+        }
         pendingAttachments.push(attachment);
       },
       supportedAttachmentKinds: supportedAttachmentKinds,
@@ -2513,10 +2537,18 @@ export function executeAgentLoop(
         if (options.declaredAttachmentKinds !== undefined) {
           supportedAttachmentKinds.push(...options.declaredAttachmentKinds);
         } else {
-          if (modelMetadata?.ingestImage) supportedAttachmentKinds.push("image");
-          if (modelMetadata?.ingestPdf) supportedAttachmentKinds.push("pdf");
-          if (modelMetadata?.ingestAudio) supportedAttachmentKinds.push("audio");
-          if (modelMetadata?.ingestVideo) supportedAttachmentKinds.push("video");
+          if (modelMetadata?.ingestImage) {
+            supportedAttachmentKinds.push("image");
+          }
+          if (modelMetadata?.ingestPdf) {
+            supportedAttachmentKinds.push("pdf");
+          }
+          if (modelMetadata?.ingestAudio) {
+            supportedAttachmentKinds.push("audio");
+          }
+          if (modelMetadata?.ingestVideo) {
+            supportedAttachmentKinds.push("video");
+          }
         }
 
         const deps: LoopDeps = {

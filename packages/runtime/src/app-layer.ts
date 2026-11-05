@@ -462,7 +462,9 @@ function emitCommandExecuted(
   durationMs: number,
 ): Effect.Effect<void> {
   const command = getCurrentCommandName();
-  if (command === undefined) return Effect.void;
+  if (command === undefined) {
+    return Effect.void;
+  }
 
   return emitTelemetry((telemetry) =>
     telemetry.recordCommandExecuted({

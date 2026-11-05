@@ -955,7 +955,9 @@ describe("parseConversationLogLine", () => {
         2,
       );
       expect(event?.type).toBe("ui-transcript");
-      if (event?.type !== "ui-transcript") throw new Error("Legacy UI event expected");
+      if (event?.type !== "ui-transcript") {
+        throw new Error("Legacy UI event expected");
+      }
       expect(event.entries[0]?.timestamp).toBe(timestamp);
       expect(presentationEntrySchema.safeParse(event.entries[0]).success).toBe(true);
     }
@@ -1316,7 +1318,9 @@ describe("semantic presentation persistence", () => {
     const body = [header, message, "unreadable record", ui, ""].join("\n");
     const upgraded = migratePresentationLog(body);
     expect(upgraded).not.toBeNull();
-    if (upgraded === null) throw new Error("Migration expected");
+    if (upgraded === null) {
+      throw new Error("Migration expected");
+    }
     expect(upgraded).toContain(
       JSON.stringify({
         ...JSON.parse(message),

@@ -37,8 +37,11 @@ describe("work journal", () => {
   });
 
   afterEach(async () => {
-    if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = previousHome;
+    if (previousHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = previousHome;
+    }
     await nodeFs.rm(jazzHome, { recursive: true, force: true });
   });
 
@@ -91,8 +94,11 @@ describe("work state lifecycle", () => {
   });
 
   afterEach(async () => {
-    if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = previousHome;
+    if (previousHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = previousHome;
+    }
     await nodeFs.rm(jazzHome, { recursive: true, force: true });
   });
 

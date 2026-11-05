@@ -35,7 +35,9 @@ async function readPersonaDefinition(
   try {
     return { filePath: canonicalPath, content: await fs.readFile(canonicalPath, "utf-8") };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
     const legacyPath = path.join(personaDir, legacy);
     return { filePath: legacyPath, content: await fs.readFile(legacyPath, "utf-8") };
   }
@@ -126,8 +128,12 @@ function parsePersonaFrontmatter(
  */
 function parseToolProfile(data: Record<string, unknown>): PersonaToolProfile | undefined {
   const raw = data["tools"];
-  if (raw === undefined || raw === null) return undefined;
-  if (typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    return undefined;
+  }
 
   const block = raw as Record<string, unknown>;
   const profile: { categories?: readonly string[]; deny?: readonly string[] } = {};
@@ -141,10 +147,14 @@ function parseToolProfile(data: Record<string, unknown>): PersonaToolProfile | u
   const deny = block["deny"];
   if (Array.isArray(deny)) {
     const cleaned = deny.filter((d): d is string => typeof d === "string" && d.length > 0);
-    if (cleaned.length > 0) profile.deny = cleaned;
+    if (cleaned.length > 0) {
+      profile.deny = cleaned;
+    }
   }
 
-  if (profile.categories === undefined && profile.deny === undefined) return undefined;
+  if (profile.categories === undefined && profile.deny === undefined) {
+    return undefined;
+  }
   return profile;
 }
 
@@ -328,7 +338,9 @@ updatedAt: "${now.toISOString()}"
             builtinPath,
             `builtin-${builtinName}`,
           ).pipe(Effect.catchTag("StorageNotFoundError", () => Effect.succeed(null)));
-          if (builtinResult) return builtinResult;
+          if (builtinResult) {
+            return builtinResult;
+          }
 
           // Scan and match by name (handles id "default" -> builtin-default)
           const builtinMeta = yield* scanMarkdownIndex({
@@ -358,7 +370,9 @@ updatedAt: "${now.toISOString()}"
         const customResult = yield* this.loadPersonaFromFile(customDir, id).pipe(
           Effect.catchTag("StorageNotFoundError", () => Effect.succeed(null)),
         );
-        if (customResult) return customResult;
+        if (customResult) {
+          return customResult;
+        }
 
         return yield* Effect.fail(
           new StorageNotFoundError({
@@ -421,7 +435,9 @@ updatedAt: "${now.toISOString()}"
           if (excludeInternal && (INTERNAL_PERSONA_NAMES as readonly string[]).includes(m.name)) {
             continue;
           }
-          if (seenDirs.has(m.path)) continue;
+          if (seenDirs.has(m.path)) {
+            continue;
+          }
           seenDirs.add(m.path);
           const persona = yield* this.loadPersonaFromFile(
             m.path,
@@ -444,7 +460,9 @@ updatedAt: "${now.toISOString()}"
               }),
             ),
           );
-          if (persona) personas.push(persona);
+          if (persona) {
+            personas.push(persona);
+          }
         }
         return personas;
       }.bind(this),
@@ -474,7 +492,9 @@ updatedAt: "${now.toISOString()}"
               reason: `Failed to check the custom personas directory: ${toError(error).message}`,
             }),
         });
-        if (!dirExists) return [];
+        if (!dirExists) {
+          return [];
+        }
 
         return yield* this.listPersonasFromDir(customDir, "custom", false);
       }.bind(this),
@@ -503,7 +523,9 @@ updatedAt: "${now.toISOString()}"
           const key = p.name.toLowerCase();
           if (seenNames.has(key)) {
             const idx = result.findIndex((r) => r.name.toLowerCase() === key);
-            if (idx >= 0) result[idx] = p;
+            if (idx >= 0) {
+              result[idx] = p;
+            }
           } else {
             seenNames.add(key);
             result.push(p);
@@ -519,7 +541,9 @@ updatedAt: "${now.toISOString()}"
           const now = new Date();
           for (const info of pluginPersonas) {
             const key = info.name.toLowerCase();
-            if (seenNames.has(key)) continue;
+            if (seenNames.has(key)) {
+              continue;
+            }
             seenNames.add(key);
             result.push({
               id: `plugin-${info.pluginId}-${info.name}`,
@@ -684,7 +708,9 @@ updatedAt: "${updated.updatedAt.toISOString()}"
         const byId = yield* this.getPersona(identifier).pipe(
           Effect.catchTag("StorageNotFoundError", () => Effect.succeed(null)),
         );
-        if (byId) return byId;
+        if (byId) {
+          return byId;
+        }
 
         return yield* this.getPersonaByName(identifier);
       }.bind(this),
