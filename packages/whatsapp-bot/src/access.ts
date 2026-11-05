@@ -41,7 +41,9 @@ export function normalizeJid(value: string): string {
   const withoutDevice = withoutServer.split(":")[0] ?? "";
   // A group id is not a phone number and must survive intact; only strip
   // punctuation from things that look like numbers.
-  if (/^[\d\s()+.-]+$/.test(withoutDevice)) return withoutDevice.replace(/[\s()+.-]/g, "");
+  if (/^[\d\s()+.-]+$/.test(withoutDevice)) {
+    return withoutDevice.replace(/[\s()+.-]/g, "");
+  }
   return withoutDevice;
 }
 

@@ -229,7 +229,9 @@ function resolveCanGenerateMedia(
       try: () => getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
       catch: (error) => error,
     }).pipe(Effect.catch(() => Effect.succeed(undefined)));
-    if (metadata === undefined) return false;
+    if (metadata === undefined) {
+      return false;
+    }
 
     return metadata.generatesImage || metadata.generatesAudio || metadata.generatesVideo;
   });
@@ -260,19 +262,35 @@ function resolveSupportedAttachmentKinds(
       // the mapping stays exhaustive so widening it is a one-line change in one place.
       const support = resolveOllamaAttachmentSupport(extras.capabilities, metadata);
       const localKinds: AttachmentKind[] = [];
-      if (support.ingestImage) localKinds.push("image");
-      if (support.ingestPdf) localKinds.push("pdf");
-      if (support.ingestAudio) localKinds.push("audio");
+      if (support.ingestImage) {
+        localKinds.push("image");
+      }
+      if (support.ingestPdf) {
+        localKinds.push("pdf");
+      }
+      if (support.ingestAudio) {
+        localKinds.push("audio");
+      }
       return localKinds;
     }
 
-    if (metadata === undefined) return [];
+    if (metadata === undefined) {
+      return [];
+    }
 
     const kinds: AttachmentKind[] = [];
-    if (metadata.ingestImage) kinds.push("image");
-    if (metadata.ingestPdf) kinds.push("pdf");
-    if (metadata.ingestAudio) kinds.push("audio");
-    if (metadata.ingestVideo) kinds.push("video");
+    if (metadata.ingestImage) {
+      kinds.push("image");
+    }
+    if (metadata.ingestPdf) {
+      kinds.push("pdf");
+    }
+    if (metadata.ingestAudio) {
+      kinds.push("audio");
+    }
+    if (metadata.ingestVideo) {
+      kinds.push("video");
+    }
     return kinds;
   });
 }
@@ -329,7 +347,9 @@ export function resolveOllamaRunningContextWindow(
 ): Effect.Effect<number | undefined, never, LLMService> {
   return Effect.gen(function* () {
     const llmService = yield* LLMServiceTag;
-    if (isOllamaCloudModel(model)) return undefined;
+    if (isOllamaCloudModel(model)) {
+      return undefined;
+    }
     const baseUrl = llmService.resolveLocalProviderBaseUrl("ollama", llmConfig);
     const extras = yield* llmService
       .fetchOllamaModelDetails(baseUrl, model)
@@ -364,7 +384,9 @@ function resolveAgentWorkingDirectory(
 ): Effect.Effect<string, never> {
   return Effect.gen(function* () {
     const fileSystemContextOption = yield* Effect.serviceOption(FileSystemContextServiceTag);
-    if (!Option.isSome(fileSystemContextOption)) return process.cwd();
+    if (!Option.isSome(fileSystemContextOption)) {
+      return process.cwd();
+    }
     return yield* fileSystemContextOption.value.getCwd({
       agentId,
       ...(options.conversationId !== undefined ? { conversationId: options.conversationId } : {}),
@@ -474,7 +496,9 @@ export function renderSkillRoutingAdvisory(
   outcome: SkillRouteOutcome,
   liveSkillNames: ReadonlySet<string>,
 ): string | undefined {
-  if (outcome.status !== "answered") return undefined;
+  if (outcome.status !== "answered") {
+    return undefined;
+  }
   const best = [...outcome.distribution.skills]
     .filter((choice) => liveSkillNames.has(choice.name))
     .sort((left, right) => right.probability - left.probability)[0];
@@ -677,7 +701,7 @@ function initializeAgentRun(
         : undefined;
 
     // Register skill tools with discovered skill names as enum constraint
-    yield* registerSkillSystemTools(relevantSkills.map((s) => s.name));
+    yield* registerSkillSystemTools(relevantSkills.map((skill) => skill.name));
 
     // Get agent's tool names
     const agentToolNames = normalizeToolConfig(agent.config.tools, {
@@ -815,7 +839,9 @@ function initializeAgentRun(
     // to it here would leave every gated tool proposable and none of them executable.
     // Advertisement and execution agree by sharing this one set instead.
     for (const toolName of expandedToolNameSet) {
-      if (denied.has(toolName)) expandedToolNameSet.delete(toolName);
+      if (denied.has(toolName)) {
+        expandedToolNameSet.delete(toolName);
+      }
     }
 
     const expandedToolNames = Array.from(expandedToolNameSet);
@@ -1026,7 +1052,7 @@ function initializeAgentRun(
       // very next LLM request. Dedup by name: a repeat search_tools call for the same tool must
       // not send its schema twice.
       unlockDeferredTools: (definitions) => {
-        const alreadyPresent = new Set(tools.map((t) => t.function.name));
+        const alreadyPresent = new Set(tools.map((tool) => tool.function.name));
         for (const definition of definitions) {
           if (!alreadyPresent.has(definition.function.name)) {
             tools.push(definition);

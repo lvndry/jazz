@@ -102,12 +102,24 @@ export function summarizeToolCallArgs(
         ? value.toUpperCase()
         : `<omitted: ${value.length} chars>`;
     }
-    if (value === null || typeof value === "boolean") return value;
-    if (typeof value === "number") return "<number>";
-    if (typeof value !== "object") return `<${typeof value}>`;
-    if (seen.has(value)) return "<circular>";
-    if (Array.isArray(value)) return { count: value.length };
-    if (depth >= 3) return "<nested>";
+    if (value === null || typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "number") {
+      return "<number>";
+    }
+    if (typeof value !== "object") {
+      return `<${typeof value}>`;
+    }
+    if (seen.has(value)) {
+      return "<circular>";
+    }
+    if (Array.isArray(value)) {
+      return { count: value.length };
+    }
+    if (depth >= 3) {
+      return "<nested>";
+    }
     seen.add(value);
     const summary: Record<string, unknown> = {};
     for (const [index, [nestedKey, nestedValue]] of Object.entries(value).slice(0, 32).entries()) {
@@ -120,10 +132,14 @@ export function summarizeToolCallArgs(
 }
 
 function redactLogValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
-  if (value === null || typeof value !== "object") return value;
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
 
   const existing = seen.get(value);
-  if (existing !== undefined) return "<circular>";
+  if (existing !== undefined) {
+    return "<circular>";
+  }
 
   if (Array.isArray(value)) {
     const redacted: unknown[] = [];
@@ -135,7 +151,9 @@ function redactLogValue(value: unknown, seen: WeakMap<object, unknown>): unknown
   }
 
   const prototype = Reflect.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) return value;
+  if (prototype !== Object.prototype && prototype !== null) {
+    return value;
+  }
 
   const redacted: Record<string, unknown> = {};
   seen.set(value, redacted);
@@ -287,7 +305,9 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    if (!shouldLog("debug")) return Effect.void;
+    if (!shouldLog("debug")) {
+      return Effect.void;
+    }
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
       const conversationId = (yield* logScopeRef).at(-1);
@@ -302,7 +322,9 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   info(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    if (!shouldLog("info")) return Effect.void;
+    if (!shouldLog("info")) {
+      return Effect.void;
+    }
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
       const conversationId = (yield* logScopeRef).at(-1);
@@ -317,7 +339,9 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   warn(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    if (!shouldLog("warn")) return Effect.void;
+    if (!shouldLog("warn")) {
+      return Effect.void;
+    }
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
       const conversationId = (yield* logScopeRef).at(-1);
@@ -332,7 +356,9 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   error(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    if (!shouldLog("error")) return Effect.void;
+    if (!shouldLog("error")) {
+      return Effect.void;
+    }
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
       const conversationId = (yield* logScopeRef).at(-1);

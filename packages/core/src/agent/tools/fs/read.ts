@@ -37,7 +37,9 @@ const lineIndexSchema = z
  * `startLine` is the 1-based file line of `lines[0]`.
  */
 export function formatNumberedContent(lines: readonly string[], startLine: number): string {
-  if (lines.length === 0) return "";
+  if (lines.length === 0) {
+    return "";
+  }
   const lastLine = startLine + lines.length - 1;
   const width = String(Math.max(lastLine, 1)).length;
   return lines
@@ -59,8 +61,12 @@ export function resolveLineRange(
   }
 
   function resolve(value: number | undefined, fallback: number): number {
-    if (value === undefined) return fallback;
-    if (value > 0) return Math.min(value, totalLines);
+    if (value === undefined) {
+      return fallback;
+    }
+    if (value > 0) {
+      return Math.min(value, totalLines);
+    }
     return Math.max(1, totalLines + value + 1);
   }
 
@@ -286,8 +292,12 @@ export function isIncrementalRead(args: {
   readonly startLine?: number | undefined;
   readonly endLine?: number | undefined;
 }): boolean {
-  if (args.sinceByte === undefined) return false;
-  if (args.sinceByte > 0) return true;
+  if (args.sinceByte === undefined) {
+    return false;
+  }
+  if (args.sinceByte > 0) {
+    return true;
+  }
   return args.startLine === undefined && args.endLine === undefined;
 }
 
@@ -352,7 +362,9 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
     handler: (args, context) =>
       Effect.gen(function* () {
         const resolved = yield* resolveReadableFile(args.path, context);
-        if (resolved.kind === "failure") return resolved.result;
+        if (resolved.kind === "failure") {
+          return resolved.result;
+        }
         const filePathResult = resolved.path;
         const fs = yield* FileSystem.FileSystem;
 
@@ -363,7 +375,9 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         const mediaOutcome = yield* Effect.promise(() =>
           attachMediaFile(filePathResult, context, known),
         );
-        if (mediaOutcome.kind !== "not-media") return mediaOutcome.result;
+        if (mediaOutcome.kind !== "not-media") {
+          return mediaOutcome.result;
+        }
 
         const untrusted = yield* localFileProvenance(filePathResult, "read_file", context);
         const provenance = untrusted !== undefined ? { untrusted } : {};

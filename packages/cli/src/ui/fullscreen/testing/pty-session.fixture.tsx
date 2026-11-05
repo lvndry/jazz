@@ -15,7 +15,9 @@ import { nativeGrid } from "./terminal-oracle";
 
 function fixturePath(name: string): string {
   const value = process.env[name];
-  if (value === undefined) throw new Error("Missing private PTY fixture path");
+  if (value === undefined) {
+    throw new Error("Missing private PTY fixture path");
+  }
   return value;
 }
 const controlPath = fixturePath("JAZZ_PTY_CONTROL");
@@ -57,11 +59,23 @@ const handle = mountFullscreenApp({
 
 /** Private control transport never uses the terminal output stream or composer input. */
 async function readCommand(): Promise<void> {
-  if (reading || mounted === undefined) return;
+  if (reading || mounted === undefined) {
+    return;
+  }
   reading = true;
   try {
-    const parsed = commandSchema.safeParse(await Bun.file(controlPath).json());
-    if (!parsed.success || parsed.data.sequence <= sequence) return;
+    const raw: unknown = await Bun.file(controlPath)
+      .json()
+      .catch((error: unknown) => {
+        if (error instanceof SyntaxError) {
+          return null;
+        }
+        throw error;
+      });
+    const parsed = commandSchema.safeParse(raw);
+    if (!parsed.success || parsed.data.sequence <= sequence) {
+      return;
+    }
     sequence = parsed.data.sequence;
     switch (parsed.data.action) {
       case "burst":
@@ -76,7 +90,9 @@ async function readCommand(): Promise<void> {
         break;
       case "noise":
       case "capture":
-        if (parsed.data.action === "noise") process.stdout.write("\u001b[2J\u001b[H");
+        if (parsed.data.action === "noise") {
+          process.stdout.write("\u001b[2J\u001b[H");
+        }
         await new Promise<void>((resolve, reject) => {
           const renderer = mounted?.renderer;
           if (renderer === undefined) {

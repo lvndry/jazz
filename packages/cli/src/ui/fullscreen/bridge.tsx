@@ -159,7 +159,9 @@ const WAITING = ["comping behind you", "turning it over", "two horns out", "digg
  * is reasoning, the row says so plainly.
  */
 export function waitingLabel(phase: string, elapsedMs: number | undefined): string {
-  if (phase === "thinking") return "thinking";
+  if (phase === "thinking") {
+    return "thinking";
+  }
   return WAITING[Math.floor((elapsedMs ?? 0) / WAITING_ROTATE_MS) % WAITING.length] as string;
 }
 
@@ -176,7 +178,9 @@ export const APPROVAL_ARM_MS = 250;
 
 /** Discard keystrokes already sitting on stdin before the card can see them. */
 export function flushPendingTerminalKeys(stdin: NodeJS.ReadStream = process.stdin): void {
-  if (stdin.readable !== true || typeof stdin.read !== "function") return;
+  if (stdin.readable !== true || typeof stdin.read !== "function") {
+    return;
+  }
   while (stdin.read() !== null) {
     // Buffered Enter / always-allow must not land on a card that just appeared.
   }
@@ -293,7 +297,9 @@ function choicesAtIndices(choices: readonly Choice[], indices: readonly number[]
 }
 
 function isSuggestion(value: unknown): value is Suggestion {
-  if (value === null || typeof value !== "object") return false;
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
   const suggestion = value as Record<string, unknown>;
   return (
     typeof suggestion["value"] === "string" &&
@@ -303,9 +309,13 @@ function isSuggestion(value: unknown): value is Suggestion {
 }
 
 function promptSuggestions(prompt: PromptState): readonly Suggestion[] {
-  if (prompt.type !== "questionnaire") return [];
+  if (prompt.type !== "questionnaire") {
+    return [];
+  }
   const suggestions = prompt.options?.["suggestions"];
-  if (!Array.isArray(suggestions)) return [];
+  if (!Array.isArray(suggestions)) {
+    return [];
+  }
   const candidates: readonly unknown[] = suggestions;
   return candidates.filter(isSuggestion);
 }
@@ -355,8 +365,12 @@ export function binaryAnswers(
   prompt: PromptState,
   choices: readonly { readonly label: string }[],
 ): { readonly yes: number; readonly no: number } | undefined {
-  if (prompt.type === "confirm") return { yes: 0, no: 1 };
-  if (prompt.type !== "questionnaire") return undefined;
+  if (prompt.type === "confirm") {
+    return { yes: 0, no: 1 };
+  }
+  if (prompt.type !== "questionnaire") {
+    return undefined;
+  }
   return binaryAnswerIndices(
     choices.map((choice) => choice.label),
     allowsMultipleAnswers(prompt),
@@ -367,7 +381,9 @@ function questionPosition(
   prompt: PromptState,
 ): { readonly index: number; readonly total: number } | undefined {
   const position = prompt.options?.["position"];
-  if (position === null || typeof position !== "object") return undefined;
+  if (position === null || typeof position !== "object") {
+    return undefined;
+  }
   const { index, total } = position as Record<string, unknown>;
   return typeof index === "number" && typeof total === "number" ? { index, total } : undefined;
 }
@@ -399,7 +415,9 @@ function filePickerBasePath(prompt: PromptState): string {
 
 function filePickerExtensions(prompt: PromptState): readonly string[] | undefined {
   const extensions = prompt.options?.["extensions"];
-  if (!Array.isArray(extensions)) return undefined;
+  if (!Array.isArray(extensions)) {
+    return undefined;
+  }
   return extensions.filter((value): value is string => typeof value === "string");
 }
 
@@ -459,7 +477,9 @@ function selectedAnswerIndices(
   checked: readonly number[],
   selectedIndex: number | undefined,
 ): number[] {
-  if (checked.length > 0) return [...checked].sort((left, right) => left - right);
+  if (checked.length > 0) {
+    return [...checked].sort((left, right) => left - right);
+  }
   return selectedIndex === undefined ? [] : [selectedIndex];
 }
 
@@ -470,11 +490,15 @@ function moveChoice(
   allowCustom: boolean,
 ): number {
   const total = choices.length + (allowCustom ? 1 : 0);
-  if (total <= 0) return 0;
+  if (total <= 0) {
+    return 0;
+  }
   let next = selected;
   for (let step = 0; step < total; step += 1) {
     next = wrapIndex(next + delta, total);
-    if (next === choices.length || choices[next]?.disabled !== true) return next;
+    if (next === choices.length || choices[next]?.disabled !== true) {
+      return next;
+    }
   }
   return selected;
 }
@@ -514,16 +538,24 @@ function promptStep(prompt: PromptState): QuestionStep | undefined {
 
 function validatePrompt(prompt: PromptState, value: string): string | null {
   const candidate = prompt.options?.["validate"];
-  if (typeof candidate !== "function") return null;
+  if (typeof candidate !== "function") {
+    return null;
+  }
   const result = (candidate as (input: string) => boolean | string)(value);
-  if (result === true) return null;
+  if (result === true) {
+    return null;
+  }
   return typeof result === "string" ? result : "Invalid input";
 }
 
 function hiddenPromptKeys(prompt: PromptState | null): readonly string[] | undefined {
-  if (prompt?.type !== "hidden") return undefined;
+  if (prompt?.type !== "hidden") {
+    return undefined;
+  }
   const keys = prompt.options?.["keys"];
-  return Array.isArray(keys) ? keys.filter((k): k is string => typeof k === "string") : undefined;
+  return Array.isArray(keys)
+    ? keys.filter((key): key is string => typeof key === "string")
+    : undefined;
 }
 
 /** The picker's rows: the listings the `/theme` command opened it with. */
@@ -691,7 +723,9 @@ function overlayFromPrompt(
  */
 function lineStartBefore(characters: readonly string[], at: number): number {
   let index = Math.max(0, Math.min(at, characters.length));
-  while (index > 0 && characters[index - 1] !== "\n") index -= 1;
+  while (index > 0 && characters[index - 1] !== "\n") {
+    index -= 1;
+  }
   return index;
 }
 
@@ -699,14 +733,18 @@ function lineStartBefore(characters: readonly string[], at: number): number {
 function lineEndAfter(characters: readonly string[], at: number): number {
   const limit = characters.length;
   let index = Math.max(0, Math.min(at, limit));
-  while (index < limit && characters[index] !== "\n") index += 1;
+  while (index < limit && characters[index] !== "\n") {
+    index += 1;
+  }
   return index;
 }
 
 /** The settled tool calls after the last user message: the turn a stop summarises. */
 function currentTurnReceipts(blocks: readonly Block[]): ReceiptFacts[] {
   let start = blocks.length;
-  while (start > 0 && blocks[start - 1]?.kind !== "user") start -= 1;
+  while (start > 0 && blocks[start - 1]?.kind !== "user") {
+    start -= 1;
+  }
   return blocks.slice(start).flatMap((block) =>
     block.kind === "tool"
       ? [
@@ -727,7 +765,9 @@ function liveReasoningElapsedMs(
 ): number | undefined {
   let startedAt: number | undefined;
   for (const region of regions) {
-    if (region.kind === "reasoning") startedAt = region.startedAt;
+    if (region.kind === "reasoning") {
+      startedAt = region.startedAt;
+    }
   }
   return startedAt === undefined ? undefined : Math.max(0, now - startedAt);
 }
@@ -738,7 +778,9 @@ function liveToolsFrom(
   canDetach: boolean,
   expandedToolCallIds: ReadonlySet<string>,
 ): LiveTool[] {
-  if (activity.phase !== "tool-execution") return [];
+  if (activity.phase !== "tool-execution") {
+    return [];
+  }
   const visibleTools = activity.tools.filter(
     (tool) => !LIVE_ZONE_EXCLUDED_TOOLS.has(tool.toolName),
   );
@@ -787,14 +829,22 @@ function stepFrom(activity: ActivityState): StepLine | undefined {
     return undefined;
   }
   const todos = activity.todoSnapshot.filter((todo) => todo.status !== "cancelled");
-  if (todos.length === 0) return undefined;
+  if (todos.length === 0) {
+    return undefined;
+  }
   const activeIndex = todos.findIndex((todo) => todo.status === "in_progress");
   const pendingIndex = todos.findIndex((todo) => todo.status === "pending");
   let index = activeIndex;
-  if (index < 0) index = pendingIndex;
-  if (index < 0) index = todos.length - 1;
+  if (index < 0) {
+    index = pendingIndex;
+  }
+  if (index < 0) {
+    index = todos.length - 1;
+  }
   const todo = todos[index];
-  if (todo === undefined) return undefined;
+  if (todo === undefined) {
+    return undefined;
+  }
   return { index: index + 1, total: todos.length, label: todo.content };
 }
 
@@ -1057,7 +1107,9 @@ export function FullscreenBridge(): React.ReactNode {
   const announceStop = useCallback((): void => {
     const context = stopContextRef.current;
     const startedAt = runStartedAt.current;
-    if (context === null || startedAt === null) return;
+    if (context === null || startedAt === null) {
+      return;
+    }
     store.printOutput({
       type: "log",
       message: {
@@ -1096,7 +1148,9 @@ export function FullscreenBridge(): React.ReactNode {
   }, [prompt, updatePromptControls]);
 
   useEffect(() => {
-    if (approval !== null) flushPendingTerminalKeys();
+    if (approval !== null) {
+      flushPendingTerminalKeys();
+    }
     setApprovalArmedState(false);
     setApprovalFieldOffset(0);
     setApprovalExpanded(false);
@@ -1129,7 +1183,9 @@ export function FullscreenBridge(): React.ReactNode {
 
   // A new turn prunes the finished runs, and with them whatever was open or highlighted.
   useEffect(() => {
-    if (subagentRuns.length === 0 && backgroundItemsNow.length === 0) setAgentCursor(null);
+    if (subagentRuns.length === 0 && backgroundItemsNow.length === 0) {
+      setAgentCursor(null);
+    }
     if (inspectedId !== null && !subagentRuns.some((run) => run.id === inspectedId)) {
       setInspectedId(null);
     }
@@ -1147,20 +1203,28 @@ export function FullscreenBridge(): React.ReactNode {
 
   useEffect(() => {
     return () => {
-      if (subagentNoticeTimer.current !== undefined) clearTimeout(subagentNoticeTimer.current);
+      if (subagentNoticeTimer.current !== undefined) {
+        clearTimeout(subagentNoticeTimer.current);
+      }
     };
   }, []);
 
   useEffect(() => {
-    if (!busy) disarmQuit();
+    if (!busy) {
+      disarmQuit();
+    }
   }, [busy, disarmQuit]);
 
   useEffect(() => {
-    if (session.interruptHandler === null) disarmQuit();
+    if (session.interruptHandler === null) {
+      disarmQuit();
+    }
   }, [session.interruptHandler, disarmQuit]);
 
   useEffect(() => {
-    if (approval === null) return;
+    if (approval === null) {
+      return;
+    }
     const timer = setTimeout(() => {
       setApprovalArmedState(true);
     }, APPROVAL_ARM_MS);
@@ -1168,7 +1232,9 @@ export function FullscreenBridge(): React.ReactNode {
   }, [approval, setApprovalArmedState]);
 
   useEffect(() => {
-    if (prompt?.type !== "filepicker") return;
+    if (prompt?.type !== "filepicker") {
+      return;
+    }
     const basePath = filePickerBasePath(prompt);
     const extensions = filePickerExtensions(prompt);
     const includeDirectories = prompt.options?.["includeDirectories"] === true;
@@ -1210,7 +1276,9 @@ export function FullscreenBridge(): React.ReactNode {
     activity.phase === "thinking";
   const runActive = busy || presentation.document.streamingId !== undefined || running;
   useEffect(() => {
-    if (!runActive) disarmQuit();
+    if (!runActive) {
+      disarmQuit();
+    }
   }, [runActive, disarmQuit]);
   useEffect(() => {
     if (!runActive) {
@@ -1218,7 +1286,9 @@ export function FullscreenBridge(): React.ReactNode {
       setElapsedMs(undefined);
       return;
     }
-    if (runStartedAt.current === null) runStartedAt.current = Date.now();
+    if (runStartedAt.current === null) {
+      runStartedAt.current = Date.now();
+    }
     const update = (): void => {
       setElapsedMs(Math.max(0, Date.now() - (runStartedAt.current ?? Date.now())));
     };
@@ -1277,7 +1347,9 @@ export function FullscreenBridge(): React.ReactNode {
       setReservedRows(neededRows);
       return;
     }
-    if (neededRows === reservedRows) return;
+    if (neededRows === reservedRows) {
+      return;
+    }
     const timer = setTimeout(() => setReservedRows(neededRows), SETTLE_MS);
     return () => clearTimeout(timer);
   }, [neededRows, reservedRows]);
@@ -1305,7 +1377,9 @@ export function FullscreenBridge(): React.ReactNode {
           }
         })
         .catch(() => {
-          if (!cancelled) setSearchHits([]);
+          if (!cancelled) {
+            setSearchHits([]);
+          }
         });
     }, 120);
     return () => {
@@ -1371,7 +1445,9 @@ export function FullscreenBridge(): React.ReactNode {
   const submit = useCallback(
     (text: string) => {
       const active = promptRef.current;
-      if (active === null || text.trim().length === 0) return;
+      if (active === null || text.trim().length === 0) {
+        return;
+      }
       historyIndex.current = null;
       setSubmitCount((count) => count + 1);
       commitComposer(EMPTY_COMPOSER);
@@ -1381,7 +1457,9 @@ export function FullscreenBridge(): React.ReactNode {
   );
 
   const flashSubagentNotice = useCallback((notice: string): void => {
-    if (subagentNoticeTimer.current !== undefined) clearTimeout(subagentNoticeTimer.current);
+    if (subagentNoticeTimer.current !== undefined) {
+      clearTimeout(subagentNoticeTimer.current);
+    }
     setSubagentNotice(notice);
     subagentNoticeTimer.current = setTimeout(() => {
       setSubagentNotice(undefined);
@@ -1415,11 +1493,15 @@ export function FullscreenBridge(): React.ReactNode {
    */
   const sendToInspectedSubagent = useCallback((): void => {
     const text = composerRef.current.text;
-    if (text.trim().length === 0) return;
+    if (text.trim().length === 0) {
+      return;
+    }
     const run = subagentRunsRef.current.find(
       (candidate) => candidate.id === inspectedIdRef.current,
     );
-    if (run === undefined) return;
+    if (run === undefined) {
+      return;
+    }
     if (!store.sendSubagentMessage(run.id, text)) {
       flashSubagentNotice(
         run.acceptsMessages
@@ -1442,7 +1524,9 @@ export function FullscreenBridge(): React.ReactNode {
   const applyPaste = useCallback(
     (raw: string): boolean => {
       const pasted = normalizePaste(raw);
-      if (pasted.length === 0) return true;
+      if (pasted.length === 0) {
+        return true;
+      }
       if (menuRef.current?.kind === "skills" && skillDetailRef.current === null) {
         const flat = flattenPaste(pasted);
         setMenuFilter((field) => insertTextAt(field.value, field.caret, flat));
@@ -1455,7 +1539,9 @@ export function FullscreenBridge(): React.ReactNode {
         setMenuFilter((field) => insertTextAt(field.value, field.caret, flat));
         return true;
       }
-      if (menuRef.current !== null || approvalRef.current !== null) return true;
+      if (menuRef.current !== null || approvalRef.current !== null) {
+        return true;
+      }
 
       if (searchQueryRef.current !== null) {
         const flat = flattenPaste(pasted);
@@ -1527,7 +1613,9 @@ export function FullscreenBridge(): React.ReactNode {
       }
 
       const composerAvailable = active?.type === "chat" || (active === null && busyRef.current);
-      if (composerAvailable) insertAtCaret(pasted);
+      if (composerAvailable) {
+        insertAtCaret(pasted);
+      }
       return true;
     },
     [
@@ -1615,7 +1703,9 @@ export function FullscreenBridge(): React.ReactNode {
       // bracketed paste instead and go through `onPaste` — same inserter.
       if (isCtrlLetter({ name, ctrl }, "v")) {
         void readClipboard().then((text) => {
-          if (text.length > 0) applyPaste(text);
+          if (text.length > 0) {
+            applyPaste(text);
+          }
         });
         return true;
       }
@@ -1624,7 +1714,9 @@ export function FullscreenBridge(): React.ReactNode {
       // was thought. While a panel is still streaming, pin it so collapse
       // writes the full text there instead of a one-line stub.
       if (isCtrlLetter({ name, ctrl }, "r")) {
-        if (store.expandLastReasoning()) return true;
+        if (store.expandLastReasoning()) {
+          return true;
+        }
         store.printOutput({
           type: "warn",
           message: "No collapsed reasoning to expand.",
@@ -1749,7 +1841,9 @@ export function FullscreenBridge(): React.ReactNode {
           }
           if (name === "return" || name === "enter") {
             const choice = matches[selected]?.agent;
-            if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
+            if (choice !== undefined) {
+              store.completePrompt({ kind: "select", value: choice.id });
+            }
             return true;
           }
           if (name === "escape") {
@@ -1867,7 +1961,9 @@ export function FullscreenBridge(): React.ReactNode {
       // is the always-allow path, and typing must not reach the composer behind
       // it. Esc falls through to the ladder, which rejects.
       if (approvalRef.current !== null) {
-        if (name === "escape") return false;
+        if (name === "escape") {
+          return false;
+        }
         if (isCtrlLetter({ name, ctrl }, "o")) {
           setApprovalExpanded((current) => !current);
           setApprovalFieldOffset(0);
@@ -1878,8 +1974,12 @@ export function FullscreenBridge(): React.ReactNode {
           setApprovalFieldOffset((offset) => Math.max(0, offset + delta));
           return true;
         }
-        if (approvalArmedForRef.current !== approvalRef.current) return true;
-        if (active === null) return true;
+        if (approvalArmedForRef.current !== approvalRef.current) {
+          return true;
+        }
+        if (active === null) {
+          return true;
+        }
         if (name === "left" || name === "right") {
           const choices = approvalChoicesFor(approvalRef.current);
           setApprovalChoice((current) => {
@@ -2066,7 +2166,9 @@ export function FullscreenBridge(): React.ReactNode {
       }
 
       if (active !== null && active.type !== "chat") {
-        if (name === "pageup" || name === "pagedown") return false;
+        if (name === "pageup" || name === "pagedown") {
+          return false;
+        }
         if (name === "escape") {
           const pendingRemoval = promptControlsRef.current.question.removal.status.phase;
           if (pendingRemoval !== "idle") {
@@ -2087,11 +2189,17 @@ export function FullscreenBridge(): React.ReactNode {
         if (active.type === "hidden") {
           const keys = hiddenPromptKeys(active);
           if (keys !== undefined) {
-            if (name === "up" || name === "down") return false;
-            if (keys.includes(sequence)) active.resolve(sequence);
+            if (name === "up" || name === "down") {
+              return false;
+            }
+            if (keys.includes(sequence)) {
+              active.resolve(sequence);
+            }
             return true;
           }
-          if (name === "return" || name === "enter") active.resolve("");
+          if (name === "return" || name === "enter") {
+            active.resolve("");
+          }
           return true;
         }
 
@@ -2147,7 +2255,9 @@ export function FullscreenBridge(): React.ReactNode {
             const basePath = filePickerBasePath(active);
             const submittedFilter = fileState.filter;
             void resolveFilePickerPath(basePath, submittedFilter).then((resolvedPath) => {
-              if (promptRef.current !== active) return;
+              if (promptRef.current !== active) {
+                return;
+              }
               if (resolvedPath !== null) {
                 active.resolve(resolvedPath);
               } else {
@@ -2172,12 +2282,16 @@ export function FullscreenBridge(): React.ReactNode {
           if (target !== null) {
             updatePromptQuestion((state) => ({ ...state, selected: target }));
             const row = rows[target];
-            if (row !== undefined) previewTheme(row.id);
+            if (row !== undefined) {
+              previewTheme(row.id);
+            }
             return true;
           }
           if (name === "return" || name === "enter") {
             const row = rows[current];
-            if (row !== undefined) active.resolve(row.id);
+            if (row !== undefined) {
+              active.resolve(row.id);
+            }
           }
           return true;
         }
@@ -2186,8 +2300,11 @@ export function FullscreenBridge(): React.ReactNode {
           if (name === "return" || name === "enter") {
             const value = promptControlsRef.current.editor.value;
             const error = validatePrompt(active, value);
-            if (error === null) active.resolve(value);
-            else updatePromptEditor((state) => ({ ...state, error }));
+            if (error === null) {
+              active.resolve(value);
+            } else {
+              updatePromptEditor((state) => ({ ...state, error }));
+            }
             return true;
           }
           {
@@ -2272,7 +2389,9 @@ export function FullscreenBridge(): React.ReactNode {
 
         if (binary !== undefined && !typingCustom && plainKey && (name === "y" || name === "n")) {
           const answer = sourceChoices[name === "y" ? binary.yes : binary.no];
-          if (answer !== undefined) active.resolve(answer.value);
+          if (answer !== undefined) {
+            active.resolve(answer.value);
+          }
           return true;
         }
         if (binary !== undefined && !typingCustom && (name === "left" || name === "right")) {
@@ -2373,7 +2492,9 @@ export function FullscreenBridge(): React.ReactNode {
           }
           if (selectedCustom) {
             const value = questionState.custom.value.trim();
-            if (value.length > 0) active.resolve(value);
+            if (value.length > 0) {
+              active.resolve(value);
+            }
             return true;
           }
           if (allowMultiple) {
@@ -2414,7 +2535,9 @@ export function FullscreenBridge(): React.ReactNode {
       }
 
       const composerAvailable = active?.type === "chat" || (active === null && busyRef.current);
-      if (!composerAvailable) return false;
+      if (!composerAvailable) {
+        return false;
+      }
       if (
         focus === "transcript" &&
         (name === "up" ||
@@ -2459,12 +2582,16 @@ export function FullscreenBridge(): React.ReactNode {
             }
             setAgentCursor(null);
             const chosen = runsNow[row];
-            if (chosen !== undefined) inspectSubagent(chosen.id);
+            if (chosen !== undefined) {
+              inspectSubagent(chosen.id);
+            }
             return true;
           }
           if (name === "x" && !ctrl && cursor < runsNow.length) {
             const chosen = runsNow[cursor];
-            if (chosen !== undefined) store.cancelSubagent(chosen.id);
+            if (chosen !== undefined) {
+              store.cancelSubagent(chosen.id);
+            }
             return true;
           }
           if (name === "x" && !ctrl && cursor >= runsNow.length) {
@@ -2478,7 +2605,9 @@ export function FullscreenBridge(): React.ReactNode {
             return true;
           }
           setAgentCursor(null);
-          if (name === "escape") return true;
+          if (name === "escape") {
+            return true;
+          }
         }
       }
       if (name === "escape" && inspectedIdRef.current !== null) {
@@ -2593,7 +2722,9 @@ export function FullscreenBridge(): React.ReactNode {
           !isComposerNewline({ name, shift, option, meta })
         ) {
           const command = slashCommands[selected];
-          if (command === undefined) return true;
+          if (command === undefined) {
+            return true;
+          }
           const text = `/${command.name}`;
           if (store.runCommandImmediately(text)) {
             historyIndex.current = null;
@@ -2845,8 +2976,12 @@ export function FullscreenBridge(): React.ReactNode {
         flushQueueNow();
         return;
       }
-      if (action.type === "stash-draft") commitComposer(EMPTY_COMPOSER);
-      if (action.type === "close-overlay" && approval !== null) prompt?.resolve("no");
+      if (action.type === "stash-draft") {
+        commitComposer(EMPTY_COMPOSER);
+      }
+      if (action.type === "close-overlay" && approval !== null) {
+        prompt?.resolve("no");
+      }
     },
     [approval, prompt, commitComposer, flushQueueNow],
   );
@@ -2890,7 +3025,9 @@ export function FullscreenBridge(): React.ReactNode {
   };
 
   const subagentList = useMemo<SubagentListModel | undefined>(() => {
-    if (subagentRuns.length === 0 && backgroundItemsNow.length === 0) return undefined;
+    if (subagentRuns.length === 0 && backgroundItemsNow.length === 0) {
+      return undefined;
+    }
     const now = Date.now();
     return {
       items: subagentRuns.map((run) => subagentListItem(run, now)),

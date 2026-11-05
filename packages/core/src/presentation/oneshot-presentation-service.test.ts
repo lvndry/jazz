@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import type { StreamingRendererConfig } from "@/core/interfaces/presentation";
+import { invalidInput } from "@/core/test-support/fakes";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest } from "@/core/types/tools";
 import { detectInteractiveInput, OneShotPresentationService } from "./oneshot-presentation-service";
@@ -220,11 +221,11 @@ describe("OneShotPresentationService streaming renderer", () => {
     const renderer = Effect.runSync(service.createStreamingRenderer(rendererConfig));
 
     const captured = captureStderr();
-    const errorEvent = {
+    const errorEvent = invalidInput<StreamEvent>({
       type: "error",
       error: new Error("model request failed"),
       recoverable: false,
-    } as unknown as StreamEvent;
+    });
     Effect.runSync(renderer.handleEvent(errorEvent));
 
     expect(captured.lines).toHaveLength(1);
@@ -533,7 +534,10 @@ describe("OneShotPresentationService.requestUserInput", () => {
     };
     expect(emitted.type).toBe("user_input_required");
     expect(emitted.question).toBe("When is your appointment?");
-    expect(emitted.suggestions.map((s) => s.value)).toEqual(["today", "tomorrow"]);
+    expect(emitted.suggestions.map((suggestion) => suggestion.value)).toEqual([
+      "today",
+      "tomorrow",
+    ]);
     expect(emitted.allowCustom).toBe(true);
 
     stdin.write(
@@ -788,7 +792,7 @@ describe("OneShotPresentationService user messages", () => {
       content: "for 4 people\naround 8pm",
       typed: "for 4 people\naround 8pm",
     });
-    expect(lines.map((line) => JSON.parse(line) as unknown)).toEqual([
+    expect(lines.map((line): unknown => JSON.parse(line))).toEqual([
       { type: "user_message_delivered", ids: ["m1", "m2"] },
     ]);
     expect(inbox.take()).toBeUndefined();

@@ -48,7 +48,9 @@ export function clipboardWriteCommands(
 export function textFromSelection(
   selection: { getSelectedText(): string } | null | undefined,
 ): string {
-  if (selection === undefined || selection === null) return "";
+  if (selection === undefined || selection === null) {
+    return "";
+  }
   return normalizePaste(selection.getSelectedText());
 }
 
@@ -56,7 +58,9 @@ export function selectedTextFromRenderer(renderer: {
   readonly hasSelection?: boolean;
   readonly getSelection?: () => { getSelectedText(): string } | null;
 }): string {
-  if (renderer.hasSelection !== true) return "";
+  if (renderer.hasSelection !== true) {
+    return "";
+  }
   return textFromSelection(renderer.getSelection?.());
 }
 
@@ -69,7 +73,9 @@ export interface ClipboardTerminal {
  * without a highlight cannot wipe the pasteboard. True if either path landed.
  */
 export async function copyText(text: string, terminal?: ClipboardTerminal): Promise<boolean> {
-  if (text.length === 0) return false;
+  if (text.length === 0) {
+    return false;
+  }
   const osc = terminal?.copyToClipboardOSC52?.(text) === true;
   const host = await writeClipboard(text);
   return osc || host;
@@ -87,8 +93,12 @@ export function pasteTextFromEvent(event: {
   readonly text?: unknown;
   readonly bytes?: unknown;
 }): string {
-  if (typeof event.text === "string") return normalizePaste(event.text);
-  if (event.bytes instanceof Uint8Array) return normalizePaste(decodePasteBytes(event.bytes));
+  if (typeof event.text === "string") {
+    return normalizePaste(event.text);
+  }
+  if (event.bytes instanceof Uint8Array) {
+    return normalizePaste(decodePasteBytes(event.bytes));
+  }
   return "";
 }
 
@@ -105,7 +115,9 @@ export function readClipboard(): Promise<string> {
       const chunks: Buffer[] = [];
       let advanced = false;
       const advance = (): void => {
-        if (advanced) return;
+        if (advanced) {
+          return;
+        }
         advanced = true;
         resolve(tryCandidate(index + 1));
       };
@@ -114,7 +126,9 @@ export function readClipboard(): Promise<string> {
       });
       child.on("error", advance);
       child.on("close", (code) => {
-        if (advanced) return;
+        if (advanced) {
+          return;
+        }
         if (code === 0) {
           advanced = true;
           resolve(normalizePaste(Buffer.concat(chunks).toString("utf8")));
@@ -139,14 +153,18 @@ export function writeClipboard(text: string): Promise<boolean> {
       const child = spawn(candidate.cmd, [...candidate.args]);
       let advanced = false;
       const advance = (): void => {
-        if (advanced) return;
+        if (advanced) {
+          return;
+        }
         advanced = true;
         resolve(tryCandidate(index + 1));
       };
       child.stdin.on("error", advance);
       child.on("error", advance);
       child.on("close", (code) => {
-        if (advanced) return;
+        if (advanced) {
+          return;
+        }
         if (code === 0) {
           advanced = true;
           resolve(true);

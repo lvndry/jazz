@@ -29,10 +29,12 @@ from one it doesn't declare as a dependency, not just a documented convention.
 | `packages/plugin-sdk`   | Public plain-JavaScript/types ABI for external plugin authors           | nothing                          |
 | `plugins/*`             | Reviewed optional plugins; never imported by core                       | `plugin-sdk` only                |
 
-**Critical rule**: `core/` must **never** import from `adapters/`, `cli/`, or `runtime/`.
-`adapters/` and the bot packages must **never** import from `daemon/`: an eslint rule and
-`scripts/package-layering.test.ts` both reject it.
-Dependencies flow inward only.
+**Critical rule**: dependencies flow inward only, and `scripts/package-layering.matrix.json` is
+the allowed-imports matrix for every package: which packages each one may import in production
+code, and which extra ones its tests may. `core` imports nothing in production; plugins import
+only `@jazz/plugin-sdk` (not another `@jazz-plugin/*` package). An eslint rule generated from the matrix and
+`scripts/package-layering.test.ts` both reject a violation. Changing the matrix is a design
+decision: do it on purpose, in its own commit.
 
 Read the READMEs:
 
@@ -143,10 +145,25 @@ lockfile, runs the repository checks, rebuilds the single-file artifact without 
 and computes the published SHA-256 itself. See [Plugins](docs/configure/plugins.md) and the
 [maintainer lifecycle](docs/maintainers/plugin-lifecycle.md).
 
+## Mechanical gates
+
+- **`curly` and `id-length`** (eslint): every `if`/`else`/loop body is braced, and identifiers
+  have at least 2 characters (`_` is allowed for an unused parameter). There are no suppressions
+  and no baseline: a violation fails `bun run lint`, and `bun run lint:fix` repairs braces.
+- **Assertion escape hatches**: `bun run verify:unknown-casts` fails on any assertion to
+  `unknown` and on any double assertion through `unknown`, `any`, `never`, `object` or `{}`
+  (`x as object as T`), tests and scripts included. Narrow the value, validate it at the
+  boundary, or give it a real type. A single `as T` and `as const` are allowed; the test-support
+  helpers (`partialFake`, `standIn`, `invalidInput`, `narrowEffect`, `withoutServices`, the
+  adapters `fakeFetch`) each hold one documented plain `as T`.
+- **Duplicate code**: `bun run dup` runs jscpd (`.jscpd.json`) and lists each duplicated block as
+  a pair of `file [lines]` ranges. CI runs it report-only for now; wrap deliberate duplication in
+  `/* jscpd:ignore-start */ ... /* jscpd:ignore-end */`.
+
 ## Before Submitting PR
 
 - [ ] `bun run typecheck` passes
-- [ ] `bun run lint` passes
+- [ ] `bun run lint` and `bun run verify:unknown-casts` pass
 - [ ] `bun run test:typecheck` passes (typechecks the test files, which `typecheck` skips)
 - [ ] Docs changes pass `bun run docs:lint`, `bun run docs:check-links` and `bun run docs:check-metadata`
 - [ ] Changes under `plugins/` pass `bun run plugin:catalog`

@@ -117,10 +117,10 @@ export const ChatInput = React.memo(function ChatInput({
     let cursorLine = 0;
     let cursorOffsetInLine = 0;
 
-    for (let i = 0; i < lines.length; i++) {
-      const lineLen = lines[i]!.length;
+    for (let index = 0; index < lines.length; index++) {
+      const lineLen = lines[index]!.length;
       if (safeCursor <= charCount + lineLen) {
-        cursorLine = i;
+        cursorLine = index;
         cursorOffsetInLine = safeCursor - charCount;
         break;
       }
@@ -161,8 +161,8 @@ export const ChatInput = React.memo(function ChatInput({
           </Text>
         </Box>
       )}
-      {visibleLines.map((line, i) => {
-        const globalLineIdx = startLine + i;
+      {visibleLines.map((line, index) => {
+        const globalLineIdx = startLine + index;
         const hasCursor = isActive && globalLineIdx === cursorLine;
         const displayLine = line.length === 0 && !hasCursor ? " " : line;
 

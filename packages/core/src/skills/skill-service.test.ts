@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
+import { partialFake } from "@/core/test-support/fakes";
 import {
   getSkillIndexLine,
   scoreSkillsForQuery,
@@ -66,7 +67,7 @@ describe("scoreSkillsForQuery", () => {
 
   it("matches by description word", () => {
     const result = scoreSkillsForQuery("diffs", skills);
-    expect(result.find((s) => s.name === "code-review")).toBeDefined();
+    expect(result.find((skill) => skill.name === "code-review")).toBeDefined();
   });
 
   it("matches by description", () => {
@@ -100,7 +101,7 @@ describe("scoreSkillsForQuery", () => {
       skill({ name: "mango", description: "shared keyword foo" }),
     ];
     const result = scoreSkillsForQuery("foo", ties);
-    expect(result.map((s) => s.name)).toEqual(["apple", "mango", "zebra"]);
+    expect(result.map((skill) => skill.name)).toEqual(["apple", "mango", "zebra"]);
   });
 
   it("scores name substring match higher than description match", () => {
@@ -115,7 +116,7 @@ describe("scoreSkillsForQuery", () => {
 
 describe("SkillsLive plugin skills", () => {
   const runtime = (): PluginRuntimeService =>
-    ({
+    partialFake<PluginRuntimeService>({
       listAllSkills: () =>
         Effect.succeed([
           {
@@ -125,7 +126,7 @@ describe("SkillsLive plugin skills", () => {
             content: "# Haiku\nfive seven five",
           },
         ]),
-    }) as unknown as PluginRuntimeService;
+    });
 
   const layer = Layer.merge(SkillsLive.layer, Layer.succeed(PluginRuntimeServiceTag, runtime()));
   const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -154,7 +155,7 @@ describe("SkillsLive plugin skills", () => {
 
   it("drops a plugin's skill from a cached list once the plugin is turned off", async () => {
     let pluginOn = true;
-    const toggling = {
+    const toggling = partialFake<PluginRuntimeService>({
       listAllSkills: () =>
         Effect.sync(() =>
           pluginOn
@@ -168,7 +169,7 @@ describe("SkillsLive plugin skills", () => {
               ]
             : [],
         ),
-    } as unknown as PluginRuntimeService;
+    });
     const names = await Effect.runPromise(
       Effect.gen(function* () {
         const service = yield* SkillServiceTag;

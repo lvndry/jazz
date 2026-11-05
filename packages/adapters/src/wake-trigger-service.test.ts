@@ -117,9 +117,9 @@ describe("add", () => {
 
   test("rejects once the per-agent pending trigger cap is reached", async () => {
     const service = makeService();
-    for (let i = 0; i < MAX_WAKE_TRIGGERS_PER_AGENT; i++) {
+    for (let index = 0; index < MAX_WAKE_TRIGGERS_PER_AGENT; index++) {
       const outcome = await runEffect(
-        service.add("agent-1", "conv-1", "1d", `prompt ${i}`, "reason", "UTC"),
+        service.add("agent-1", "conv-1", "1d", `prompt ${index}`, "reason", "UTC"),
       );
       expect(outcome.success).toBe(true);
     }
@@ -163,8 +163,8 @@ describe("list", () => {
     await runEffect(service.add("agent-2", "conv-2", "30m", "for agent 2", "reason", "UTC"));
     const listOne = await runEffect(service.list("agent-1"));
     const listTwo = await runEffect(service.list("agent-2"));
-    expect(listOne.map((t) => t.prompt)).toEqual(["for agent 1"]);
-    expect(listTwo.map((t) => t.prompt)).toEqual(["for agent 2"]);
+    expect(listOne.map((trigger) => trigger.prompt)).toEqual(["for agent 1"]);
+    expect(listTwo.map((trigger) => trigger.prompt)).toEqual(["for agent 2"]);
   });
 });
 
@@ -175,7 +175,9 @@ describe("cancel", () => {
       service.add("agent-1", "conv-1", "30m", "cancel me", "reason", "UTC"),
     );
     expect(added.success).toBe(true);
-    if (!added.success) return;
+    if (!added.success) {
+      return;
+    }
 
     const outcome = await runEffect(service.cancel("agent-1", added.trigger.id));
     expect(outcome.success).toBe(true);
@@ -219,7 +221,7 @@ describe("claimDueWakeTriggers", () => {
     }
 
     const remainingAgent1 = await runEffect(service.list("agent-1"));
-    expect(remainingAgent1.map((t) => t.prompt)).toEqual(["future agent 1"]);
+    expect(remainingAgent1.map((trigger) => trigger.prompt)).toEqual(["future agent 1"]);
 
     const remainingAgent2 = await runEffect(service.list("agent-2"));
     expect(remainingAgent2).toEqual([]);
@@ -261,7 +263,9 @@ describe("claimDueWakeTriggers", () => {
     const lockPath = path.join(tmpDir, "agent-1.lock");
     let lockSeen = false;
     const watcher = setInterval(() => {
-      if (fsSync.existsSync(lockPath)) lockSeen = true;
+      if (fsSync.existsSync(lockPath)) {
+        lockSeen = true;
+      }
     }, 1);
 
     await runEffect(claimDueWakeTriggers(tmpDir, Date.now()));
@@ -294,7 +298,9 @@ describe("osScheduler integration", () => {
       service.add("agent-1", "conv-1", "30m", "scheduled prompt", "reason", "UTC"),
     );
     expect(outcome.success).toBe(true);
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
 
     expect(outcome.trigger.osSchedulerJobId).toBe("42");
     expect(calls).toEqual([
@@ -323,7 +329,9 @@ describe("osScheduler integration", () => {
       service.add("agent-1", "conv-1", "30m", "prompt", "reason", "UTC"),
     );
     expect(added.success).toBe(true);
-    if (!added.success) return;
+    if (!added.success) {
+      return;
+    }
 
     const outcome = await runEffect(service.cancel("agent-1", added.trigger.id));
     expect(outcome.success).toBe(true);
@@ -344,7 +352,9 @@ describe("osScheduler integration", () => {
       service.add("agent-1", "conv-1", "30m", "prompt", "reason", "UTC"),
     );
     expect(added.success).toBe(true);
-    if (!added.success) return;
+    if (!added.success) {
+      return;
+    }
 
     const outcome = await runEffect(service.cancel("agent-1", added.trigger.id));
     expect(outcome.success).toBe(true);
@@ -425,7 +435,9 @@ describe("at-least-once delivery", () => {
   async function dueTrigger(): Promise<string> {
     const service = makeService(makeFakeOsScheduler().scheduler);
     const outcome = await runEffect(service.add("agent-1", "conv-1", "1s", "check", "r", "UTC"));
-    if (!outcome.success) throw new Error("add failed");
+    if (!outcome.success) {
+      throw new Error("add failed");
+    }
     return outcome.trigger.id;
   }
 

@@ -63,11 +63,14 @@ function expectColdParity(
       expect(source).toBeDefined();
       expect(actual.sourceAt(row)).toEqual(source);
       expect(actual.sourceAt(row)).toEqual(rendered[row]?.source);
-      if (source === undefined) continue;
+      if (source === undefined) {
+        continue;
+      }
       expect(actual.hasPart(source)).toBe(expected.hasPart(source));
       expect(actual.blockBounds(source.blockId)).toEqual(expected.blockBounds(source.blockId));
-      for (const probe of probes(source))
+      for (const probe of probes(source)) {
         expect(actual.sourceRow(probe)).toBe(expected.sourceRow(probe));
+      }
       const absentPart = { ...source, partId: "absent-part" };
       expect(actual.hasPart(absentPart)).toBe(false);
       expect(actual.sourceRow(absentPart)).toBe(expected.sourceRow(absentPart));
@@ -100,7 +103,9 @@ function snapshot(index: TranscriptLayoutIndex) {
     ),
     bounds: Object.fromEntries(
       sources.flatMap((source) => {
-        if (source === undefined) return [];
+        if (source === undefined) {
+          return [];
+        }
         const bounds = index.blockBounds(source.blockId);
         return [[source.blockId, bounds === undefined ? undefined : { ...bounds }]];
       }),

@@ -9,6 +9,7 @@ import { silentLogger } from "@/core/agent/test-logger";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PeerLedgerServiceTag, PeerTokenServiceTag } from "@/core/interfaces/peers";
+import { partialFake } from "@/core/test-support/fakes";
 import type { PeerConfig } from "@/core/types/peer";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
@@ -46,8 +47,11 @@ beforeEach(async () => {
 
 afterEach(async () => {
   server?.stop(true);
-  if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-  else process.env["JAZZ_HOME"] = previousHome;
+  if (previousHome === undefined) {
+    delete process.env["JAZZ_HOME"];
+  } else {
+    process.env["JAZZ_HOME"] = previousHome;
+  }
   await nodeFs.rm(jazzHome, { recursive: true, force: true });
 });
 
@@ -60,9 +64,9 @@ function peers(overrides: Partial<PeerConfig> = {}): readonly PeerConfig[] {
 }
 
 function layers(configured: readonly PeerConfig[]) {
-  const configService = {
+  const configService = partialFake<AgentConfigService>({
     appConfig: Effect.succeed({ peers: configured }),
-  } as unknown as AgentConfigService;
+  });
 
   return Layer.mergeAll(
     Layer.succeed(LoggerServiceTag, silentLogger),
@@ -77,7 +81,9 @@ async function ask(
   args: { peer: string; question: string },
 ): Promise<ToolExecutionResult> {
   const tool = createAskPeerTool(configured);
-  if (tool === undefined) throw new Error("expected ask_peer to exist");
+  if (tool === undefined) {
+    throw new Error("expected ask_peer to exist");
+  }
   return Effect.runPromise(
     tool
       .execute(args, { agentId: "agent-1" } as ToolExecutionContext)

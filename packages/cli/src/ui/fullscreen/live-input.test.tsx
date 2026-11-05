@@ -58,7 +58,9 @@ describe("wide and composed text", () => {
     );
     const text = row?.segments.map((segment) => segment.text).join("") ?? "";
     expect(terminalCellWidth(text)).toBe(MIN_WIDTH);
-    if (text.includes("👨")) expect(text).toContain("👨‍👩‍👧‍👦");
+    if (text.includes("👨")) {
+      expect(text).toContain("👨‍👩‍👧‍👦");
+    }
   });
 });
 
@@ -137,7 +139,9 @@ function tool(app: string, operation: string, phase: number, elapsedMs = 1000): 
  */
 function live(overrides: Partial<LiveModel> = {}): LiveModel {
   const model: LiveModel = { tools: [], hiddenTools: [], reservedRows: 0, ...overrides };
-  if (overrides.reservedRows !== undefined) return model;
+  if (overrides.reservedRows !== undefined) {
+    return model;
+  }
   const needed =
     model.tools.length +
     (model.hiddenTools.length > 0 ? 1 : 0) +
@@ -454,7 +458,9 @@ describe("live zone", () => {
 
     const { height, frame } = await bandHeight(model, { width: MIN_WIDTH });
     expect(height).toBe(LIVE_ZONE_MAX_ROWS);
-    for (const row of rowsOf(frame)) expect(terminalCellWidth(row)).toBe(MIN_WIDTH);
+    for (const row of rowsOf(frame)) {
+      expect(terminalCellWidth(row)).toBe(MIN_WIDTH);
+    }
   });
 
   it("renders the todo checklist as a windowed panel, leading with the active item", async () => {
@@ -739,9 +745,9 @@ describe("input", () => {
 
   it("lists queued messages below the count", () => {
     const none = inputRows(base, { width: WIDTH, height: HEIGHT });
-    expect(none.map((row) => row.segments.map((s) => s.text).join("")).join("")).not.toContain(
-      "queued",
-    );
+    expect(
+      none.map((row) => row.segments.map((span) => span.text).join("")).join(""),
+    ).not.toContain("queued");
 
     const some = inputRows(
       {
@@ -753,7 +759,7 @@ describe("input", () => {
       },
       { width: WIDTH, height: HEIGHT },
     );
-    const text = some.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    const text = some.map((row) => row.segments.map((span) => span.text).join("")).join("\n");
     expect(text).toContain("2 queued");
     expect(text).toContain("follow up");
     expect(text).toContain("send the itinerary");
@@ -808,7 +814,7 @@ describe("input", () => {
       lane: "steer" as const,
     }));
     const some = inputRows({ ...base, queued }, { width: WIDTH, height: HEIGHT });
-    const text = some.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    const text = some.map((row) => row.segments.map((span) => span.text).join("")).join("\n");
     expect(text).toContain("4 queued");
     expect(text).not.toContain(`${glyphs.bullet} one`);
     expect(text).toContain("two");
@@ -828,7 +834,7 @@ describe("input", () => {
       },
       { width: WIDTH, height: HEIGHT },
     );
-    const text = some.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    const text = some.map((row) => row.segments.map((span) => span.text).join("")).join("\n");
     expect(text).toContain("/clear");
     expect(text).not.toContain("sent as text, not run");
     expect(text).toContain("keep going");
@@ -837,7 +843,9 @@ describe("input", () => {
       { ...base, queued: [{ text: "first line\nsecond line", lane: "steer" }] },
       { width: WIDTH, height: HEIGHT },
     );
-    const wrappedText = wrapped.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    const wrappedText = wrapped
+      .map((row) => row.segments.map((span) => span.text).join(""))
+      .join("\n");
     expect(wrappedText).toContain("first line second line");
     expect(wrappedText).not.toContain("first line\nsecond line");
   });
@@ -856,7 +864,7 @@ describe("input", () => {
       glyphs,
       2,
     );
-    const text = squeezed.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    const text = squeezed.map((row) => row.segments.map((span) => span.text).join("")).join("\n");
     expect(text).toContain("2 queued");
     expect(text).not.toContain("follow up");
     expect(squeezed).toHaveLength(2);

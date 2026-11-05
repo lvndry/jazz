@@ -59,7 +59,7 @@ export function upsertPeer(patch: PeerConfigPatch): Effect.Effect<void, Error, A
     const next =
       index === -1
         ? [...existing, merged]
-        : existing.map((peer, i) => (i === index ? merged : peer));
+        : existing.map((peer, peerIndex) => (peerIndex === index ? merged : peer));
     yield* configService.set("peers", next);
     if ((yield* configService.revision) === revision) {
       return yield* Effect.fail(new Error("could not persist peer configuration"));

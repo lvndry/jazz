@@ -13,7 +13,9 @@ const OPENROUTER_MODELS = [
 describe("sortModelsForPicker", () => {
   it("pins openrouter/free and openrouter/auto first, then remaining router models in catalog order, above plain models", () => {
     expect(
-      sortModelsForPicker("openrouter", OPENROUTER_MODELS, (m) => m.id).map((m) => m.id),
+      sortModelsForPicker("openrouter", OPENROUTER_MODELS, (model) => model.id).map(
+        (model) => model.id,
+      ),
     ).toEqual([
       "openrouter/free",
       "openrouter/auto",
@@ -26,10 +28,9 @@ describe("sortModelsForPicker", () => {
 
   it("does not pin router ids under other providers", () => {
     const models = [{ id: "plain-model" }, { id: "openrouter/free" }];
-    expect(sortModelsForPicker("mistral", models, (m) => m.id).map((m) => m.id)).toEqual([
-      "plain-model",
-      "openrouter/free",
-    ]);
+    expect(
+      sortModelsForPicker("mistral", models, (model) => model.id).map((model) => model.id),
+    ).toEqual(["plain-model", "openrouter/free"]);
   });
 });
 

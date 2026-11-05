@@ -36,6 +36,7 @@ import {
   workStateSizeBytes,
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
+import { lastCacheObservation, promptCacheKey } from "@jazz/core/agent/metrics/prompt-cache";
 import {
   discoverProjectInstructions,
   type InstructionFileReport,
@@ -146,6 +147,7 @@ import {
   suggestCommand,
   type ChatCommandInfo,
 } from "./constants";
+import { cacheContextRows } from "./context-cache-rows";
 import {
   handleRenameCommand,
   handleStartCommand,
@@ -209,8 +211,9 @@ export function handleSpecialCommand(
 
       case "create": {
         const created = yield* Effect.result(createAgentCommand());
-        if (created._tag === "Failure")
+        if (created._tag === "Failure") {
           yield* terminal.error(`Failed to create agent: ${created.failure.message}`);
+        }
         return { shouldContinue: true, skipTranscriptRepaint: true };
       }
 
@@ -285,7 +288,12 @@ export function handleSpecialCommand(
         return yield* handleMemoryCommand(terminal, command.args);
 
       case "context":
-        return yield* handleContextCommand(terminal, agent, conversationHistory);
+        return yield* handleContextCommand(
+          terminal,
+          agent,
+          conversationHistory,
+          context.conversationId,
+        );
 
       case "work":
         return yield* handleWorkCommand(terminal, agent, context.conversationId, command.args);
@@ -449,7 +457,9 @@ function handleDetachCommand(
           : []),
       ]),
     );
-    for (const warning of preview.warnings) yield* terminal.warn(warning);
+    for (const warning of preview.warnings) {
+      yield* terminal.warn(warning);
+    }
     const approved = yield* terminal.confirm(
       `Copy this state to ${preview.hostName} and continue there?`,
       false,
@@ -625,7 +635,9 @@ function handleExportCommand(
       "",
     ];
     for (const message of conversationHistory) {
-      if (!message.content) continue;
+      if (!message.content) {
+        continue;
+      }
       const speaker = message.role === "user" ? "You" : agent.name;
       lines.push(`## ${speaker}`, "", message.content, "");
     }
@@ -981,7 +993,8 @@ function resolveWebSearchProviderLabel(
     const externalProvider = appConfig.web_search?.provider;
     if (externalProvider) {
       const display =
-        WEB_SEARCH_PROVIDERS.find((p) => p.value === externalProvider)?.name ?? externalProvider;
+        WEB_SEARCH_PROVIDERS.find((provider) => provider.value === externalProvider)?.name ??
+        externalProvider;
       return `via ${display}`;
     }
 
@@ -1235,7 +1248,9 @@ export function announceAgentSwitch(
 
 /** Human-readable size for a tool result, so a decision line reads "Bash · 8.2k chars". */
 function formatCharCount(chars: number): string {
-  if (chars < 1000) return `${chars} chars`;
+  if (chars < 1000) {
+    return `${chars} chars`;
+  }
   return `${(chars / 1000).toFixed(1)}k chars`;
 }
 
@@ -1252,7 +1267,9 @@ function compactionPhaseLines(event: CompactionProgress): string[] {
           : `Reviewing tool results with the ${event.plugin} plugin…`,
       ];
     case "prune-done": {
-      if (event.decisions.length === 0) return ["No stale tool results to prune."];
+      if (event.decisions.length === 0) {
+        return ["No stale tool results to prune."];
+      }
       const counts: Record<string, number> = { keep: 0, truncate: 0, drop: 0 };
       const detail: string[] = [];
       for (const decision of event.decisions) {
@@ -1285,6 +1302,11 @@ const METER_FRAME_INTERVAL_MS = 200;
  * summary were flattened into it, and no journal entry was written. It now takes the
  * shared compaction path, so it only ever differs from auto-compaction in when it runs.
  */
+/** A conversation always starts with its system message, so a non-empty history is a `ConversationMessages`. */
+function isConversationMessages(history: ChatMessage[]): history is ConversationMessages {
+  return history.length > 0;
+}
+
 function handleCompactCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
@@ -1301,7 +1323,11 @@ function handleCompactCommand(
   | ToolRequirements
 > {
   return Effect.gen(function* () {
-    if (!conversationHistory || conversationHistory.length < 5) {
+    if (
+      !conversationHistory ||
+      conversationHistory.length < 5 ||
+      !isConversationMessages(conversationHistory)
+    ) {
       yield* terminal.warn("Not enough history to compact (minimum 5 messages).");
       yield* terminal.log("");
       return { shouldContinue: true };
@@ -1355,11 +1381,7 @@ function handleCompactCommand(
     const replaceRegion = presentationService.replaceEphemeralRegion;
     const modelHint = { provider, modelId: agent.config.llm.model };
     const overheadTokens = DEFAULT_TOKEN_COUNTER.overheadFor(modelHint);
-    const split = Summarizer.splitMessages(
-      conversationHistory as unknown as ConversationMessages,
-      contextWindow,
-      modelHint,
-    );
+    const split = Summarizer.splitMessages(conversationHistory, contextWindow, modelHint);
     const retainedMessages = [
       split.systemMessage,
       ...split.pinnedMessages,
@@ -1376,7 +1398,9 @@ function handleCompactCommand(
     let reclaimedPercent = 0;
     let drainStartedAt: number | undefined;
     const renderRegion = (): Effect.Effect<void> => {
-      if (replaceRegion === undefined) return Effect.void;
+      if (replaceRegion === undefined) {
+        return Effect.void;
+      }
       const drainElapsedMs = drainStartedAt === undefined ? 0 : Date.now() - drainStartedAt;
       const meter = renderCompactionMeter(
         drainedPercent(meterPlan, drainElapsedMs, reclaimedPercent),
@@ -1398,7 +1422,9 @@ function handleCompactCommand(
           phaseLines.splice(0, Math.max(0, phaseLines.length - COMPACTION_PANEL_DETAIL_LINES));
           return renderRegion();
         }
-        if (lines.length === 0) return Effect.void;
+        if (lines.length === 0) {
+          return Effect.void;
+        }
         const text = (firstAppend ? "" : "\n") + lines.join("\n");
         firstAppend = false;
         return presentationService.appendEphemeralRegion(regionId, text);
@@ -1414,7 +1440,7 @@ function handleCompactCommand(
 
     let compactionFailed = false;
     const outcome = yield* AgentRunner.compactHistory(
-      conversationHistory as unknown as ConversationMessages,
+      conversationHistory,
       agent,
       conversationId,
       contextWindow,
@@ -1508,7 +1534,9 @@ function copyToClipboard(text: string): Promise<void> {
       const child = spawn(candidate.cmd, candidate.args);
       let advanced = false;
       const advance = (): void => {
-        if (advanced) return;
+        if (advanced) {
+          return;
+        }
         advanced = true;
         resolve(tryCandidate(index + 1));
       };
@@ -1517,7 +1545,9 @@ function copyToClipboard(text: string): Promise<void> {
       child.stdin.on("error", advance);
       child.on("error", advance);
       child.on("close", (code) => {
-        if (advanced) return;
+        if (advanced) {
+          return;
+        }
         if (code === 0) {
           advanced = true;
           resolve();
@@ -1540,8 +1570,8 @@ function handleCopyCommand(
   return Effect.gen(function* () {
     // Find the last assistant message in the history
     let lastResponse: string | null = null;
-    for (let i = conversationHistory.length - 1; i >= 0; i--) {
-      const msg = conversationHistory[i];
+    for (let index = conversationHistory.length - 1; index >= 0; index--) {
+      const msg = conversationHistory[index];
       if (msg && msg.role === "assistant" && msg.content) {
         lastResponse = msg.content;
         break;
@@ -1813,9 +1843,13 @@ function handleLimitCommand(
 
   const parseValue = (raw: string): number | null | "invalid" => {
     const lower = raw.toLowerCase();
-    if (lower === "clear" || lower === "none" || lower === "off") return null;
+    if (lower === "clear" || lower === "none" || lower === "off") {
+      return null;
+    }
     const parsed = Number(raw);
-    if (!Number.isFinite(parsed) || parsed <= 0) return "invalid";
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return "invalid";
+    }
     return parsed;
   };
 
@@ -2005,8 +2039,8 @@ function handleConfigCommand(
       const newTools = [...selected];
 
       // Report changes
-      const added = newTools.filter((t) => !agentToolSet.has(t));
-      const removed = agentToolNames.filter((t) => !newTools.includes(t));
+      const added = newTools.filter((toolName) => !agentToolSet.has(toolName));
+      const removed = agentToolNames.filter((toolName) => !newTools.includes(toolName));
       if (added.length === 0 && removed.length === 0) {
         yield* terminal.log(report("config", [{ kind: "text", text: "No changes." }]));
         return { shouldContinue: true };
@@ -2177,15 +2211,15 @@ function handleWorkflowsCommand(
  *   "Daily email digest (every day at 9:00 AM)"
  *   "Daily email digest (every day at 9:00 AM, agent: email-bot)"
  */
-function formatWorkflowDesc(w: WorkflowMetadata): string {
-  const parts: string[] = [w.description];
+function formatWorkflowDesc(workflow: WorkflowMetadata): string {
+  const parts: string[] = [workflow.description];
 
-  const scheduleDesc = w.schedule ? describeCronSchedule(w.schedule) : null;
-  if (w.schedule) {
-    parts.push(scheduleDesc ? `(${scheduleDesc})` : `[${w.schedule}]`);
+  const scheduleDesc = workflow.schedule ? describeCronSchedule(workflow.schedule) : null;
+  if (workflow.schedule) {
+    parts.push(scheduleDesc ? `(${scheduleDesc})` : `[${workflow.schedule}]`);
   }
-  if (w.agent) {
-    parts.push(`(agent: ${w.agent})`);
+  if (workflow.agent) {
+    parts.push(`(agent: ${workflow.agent})`);
   }
 
   return parts.join(" ");
@@ -2210,7 +2244,9 @@ function handlePluginCommand(
   return Effect.gen(function* () {
     const name = args[0] ?? "";
     const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
-    if (Option.isNone(runtimeOption)) return { shouldContinue: true };
+    if (Option.isNone(runtimeOption)) {
+      return { shouldContinue: true };
+    }
     const outcome = yield* runtimeOption.value.runAgentCommand(agentId, name, args.slice(1));
     return outcome.message !== undefined && outcome.message.length > 0
       ? { shouldContinue: true, resendMessage: outcome.message }
@@ -2264,7 +2300,9 @@ export function bindPromptArguments(
     } else {
       unfilled.forEach((argument, index) => {
         const value = positional[index];
-        if (value !== undefined) bound[argument.name] = value;
+        if (value !== undefined) {
+          bound[argument.name] = value;
+        }
       });
     }
   }
@@ -2339,8 +2377,12 @@ function handleRunMcpPromptCommand(
     // them, which is the only place completion/complete is reachable without
     // an autocomplete-aware composer.
     for (const argument of declared) {
-      if (bound[argument.name] !== undefined) continue;
-      if (argument.required !== true) continue;
+      if (bound[argument.name] !== undefined) {
+        continue;
+      }
+      if (argument.required !== true) {
+        continue;
+      }
 
       const label = argument.description
         ? `${argument.name} — ${argument.description}`
@@ -2453,7 +2495,8 @@ function handleSkillsCommand(
 
     if (terminal.isInteractive) {
       const skills = [...builtin, ...global, ...agents, ...local, ...plugin].sort(
-        (a, b) => a.name.localeCompare(b.name) || a.source.localeCompare(b.source),
+        (left, right) =>
+          left.name.localeCompare(right.name) || left.source.localeCompare(right.source),
       );
       yield* Effect.callback<void>((resume) => {
         store.setActiveMenu({ kind: "skills", skills }, () => resume(Effect.void));
@@ -2496,7 +2539,7 @@ function handleSkillsCommand(
       rows.push(
         { kind: "group", label, count: String(group.length) },
         ...[...group]
-          .sort((a, b) => a.name.localeCompare(b.name))
+          .sort((left, right) => left.name.localeCompare(right.name))
           .map((skill): ReportRow => ({
             kind: "item",
             name: skill.name,
@@ -2549,8 +2592,12 @@ function handleInfoCommand(
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
     const durationParts: string[] = [];
-    if (hours > 0) durationParts.push(`${hours}h`);
-    if (minutes % 60 > 0 || hours > 0) durationParts.push(`${minutes % 60}m`);
+    if (hours > 0) {
+      durationParts.push(`${hours}h`);
+    }
+    if (minutes % 60 > 0 || hours > 0) {
+      durationParts.push(`${minutes % 60}m`);
+    }
     durationParts.push(`${seconds % 60}s`);
     const duration = durationParts.join(" ");
 
@@ -2813,7 +2860,9 @@ function mcpStatusGlyph(kind: McpStatusKind): string {
 }
 
 function describeMcpTransport(config: MCPServerConfig): string {
-  if (isHttpConfig(config)) return `http · ${config.url}`;
+  if (isHttpConfig(config)) {
+    return `http · ${config.url}`;
+  }
   return `stdio · ${config.command}${config.args?.length ? ` ${config.args.join(" ")}` : ""}`;
 }
 
@@ -2885,7 +2934,9 @@ function runMcpServerAction(
         const result = yield* mcpManager.connectServer(config).pipe(Effect.result);
         if (result._tag === "Failure") {
           yield* terminal.error(result.failure.reason);
-          if (result.failure.suggestion) yield* terminal.info(result.failure.suggestion);
+          if (result.failure.suggestion) {
+            yield* terminal.info(result.failure.suggestion);
+          }
           return;
         }
         yield* terminal.success(`Connected to ${config.name}`);
@@ -2896,7 +2947,9 @@ function runMcpServerAction(
         const result = yield* mcpManager.connectServer(config).pipe(Effect.result);
         if (result._tag === "Failure") {
           yield* terminal.error(result.failure.reason);
-          if (result.failure.suggestion) yield* terminal.info(result.failure.suggestion);
+          if (result.failure.suggestion) {
+            yield* terminal.info(result.failure.suggestion);
+          }
           return;
         }
         yield* terminal.success(`Reconnected to ${config.name}`);
@@ -2908,7 +2961,9 @@ function runMcpServerAction(
         return;
       }
       case "authenticate": {
-        if (!isHttpConfig(config)) return;
+        if (!isHttpConfig(config)) {
+          return;
+        }
         yield* terminal.info(`Starting authorization for ${config.name}...`);
         const result = yield* authorizeServer(config.name, config.url, (url) => {
           process.stdout.write(`\nIf your browser did not open, visit:\n${url}\n\n`);
@@ -2921,7 +2976,9 @@ function runMcpServerAction(
         return;
       }
       case "logout": {
-        if (!isHttpConfig(config)) return;
+        if (!isHttpConfig(config)) {
+          return;
+        }
         yield* clearServerAuth(config.name, config.url);
         yield* terminal.success(`Cleared stored credentials for ${config.name}.`);
         return;
@@ -2954,7 +3011,9 @@ function runMcpServerDetail(
       choices: mcpServerActions(status),
     });
 
-    if (!action || action === "back") return;
+    if (!action || action === "back") {
+      return;
+    }
 
     yield* runMcpServerAction(terminal, mcpManager, configService, status, action);
   });
@@ -2997,8 +3056,10 @@ function runMcpOverlay(
         return { shouldContinue: true };
       }
 
-      const status = statuses.find((s) => s.config.name === selectedName);
-      if (!status) continue;
+      const status = statuses.find((entry) => entry.config.name === selectedName);
+      if (!status) {
+        continue;
+      }
 
       yield* runMcpServerDetail(terminal, mcpManager, configService, status);
     }
@@ -3276,8 +3337,8 @@ function calculateContextUsage(
   const effectiveWindow = contextWindow - autocompactBuffer;
 
   // Separate system message from other messages
-  const systemMessage = conversationHistory.find((m) => m.role === "system");
-  const otherMessages = conversationHistory.filter((m) => m.role !== "system");
+  const systemMessage = conversationHistory.find((message) => message.role === "system");
+  const otherMessages = conversationHistory.filter((message) => message.role !== "system");
 
   // Estimate system prompt tokens, separating out the skills catalog
   let systemPromptTokens = systemMessage ? estimateMessageTokens(systemMessage) : 0;
@@ -3540,6 +3601,7 @@ function handleContextCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   conversationHistory: CommandContext["conversationHistory"],
+  conversationId: string,
 ): Effect.Effect<CommandResult, never, ToolRegistry | AgentConfigService | LLMService> {
   return Effect.gen(function* () {
     const toolRegistry = yield* ToolRegistryTag;
@@ -3619,6 +3681,8 @@ function handleContextCommand(
           { kind: "field", key: "skills", value: count(adjustedUsage.skillsTokens) },
           { kind: "field", key: "turns", value: count(adjustedUsage.messagesTokens) },
           { kind: "field", key: "free", value: count(adjustedUsage.freeSpace) },
+          { kind: "gap" },
+          ...cacheContextRows(lastCacheObservation(promptCacheKey(agent.id, conversationId))),
         ],
         `Compacts at ${String(compactPercent)}%.${windowNote === undefined ? "" : ` ${windowNote.charAt(0).toUpperCase()}${windowNote.slice(1)}.`}`,
       ),

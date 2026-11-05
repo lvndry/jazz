@@ -71,8 +71,12 @@ export interface DiscordSurface extends Surface {
 }
 
 function styleFor(choice: Choice): number {
-  if (choice.intent === "danger") return BUTTON_DANGER;
-  if (choice.intent === "primary") return BUTTON_SUCCESS;
+  if (choice.intent === "danger") {
+    return BUTTON_DANGER;
+  }
+  if (choice.intent === "primary") {
+    return BUTTON_SUCCESS;
+  }
   return BUTTON_SECONDARY;
 }
 
@@ -90,7 +94,9 @@ export function choiceComponents(
   choices: readonly Choice[],
   promptId: string | undefined,
 ): unknown[] {
-  if (choices.length === 0) return [];
+  if (choices.length === 0) {
+    return [];
+  }
   const mint = (choice: Choice): string =>
     tokens.mint({ promptId: promptId ?? "", choiceId: choice.id });
   if (choices.length > BUTTONS_PER_ROW && choices.every((choice) => choice.url === undefined)) {

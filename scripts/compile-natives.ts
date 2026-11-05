@@ -42,7 +42,9 @@ function nodeModulesDirs(): string[] {
       ? fs.readdirSync(workspace, { withFileTypes: true })
       : [];
     for (const entry of entries) {
-      if (entry.isDirectory()) dirs.push(`${workspace}/${entry.name}/node_modules`);
+      if (entry.isDirectory()) {
+        dirs.push(`${workspace}/${entry.name}/node_modules`);
+      }
     }
   }
   return dirs;
@@ -58,7 +60,9 @@ function nativeOptionalDependencies(
   packageDir: string,
 ): Record<string, string> {
   const manifestPath = path.join(packageDir, "package.json");
-  if (!fs.existsSync(manifestPath)) return {};
+  if (!fs.existsSync(manifestPath)) {
+    return {};
+  }
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
     optionalDependencies?: Record<string, string>;
   };
@@ -78,9 +82,13 @@ function nativeOptionalDependencies(
 function nativeShimProviders(): Record<string, Record<string, string>> {
   const providers: Record<string, Record<string, string>> = {};
   for (const nodeModules of nodeModulesDirs()) {
-    if (!fs.existsSync(nodeModules)) continue;
+    if (!fs.existsSync(nodeModules)) {
+      continue;
+    }
     for (const entry of fs.readdirSync(nodeModules)) {
-      if (entry.startsWith(".")) continue;
+      if (entry.startsWith(".")) {
+        continue;
+      }
       const scopePath = path.join(nodeModules, entry);
       const names = entry.startsWith("@")
         ? fs
@@ -89,9 +97,13 @@ function nativeShimProviders(): Record<string, Record<string, string>> {
             .map((child) => `${entry}/${child}`)
         : [entry];
       for (const name of names) {
-        if (providers[name] !== undefined) continue;
+        if (providers[name] !== undefined) {
+          continue;
+        }
         const declared = nativeOptionalDependencies(name, path.join(nodeModules, name));
-        if (Object.keys(declared).length > 0) providers[name] = declared;
+        if (Object.keys(declared).length > 0) {
+          providers[name] = declared;
+        }
       }
     }
   }
@@ -147,11 +159,15 @@ export function nativePackagesForTarget(
   providers: Record<string, Record<string, string>> = readNativeVersions(),
 ): string[] {
   const [, platform, architecture] = compileTarget.split("-");
-  if (platform === undefined || architecture === undefined) return [];
+  if (platform === undefined || architecture === undefined) {
+    return [];
+  }
   const result: string[] = [];
   for (const [provider, declared] of Object.entries(providers)) {
     for (const name of Object.keys(declared)) {
-      if (matchesTarget(provider, name, platform, architecture)) result.push(name);
+      if (matchesTarget(provider, name, platform, architecture)) {
+        result.push(name);
+      }
     }
   }
   return result;
@@ -164,7 +180,9 @@ export function flattenProviders(
   const merged: Record<string, string> = {};
   for (const declared of Object.values(providers)) {
     for (const [name, version] of Object.entries(declared)) {
-      if (merged[name] === undefined) merged[name] = version;
+      if (merged[name] === undefined) {
+        merged[name] = version;
+      }
     }
   }
   return merged;
@@ -172,7 +190,9 @@ export function flattenProviders(
 
 async function downloadNativePackage(packageName: string, version: string): Promise<void> {
   const installedPath = path.join("node_modules", ...packageName.split("/"));
-  if (fs.existsSync(path.join(installedPath, "package.json"))) return;
+  if (fs.existsSync(path.join(installedPath, "package.json"))) {
+    return;
+  }
 
   const bareName = packageName.split("/")[1] as string;
   const tarballUrl = `${REGISTRY_BASE_URL}/${packageName}/-/${bareName}-${version}.tgz`;
@@ -208,7 +228,9 @@ export async function ensureNativeLibrariesForTarget(compileTarget: string): Pro
   const available = flattenProviders(providers);
   for (const packageName of nativePackagesForTarget(compileTarget, providers)) {
     const version = available[packageName];
-    if (version === undefined) continue;
+    if (version === undefined) {
+      continue;
+    }
     await downloadNativePackage(packageName, version);
   }
 }

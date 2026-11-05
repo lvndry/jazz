@@ -168,7 +168,9 @@ function extensionFor(telegramFilePath: string, mimeType: string | undefined): s
   const fromPath = telegramFilePath.includes(".")
     ? telegramFilePath.slice(telegramFilePath.lastIndexOf(".") + 1).toLowerCase()
     : "";
-  if (fromPath.length > 0 && fromPath.length <= 5) return fromPath;
+  if (fromPath.length > 0 && fromPath.length <= 5) {
+    return fromPath;
+  }
 
   switch (mimeType) {
     case "audio/ogg":

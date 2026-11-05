@@ -253,12 +253,20 @@ function collectDirectories(startDir: string, homeDirectory: string): readonly s
   for (let depth = 0; depth < MAX_ANCESTOR_DEPTH; depth++) {
     directories.push(currentDirectory);
 
-    if (isRepositoryRoot(currentDirectory)) break;
-    if (currentDirectory === homeDirectory) break;
-    if (currentDirectory === filesystemRoot) break;
+    if (isRepositoryRoot(currentDirectory)) {
+      break;
+    }
+    if (currentDirectory === homeDirectory) {
+      break;
+    }
+    if (currentDirectory === filesystemRoot) {
+      break;
+    }
 
     const parentDirectory = path.dirname(currentDirectory);
-    if (parentDirectory === currentDirectory) break;
+    if (parentDirectory === currentDirectory) {
+      break;
+    }
     currentDirectory = parentDirectory;
   }
 
@@ -293,8 +301,12 @@ export function discoverProjectInstructions(
     const globalPath = path.join(homeDirectory, ".agents", INSTRUCTION_FILE_NAME);
     seenPaths.add(globalPath);
     const outcome = readCandidate(globalPath, "global", homeDirectory);
-    if (outcome.report) reports.push(outcome.report);
-    if (outcome.candidate) globalCandidates.push(outcome.candidate);
+    if (outcome.report) {
+      reports.push(outcome.report);
+    }
+    if (outcome.candidate) {
+      globalCandidates.push(outcome.candidate);
+    }
   }
 
   const directories = collectDirectories(startDir, homeDirectory);
@@ -307,8 +319,12 @@ export function discoverProjectInstructions(
     seenPaths.add(candidatePath);
 
     const outcome = readCandidate(candidatePath, "project", chainRoot ?? directory);
-    if (outcome.report) reports.push(outcome.report);
-    if (outcome.candidate) projectCandidates.push(outcome.candidate);
+    if (outcome.report) {
+      reports.push(outcome.report);
+    }
+    if (outcome.candidate) {
+      projectCandidates.push(outcome.candidate);
+    }
   }
 
   const globalResult = applyBudget(globalCandidates, "global", GLOBAL_INSTRUCTIONS_BUDGET_BYTES);
@@ -338,7 +354,9 @@ export function renderProjectInstructions(
   homeDirectory: string = os.homedir(),
   omissions: readonly ProjectInstructionOmission[] = [],
 ): string {
-  if (files.length === 0 && omissions.length === 0) return "";
+  if (files.length === 0 && omissions.length === 0) {
+    return "";
+  }
 
   const displayPath = (filePath: string): string => abbreviateHomePath(filePath, homeDirectory);
 

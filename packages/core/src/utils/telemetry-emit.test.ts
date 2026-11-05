@@ -6,7 +6,7 @@ import { TelemetryError } from "@/core/types/errors";
 import { emitTelemetry } from "./telemetry-emit";
 
 function stubTelemetry(overrides: Partial<TelemetryService>): TelemetryService {
-  const notCalled = () => Effect.void as unknown as Effect.Effect<never, TelemetryError>;
+  const notCalled = (): Effect.Effect<void, TelemetryError> => Effect.void;
   return {
     recordAgentRunStarted: notCalled,
     recordAgentRunCompleted: notCalled,

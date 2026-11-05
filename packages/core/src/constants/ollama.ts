@@ -67,7 +67,9 @@ export function defaultOllamaContextWindow(detectedContextWindow?: number): numb
  */
 export function isOllamaCloudModel(modelId: string): boolean {
   const separator = modelId.lastIndexOf(":");
-  if (separator === -1) return false;
+  if (separator === -1) {
+    return false;
+  }
   const tag = modelId.slice(separator + 1).toLowerCase();
   return tag === "cloud" || tag.endsWith("-cloud");
 }

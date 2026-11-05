@@ -14,14 +14,14 @@ describe("metrics", () => {
     expect(passHatK([true, false, true])).toBe(0);
   });
   it("abDelta reports difference and direction", () => {
-    const d = abDelta(0.4, 0.6);
-    expect(d.delta).toBeCloseTo(0.2, 5);
-    expect(d.improved).toBe(true);
+    const delta = abDelta(0.4, 0.6);
+    expect(delta.delta).toBeCloseTo(0.2, 5);
+    expect(delta.improved).toBe(true);
   });
   it("bootstrapCI is deterministic for a fixed seed", () => {
-    const a = bootstrapCI([0.2, 0.8, 0.5, 1, 0], makeRng(42), 200);
-    const b = bootstrapCI([0.2, 0.8, 0.5, 1, 0], makeRng(42), 200);
-    expect(a).toEqual(b);
-    expect(a.mean).toBeCloseTo(0.5, 5);
+    const first = bootstrapCI([0.2, 0.8, 0.5, 1, 0], makeRng(42), 200);
+    const second = bootstrapCI([0.2, 0.8, 0.5, 1, 0], makeRng(42), 200);
+    expect(first).toEqual(second);
+    expect(first.mean).toBeCloseTo(0.5, 5);
   });
 });

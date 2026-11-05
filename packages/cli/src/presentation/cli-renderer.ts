@@ -1,3 +1,4 @@
+import type { CacheMissReason } from "@jazz/core/agent/metrics/prompt-cache";
 import { type LLMError } from "@jazz/core/types/errors";
 import type { ColorProfile, DisplayConfig, OutputMode, RenderTheme } from "@jazz/core/types/output";
 import type { StreamEvent, StreamingConfig } from "@jazz/core/types/streaming";
@@ -18,6 +19,7 @@ import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
 import { TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
+import { formatRequestCache } from "./turn-receipt";
 import { getGlyphs } from "../ui/glyphs";
 import { markdownToAnsi } from "../ui/markdown/ansi";
 import {
@@ -97,7 +99,9 @@ export class CLIRenderer {
     completionTokens: number;
     totalTokens: number;
     cacheReadTokens?: number;
+    cacheWriteTokens?: number;
   } | null = null;
+  private pendingCacheReason: CacheMissReason | undefined;
   private currentProvider: string | null = null;
   private currentModel: string | null = null;
 
@@ -218,6 +222,10 @@ export class CLIRenderer {
         if (this.config.displayConfig.showToolExecution) {
           return this.renderToolExecutionComplete(event);
         }
+        return null;
+
+      case "prompt_cache":
+        this.pendingCacheReason = event.reason;
         return null;
 
       case "usage_update":
@@ -424,8 +432,9 @@ export class CLIRenderer {
 
     // Show accumulated usage if available
     if (this.config.showMetrics && this.accumulatedUsage) {
+      const cache = formatRequestCache(this.accumulatedUsage, this.pendingCacheReason);
       output += this.theme.colors.dim(
-        `\n\n[Tokens: ${this.accumulatedUsage.promptTokens} prompt + ${this.accumulatedUsage.completionTokens} completion = ${this.accumulatedUsage.totalTokens} total]\n`,
+        `\n\n[Tokens: ${this.accumulatedUsage.promptTokens} prompt + ${this.accumulatedUsage.completionTokens} completion = ${this.accumulatedUsage.totalTokens} total${cache === undefined ? "" : `, ${cache}`}]\n`,
       );
     }
 
@@ -770,6 +779,7 @@ export class CLIRenderer {
       this.toolNameMap.clear();
       this.thinkingRenderer.reset();
       this.accumulatedUsage = null;
+      this.pendingCacheReason = undefined;
       this.resetStreamingBuffer();
     });
   }

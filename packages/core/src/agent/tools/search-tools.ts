@@ -115,7 +115,9 @@ export function rankToolsByQuery(
     .toLowerCase()
     .split(/\W+/)
     .filter((token) => token.length >= 3 && !STOPWORDS.has(token));
-  if (queryTokens.length === 0) return [];
+  if (queryTokens.length === 0) {
+    return [];
+  }
 
   const scored = candidates
     .map((candidate) => {
@@ -130,7 +132,7 @@ export function rankToolsByQuery(
       return { name: candidate.name, score };
     })
     .filter((candidate) => candidate.score > 0)
-    .sort((a, b) => b.score - a.score);
+    .sort((left, right) => right.score - left.score);
 
   return scored.slice(0, MAX_SEARCH_TOOLS_RESULTS).map((candidate) => candidate.name);
 }
@@ -153,7 +155,9 @@ export function createSearchToolsTool(): Tool<ToolRegistry> {
     egress: false,
     hidden: false,
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const matched = (result.result as { matchedToolNames?: readonly string[] } | null)
         ?.matchedToolNames;
       return matched && matched.length > 0

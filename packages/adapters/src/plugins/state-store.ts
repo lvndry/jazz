@@ -76,7 +76,9 @@ function isConsentGrantArray(value: unknown): value is readonly PluginConsentGra
   return (
     Array.isArray(value) &&
     value.every((grant) => {
-      if (!isRecord(grant)) return false;
+      if (!isRecord(grant)) {
+        return false;
+      }
       const item = grant;
       return (
         Object.keys(item).length === 2 &&
@@ -109,15 +111,18 @@ function parseLockRecord(
     typeof item["artifactPath"] !== "string" ||
     typeof item["installedAt"] !== "string" ||
     (item["kind"] !== undefined && item["kind"] !== "packed" && item["kind"] !== "source")
-  )
+  ) {
     throw invalid();
+  }
   let manifest: PluginManifest;
   try {
     manifest = parsePluginManifest(item["manifest"]);
   } catch {
     throw invalid();
   }
-  if (manifest.id !== id) throw invalid();
+  if (manifest.id !== id) {
+    throw invalid();
+  }
   return {
     manifest,
     source: item["source"],
@@ -222,7 +227,9 @@ export class PluginStateStore {
     const digests = new Set<string>();
     for (const entry of Object.values(state.plugins)) {
       digests.add(entry.current.manifest.sha256);
-      if (entry.previous) digests.add(entry.previous.manifest.sha256);
+      if (entry.previous) {
+        digests.add(entry.previous.manifest.sha256);
+      }
     }
     return digests;
   }
@@ -232,13 +239,17 @@ export class PluginStateStore {
     try {
       raw = await fs.readFile(this.statePath, "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyState();
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return emptyState();
+      }
       throw error;
     }
     try {
-      return parseState(JSON.parse(raw) as unknown);
+      return parseState(JSON.parse(raw));
     } catch (error) {
-      if (error instanceof PluginStateError) throw error;
+      if (error instanceof PluginStateError) {
+        throw error;
+      }
       throw new PluginStateError(
         "Plugin state contains invalid JSON; retained for recovery",
         "corrupt",

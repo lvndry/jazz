@@ -42,8 +42,12 @@ const DEFAULT_FORMAT_TAB_SIZE = 2;
 const AMBIENT_HEADER = "Language server status and diagnostics (untrusted server output):\n";
 
 function diagnosticLine(value: unknown): string | undefined {
-  if (value === null || typeof value !== "object" || !("message" in value)) return undefined;
-  if (typeof value.message !== "string") return undefined;
+  if (value === null || typeof value !== "object" || !("message" in value)) {
+    return undefined;
+  }
+  if (typeof value.message !== "string") {
+    return undefined;
+  }
   const position =
     "range" in value &&
     value.range !== null &&
@@ -101,21 +105,30 @@ function error(cause: unknown): PluginToolResult {
 
 /** The source text of a prepared edit, or a clear error when the file vanished meanwhile. */
 function sourceText(path: string, source: { readonly text: string | undefined }): string {
-  if (source.text === undefined)
+  if (source.text === undefined) {
     throw new Error(`${path} no longer exists; re-run the tool for a fresh proposal`);
+  }
   return source.text;
 }
 
 /** Paths an approved edit touched, as recorded in the prepared payload. */
 function preparedPaths(prepared: JsonValue): string[] {
-  if (typeof prepared !== "object" || prepared === null || Array.isArray(prepared)) return [];
+  if (typeof prepared !== "object" || prepared === null || Array.isArray(prepared)) {
+    return [];
+  }
   const files = (prepared as { readonly files?: unknown }).files;
-  if (!Array.isArray(files)) return [];
+  if (!Array.isArray(files)) {
+    return [];
+  }
   const paths: string[] = [];
   for (const entry of files) {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      continue;
+    }
     const path = (entry as { readonly path?: unknown }).path;
-    if (typeof path === "string") paths.push(path);
+    if (typeof path === "string") {
+      paths.push(path);
+    }
   }
   return paths;
 }
@@ -132,7 +145,9 @@ async function notifyEdit(
   signal: AbortSignal,
 ): Promise<void> {
   const paths = preparedPaths(prepared);
-  if (paths.length === 0) return;
+  if (paths.length === 0) {
+    return;
+  }
   try {
     const selected = await selectServer(String(fileArg), cwd);
     await notifyEdited(selected, paths, signal);
@@ -167,7 +182,9 @@ const plugin: JazzPluginModule = {
           })),
         );
         for (const file of canonical) {
-          if (!extensions.has(extname(file.path))) continue;
+          if (!extensions.has(extname(file.path))) {
+            continue;
+          }
           trackedFiles.delete(file.path);
           trackedFiles.add(file.path);
           if (trackedFiles.size > MAX_TRACKED_FILES) {
@@ -202,11 +219,15 @@ const plugin: JazzPluginModule = {
                 : undefined;
             } catch (cause) {
               const line = failureLine(cause);
-              if (reportedFailures.get(path) === line) return undefined;
+              if (reportedFailures.get(path) === line) {
+                return undefined;
+              }
               reportedFailures.set(path, line);
               if (reportedFailures.size > MAX_TRACKED_FAILURES) {
                 const oldest = reportedFailures.keys().next().value;
-                if (oldest !== undefined) reportedFailures.delete(oldest);
+                if (oldest !== undefined) {
+                  reportedFailures.delete(oldest);
+                }
               }
               return `${displayPath(canonicalCwd, path)}: ${line}`;
             }
@@ -216,7 +237,9 @@ const plugin: JazzPluginModule = {
       } catch (cause) {
         lines.push(failureLine(cause));
       }
-      if (lines.length === 0) return undefined;
+      if (lines.length === 0) {
+        return undefined;
+      }
       const content = lines.join("\n");
       return { content: `${AMBIENT_HEADER}${content}`.slice(0, MAX_AMBIENT_CONTENT_CHARS) };
     });
@@ -227,7 +250,9 @@ const plugin: JazzPluginModule = {
         handler: async (args, context) => {
           try {
             const file = args["file"];
-            if (typeof file !== "string") throw new Error("file is required");
+            if (typeof file !== "string") {
+              throw new Error("file is required");
+            }
             const selected = await selectServer(file, context.cwd);
             return result(await query(selected, method, args, context.signal));
           } catch (cause) {
@@ -251,7 +276,7 @@ const plugin: JazzPluginModule = {
         return {
           message: `Rename symbol to ${String(args["newName"])} in ${prepared.files.length} file(s)`,
           previewDiff,
-          prepared: prepared as unknown as JsonValue,
+          prepared,
         };
       },
       executePrepared: async (args, prepared, context) => {
@@ -272,7 +297,9 @@ const plugin: JazzPluginModule = {
         const selected = await selectServer(String(args["file"]), context.cwd);
         const source = await document(selected, context.signal);
         const actions = await query(selected, "textDocument/codeAction", args, context.signal);
-        if (!Array.isArray(actions)) throw new Error("Language server returned no code actions");
+        if (!Array.isArray(actions)) {
+          throw new Error("Language server returned no code actions");
+        }
         const matches = (actions as unknown[])
           .map((candidate, index) => ({ candidate, index }))
           .filter(
@@ -282,10 +309,11 @@ const plugin: JazzPluginModule = {
               "title" in candidate &&
               candidate.title === args["title"],
           );
-        if (matches.length > 1 && args["index"] === undefined)
+        if (matches.length > 1 && args["index"] === undefined) {
           throw new Error(
             `Multiple code actions titled ${String(args["title"])}; provide the zero-based index from code_actions`,
           );
+        }
         const chosen =
           args["index"] === undefined
             ? matches[0]
@@ -294,12 +322,14 @@ const plugin: JazzPluginModule = {
           chosen?.candidate && typeof chosen.candidate === "object" && !("edit" in chosen.candidate)
             ? await resolveCodeAction(selected, chosen.candidate, context.signal)
             : chosen?.candidate;
-        if (!action || typeof action !== "object" || !("edit" in action))
+        if (!action || typeof action !== "object" || !("edit" in action)) {
           throw new Error(
             `No edit-bearing code action titled ${String(args["title"])}; call code_actions again`,
           );
-        if ("command" in action)
+        }
+        if ("command" in action) {
           throw new Error("Code action includes an executable command; no files were changed");
+        }
         const { prepared, previewDiff } = await prepareWorkspaceEdit(action.edit, selected.root, {
           path: selected.path,
           text: sourceText(selected.path, source),
@@ -307,7 +337,7 @@ const plugin: JazzPluginModule = {
         return {
           message: `Apply code action: ${String(args["title"])} (${prepared.files.length} file(s))`,
           previewDiff,
-          prepared: prepared as unknown as JsonValue,
+          prepared,
         };
       },
       executePrepared: async (args, prepared, context) => {
@@ -346,7 +376,7 @@ const plugin: JazzPluginModule = {
         return {
           message: `Format ${selected.path}`,
           previewDiff,
-          prepared: prepared as unknown as JsonValue,
+          prepared,
         };
       },
       executePrepared: async (args, prepared, context) => {

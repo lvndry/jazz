@@ -222,7 +222,9 @@ export interface Bridge {
 
 async function resolveChannel(bridge: Bridge, channelId: string): Promise<ChannelMeta> {
   const cached = bridge.channels.get(channelId);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    return cached;
+  }
   const meta = await bridge.fetchChannel(channelId);
   bridge.channels.set(channelId, meta);
   return meta;
@@ -325,7 +327,9 @@ function senderAllowedForInteraction(
   meta: ChannelMeta,
 ): boolean {
   const userId = interactionUserId(interaction);
-  if (userId === undefined) return false;
+  if (userId === undefined) {
+    return false;
+  }
   const isThread = isThreadChannelType(meta.type);
   return isSenderAllowed(bridge.config, {
     isDm: meta.type === CHANNEL_TYPE_DM || interaction.guild_id === undefined,
@@ -357,7 +361,9 @@ async function bindThreadIfNeeded(
     message.id,
     threadNameFromPrompt(prompt),
   );
-  if (thread === undefined) return message.channel_id;
+  if (thread === undefined) {
+    return message.channel_id;
+  }
   bridge.channels.set(thread.id, {
     type: thread.type,
     parentId: message.channel_id,
@@ -419,12 +425,20 @@ export async function dispatchMessage(
   runtime: Runtime,
   message: DiscordMessage,
 ): Promise<void> {
-  if (message.author.id === runtime.botUserId) return;
-  if (message.author.bot === true) return;
-  if (!isRespondableMessage(message)) return;
+  if (message.author.id === runtime.botUserId) {
+    return;
+  }
+  if (message.author.bot === true) {
+    return;
+  }
+  if (!isRespondableMessage(message)) {
+    return;
+  }
 
   const meta = await resolveChannel(bridge, message.channel_id);
-  if (meta.type === CHANNEL_TYPE_GROUP_DM) return;
+  if (meta.type === CHANNEL_TYPE_GROUP_DM) {
+    return;
+  }
 
   const context = accessContextForMessage(bridge, message, meta, runtime.botUserId);
   if (!isSenderAllowed(bridge.config, context)) {
@@ -484,7 +498,9 @@ export async function dispatchMessage(
     const prompt = [stripped || (paths.length > 0 ? "Look at this." : ""), ...paths]
       .filter((part) => part.length > 0)
       .join("\n\n");
-    if (prompt.length === 0) return;
+    if (prompt.length === 0) {
+      return;
+    }
     await bridge.runner.handle({
       chatId: channelId,
       senderId: message.author.id,
@@ -526,7 +542,9 @@ async function handleSuggestionClick(
   choiceId: string,
 ): Promise<ChoiceOutcome> {
   const item = suggestions.get(token)?.[Number.parseInt(choiceId, 10)];
-  if (item === undefined) return "expired";
+  if (item === undefined) {
+    return "expired";
+  }
   await bridge.surface.setChoices(channelId, messageId, []);
   // A bot cannot post as the clicker, so the echo is attributed subtext rather than a
   // plain line that reads as the bot talking to itself.
@@ -560,7 +578,9 @@ export async function dispatchComponent(
   const channelId = interaction.channel_id ?? interaction.message?.channel_id;
   const messageId = interaction.message?.id;
   const userId = interactionUserId(interaction);
-  if (channelId === undefined || messageId === undefined || userId === undefined) return;
+  if (channelId === undefined || messageId === undefined || userId === undefined) {
+    return;
+  }
 
   const meta = await resolveChannel(bridge, channelId);
   if (!senderAllowedForInteraction(bridge, interaction, meta)) {
@@ -594,7 +614,9 @@ export async function dispatchComponent(
     });
   }
   const notice = noticeFor(outcome, userId);
-  if (notice !== undefined) await notify(notice);
+  if (notice !== undefined) {
+    await notify(notice);
+  }
 }
 
 /**
@@ -729,7 +751,9 @@ export function createBridge(
     ...(config.dynamicCta
       ? {
           onAnswered: async (turn) => {
-            if (turn.messageRef === undefined) return;
+            if (turn.messageRef === undefined) {
+              return;
+            }
             const items = await generateSuggestions({
               jazzBinary: config.jazzBinary,
               jazzHome: config.jazzHome,
@@ -742,7 +766,9 @@ export function createBridge(
             });
             console.log(`[cta] channel ${turn.chatId}: ${items.length} contextual suggestion(s)`);
             // Keep the static follow-ups already attached when the model gave nothing.
-            if (items.length === 0) return;
+            if (items.length === 0) {
+              return;
+            }
             const token = suggestions.put(items);
             await surface.setChoices(
               turn.chatId,
@@ -822,7 +848,9 @@ export function startBridge(): void {
     },
     onGuildCreate(guildId) {
       const applicationId = runtime?.applicationId;
-      if (applicationId === undefined) return;
+      if (applicationId === undefined) {
+        return;
+      }
       void bulkOverwriteGuildCommands(
         config.botToken,
         applicationId,
@@ -833,7 +861,9 @@ export function startBridge(): void {
       );
     },
     onMessage(message) {
-      if (runtime === undefined) return;
+      if (runtime === undefined) {
+        return;
+      }
       void dispatchMessage(bridge, runtime, message);
     },
     onInteraction(interaction) {
