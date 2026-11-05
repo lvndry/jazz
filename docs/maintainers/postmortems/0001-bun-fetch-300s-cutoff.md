@@ -14,16 +14,16 @@ Bun aborts any `fetch` still running after 300 seconds unless the call passes `t
 had set its own, longer limits for model calls (a 15-minute per-call limit and a configurable stream
 idle timeout), but every provider was built on the default `fetch`, so Bun's cutoff fired first. A
 model that queued or prefilled for more than 5 minutes failed with `TimeoutError` and was retried
-from scratch. No test could see it: the tests that exercise providers replace `fetch` with a stub
+from scratch. No test saw it: the tests that exercise providers replace `fetch` with a stub
 that answers at once, so Bun's built-in timer was never in the path. Every provider is now built
 with `llmFetch`, which passes `timeout: false`, and a test fails if a provider is not.
 
 ## What happened
 
 Bun's `fetch` accepts a non-standard `timeout` option and applies a 300-second default, so a request
-that was healthy but slow was aborted at the 5-minute mark. The PR names two real cases: NVIDIA NIM, which queued about 200 seconds before its first
-token, and a local model prefilling a long prompt. The abort surfaced as `TimeoutError` and the call was retried
-from scratch.
+that was healthy but slow was aborted at the 5-minute mark. The PR names two real cases: NVIDIA NIM, which queued about 200
+seconds before its first token, and a local model prefilling a long prompt. The abort surfaced as
+`TimeoutError` and the call was retried from scratch.
 
 The same PR found 2 related defects while in that code:
 
@@ -60,10 +60,9 @@ Calls that finished inside 300 seconds were unaffected.
 
 ## Root cause
 
-Jazz delegated the transport to a runtime default it did not know existed. Its timeout design had 2
+Jazz delegated the transport to a runtime default that no Jazz code or test addressed. Its timeout design had 2
 layers (stream idle timeout and per-call limit) and a third, invisible one underneath with a lower
-value, so the effective limit was `min(300s, Jazz's limit)` and the configured values were
-decorative above 300 seconds.
+value, so 300 seconds was the effective cap on a call and the configured values had no effect above it.
 
 ## The rule
 
@@ -77,10 +76,12 @@ The rule is written in the `llmFetch` docstring and in
 
 ## The gate
 
-The test `sends every provider's model request with its configured key and without Bun's fetch timeout`
+The test titled `sends every provider's model request with its configured key and without Bun's fetch timeout`
 in [`ai-sdk-service.test.ts`](../../../packages/adapters/src/llm/ai-sdk-service.test.ts) iterates
-`AVAILABLE_PROVIDERS`, sends one request through each, and fails for any provider whose request did
-not carry `timeout: false`. A newly added provider is covered without editing the test. The 2
+`AVAILABLE_PROVIDERS`, sends one request through each with a stubbed `fetch`, and fails for any
+provider whose first POST did not carry `timeout: false`. A newly added provider is covered without
+editing the test. It verifies only the timeout option: the stub records `init.timeout` and never
+inspects credentials, so the key in the test title is not asserted. The 2
 exemptions, `chatgpt` and `claude_code`, are named in the test with the reason: ChatGPT resolves an
 OAuth credential before any request, and Claude Code runs through the user's own `claude` binary
 rather than an HTTP request. The second was added by #937, which is the gate doing its job: a new
