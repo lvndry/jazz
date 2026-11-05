@@ -74,7 +74,7 @@ export class OtlpOutbox {
             JSON.stringify([
               signal,
               endpoint,
-              Object.entries(headers[signal]).sort(([a], [b]) => a.localeCompare(b)),
+              Object.entries(headers[signal]).sort(([left], [right]) => left.localeCompare(right)),
             ]),
           )
           .digest("hex")
@@ -232,6 +232,8 @@ export class OtlpOutbox {
     );
     return entries
       .filter((entry): entry is QueueEntry => entry !== undefined)
-      .sort((a, b) => a.createdAt - b.createdAt || a.file.localeCompare(b.file));
+      .sort(
+        (left, right) => left.createdAt - right.createdAt || left.file.localeCompare(right.file),
+      );
   }
 }

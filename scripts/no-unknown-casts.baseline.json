@@ -33,9 +33,6 @@
     "c9da2bbd63d402c70f1ef8ac2bc892a22ad9fda0222c548916ee3399b2642ba4": 1,
     "d03e48c379012e4ee18b988b1b6b44d9b446d5fa28b405d21618a5715bfbaaf4": 1
   },
-  "packages/adapters/src/command-approval-tracker.ts": {
-    "5049cfd2e2aa64e1f383a3fd512c90b7fbf3451e89882e18fb400be614a92619": 1
-  },
   "packages/adapters/src/config.test.ts": {
     "3175768ddfaab30b8856b406e84cb42654e23584e7fb6661b53fa745637b6b39": 1,
     "420215e927c7199efa35fcce03bbf9416c4ae36a8e47ad8163b5447f0ee36200": 1,
@@ -44,23 +41,8 @@
     "761b09c8fcfa821202539562b330a22f13b8623baf515e8842e500f875f3eb5d": 1,
     "dda7f24c8f39ef2939696d7ef54627093da043f1f3f1341973e5ca2a4117ac38": 1
   },
-  "packages/adapters/src/config.ts": {
-    "3855e043776d306ef5c0650efedfbbb82a878a4b00ef9cd267c0b3bcb8593150": 1,
-    "47a270daf961cd297f5541a2e229af05c768218d1240396e245cade1855e64b1": 1,
-    "49e4b68cc4aa6400a311cd8bea67f632db310612bb1877fa5bb953f9dcfc17aa": 1,
-    "5fee82609845fb41e61377d39246d89ecfcb5cfc4e09a2dcf87c6ff181f2bdfc": 1,
-    "82a845d60537cf6633d30284e637ca967caca6813e27bf13758fbbbf365ffd38": 2,
-    "89b33a57a7c77261a02116dd015c08d9e6a5b1efb5ba0ebf49bc68a21e7f120a": 1,
-    "ba28e4dffe028ba69042f5a9c04cc4238bc4cc611ae75974074b4bc0aab6a36a": 1,
-    "c7480c0112645f22a58dfd040dfeee3745aa4a359f8da44852f8ecbdb7d9d3c0": 2,
-    "d9446c0e3636bec222a59b8debb1338efca86cf11eae82ca17f674479e9d8824": 1
-  },
   "packages/adapters/src/detach/events.test.ts": {
     "73bdb1e1e8515fa9419500bee9c8954bdc98e79ff2785d5e7f760929e5693047": 1
-  },
-  "packages/adapters/src/detach/snapshot.ts": {
-    "a838174ce19ca84a80f7ec559db75f3b506211ddce7391eefa54f5281a2719cf": 1,
-    "f4c8297403d5da444ecbfdada518ef48f7467ba91fa4e66df06be07e5911ec1b": 1
   },
   "packages/adapters/src/goals/goal-actions.test.ts": {
     "1fc9849e41c940343cbb4bf29f92806601ff9e1c281423206c04960536660006": 1,
@@ -83,9 +65,6 @@
   "packages/adapters/src/history/conversation-log.test.ts": {
     "fdda084b5f3b4cc4b5858b9d7acc760592b750e88d8c92e1871f81f38a164ee4": 1
   },
-  "packages/adapters/src/history/conversation-log.ts": {
-    "e538f1f3d9dadee6079b7ae4f6063b9106492e8c15c246a30c0c36f44215d593": 1
-  },
   "packages/adapters/src/llm/ai-sdk-service.test.ts": {
     "07886e197cfb347c0407d70d4367c1ae766311f2d4f639297a3f5ee0834accdd": 1,
     "23c80378bd4ce76e7dd4cd2579c116b03c663b58d33a2a0f008c796fe68c809b": 2,
@@ -94,9 +73,6 @@
     "80f9560a9914730f18ae3ad69692f2bc5105b0489333008139276cd186c3258a": 2,
     "8230ef0725d3b8dbeb3eedad14ef194ad0459ad4acd6a2cb45933bb1de910a06": 1,
     "c81c76a591071c793e11fbe74421c4a2d4660510d064e5dec3d996589dd4beeb": 1
-  },
-  "packages/adapters/src/llm/ai-sdk-service.ts": {
-    "0311422ffc9c766724a844aede6e2bcb77cb52cee8d1bee59bc18634193d354f": 1
   },
   "packages/adapters/src/llm/api-key-check.test.ts": {
     "4f12df7b15878bec5ff2a843f0374052d1fb5d511977fe2623831584e200e908": 1,
@@ -203,30 +179,11 @@
   "packages/adapters/src/plugins/manifest-schema.test.ts": {
     "bdc4c2a5d8b65a34c9f48a2c00e461bf43395596491e97316d6595f4a4cf90b1": 1
   },
-  "packages/adapters/src/plugins/manifest-schema.ts": {
-    "1c619743947625c93dabaec6f53811c0199c2603f33d28e7975bf1d54d746ca3": 1
-  },
-  "packages/adapters/src/plugins/plugin-author.ts": {
-    "50c7b817f9d10137a24cc1f2216d1ea975706c883663bbfd60b87163be2d365e": 1
-  },
-  "packages/adapters/src/plugins/state-store.ts": {
-    "d3b6dad64b3538d5889bda2b5951b807880cbe039d6128f64c63afc7971b2a42": 1
-  },
   "packages/adapters/src/skill-registry-service.test.ts": {
     "c7a8428f76cb56356d257a0c276cbcdba397e90dddfe00e32d2d7c0d6de2f8cf": 1
   },
   "packages/adapters/src/storage/file.test.ts": {
     "39f610babc8cbe1e7bad887c7eaf0292b3d2b2f5451a86e8fad83806ceaee9ed": 1
-  },
-  "packages/adapters/src/storage/file.ts": {
-    "4fc8af13f924bde4f90acbc23a9e88d8ce907c72d4d1dc078a592d99c23581df": 1,
-    "fe253828aac689a136be6451c37ff9590ef8c67f7f7e9162686ec4457ff996c9": 1
-  },
-  "packages/adapters/src/storage/record-store.ts": {
-    "d3b6dad64b3538d5889bda2b5951b807880cbe039d6128f64c63afc7971b2a42": 1
-  },
-  "packages/adapters/src/storage/run-store.ts": {
-    "487a58a6269113d4cbfd31915a9abdbf016e672be9a2af2c6d5d57b087d0b011": 1
   },
   "packages/adapters/src/telemetry/otlp-sink.test.ts": {
     "efe21c2a6fb82fc55a47bfc1110c5a9502aa7e6bc5d0f9ee5a2e7f9c7527ab18": 1

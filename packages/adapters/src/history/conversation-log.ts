@@ -362,6 +362,19 @@ function isRecordObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/**
+ * Accepts a logged message whose `role` and `content` are well-formed. `system` is absent by
+ * design: a log carrying one is from a format that no longer exists, and is dropped rather than
+ * replayed into a transcript as a stale prompt.
+ */
+function isLoggedChatMessage(value: unknown): value is ChatMessage {
+  if (!isRecordObject(value) || typeof value["content"] !== "string") {
+    return false;
+  }
+  const role = value["role"];
+  return role === "user" || role === "assistant" || role === "tool";
+}
+
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -419,23 +432,15 @@ export function parseConversationLogLine(
     }
     case "message": {
       const message = parsed["message"];
-      if (!isRecordObject(message) || typeof message["content"] !== "string") {
+      if (!isLoggedChatMessage(message)) {
         return null;
       }
-      const role = message["role"];
-      // `system` is absent by design, and a log carrying one is from a format that no
-      // longer exists — drop it rather than replay a stale prompt into a transcript.
-      if (role !== "user" && role !== "assistant" && role !== "tool") {
-        return null;
-      }
-      // `role`/`content` are checked above, but narrowing a variable read out of `message`
-      // doesn't narrow `message` itself — the checks already guarantee this at runtime.
       const id = optionalString(parsed["id"]);
       const parentId = parsed["parentId"];
       return {
         type: "message",
         at,
-        message: message as unknown as ChatMessage,
+        message,
         ...(id === undefined ? {} : { id }),
         ...(typeof parentId === "string" || parentId === null ? { parentId } : {}),
       };

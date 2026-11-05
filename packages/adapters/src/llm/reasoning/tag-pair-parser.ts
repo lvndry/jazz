@@ -23,8 +23,8 @@ type State = "OUTSIDE" | "MAYBE_OPEN" | "INSIDE" | "MAYBE_CLOSE";
 
 const OPEN_TAGS = ["<think>", "<thinking>"];
 const CLOSE_TAGS = ["</think>", "</thinking>"];
-const MAX_OPEN_LEN = Math.max(...OPEN_TAGS.map((t) => t.length));
-const MAX_CLOSE_LEN = Math.max(...CLOSE_TAGS.map((t) => t.length));
+const MAX_OPEN_LEN = Math.max(...OPEN_TAGS.map((tag) => tag.length));
+const MAX_CLOSE_LEN = Math.max(...CLOSE_TAGS.map((tag) => tag.length));
 
 type MatchResult = "match" | "partial" | "fail";
 
@@ -230,14 +230,14 @@ export class TagPairParser implements ReasoningParser {
       }
       case "MAYBE_OPEN": {
         this.buffer += ch;
-        const m = matchAny(this.buffer, OPEN_TAGS);
-        if (m === "match") {
+        const match = matchAny(this.buffer, OPEN_TAGS);
+        if (match === "match") {
           this.state = "INSIDE";
           this.blockOpened = true;
           this.sawThinkingContent = false;
           this.pendingThinking = "";
           this.buffer = "";
-        } else if (m === "fail" || this.buffer.length > MAX_OPEN_LEN) {
+        } else if (match === "fail" || this.buffer.length > MAX_OPEN_LEN) {
           visibleText += this.buffer;
           this.buffer = "";
           this.state = "OUTSIDE";
@@ -263,8 +263,8 @@ export class TagPairParser implements ReasoningParser {
       }
       case "MAYBE_CLOSE": {
         this.buffer += ch;
-        const m = matchAny(this.buffer, CLOSE_TAGS);
-        if (m === "match") {
+        const match = matchAny(this.buffer, CLOSE_TAGS);
+        if (match === "match") {
           if (this.sawThinkingContent) {
             thinkingEnded = true;
           }
@@ -272,7 +272,7 @@ export class TagPairParser implements ReasoningParser {
           this.pendingThinking = "";
           this.sawThinkingContent = false;
           this.state = "OUTSIDE";
-        } else if (m === "fail" || this.buffer.length > MAX_CLOSE_LEN) {
+        } else if (match === "fail" || this.buffer.length > MAX_CLOSE_LEN) {
           if (this.sawThinkingContent) {
             thinkingText += this.buffer;
           } else {

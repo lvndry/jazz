@@ -34,17 +34,26 @@ const MAX_FILES = 50_000;
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const execFileAsync = promisify(execFile);
 
+const DETACH_ENTRY_KINDS = [
+  "history",
+  "work",
+  "todos",
+  "artifact",
+  "workspace",
+  "config",
+  "git",
+  "skill",
+  "persona",
+] as const;
+
+type DetachEntryKind = (typeof DETACH_ENTRY_KINDS)[number];
+
+function isDetachEntryKind(value: unknown): value is DetachEntryKind {
+  return DETACH_ENTRY_KINDS.some((kind) => kind === value);
+}
+
 export interface DetachEntry {
-  readonly kind:
-    | "history"
-    | "work"
-    | "todos"
-    | "artifact"
-    | "workspace"
-    | "config"
-    | "git"
-    | "skill"
-    | "persona";
+  readonly kind: DetachEntryKind;
   /** Relative to the bundle root, and also to the destination category root. */
   readonly relativePath: string;
   readonly size: number;
@@ -473,17 +482,7 @@ function parseManifest(value: unknown): DetachManifest {
       typeof entry["size"] !== "number" ||
       !Number.isSafeInteger(entry["size"]) ||
       entry["size"] < 0 ||
-      ![
-        "history",
-        "work",
-        "todos",
-        "artifact",
-        "workspace",
-        "config",
-        "git",
-        "skill",
-        "persona",
-      ].includes(String(entry["kind"]))
+      !isDetachEntryKind(entry["kind"])
     ) {
       throw new Error("Invalid detach entry.");
     }
@@ -511,9 +510,17 @@ function parseManifest(value: unknown): DetachManifest {
       throw new Error("Duplicate detach entry.");
     }
     seen.add(entry["relativePath"]);
-    entries.push(entry as unknown as DetachEntry);
+    entries.push({
+      kind,
+      relativePath: relative,
+      size: entry["size"],
+      sha256: entry["sha256"],
+    });
   }
-  if (entries.length > MAX_FILES || entries.reduce((n, entry) => n + entry.size, 0) > MAX_BYTES) {
+  if (
+    entries.length > MAX_FILES ||
+    entries.reduce((total, entry) => total + entry.size, 0) > MAX_BYTES
+  ) {
     throw new Error("Snapshot exceeds transfer limits.");
   }
   if (
@@ -522,7 +529,7 @@ function parseManifest(value: unknown): DetachManifest {
   ) {
     throw new Error("Snapshot is missing required entries.");
   }
-  const deletedPaths = input["deletedPaths"] as unknown[];
+  const deletedPaths: unknown[] = input["deletedPaths"];
   if (
     !deletedPaths.every(
       (item): item is string => typeof item === "string" && safeWorkspaceRelative(item) === item,
@@ -547,7 +554,7 @@ async function readVerifiedBundle(bundlePath: string): Promise<{
 }> {
   const bundleDirectory = await fs.realpath(bundlePath);
   const manifest = parseManifest(
-    JSON.parse(await fs.readFile(path.join(bundleDirectory, "manifest.json"), "utf8")) as unknown,
+    JSON.parse(await fs.readFile(path.join(bundleDirectory, "manifest.json"), "utf8")),
   );
   const verified: { entry: DetachEntry; source: string }[] = [];
   for (const entry of manifest.entries) {

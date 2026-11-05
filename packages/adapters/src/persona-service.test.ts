@@ -40,8 +40,8 @@ describe("PersonaService", () => {
   beforeEach(() => {
     const personasDir = join(tempDir, "personas");
     try {
-      for (const f of readdirSync(personasDir)) {
-        rmSync(join(personasDir, f), { recursive: true, force: true });
+      for (const fileName of readdirSync(personasDir)) {
+        rmSync(join(personasDir, fileName), { recursive: true, force: true });
       }
     } catch {
       // Dir may not exist yet
@@ -317,7 +317,7 @@ describe("PersonaService", () => {
       });
 
       const result = await run(program);
-      const names = result.map((p) => p.name);
+      const names = result.map((persona) => persona.name);
       expect(names).toContain("default");
       expect(names).toContain("coder");
       expect(names).toContain("researcher");
@@ -344,7 +344,7 @@ describe("PersonaService", () => {
             return yield* service.listPersonas();
           }),
         );
-        const names = result.map((p) => p.name);
+        const names = result.map((persona) => persona.name);
         expect(names).toContain("default");
         expect(names).toContain("coder");
       } finally {

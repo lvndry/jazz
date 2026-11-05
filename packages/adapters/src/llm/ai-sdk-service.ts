@@ -244,9 +244,8 @@ function emitToQueue(
 }
 
 function suppressStreamTextUnhandledRejections(result: StreamTextResult): void {
-  const record = result as unknown as Record<string, unknown>;
   for (const field of STREAM_TEXT_PROMISE_FIELDS) {
-    const value = record[field];
+    const value: unknown = Reflect.get(result, field);
     if (value != null && typeof (value as { then?: unknown }).then === "function") {
       void Promise.resolve(value).catch(() => {});
     }
@@ -460,9 +459,9 @@ export function toCoreMessages(
   const normalizedProviderName = providerName?.toLowerCase();
   const reasoningReplay = resolveReasoningReplay(providerName, conversionOptions?.modelName);
 
-  const result = messages.map((m, messageIndex) => {
-    const role = m.role;
-    const content = sanitize(m.content);
+  const result = messages.map((message, messageIndex) => {
+    const role = message.role;
+    const content = sanitize(message.content);
 
     if (role === "system") {
       const msg: SystemModelMessage = {
@@ -497,7 +496,7 @@ export function toCoreMessages(
       // its own wire format. (`ImagePart` exists but is deprecated, and would only handle one
       // of the four.)
       const attachmentParts = buildAttachmentParts(
-        m.attachments,
+        message.attachments,
         resolvedAttachments,
         inlineAttachmentIndices.has(messageIndex),
       );
@@ -541,13 +540,13 @@ export function toCoreMessages(
         reasoningReplay.scope === "all-turns" ||
         (reasoningReplay.scope === "current-turn" && messageIndex > lastUserMessageIndex);
       if (
-        Array.isArray(m.reasoning_parts) &&
+        Array.isArray(message.reasoning_parts) &&
         normalizedProviderName &&
         replayScopeIncludesMessage
       ) {
         const skip = (reason: ReasoningPartSkipReason) =>
           conversionOptions?.onReasoningPartSkipped?.({ messageIndex, reason });
-        for (const storedPart of m.reasoning_parts as ReadonlyArray<unknown>) {
+        for (const storedPart of message.reasoning_parts as ReadonlyArray<unknown>) {
           if (typeof storedPart !== "object" || storedPart === null) {
             skip("invalid-part");
             continue;
@@ -587,8 +586,8 @@ export function toCoreMessages(
         contentParts.push({ type: "text", text: content });
       }
 
-      if (m.tool_calls && m.tool_calls.length > 0) {
-        for (const tc of m.tool_calls) {
+      if (message.tool_calls && message.tool_calls.length > 0) {
+        for (const tc of message.tool_calls) {
           const toolArgs = sanitize(tc.function.arguments);
           const toolCallPart: ToolCallPart = {
             type: "tool-call",
@@ -619,8 +618,8 @@ export function toCoreMessages(
 
       contentParts.push({
         type: "tool-result",
-        toolCallId: m.tool_call_id ?? "",
-        toolName: m.name ?? "tool",
+        toolCallId: message.tool_call_id ?? "",
+        toolName: message.name ?? "tool",
         output: { type: "text", value: content },
       });
 
@@ -2170,7 +2169,7 @@ class AISDKService implements LLMService {
 
   listProviders(): Effect.Effect<readonly LLMProviderListItem[], never> {
     const configuredProviders = getConfiguredProviders(this.config.llmConfig);
-    const configuredNames = new Set(configuredProviders.map((p) => p.name));
+    const configuredNames = new Set(configuredProviders.map((provider) => provider.name));
 
     const allProviders = Object.keys(this.providerModels)
       .filter((provider): provider is ProviderName => this.isProviderName(provider))
@@ -2245,7 +2244,9 @@ class AISDKService implements LLMService {
     }
 
     // Handle the special case for web_fetch.
-    const hasWebFetch = requestedTools.some((t) => t.function.name === "web_fetch");
+    const hasWebFetch = requestedTools.some(
+      (requestedTool) => requestedTool.function.name === "web_fetch",
+    );
     if (hasWebFetch) {
       const providerNativeWebFetch = getProviderNativeWebFetchTool(providerName);
       if (providerNativeWebFetch) {

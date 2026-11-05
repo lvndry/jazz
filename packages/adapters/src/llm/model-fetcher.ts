@@ -844,8 +844,8 @@ async function transformOllamaModels(
   const results: ModelInfo[] = [];
   const runningModels = await fetchOllamaRunningModels(baseUrl, signal);
 
-  for (let i = 0; i < models.length; i += CONCURRENCY_LIMIT) {
-    const batch = models.slice(i, i + CONCURRENCY_LIMIT);
+  for (let index = 0; index < models.length; index += CONCURRENCY_LIMIT) {
+    const batch = models.slice(index, index + CONCURRENCY_LIMIT);
     const batchResults = await Promise.all(
       batch.map(async (model): Promise<ModelInfo> => {
         const extras = await fetchOllamaModelDetails(baseUrl, model.name, signal, runningModels);

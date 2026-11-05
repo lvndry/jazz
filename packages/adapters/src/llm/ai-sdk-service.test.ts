@@ -201,7 +201,7 @@ describe("AI SDK Service - Unit Tests", () => {
       const result = await runWithTestLayers(testEffect, configLayer);
 
       // Should include all providers
-      const providerNames = result.map((p) => p.name);
+      const providerNames = result.map((provider) => provider.name);
       expect(providerNames).toContain("openai");
       expect(providerNames).toContain("openrouter");
       expect(providerNames).toContain("anthropic");
@@ -211,9 +211,9 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(providerNames).toContain("sglang");
 
       // Check configured status
-      const openaiProvider = result.find((p) => p.name === "openai");
-      const openrouterProvider = result.find((p) => p.name === "openrouter");
-      const anthropicProvider = result.find((p) => p.name === "anthropic");
+      const openaiProvider = result.find((provider) => provider.name === "openai");
+      const openrouterProvider = result.find((provider) => provider.name === "openrouter");
+      const anthropicProvider = result.find((provider) => provider.name === "anthropic");
 
       expect(openaiProvider?.configured).toBe(true);
       expect(openrouterProvider?.configured).toBe(true);
@@ -667,7 +667,7 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const result = await runWithTestLayers(testEffect, configLayer);
 
-      const ollamaProvider = result.find((p) => p.name === "ollama");
+      const ollamaProvider = result.find((provider) => provider.name === "ollama");
       expect(ollamaProvider?.configured).toBe(true);
     });
 
@@ -681,7 +681,7 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const result = await runWithTestLayers(testEffect, configLayer);
 
-      const llamacpp = result.find((p) => p.name === "llamacpp");
+      const llamacpp = result.find((provider) => provider.name === "llamacpp");
       expect(llamacpp).toBeDefined();
       expect(llamacpp?.configured).toBe(true);
     });
@@ -714,9 +714,9 @@ describe("AI SDK Service - Unit Tests", () => {
 
         const result = await runWithTestLayers(testEffect, configLayer);
 
-        const configuredProviders = result.filter((p) => p.configured);
+        const configuredProviders = result.filter((provider) => provider.configured);
         expect(configuredProviders.length).toBe(4); // Local-server providers need no API key.
-        const configuredNames = configuredProviders.map((p) => p.name);
+        const configuredNames = configuredProviders.map((provider) => provider.name);
         expect(configuredNames).toContain("ollama");
         expect(configuredNames).toContain("llamacpp");
         expect(configuredNames).toContain("vllm");
@@ -809,8 +809,8 @@ describe("AI SDK Service - Unit Tests", () => {
       }
 
       // Also verify that all providers in AVAILABLE_PROVIDERS that are in LLMConfig are handled
-      const configurableProviders = AVAILABLE_PROVIDERS.filter((p) =>
-        llmConfigProviders.includes(p),
+      const configurableProviders = AVAILABLE_PROVIDERS.filter((provider) =>
+        llmConfigProviders.includes(provider),
       );
       expect(configurableProviders.length).toBe(llmConfigProviders.length);
     });
@@ -1337,7 +1337,7 @@ describe("AI SDK Service - Unit Tests", () => {
       const testEffect = Effect.gen(function* () {
         const llmService = yield* LLMServiceTag;
         const providers = yield* llmService.listProviders();
-        return providers.map((p) => p.name);
+        return providers.map((provider) => provider.name);
       });
 
       const configLayer = createTestConfigLayer({});
@@ -1365,7 +1365,7 @@ describe("AI SDK Service - Unit Tests", () => {
       const result = await runWithTestLayers(testEffect, configLayer);
 
       // Should find OpenAI regardless of case in config
-      const openaiProvider = result.find((p) => p.name === "openai");
+      const openaiProvider = result.find((provider) => provider.name === "openai");
       expect(openaiProvider?.configured).toBe(true);
     });
 
