@@ -1,6 +1,13 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import type { Tool, ToolDisclosure, ToolRiskLevel } from "@/core/interfaces/tool-registry";
+import type {
+  Tool,
+  ToolDisclosure,
+  ToolReadiness,
+  ToolReadinessContext,
+  ToolReadinessRequirements,
+  ToolRiskLevel,
+} from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 
 /**
@@ -115,6 +122,10 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
    * Custom timeout in milliseconds. Overrides the default 3-minute timeout.
    */
   readonly timeoutMs?: number;
+  /** See {@link Tool.ready}. */
+  readonly ready?: (
+    context: ToolReadinessContext,
+  ) => Effect.Effect<ToolReadiness, never, ToolReadinessRequirements>;
 }
 
 /**
@@ -153,6 +164,7 @@ export function defineTool<R, Args extends Record<string, unknown>>(
       : {}),
     ...(config.longRunning ? { longRunning: true } : {}),
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+    ...(config.ready !== undefined ? { ready: config.ready } : {}),
     createSummary: config.createSummary,
     execute(
       args: Record<string, unknown>,

@@ -129,6 +129,7 @@ import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
 import { registerBrowserAdoptionTools, registerPeerTools } from "./tools/register-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
+import { withholdUnreadyTools } from "./tools/tool-readiness";
 import { collectUnlockedToolNames } from "./tools/unlocked-tools";
 import { INTERACTIVE_TOOL_NAMES } from "./tools/user-interaction";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
@@ -812,6 +813,10 @@ function initializeAgentRun(
     // remaining tools.
     const allToolNames = yield* toolRegistry.listAllTools();
     combinedToolNames = combinedToolNames.filter((toolName) => allToolNames.includes(toolName));
+
+    // Tools whose prerequisites are missing are left out before expansion and tiering, so
+    // neither the declared tools, the deferred index, nor `search_tools` can reach them.
+    combinedToolNames = [...(yield* withholdUnreadyTools(toolRegistry, combinedToolNames, agent))];
 
     // Expand tool names to include approval execute tools, advertised aliases and companion
     // tools. Each belongs to a tool that already survived every filter above, so it is granted

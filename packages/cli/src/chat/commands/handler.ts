@@ -42,8 +42,16 @@ import {
   discoverProjectInstructions,
   type InstructionFileReport,
 } from "@jazz/core/agent/project-instructions";
-import { resolveAgentToolCategoryIds } from "@jazz/core/agent/tools/agent-tool-resolution";
+import {
+  resolveAgentToolCategoryIds,
+  resolveAgentToolNames,
+} from "@jazz/core/agent/tools/agent-tool-resolution";
 import { runShellCommand } from "@jazz/core/agent/tools/shell";
+import {
+  describeUnreadyAgentTools,
+  describeUnreadyReason,
+  type UnreadyTool,
+} from "@jazz/core/agent/tools/tool-readiness";
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
@@ -2583,13 +2591,44 @@ function summarizeInstructionBudget(reports: readonly InstructionFileReport[]): 
 }
 
 /**
+ * One `/info` row per tool a run withholds, e.g. `web search  not configured  (how to set it up)`.
+ */
+export function unreadyToolRows(unready: readonly UnreadyTool[]): ReportRow[] {
+  return unready.map((entry) => ({
+    kind: "field" as const,
+    key: entry.name.replaceAll("_", " "),
+    value: describeUnreadyReason(entry.reason),
+    detail: entry.remedy,
+    tone: "muted" as const,
+  }));
+}
+
+/**
+ * Tools this agent is granted that the next run will leave out, with how to fix each. Empty when
+ * the registry or services are not available.
+ */
+function resolveUnreadyToolRows(
+  agent: CommandContext["agent"],
+): Effect.Effect<ReportRow[], never, ToolRegistry | AgentConfigService | LLMService> {
+  return Effect.gen(function* () {
+    const toolNames = yield* resolveAgentToolNames(agent);
+    const unready = yield* describeUnreadyAgentTools(agent, toolNames);
+    return unreadyToolRows(unready);
+  }).pipe(Effect.catchCause(() => Effect.succeed([])));
+}
+
+/**
  * Handle /info command - Show session identity, usage, and where its logs are
  */
 function handleInfoCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   context: CommandContext,
-): Effect.Effect<CommandResult, never, FileSystemContextService | FileSystem.FileSystem> {
+): Effect.Effect<
+  CommandResult,
+  never,
+  FileSystemContextService | FileSystem.FileSystem | ToolRegistry | AgentConfigService | LLMService
+> {
   return Effect.gen(function* () {
     const conversation = yield* loadConversationOrNull(agent.id, context.conversationId);
 
@@ -2646,6 +2685,7 @@ function handleInfoCommand(
       resolveConfinementMode(appConfig?.shell?.confinement, true) === "on"
         ? summarizeConfinement(getConfinementStatus())
         : undefined;
+    const unreadyRows = yield* resolveUnreadyToolRows(agent);
 
     yield* terminal.log(
       report("info", [
@@ -2681,6 +2721,7 @@ function handleInfoCommand(
           value: reasoningSelectionToCliValue(agent.config.llm.reasoning),
         },
         { kind: "field", key: "tools", value: `${String(totalTools)} on` },
+        ...unreadyRows,
         { kind: "field", key: "folder", value: abbreviateHomePath(workingDirectory) },
         ...(instructionsSummary === undefined
           ? []
