@@ -86,15 +86,21 @@ export function estimateAttachmentTokens(attachment: MessageAttachment): number 
       return Math.min(pixelTokens, MAX_IMAGE_TOKENS);
     }
     case "pdf": {
-      if (attachment.pageCount === undefined) return UNPROBED_FALLBACK.pdf;
+      if (attachment.pageCount === undefined) {
+        return UNPROBED_FALLBACK.pdf;
+      }
       return attachment.pageCount * PDF_TOKENS_PER_PAGE;
     }
     case "audio": {
-      if (attachment.durationSeconds === undefined) return UNPROBED_FALLBACK.audio;
+      if (attachment.durationSeconds === undefined) {
+        return UNPROBED_FALLBACK.audio;
+      }
       return Math.ceil(attachment.durationSeconds * AUDIO_TOKENS_PER_SECOND);
     }
     case "video": {
-      if (attachment.durationSeconds === undefined) return UNPROBED_FALLBACK.video;
+      if (attachment.durationSeconds === undefined) {
+        return UNPROBED_FALLBACK.video;
+      }
       return Math.ceil(attachment.durationSeconds * VIDEO_TOKENS_PER_SECOND);
     }
   }
@@ -104,8 +110,12 @@ export function estimateAttachmentTokens(attachment: MessageAttachment): number 
 export function estimateAttachmentsTokens(
   attachments: ReadonlyArray<MessageAttachment> | undefined,
 ): number {
-  if (attachments === undefined || attachments.length === 0) return 0;
+  if (attachments === undefined || attachments.length === 0) {
+    return 0;
+  }
   let total = 0;
-  for (const attachment of attachments) total += estimateAttachmentTokens(attachment);
+  for (const attachment of attachments) {
+    total += estimateAttachmentTokens(attachment);
+  }
   return total;
 }

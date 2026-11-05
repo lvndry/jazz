@@ -72,7 +72,9 @@ const hash = (text: string): number => {
 /** Anton is narrow; ~0.47em per character is a safe planning width. */
 const wrapTitle = (title: string): string[] => {
   const perLine = 24;
-  if (title.length <= perLine) return [title];
+  if (title.length <= perLine) {
+    return [title];
+  }
   const words = title.split(" ");
   const lines: string[] = [];
   let current = "";
@@ -84,7 +86,9 @@ const wrapTitle = (title: string): string[] => {
       current = `${current} ${word}`;
     }
   }
-  if (current.trim() !== "") lines.push(current.trim());
+  if (current.trim() !== "") {
+    lines.push(current.trim());
+  }
   if (lines.length > 2) {
     const kept = lines.slice(0, 2);
     kept[1] = `${(kept[1] ?? "").slice(0, perLine - 1)}…`;
@@ -110,8 +114,8 @@ export async function renderCompositionOg(
     const fraction = 0.12 + ((value % 1000) / 1000) * 0.78;
     const barHeight = Math.round(fraction * HEIGHT * 0.42);
     const opacity = (0.2 + ((value % 700) / 700) * 0.55).toFixed(2);
-    const x = index * (barWidth + BAR_GAP);
-    return `<rect x="${x.toFixed(1)}" y="${HEIGHT - barHeight}" width="${barWidth.toFixed(1)}" height="${barHeight}" fill="${BRAND_CYAN}" opacity="${opacity}"/>`;
+    const barX = index * (barWidth + BAR_GAP);
+    return `<rect x="${barX.toFixed(1)}" y="${HEIGHT - barHeight}" width="${barWidth.toFixed(1)}" height="${barHeight}" fill="${BRAND_CYAN}" opacity="${opacity}"/>`;
   }).join("");
 
   const lines = wrapTitle(title);

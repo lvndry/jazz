@@ -59,8 +59,12 @@ export function renderForWhatsApp(message: OutgoingMessage): string {
         case "line":
           return block.spans
             .map((span) => {
-              if (span.kind === "bold") return `*${span.text}*`;
-              if (span.kind === "code") return `\`\`\`${span.text}\`\`\``;
+              if (span.kind === "bold") {
+                return `*${span.text}*`;
+              }
+              if (span.kind === "code") {
+                return `\`\`\`${span.text}\`\`\``;
+              }
               return span.text;
             })
             .join("");
@@ -96,7 +100,9 @@ export function createWhatsAppSurface(connection: Connection): Surface {
 
     async send(chatId: ChatId, message: OutgoingMessage): Promise<MessageRef | undefined> {
       for (const chunk of splitForSurface(renderForWhatsApp(message), WHATSAPP_CHUNK_CHARS)) {
-        if (chunk.trim().length === 0) continue;
+        if (chunk.trim().length === 0) {
+          continue;
+        }
         await connection.send(chatId, chunk);
       }
       // Nothing in the core addresses a sent message again on an append-only

@@ -50,9 +50,9 @@ describe("ls tool", () => {
     expect(result.success).toBe(true);
 
     const items = result.result as Array<{ name: string; type: string }>;
-    expect(items.some((i) => i.name === "alpha.ts" && i.type === "file")).toBe(true);
-    expect(items.some((i) => i.name === "beta.js" && i.type === "file")).toBe(true);
-    expect(items.some((i) => i.name === "child" && i.type === "dir")).toBe(true);
+    expect(items.some((item) => item.name === "alpha.ts" && item.type === "file")).toBe(true);
+    expect(items.some((item) => item.name === "beta.js" && item.type === "file")).toBe(true);
+    expect(items.some((item) => item.name === "child" && item.type === "dir")).toBe(true);
   });
 
   it("should not include nested files when non-recursive", async () => {
@@ -60,8 +60,8 @@ describe("ls tool", () => {
     expect(result.success).toBe(true);
 
     const items = result.result as Array<{ name: string }>;
-    expect(items.every((i) => i.name !== "gamma.ts")).toBe(true);
-    expect(items.every((i) => i.name !== "delta.ts")).toBe(true);
+    expect(items.every((item) => item.name !== "gamma.ts")).toBe(true);
+    expect(items.every((item) => item.name !== "delta.ts")).toBe(true);
   });
 
   it("should hide dotfiles by default", async () => {
@@ -69,7 +69,7 @@ describe("ls tool", () => {
     expect(result.success).toBe(true);
 
     const items = result.result as Array<{ name: string }>;
-    expect(items.every((i) => !i.name.startsWith("."))).toBe(true);
+    expect(items.every((item) => !item.name.startsWith("."))).toBe(true);
   });
 
   it("should show dotfiles when showHidden is true", async () => {
@@ -77,7 +77,7 @@ describe("ls tool", () => {
     expect(result.success).toBe(true);
 
     const items = result.result as Array<{ name: string }>;
-    expect(items.some((i) => i.name === ".dotfile")).toBe(true);
+    expect(items.some((item) => item.name === ".dotfile")).toBe(true);
   });
 
   // ---------------------------------------------------------------
@@ -89,8 +89,8 @@ describe("ls tool", () => {
     expect(result.success).toBe(true);
 
     const items = result.result as Array<{ name: string }>;
-    expect(items.some((i) => i.name === "gamma.ts")).toBe(true);
-    expect(items.some((i) => i.name === "delta.ts")).toBe(true);
+    expect(items.some((item) => item.name === "gamma.ts")).toBe(true);
+    expect(items.some((item) => item.name === "delta.ts")).toBe(true);
   });
 
   it("should respect maxDepth when recursive", async () => {
@@ -99,7 +99,7 @@ describe("ls tool", () => {
 
     const items = result.result as Array<{ path: string }>;
     // maxDepth 1 = only immediate children, no grandchild/delta.ts
-    expect(items.every((i) => !i.path.includes("grandchild"))).toBe(true);
+    expect(items.every((item) => !item.path.includes("grandchild"))).toBe(true);
   });
 
   // ---------------------------------------------------------------
@@ -116,7 +116,7 @@ describe("ls tool", () => {
 
     const items = result.result as Array<{ name: string }>;
     expect(items.length).toBeGreaterThanOrEqual(1);
-    expect(items.every((i) => i.name.includes("alpha"))).toBe(true);
+    expect(items.every((item) => item.name.includes("alpha"))).toBe(true);
   });
 
   it("should filter by regex pattern", async () => {
@@ -129,7 +129,7 @@ describe("ls tool", () => {
 
     const items = result.result as Array<{ name: string }>;
     expect(items.length).toBeGreaterThanOrEqual(1);
-    expect(items.every((i) => i.name.endsWith(".ts"))).toBe(true);
+    expect(items.every((item) => item.name.endsWith(".ts"))).toBe(true);
   });
 
   // ---------------------------------------------------------------
@@ -169,6 +169,6 @@ describe("ls tool", () => {
     expect(result.success).toBe(true);
 
     const items = result.result as Array<{ name: string }>;
-    expect(items.some((i) => i.name === "alpha.ts")).toBe(true);
+    expect(items.some((item) => item.name === "alpha.ts")).toBe(true);
   });
 });

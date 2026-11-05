@@ -2,6 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { fakeFetch } from "@/core/test-support/fakes";
 import { createReadPdfTool } from "./read-pdf";
 import { runTool } from "./test-helpers";
 
@@ -16,12 +17,14 @@ function stubFetch(fake: {
   headers: Headers;
   body: Uint8Array;
 }): void {
-  globalThis.fetch = (async () =>
-    new Response(fake.body.byteLength > 0 ? (fake.body as unknown as BodyInit) : null, {
-      status: fake.status,
-      statusText: fake.statusText,
-      headers: fake.headers,
-    })) as unknown as typeof fetch;
+  globalThis.fetch = fakeFetch(
+    async () =>
+      new Response(fake.body.byteLength > 0 ? new Uint8Array(fake.body) : null, {
+        status: fake.status,
+        statusText: fake.statusText,
+        headers: fake.headers,
+      }),
+  );
 }
 
 /** A public address literal: the destination check passes without touching DNS. */

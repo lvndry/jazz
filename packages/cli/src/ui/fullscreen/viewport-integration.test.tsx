@@ -9,14 +9,16 @@ import { sampleIdleView } from "./sample";
 import { renderForTest, updateForTest } from "./test-helpers";
 import { TranscriptSurfaceRenderable } from "./transcript-surface";
 import type { Block, ViewModel } from "./types";
+import { partialFake } from "../../test-support/partial-fake";
 
 const history: Block = {
   id: "history",
   seq: 1,
   kind: "agent",
-  markdown: Array.from({ length: 100 }, (_, i) => `history-${String(i).padStart(3, "0")}`).join(
-    "\n\n",
-  ),
+  markdown: Array.from(
+    { length: 100 },
+    (_, index) => `history-${String(index).padStart(3, "0")}`,
+  ).join("\n\n"),
 };
 const live: Block = {
   id: "thought",
@@ -29,10 +31,14 @@ const live: Block = {
 const markers = (frame: string) => frame.match(/history-\d+/g);
 
 function transcriptSurface(node: Renderable): TranscriptSurfaceRenderable | undefined {
-  if (node instanceof TranscriptSurfaceRenderable) return node;
+  if (node instanceof TranscriptSurfaceRenderable) {
+    return node;
+  }
   for (const child of node.getChildren()) {
     const surface = transcriptSurface(child);
-    if (surface !== undefined) return surface;
+    if (surface !== undefined) {
+      return surface;
+    }
   }
   return undefined;
 }
@@ -113,8 +119,11 @@ it("routes native selection drag through anchored navigation and cancels it on r
     callback: unknown,
     delay?: number,
   ) => {
-    const id = ++serial as unknown as ReturnType<typeof setInterval>;
-    if (delay === 50) scheduled.set(id, callback as () => void);
+    serial += 1;
+    const id = partialFake<ReturnType<typeof setInterval>>({ [Symbol.toPrimitive]: () => serial });
+    if (delay === 50) {
+      scheduled.set(id, callback as () => void);
+    }
     return id;
   }) as typeof globalThis.setInterval);
   const clear = spyOn(globalThis, "clearInterval").mockImplementation((id) => {
@@ -151,7 +160,9 @@ it("routes native selection drag through anchored navigation and cancels it on r
     expect(surface?.scrollTop).toBe(0);
     expect(scheduled.size).toBe(1);
     updateForTest(() => {
-      for (const tick of scheduled.values()) tick();
+      for (const tick of scheduled.values()) {
+        tick();
+      }
     });
     await rendered.flush();
     expect(markers(rendered.captureCharFrame())).not.toEqual(before);

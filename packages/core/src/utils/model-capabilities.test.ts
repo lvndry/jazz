@@ -24,10 +24,10 @@ describe("filterCapableModels", () => {
     ];
 
     const vision = filterCapableModels(models, "analyze:image");
-    expect(vision.map((m) => m.modelId)).toEqual(["vision-model"]);
+    expect(vision.map((model) => model.modelId)).toEqual(["vision-model"]);
 
     const audio = filterCapableModels(models, "analyze:audio");
-    expect(audio.map((m) => m.modelId)).toEqual(["audio-model"]);
+    expect(audio.map((model) => model.modelId)).toEqual(["audio-model"]);
   });
 
   it("treats an absent flag as no", () => {
@@ -48,7 +48,7 @@ describe("filterCapableModels", () => {
       model({ id: "cheap", ingestImage: true, inputPricePerMillion: 3, outputPricePerMillion: 15 }),
     ];
 
-    expect(filterCapableModels(models, "analyze:image").map((m) => m.modelId)).toEqual([
+    expect(filterCapableModels(models, "analyze:image").map((model) => model.modelId)).toEqual([
       "cheap",
       "expensive",
       "unpriced-vision",

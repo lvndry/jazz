@@ -4,6 +4,7 @@ import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import { decodeStateFile, encodeStateFile, type StateFileKind } from "@jazz/core/utils/state-file";
 import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect, FileSystem } from "effect";
+import { asStoredRecord } from "./storage/state-record";
 
 /**
  * Tracks how many distinct sessions a command has been auto-approved in.
@@ -37,7 +38,7 @@ const COMMAND_APPROVALS_KIND: StateFileKind<CommandApprovals> = {
     if (typeof data !== "object" || data === null || Array.isArray(data)) {
       return { ok: false, error: "expected a command approvals record" };
     }
-    return { ok: true, content: data as unknown as CommandApprovals };
+    return { ok: true, content: asStoredRecord<CommandApprovals>(data) };
   },
   serialize: (data) => ({ ...data }),
 };
@@ -69,7 +70,9 @@ export function loadCommandApprovals(): Effect.Effect<
         ),
       );
 
-    if (content === "") return {};
+    if (content === "") {
+      return {};
+    }
 
     const decoded = decodeStateFile(content, "command-approvals.json", COMMAND_APPROVALS_KIND);
     return decoded.status === "ok" ? decoded.content : {};
@@ -137,7 +140,9 @@ export function bumpPromotionThreshold(
   return Effect.gen(function* () {
     const approvals = yield* loadCommandApprovals();
     const existing = approvals[command];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     const currentThreshold = existing.nextPromptAt;
     approvals[command] = {

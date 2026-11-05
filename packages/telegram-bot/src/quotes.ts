@@ -50,25 +50,43 @@ function truncate(text: string): string {
 }
 
 function senderLabel(quoted: QuotedMessage): string {
-  if (quoted.from?.is_bot === true) return "your earlier message";
+  if (quoted.from?.is_bot === true) {
+    return "your earlier message";
+  }
   const name = quoted.from?.first_name?.trim() ?? quoted.from?.username?.trim();
   return name !== undefined && name.length > 0 ? `${name}'s message` : "an earlier message";
 }
 
 /** What the quoted message *is*, when it carries no text of its own. */
 function mediaLabel(quoted: QuotedMessage): string | undefined {
-  if (quoted.voice !== undefined) return "a voice message";
-  if (quoted.audio !== undefined) return "an audio file";
-  if (quoted.photo !== undefined && quoted.photo.length > 0) return "a photo";
-  if (quoted.animation !== undefined) return "a GIF";
-  if (quoted.video !== undefined) return "a video";
-  if (quoted.video_note !== undefined) return "a video message";
+  if (quoted.voice !== undefined) {
+    return "a voice message";
+  }
+  if (quoted.audio !== undefined) {
+    return "an audio file";
+  }
+  if (quoted.photo !== undefined && quoted.photo.length > 0) {
+    return "a photo";
+  }
+  if (quoted.animation !== undefined) {
+    return "a GIF";
+  }
+  if (quoted.video !== undefined) {
+    return "a video";
+  }
+  if (quoted.video_note !== undefined) {
+    return "a video message";
+  }
   if (quoted.document !== undefined) {
     const fileName = quoted.document.file_name?.trim();
     return fileName !== undefined && fileName.length > 0 ? `the file ${fileName}` : "a file";
   }
-  if (quoted.location !== undefined) return "a location";
-  if (quoted.sticker !== undefined) return "a sticker";
+  if (quoted.location !== undefined) {
+    return "a location";
+  }
+  if (quoted.sticker !== undefined) {
+    return "a sticker";
+  }
   return undefined;
 }
 
@@ -78,7 +96,9 @@ function mediaLabel(quoted: QuotedMessage): string | undefined {
  */
 export function buildReplyContext(message: ReplyingMessage): string | undefined {
   const quoted = message.reply_to_message;
-  if (quoted === undefined) return undefined;
+  if (quoted === undefined) {
+    return undefined;
+  }
 
   const highlight = collapse(message.quote?.text ?? "");
   const isPartial = highlight.length > 0;

@@ -107,7 +107,9 @@ function markLine(hit: SearchHit, width: number): MarkedLine {
 }
 
 function countLabel(total: number, conversations: number): string {
-  if (total === 0) return "no matches";
+  if (total === 0) {
+    return "no matches";
+  }
   const matches = total === 1 ? "1 match" : `${String(total)} matches`;
   return `${matches} in ${String(conversations)} ${conversations === 1 ? "conversation" : "conversations"}`;
 }
@@ -129,7 +131,9 @@ export function searchResultRows(hits: readonly SearchHit[], selected: number): 
     if (index === 0 || hits[index - 1]?.conversationId !== hit.conversationId) {
       groupStart = index;
       let groupEnd = index;
-      while (hits[groupEnd + 1]?.conversationId === hit.conversationId) groupEnd += 1;
+      while (hits[groupEnd + 1]?.conversationId === hit.conversationId) {
+        groupEnd += 1;
+      }
       rows.push({
         kind: "conversation",
         hit,
@@ -178,11 +182,16 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
   const list = useRef<ScrollBoxRenderable | null>(null);
   useEffect(() => {
     const box = list.current;
-    if (box === null) return;
+    if (box === null) {
+      return;
+    }
     // Bring the conversation heading into view with its line when there is room.
     const target = Math.max(0, selectedRow - 1);
-    if (target < box.scrollTop) box.scrollTop = target;
-    else if (selectedRow + 1 > box.scrollTop + listRows) box.scrollTop = selectedRow + 1 - listRows;
+    if (target < box.scrollTop) {
+      box.scrollTop = target;
+    } else if (selectedRow + 1 > box.scrollTop + listRows) {
+      box.scrollTop = selectedRow + 1 - listRows;
+    }
   }, [selectedRow, listRows]);
 
   return (

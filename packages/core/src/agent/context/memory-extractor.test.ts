@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
+import { partialFake } from "@/core/test-support/fakes";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
@@ -451,14 +452,14 @@ describe("memory pass gate", () => {
     answer: (input: MemoryPassGateInput) => MemoryPassGateOutcome,
     seen: MemoryPassGateInput[] = [],
   ): PluginRuntimeService {
-    const session = {
+    const session = partialFake<PluginSession>({
       runMemoryPassGate: (input: MemoryPassGateInput) => {
         seen.push(input);
         return Effect.succeed(answer(input));
       },
       close: () => Effect.void,
-    } as unknown as PluginSession;
-    return { openSession: () => Effect.succeed(session) } as unknown as PluginRuntimeService;
+    });
+    return partialFake<PluginRuntimeService>({ openSession: () => Effect.succeed(session) });
   }
 
   async function passRuns(
@@ -562,9 +563,9 @@ describe("memory pass gate", () => {
   });
 
   it("runs the pass when the plugin session cannot open", async () => {
-    const runtime = {
+    const runtime = partialFake<PluginRuntimeService>({
       openSession: () => Effect.fail(new PluginRuntimeError({ message: "plugin not trusted" })),
-    } as unknown as PluginRuntimeService;
+    });
     expect(await passRuns(runtime)).toBe(true);
   });
 

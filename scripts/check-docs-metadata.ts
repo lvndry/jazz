@@ -17,9 +17,14 @@ const MAX_DESCRIPTION_LENGTH = 180;
 function markdownFiles(directory: string, collected: string[] = []): string[] {
   for (const entry of readdirSync(directory)) {
     const entryPath = path.join(directory, entry);
-    if (EXCLUDED_DIRECTORIES.some((excluded) => entryPath.startsWith(excluded))) continue;
-    if (statSync(entryPath).isDirectory()) markdownFiles(entryPath, collected);
-    else if (entry.endsWith(".md")) collected.push(entryPath);
+    if (EXCLUDED_DIRECTORIES.some((excluded) => entryPath.startsWith(excluded))) {
+      continue;
+    }
+    if (statSync(entryPath).isDirectory()) {
+      markdownFiles(entryPath, collected);
+    } else if (entry.endsWith(".md")) {
+      collected.push(entryPath);
+    }
   }
   return collected;
 }
@@ -32,7 +37,9 @@ function main(): void {
     const parsed = matter(readFileSync(file, "utf-8"));
     const h1 = parsed.content.match(/^#\s+(.+)$/m)?.[1]?.trim();
     const title = typeof parsed.data["title"] === "string" ? parsed.data["title"].trim() : h1;
-    if (!title) errors.push(`${file}: missing title and H1`);
+    if (!title) {
+      errors.push(`${file}: missing title and H1`);
+    }
 
     const description: unknown = parsed.data["description"];
     if (typeof description !== "string") {
@@ -46,13 +53,18 @@ function main(): void {
       );
     }
     const previous = descriptions.get(normalized);
-    if (previous) errors.push(`${file}: description duplicates ${previous}`);
-    else descriptions.set(normalized, file);
+    if (previous) {
+      errors.push(`${file}: description duplicates ${previous}`);
+    } else {
+      descriptions.set(normalized, file);
+    }
   }
 
   if (errors.length > 0) {
     console.error(`✗ ${errors.length} documentation metadata issue(s):\n`);
-    for (const error of errors) console.error(`  ${error}`);
+    for (const error of errors) {
+      console.error(`  ${error}`);
+    }
     process.exit(1);
   }
 

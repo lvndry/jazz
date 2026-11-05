@@ -131,7 +131,24 @@ describe("runShellCommand confinement", () => {
       }),
     );
     expect(result.exitCode).toBe(124);
+    expect(result.timedOut).toBe(true);
     expect(Date.now() - startedAt).toBeLessThan(5_000);
+  });
+
+  itConfined("reaches a descendant of a confined command when the timeout fires", async () => {
+    const marker = path.join(workspace, "descendant-survived.txt");
+    const result = await Effect.runPromise(
+      runShellCommand({
+        command: `(sleep 2; echo alive > "${marker}") & wait`,
+        workingDir: workspace,
+        timeoutMs: 500,
+        env: createSanitizedEnv({}, []),
+        confinement: { policy: { roots: [workspace] } },
+      }),
+    );
+    expect(result.timedOut).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    expect(existsSync(marker)).toBe(false);
   });
 });
 

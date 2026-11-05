@@ -9,6 +9,7 @@ import type { PeerConfig } from "@jazz/core/types/peer";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect } from "effect";
 import { extractClarificationQuestion, servePeerRequest } from "./serve";
+import { partialFake } from "../test-support/fakes";
 
 // `servePeerRequest` appends to the peer ledger through the production path; the ledger lives
 // under `$JAZZ_HOME/peers`, so without a temp home every run writes its fixtures into the
@@ -23,8 +24,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-  else process.env["JAZZ_HOME"] = previousHome;
+  if (previousHome === undefined) {
+    delete process.env["JAZZ_HOME"];
+  } else {
+    process.env["JAZZ_HOME"] = previousHome;
+  }
   await nodeFs.rm(jazzHome, { recursive: true, force: true });
 });
 
@@ -62,16 +66,18 @@ describe("recognizing a parked answer from toolResults", () => {
 });
 
 describe("the run a peer's question starts", () => {
-  const registry = {
+  const registry = partialFake<ToolRegistry>({
     listTools: () => Effect.succeed(["web_search"]),
     getTool: () =>
-      Effect.succeed({
-        name: "web_search",
-        riskLevel: "read-only",
-        disclosure: "public",
-        egress: false,
-      } as unknown as Tool),
-  } as unknown as ToolRegistry;
+      Effect.succeed(
+        partialFake<Tool>({
+          name: "web_search",
+          riskLevel: "read-only",
+          disclosure: "public",
+          egress: false,
+        }),
+      ),
+  });
 
   async function runFor(peer: PeerConfig): Promise<AgentRunnerOptions | undefined> {
     let started: AgentRunnerOptions | undefined;
@@ -83,7 +89,7 @@ describe("the run a peer's question starts", () => {
       await Effect.runPromise(
         servePeerRequest({
           peer,
-          agent: { id: "a", name: "a", config: {} } as unknown as Agent,
+          agent: partialFake<Agent>({ id: "a", name: "a", config: {} }),
           question: "what is in /Users/me/passport.pdf?",
         }).pipe(Effect.provideService(ToolRegistryTag, registry)) as Effect.Effect<unknown>,
       );

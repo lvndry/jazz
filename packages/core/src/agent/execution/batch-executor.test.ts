@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { Effect, FileSystem, Layer } from "effect";
 import { OneShotPresentationService } from "@/core/presentation/oneshot-presentation-service";
 import { SkillServiceTag } from "@/core/skills/skill-service";
+import { partialFake } from "@/core/test-support/fakes";
 import { executeWithoutStreaming } from "./batch-executor";
 import { DEFAULT_MAX_ITERATIONS } from "../../constants/agent";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
@@ -80,7 +81,7 @@ const finalCompletion: ChatCompletionResponse = {
 
 function makeLLMService(onRequest?: (options: { conversationId?: string }) => void): LLMService {
   let call = 0;
-  return {
+  return partialFake<LLMService>({
     createStreamingChatCompletion: () => Effect.fail(new Error("streaming must not be used")),
     createChatCompletion: (_provider: unknown, options: { conversationId?: string }) =>
       Effect.sync(() => {
@@ -92,7 +93,7 @@ function makeLLMService(onRequest?: (options: { conversationId?: string }) => vo
     getProvider: () => Effect.fail(new Error("not implemented")),
     supportsNativeWebSearch: () => Effect.succeed(false),
     resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
-  } as unknown as LLMService;
+  });
 }
 
 function makeOptions(): AgentRunnerOptions {
@@ -202,7 +203,9 @@ describe("executeWithoutStreaming tool event emission", () => {
     const events: StreamEvent[] = [];
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
+      if (trimmed.length === 0) {
+        continue;
+      }
       try {
         events.push(JSON.parse(trimmed) as StreamEvent);
       } catch {
@@ -376,7 +379,7 @@ describe("executeWithoutStreaming empty responses", () => {
     maxRetries: number,
   ): { run: () => Promise<AgentResponse>; calls: () => number; runContext: AgentRunContext } {
     let calls = 0;
-    const llmService = {
+    const llmService = partialFake<LLMService>({
       ...makeLLMService(),
       createChatCompletion: () =>
         Effect.sync(() => {
@@ -384,7 +387,7 @@ describe("executeWithoutStreaming empty responses", () => {
           calls += 1;
           return completion;
         }),
-    } as unknown as LLMService;
+    });
     const runContext = { ...makeRunContext(), maxRetries };
     const presentationService = new OneShotPresentationService(DEFAULT_DISPLAY_CONFIG, new Set());
     return {

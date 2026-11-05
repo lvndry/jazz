@@ -17,7 +17,10 @@ describe("forceSendQueue", () => {
     });
 
     expect(outcome).toBe("sent");
-    expect(store.getMessageQueueSnapshot()).toEqual(["first", "second"]);
+    expect(store.getMessageQueueSnapshot()).toEqual([
+      { text: "first", lane: "steer" },
+      { text: "second", lane: "steer" },
+    ]);
     expect(store.consumeFlushQueue()).toBe(true);
     expect(interrupted).toBe(1);
   });

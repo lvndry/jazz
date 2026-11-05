@@ -18,12 +18,13 @@ import {
 } from "@jazz/adapters/goals/goal-actions";
 import { InMemoryGoalStore } from "@jazz/adapters/storage/goal-store";
 import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
+import { partialFake } from "../test-support/fakes";
 
-const LOCAL_AGENT = {
+const LOCAL_AGENT = partialFake<Agent>({
   id: "agent-1",
   name: "agent",
   config: { persona: "default", llm: { provider: "ollama", model: "qwen3:8b" } },
-} as unknown as Agent;
+});
 
 const DRAFT = JSON.stringify({
   kind: "plan",
@@ -38,7 +39,7 @@ const DRAFT = JSON.stringify({
 });
 
 function layer(goals: InMemoryGoalStore) {
-  const llm = {
+  const llm = partialFake<LLMService>({
     createChatCompletion: () =>
       Effect.succeed({
         id: "plan",
@@ -46,7 +47,7 @@ function layer(goals: InMemoryGoalStore) {
         content: DRAFT,
         usage: { promptTokens: 900, completionTokens: 300, totalTokens: 1_200 },
       }),
-  } as unknown as LLMService;
+  });
   return Layer.mergeAll(
     Layer.succeed(GoalStoreTag, goals),
     Layer.succeed(RunStoreTag, new InMemoryRunStore()),

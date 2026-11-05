@@ -45,7 +45,9 @@ export interface SkillRegistryServiceImplOptions {
 }
 
 function stringArray(value: unknown): readonly string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
   const values = value.filter(
     (item): item is string => typeof item === "string" && item.trim().length > 0,
   );
@@ -112,7 +114,9 @@ export function parseRegistrySkillMetadata(
     }
 
     for (const key of Object.keys(data)) {
-      if (DISALLOWED_ARTIFACT_FIELDS.has(key.toLowerCase())) return null;
+      if (DISALLOWED_ARTIFACT_FIELDS.has(key.toLowerCase())) {
+        return null;
+      }
     }
 
     const author = optionalString(data["author"]);

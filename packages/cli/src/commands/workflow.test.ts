@@ -17,6 +17,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
 import { runWorkflowCommand } from "./workflow";
+import { agentRunStub } from "../test-support/agent-run-stub";
+import { partialFake } from "../test-support/partial-fake";
 
 /**
  * These tests exercise `runWorkflowCommand`'s exit-code behavior end to end
@@ -47,7 +49,7 @@ const mockWorkflow: WorkflowContent = {
   prompt: "Review this PR.",
 };
 
-const mockTerminal = {
+const mockTerminal = partialFake<TerminalService>({
   heading: mock(() => Effect.void),
   info: mock(() => Effect.void),
   log: mock(() => Effect.void),
@@ -56,31 +58,31 @@ const mockTerminal = {
   warn: mock(() => Effect.void),
   ask: mock(() => Effect.succeed("")),
   confirm: mock(() => Effect.succeed(true)),
-} as unknown as TerminalService;
+});
 
-const mockWorkflowService = {
+const mockWorkflowService = partialFake<WorkflowService>({
   listWorkflows: mock(() => Effect.succeed([])),
   loadWorkflow: mock(() => Effect.succeed(mockWorkflow)),
-} as unknown as WorkflowService;
+});
 
-const mockLogger = {
+const mockLogger = partialFake<LoggerService>({
   debug: mock(() => Effect.void),
   info: mock(() => Effect.void),
   warn: mock(() => Effect.void),
   error: mock(() => Effect.void),
-} as unknown as LoggerService;
+});
 
-const mockScheduler = {
+const mockScheduler = partialFake<SchedulerService>({
   listScheduled: mock(() => Effect.succeed([])),
-} as unknown as SchedulerService;
+});
 
-const mockAgentService = {
+const mockAgentService = partialFake<AgentService>({
   getAgent: mock(() => Effect.succeed(mockAgent)),
   listAgents: mock(() => Effect.succeed([mockAgent])),
-} as unknown as AgentService;
+});
 
 /** No notify targets and no spend caps: the run is neither refused nor reported. */
-const mockAgentConfig = { appConfig: Effect.succeed({}) } as unknown as AgentConfigService;
+const mockAgentConfig = partialFake<AgentConfigService>({ appConfig: Effect.succeed({}) });
 
 const testLayer = Layer.mergeAll(
   Layer.succeed(TerminalServiceTag, mockTerminal),
@@ -135,14 +137,16 @@ describe("runWorkflowCommand", () => {
     });
 
     it("emits exactly one ok:true envelope with the answer on stdout and no terminal chatter", async () => {
-      AgentRunner.run = mock(() =>
-        Effect.succeed({
-          content: "the daily review",
-          costUSD: 0.12,
-          usage: { promptTokens: 100, completionTokens: 50 },
-          toolCalls: [],
-        }),
-      ) as unknown as typeof AgentRunner.run;
+      AgentRunner.run = agentRunStub(
+        mock(() =>
+          Effect.succeed({
+            content: "the daily review",
+            costUSD: 0.12,
+            usage: { promptTokens: 100, completionTokens: 50 },
+            toolCalls: [],
+          }),
+        ),
+      );
 
       const program = runWorkflowCommand("code-review", {
         autoApprove: true,
@@ -173,9 +177,9 @@ describe("runWorkflowCommand", () => {
     });
 
     it("emits an ok:false envelope on stdout and exits non-zero when the run fails", async () => {
-      AgentRunner.run = mock(() =>
-        Effect.fail(new Error("LLMRateLimitError: rate limited")),
-      ) as unknown as typeof AgentRunner.run;
+      AgentRunner.run = agentRunStub(
+        mock(() => Effect.fail(new Error("LLMRateLimitError: rate limited"))),
+      );
 
       const program = runWorkflowCommand("code-review", {
         autoApprove: true,
@@ -198,11 +202,13 @@ describe("runWorkflowCommand", () => {
     });
 
     it("reports unexpected crashes in the JSON envelope and live event stream", async () => {
-      AgentRunner.run = mock(() =>
-        Effect.sync(() => {
-          throw new TypeError("undefined provider in token accounting");
-        }),
-      ) as unknown as typeof AgentRunner.run;
+      AgentRunner.run = agentRunStub(
+        mock(() =>
+          Effect.sync(() => {
+            throw new TypeError("undefined provider in token accounting");
+          }),
+        ),
+      );
       const stderrWrites: string[] = [];
       const originalStderrWrite = process.stderr.write;
       process.stderr.write = ((chunk: string | Uint8Array) => {
@@ -246,7 +252,7 @@ describe("runWorkflowCommand", () => {
     });
 
     it("does not turn interruption into a crash envelope", async () => {
-      AgentRunner.run = mock(() => Effect.interrupt) as unknown as typeof AgentRunner.run;
+      AgentRunner.run = agentRunStub(mock(() => Effect.interrupt));
       const program = runWorkflowCommand("code-review", {
         agent: "ci-reviewer",
         json: true,
@@ -264,7 +270,7 @@ describe("runWorkflowCommand", () => {
     });
 
     it("aborts a hung run at --timeout and reports it in the envelope", async () => {
-      AgentRunner.run = mock(() => Effect.never) as unknown as typeof AgentRunner.run;
+      AgentRunner.run = agentRunStub(mock(() => Effect.never));
 
       const program = runWorkflowCommand("code-review", {
         autoApprove: true,
@@ -288,10 +294,10 @@ describe("runWorkflowCommand", () => {
     });
 
     it("fails fast with an envelope when the agent does not exist, without opening the picker", async () => {
-      const failingAgentService = {
+      const failingAgentService = partialFake<AgentService>({
         getAgent: mock(() => Effect.fail(new Error("not found"))),
         listAgents: mock(() => Effect.succeed([mockAgent])),
-      } as unknown as AgentService;
+      });
       const layer = Layer.mergeAll(
         Layer.succeed(TerminalServiceTag, mockTerminal),
         Layer.succeed(WorkflowServiceTag, mockWorkflowService),
@@ -316,7 +322,7 @@ describe("runWorkflowCommand", () => {
 
   it("sets a non-zero exit code when the agent run fails (e.g. a rate limit error)", async () => {
     const rateLimitError = new Error("LLMRateLimitError: rate limited after 11 retries");
-    AgentRunner.run = mock(() => Effect.fail(rateLimitError)) as unknown as typeof AgentRunner.run;
+    AgentRunner.run = agentRunStub(mock(() => Effect.fail(rateLimitError)));
 
     const program = runWorkflowCommand("code-review", { autoApprove: true, agent: "ci-reviewer" });
     const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<void, unknown, never>;
@@ -328,10 +334,12 @@ describe("runWorkflowCommand", () => {
 
   it("forwards --stream to the agent run so --events can emit reasoning off a TTY", async () => {
     let runOptions: Record<string, unknown> | undefined;
-    AgentRunner.run = mock((options: Record<string, unknown>) => {
-      runOptions = options;
-      return Effect.succeed({ content: "ok" });
-    }) as unknown as typeof AgentRunner.run;
+    AgentRunner.run = agentRunStub(
+      mock((options: Record<string, unknown>) => {
+        runOptions = options;
+        return Effect.succeed({ content: "ok" });
+      }),
+    );
 
     const program = runWorkflowCommand("code-review", {
       autoApprove: true,
@@ -347,10 +355,12 @@ describe("runWorkflowCommand", () => {
 
   it("leaves stream unset when neither --stream nor --no-stream is given", async () => {
     let runOptions: Record<string, unknown> | undefined;
-    AgentRunner.run = mock((options: Record<string, unknown>) => {
-      runOptions = options;
-      return Effect.succeed({ content: "ok" });
-    }) as unknown as typeof AgentRunner.run;
+    AgentRunner.run = agentRunStub(
+      mock((options: Record<string, unknown>) => {
+        runOptions = options;
+        return Effect.succeed({ content: "ok" });
+      }),
+    );
 
     const program = runWorkflowCommand("code-review", { autoApprove: true, agent: "ci-reviewer" });
     const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<void, unknown, never>;
@@ -362,9 +372,7 @@ describe("runWorkflowCommand", () => {
   });
 
   it("leaves the exit code untouched when the agent run succeeds", async () => {
-    AgentRunner.run = mock(() =>
-      Effect.succeed({ content: "ok" }),
-    ) as unknown as typeof AgentRunner.run;
+    AgentRunner.run = agentRunStub(mock(() => Effect.succeed({ content: "ok" })));
 
     const program = runWorkflowCommand("code-review", { autoApprove: true, agent: "ci-reviewer" });
     const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<void, unknown, never>;
@@ -378,10 +386,13 @@ describe("runWorkflowCommand", () => {
     const layerFor = (workflow: WorkflowContent) =>
       Layer.mergeAll(
         Layer.succeed(TerminalServiceTag, mockTerminal),
-        Layer.succeed(WorkflowServiceTag, {
-          listWorkflows: mock(() => Effect.succeed([])),
-          loadWorkflow: mock(() => Effect.succeed(workflow)),
-        } as unknown as WorkflowService),
+        Layer.succeed(
+          WorkflowServiceTag,
+          partialFake<WorkflowService>({
+            listWorkflows: mock(() => Effect.succeed([])),
+            loadWorkflow: mock(() => Effect.succeed(workflow)),
+          }),
+        ),
         Layer.succeed(LoggerServiceTag, mockLogger),
         Layer.succeed(SchedulerServiceTag, mockScheduler),
         Layer.succeed(AgentServiceTag, mockAgentService),
@@ -390,10 +401,12 @@ describe("runWorkflowCommand", () => {
 
     const policyOf = async (workflow: WorkflowContent) => {
       let runOptions: Record<string, unknown> | undefined;
-      AgentRunner.run = mock((options: Record<string, unknown>) => {
-        runOptions = options;
-        return Effect.succeed({ content: "ok" });
-      }) as unknown as typeof AgentRunner.run;
+      AgentRunner.run = agentRunStub(
+        mock((options: Record<string, unknown>) => {
+          runOptions = options;
+          return Effect.succeed({ content: "ok" });
+        }),
+      );
       const program = runWorkflowCommand("code-review", {
         autoApprove: true,
         agent: "ci-reviewer",

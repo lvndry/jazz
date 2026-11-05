@@ -97,7 +97,9 @@ describe("computer_wait", () => {
     await run(observe, {}, context);
     let flips = 0;
     started.driver.mutate = () => {
-      if (flips >= 2) return;
+      if (flips >= 2) {
+        return;
+      }
       flips += 1;
       const window = windows[0];
       if (window !== undefined) {
@@ -122,7 +124,9 @@ describe("computer_wait", () => {
     let reads = 0;
     started.driver.mutate = () => {
       reads += 1;
-      if (reads < 2) return; // first read is the baseline; change on the second
+      if (reads < 2) {
+        return;
+      } // first read is the baseline; change on the second
       const window = windows[0];
       if (window !== undefined) {
         window.elements = [...window.elements, { role: "AXButton", label: "New" }];

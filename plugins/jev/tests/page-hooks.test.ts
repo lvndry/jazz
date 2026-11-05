@@ -11,6 +11,7 @@ import type {
   RouteSnapshotOutcome,
 } from "@jazz/plugin-sdk";
 import { afterEach, describe, expect, it } from "bun:test";
+import { fakeFetch, HookRegistry } from "./host-fakes";
 import plugin, { JEV_BASE_URL, JEV_MODEL } from "../src/index";
 
 const originalFetch = globalThis.fetch;
@@ -22,14 +23,14 @@ afterEach(() => {
 const PAGE_BODY_SENTINEL = "PAGE-BODY-TEXT-THAT-MUST-NOT-LEAVE";
 const URL_PATH_SENTINEL = "/account/reset?token=SECRET-IN-URL";
 
-function registerHandlers(): Map<AdvisoryHookId, AdvisoryHookHandler<AdvisoryHookId>> {
-  const handlers = new Map<AdvisoryHookId, AdvisoryHookHandler<AdvisoryHookId>>();
+function registerHandlers(): HookRegistry<{ [Id in AdvisoryHookId]: AdvisoryHookHandler<Id> }> {
+  const handlers = new HookRegistry<{ [Id in AdvisoryHookId]: AdvisoryHookHandler<Id> }>();
   const providers: DecisionProvider[] = [];
   const api: PluginHostApi = {
     apiVersion: 1,
     hooks: {
       register(hookId, handler) {
-        handlers.set(hookId, handler as unknown as AdvisoryHookHandler<AdvisoryHookId>);
+        handlers.set(hookId, handler);
       },
     },
     policy: { register: () => {} },
@@ -169,8 +170,7 @@ describe("Jev page classification", () => {
   });
 
   it("abstains when the provider fails", async () => {
-    globalThis.fetch = (async () =>
-      new Response("nope", { status: 500 })) as unknown as typeof fetch;
+    globalThis.fetch = fakeFetch(async () => new Response("nope", { status: 500 }));
     const result = await registerHandlers().get("classify.page")?.(classifyInput, { signal });
     expect(result?.status).toBe("abstained");
   });

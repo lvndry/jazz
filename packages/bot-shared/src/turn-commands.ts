@@ -151,7 +151,9 @@ export interface Commands {
 export function parseCommand(body: string): { command: string; args: string } | undefined {
   const match = /^\/([A-Za-z0-9_]+)(?:@\S+)?(?:\s+([\s\S]*))?$/.exec(body.trim());
   const command = match?.[1];
-  if (command === undefined) return undefined;
+  if (command === undefined) {
+    return undefined;
+  }
   return { command: command.toLowerCase(), args: (match?.[2] ?? "").trim() };
 }
 
@@ -161,8 +163,12 @@ export function formatUptime(milliseconds: number): string {
   const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
   const minutes = totalMinutes % 60;
   const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
+  if (days > 0) {
+    parts.push(`${days}d`);
+  }
+  if (hours > 0) {
+    parts.push(`${hours}h`);
+  }
   parts.push(`${minutes}m`);
   return parts.join(" ");
 }
@@ -197,7 +203,9 @@ export function createCommands(context: CommandContext): Commands {
 
   /** Drop a picker's buttons once it has been answered, where the surface can. */
   const closePicker = async (tap: ChoiceTap): Promise<void> => {
-    if (tap.messageRef === undefined || surface.setChoices === undefined) return;
+    if (tap.messageRef === undefined || surface.setChoices === undefined) {
+      return;
+    }
     await surface.setChoices(tap.chatId, tap.messageRef, []).catch(() => undefined);
   };
 
@@ -557,7 +565,9 @@ export function createCommands(context: CommandContext): Commands {
 
     async handle(message: InboundMessage): Promise<boolean> {
       const parsed = parseCommand(message.text);
-      if (parsed === undefined) return false;
+      if (parsed === undefined) {
+        return false;
+      }
       const { chatId } = message;
       const { command, args } = parsed;
 
@@ -618,7 +628,9 @@ export function createCommands(context: CommandContext): Commands {
           const chosen = (await providerModels(agent.config.llm.provider)).find(
             (model) => model.id === choiceId,
           );
-          if (chosen === undefined) return "expired";
+          if (chosen === undefined) {
+            return "expired";
+          }
           agent.config.llm.model = chosen.id;
           agent.config.llm.reasoning = reasoningFor(chosen.isReasoningModel);
           context.writeAgent(sandbox, agent);
@@ -632,7 +644,9 @@ export function createCommands(context: CommandContext): Commands {
         case PERSONA_PROMPT_ID: {
           const sandbox = context.sandboxFor(chatId);
           const available = await listPersonaNames(sandbox.home, config.builtinPersonasDir);
-          if (!available.includes(choiceId)) return "expired";
+          if (!available.includes(choiceId)) {
+            return "expired";
+          }
           const agent = context.ensureAgent(chatId, sandbox);
           agent.config.persona = choiceId;
           context.writeAgent(sandbox, agent);
@@ -641,8 +655,12 @@ export function createCommands(context: CommandContext): Commands {
           return "answered";
         }
         case MODE_PROMPT_ID: {
-          if (choiceId !== "safe" && choiceId !== "yolo") return "expired";
-          if (choiceId === "yolo" && !config.operators.has(tap.senderId)) return "not-operator";
+          if (choiceId !== "safe" && choiceId !== "yolo") {
+            return "expired";
+          }
+          if (choiceId === "yolo" && !config.operators.has(tap.senderId)) {
+            return "not-operator";
+          }
           await closePicker(tap);
           await setMode(chatId, tap.senderId, choiceId);
           return "answered";
@@ -655,7 +673,9 @@ export function createCommands(context: CommandContext): Commands {
             choiceId,
             sandboxOwnership(sandbox),
           );
-          if (!cancelled) return "expired";
+          if (!cancelled) {
+            return "expired";
+          }
           await closePicker(tap);
           await context.send(chatId, [plainLine("✅ Reminder cancelled.")]);
           return "answered";

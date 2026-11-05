@@ -8,7 +8,9 @@ import { isRecord } from "@jazz/core/utils/is-record";
 
 /** Read a non-negative USD charge from a router's AI SDK provider metadata. */
 export function routerBilledCostUSD(provider: string, metadata: unknown): number | undefined {
-  if (!isRecord(metadata)) return undefined;
+  if (!isRecord(metadata)) {
+    return undefined;
+  }
 
   switch (provider) {
     case "ai_gateway": {
@@ -35,7 +37,9 @@ export function routerBilledCostUSD(provider: string, metadata: unknown): number
 
 /** Read OrcaRouter's optional `usage.cost_usd` from a parsed response or streaming chunk. */
 export function orcaRouterResponseCostUSD(response: unknown): number | undefined {
-  if (!isRecord(response) || !isRecord(response["usage"])) return undefined;
+  if (!isRecord(response) || !isRecord(response["usage"])) {
+    return undefined;
+  }
   return finiteCostUSD(response["usage"]["cost_usd"]);
 }
 

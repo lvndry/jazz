@@ -65,7 +65,9 @@ function sha256Hex(value: string): string {
  * this is four lines, not worth inverting that for.
  */
 function hashesMatch(expected: string, presented: string): boolean {
-  if (expected.length !== presented.length) return false;
+  if (expected.length !== presented.length) {
+    return false;
+  }
   let difference = 0;
   for (let index = 0; index < expected.length; index++) {
     difference |= expected.charCodeAt(index) ^ presented.charCodeAt(index);
@@ -108,7 +110,9 @@ function writeInvite(record: PeerInviteRecord): Effect.Effect<void, Error> {
 }
 
 export function getInvite(id: string): Effect.Effect<PeerInviteRecord | undefined, never> {
-  if (!isInviteId(id)) return Effect.succeed(undefined);
+  if (!isInviteId(id)) {
+    return Effect.succeed(undefined);
+  }
   return Effect.promise(() => readInviteFile(id));
 }
 
@@ -118,10 +122,14 @@ export function listInvites(): Effect.Effect<readonly PeerInviteRecord[], never>
       const entries = await nodeFs.readdir(getInvitesDirectory());
       const records: PeerInviteRecord[] = [];
       for (const entry of entries) {
-        if (!entry.endsWith(".json") || entry.includes(".tmp")) continue;
+        if (!entry.endsWith(".json") || entry.includes(".tmp")) {
+          continue;
+        }
         const raw = await nodeFs.readFile(path.join(getInvitesDirectory(), entry), "utf-8");
         const parsed = readRecord(raw);
-        if (parsed !== undefined) records.push(parsed);
+        if (parsed !== undefined) {
+          records.push(parsed);
+        }
       }
       return records.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     },
@@ -150,7 +158,9 @@ export function createInvite(input: CreateInviteInput): Effect.Effect<CreatedInv
 }
 
 export function revokeInvite(id: string): Effect.Effect<boolean, Error> {
-  if (!isInviteId(id)) return Effect.succeed(false);
+  if (!isInviteId(id)) {
+    return Effect.succeed(false);
+  }
   return Effect.tryPromise({
     try: () =>
       withRedeemLock(id, async () => {
@@ -211,10 +221,14 @@ export function redeemInvite(
     try: () =>
       withRedeemLock(input.id, async () => {
         const record = await readInviteFile(input.id);
-        if (record === undefined) return { kind: "not-found" } satisfies RedeemInviteOutcome;
+        if (record === undefined) {
+          return { kind: "not-found" } satisfies RedeemInviteOutcome;
+        }
 
         const status = inviteStatus(record, new Date());
-        if (status === "revoked") return { kind: "revoked" } satisfies RedeemInviteOutcome;
+        if (status === "revoked") {
+          return { kind: "revoked" } satisfies RedeemInviteOutcome;
+        }
         if (status === "redeemed") {
           return { kind: "already-redeemed" } satisfies RedeemInviteOutcome;
         }
@@ -304,7 +318,9 @@ export function acceptInviteOnInviterSide(
 ): Effect.Effect<AcceptInviteOutcome, Error, AgentConfigService> {
   return Effect.gen(function* () {
     const backend = yield* keyring.detectBackend();
-    if (backend === "none") return { kind: "no-keyring" } as const;
+    if (backend === "none") {
+      return { kind: "no-keyring" } as const;
+    }
 
     // Do a non-consuming check before touching the standing credential. The locked redemption
     // below remains authoritative; this only prevents a bad secret from overwriting a token.
@@ -324,7 +340,9 @@ export function acceptInviteOnInviterSide(
     // granted and a retry simply replaces this unused token with a freshly minted one.
     const token = randomBytes(24).toString("hex");
     const stored = yield* keyring.storeToken(backend, peerTokenPath(candidate.inviteeName), token);
-    if (!stored) return { kind: "storage-write-failed" } as const;
+    if (!stored) {
+      return { kind: "storage-write-failed" } as const;
+    }
 
     // `outcome.record.inviteeName` — the name *this* side (the inviter) chose at creation
     // time — is the key for this side's own upsert and token storage. `input.redeemedAs` is
@@ -338,7 +356,9 @@ export function acceptInviteOnInviterSide(
     });
 
     const outcome = yield* redeemInvite(input, input.redeemedAs);
-    if (outcome.kind !== "ok") return outcome;
+    if (outcome.kind !== "ok") {
+      return outcome;
+    }
 
     return { kind: "ok", inviterAskUrl: outcome.record.inviterAskUrl, token };
   });

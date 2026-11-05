@@ -87,7 +87,9 @@ async function render(node: ReactNode, width: number, height = 3): Promise<Rende
 /** The captured colour of the first span whose text contains `needle`. */
 function colorOf(spans: readonly CapturedSpan[], needle: string): string {
   const span = spans.find((candidate) => candidate.text.includes(needle));
-  if (span === undefined) throw new Error(`no span containing ${JSON.stringify(needle)}`);
+  if (span === undefined) {
+    throw new Error(`no span containing ${JSON.stringify(needle)}`);
+  }
   const [red, green, blue] = span.fg.toInts();
   const hex = [red, green, blue].map((channel) => channel.toString(16).padStart(2, "0")).join("");
   return `#${hex.toUpperCase()}`;
@@ -469,7 +471,9 @@ describe("at the minimum width", () => {
     );
 
     for (const { rows } of [head, foot]) {
-      for (const line of rows) expect(terminalCellWidth(line)).toBeLessThanOrEqual(60);
+      for (const line of rows) {
+        expect(terminalCellWidth(line)).toBeLessThanOrEqual(60);
+      }
       expect(terminalCellWidth(rows[0] ?? "")).toBe(60);
       expect((rows[1] ?? "").trim()).toBe("");
     }

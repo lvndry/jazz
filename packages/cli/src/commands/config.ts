@@ -206,7 +206,9 @@ function typedConfigValue(
       : Effect.succeed(raw.trim());
   }
   const input = parseConfigInput(path, raw);
-  if (input.ok) return Effect.succeed(input.value);
+  if (input.ok) {
+    return Effect.succeed(input.value);
+  }
   switch (input.reason) {
     case "unknown-key":
       return Effect.fail(unknownSettingError(path, input.suggestion));
@@ -261,7 +263,8 @@ export function setConfigCommand(
         ? (segments[1] as ProviderName)
         : undefined;
     const webSearchProvider =
-      segments[0] === "web_search" && WEB_SEARCH_PROVIDERS.some((p) => p.value === segments[1])
+      segments[0] === "web_search" &&
+      WEB_SEARCH_PROVIDERS.some((provider) => provider.value === segments[1])
         ? segments[1]
         : undefined;
     let targetKey = key;
@@ -269,7 +272,7 @@ export function setConfigCommand(
       targetKey = `llm.${key}.api_key`;
     } else if (llmProvider !== undefined && segments.length === 2) {
       targetKey = `${key}.api_key`;
-    } else if (WEB_SEARCH_PROVIDERS.some((p) => p.value === key)) {
+    } else if (WEB_SEARCH_PROVIDERS.some((provider) => provider.value === key)) {
       targetKey = `web_search.${key}.api_key`;
     } else if (webSearchProvider !== undefined && segments.length === 2) {
       targetKey = `${key}.api_key`;
@@ -281,7 +284,7 @@ export function setConfigCommand(
       ((targetSegments[0] === "llm" &&
         AVAILABLE_PROVIDERS.includes(targetSegments[1] as ProviderName)) ||
         (targetSegments[0] === "web_search" &&
-          WEB_SEARCH_PROVIDERS.some((p) => p.value === targetSegments[1])));
+          WEB_SEARCH_PROVIDERS.some((provider) => provider.value === targetSegments[1])));
     const promptsForApiKey = (root: "llm" | "web_search"): boolean =>
       key === root || (isProviderApiKey && targetSegments[0] === root);
 
@@ -372,7 +375,10 @@ export function setConfigCommand(
         const provider =
           targetSegments[1] ||
           (yield* terminal.select<string>("Select web search provider:", {
-            choices: WEB_SEARCH_PROVIDERS.map((p) => ({ name: p.name, value: p.value })),
+            choices: WEB_SEARCH_PROVIDERS.map((searchProvider) => ({
+              name: searchProvider.name,
+              value: searchProvider.value,
+            })),
           }));
         if (provider === undefined) {
           yield* terminal.info("Cancelled. Configuration unchanged.");

@@ -87,7 +87,9 @@ export function InputProvider({
   // would otherwise swallow. The newline heuristic remains as a fallback
   // for terminals that don't support the mode.
   useEffect(() => {
-    if (!stdin) return;
+    if (!stdin) {
+      return;
+    }
 
     const PASTE_START = "\u001b[200~";
     const PASTE_END = "\u001b[201~";
@@ -103,14 +105,18 @@ export function InputProvider({
       const maxLength = Math.min(text.length, PASTE_END.length - 1);
       for (let length = maxLength; length > 0; length--) {
         const suffix = text.slice(-length);
-        if (PASTE_START.startsWith(suffix) || PASTE_END.startsWith(suffix)) return length;
+        if (PASTE_START.startsWith(suffix) || PASTE_END.startsWith(suffix)) {
+          return length;
+        }
       }
       return 0;
     };
 
     const injectPaste = (content: string): void => {
       const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-      if (normalized.length === 0) return;
+      if (normalized.length === 0) {
+        return;
+      }
       const charKey: KeyInfo = {
         upArrow: false,
         downArrow: false,
@@ -150,7 +156,9 @@ export function InputProvider({
           pasteBufferRef.current = null;
           injectPaste(content);
           const remainder = text.slice(endIndex + PASTE_END.length);
-          if (remainder.length > 0) onData(remainder);
+          if (remainder.length > 0) {
+            onData(remainder);
+          }
         }
         suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
         return;
@@ -168,7 +176,9 @@ export function InputProvider({
         } else {
           injectPaste(afterStart.slice(0, endIndex));
           const remainder = afterStart.slice(endIndex + PASTE_END.length);
-          if (remainder.length > 0) onData(remainder);
+          if (remainder.length > 0) {
+            onData(remainder);
+          }
         }
         suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
         return;

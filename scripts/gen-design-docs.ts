@@ -85,10 +85,10 @@ function glyphTable(): string {
 
 function indicatorTable(): string {
   const { lanePeriods, laneBurst, laneRest } = GLYPHS.unicode;
-  const greatestCommonDivisor = (a: number, b: number): number =>
-    b === 0 ? a : greatestCommonDivisor(b, a % b);
+  const greatestCommonDivisor = (left: number, right: number): number =>
+    right === 0 ? left : greatestCommonDivisor(right, left % right);
   const cycle = lanePeriods.reduce(
-    (a: number, b: number) => (a * b) / greatestCommonDivisor(a, b),
+    (left: number, right: number) => (left * right) / greatestCommonDivisor(left, right),
     1,
   );
   return [

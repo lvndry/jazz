@@ -15,12 +15,18 @@ import type { StreamKind } from "./adapters/terminal-output-adapter";
 
 export function contentFromOutput(entry: OutputEntry): PresentationContent {
   if (typeof entry.message !== "string") {
-    if (isTerminalReport(entry.message)) return { kind: "report", report: entry.message };
+    if (isTerminalReport(entry.message)) {
+      return { kind: "report", report: entry.message };
+    }
     return entry.message;
   }
   const text = stripAnsiCodes(entry.message);
-  if (entry.type === "user") return { kind: "user", text };
-  if (entry.type === "streamContent") return { kind: "agent", markdown: text };
+  if (entry.type === "user") {
+    return { kind: "user", text };
+  }
+  if (entry.type === "streamContent") {
+    return { kind: "agent", markdown: text };
+  }
   return { kind: "notice", text, tone: entry.type };
 }
 
@@ -222,7 +228,9 @@ export function appendDocumentEntries(
   document: PresentationDocument,
   entries: readonly PresentationEntry[],
 ): PresentationDocument {
-  if (entries.length === 0) return document;
+  if (entries.length === 0) {
+    return document;
+  }
   const source = transcriptDocument(document);
   return withCurrentTurn(source, [...source.currentTurn, ...entries], source.streamingId);
 }
@@ -234,7 +242,9 @@ export function appendDocumentStream(
   nextId: string,
   timestamp: string,
 ): PresentationDocument {
-  if (delta.length === 0) return document;
+  if (delta.length === 0) {
+    return document;
+  }
   const source = transcriptDocument(document);
   const last = source.currentTurn.at(-1);
   const matching =
@@ -292,7 +302,9 @@ export function insertBeforeDocumentStream(
 }
 
 export function settleDocumentStream(document: PresentationDocument): PresentationDocument {
-  if (document.streamingId === undefined) return document;
+  if (document.streamingId === undefined) {
+    return document;
+  }
   const source = transcriptDocument(document);
   return new TranscriptDocument(
     source.id,
@@ -405,15 +417,18 @@ export function projectEntries(
   for (const original of entries) {
     let entry = original;
     const content = entry.content;
-    if (content.kind === "user") thoughtIndex = undefined;
+    if (content.kind === "user") {
+      thoughtIndex = undefined;
+    }
     if (
       content.kind === "reasoning" &&
       (options.hiddenReasoningIds?.has(entry.id) ||
         (content.text.length === 0 &&
           content.durationMs === undefined &&
           !options.liveReasoningIds?.has(entry.id)))
-    )
+    ) {
       continue;
+    }
     if (
       content.kind === "agent" &&
       options.streamReveal?.id === entry.id &&
