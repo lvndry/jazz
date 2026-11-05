@@ -28,6 +28,7 @@ or to adjust how much history Jazz retains. Jazz stores its data under `~/.jazz`
 | `generated/`                                                      | Media a model produced, referenced by artifacts                    | path is in the artifact |
 | `logs/`                                                           | `jazz.log`, per-conversation logs, per-workflow stdout and stderr  | yes                     |
 | `logs/one-shot/`                                                  | Output of each fired reminder or wake-trigger job (macOS)          | internal                |
+| `logs/crashes/`                                                   | One report per fatal crash; the 20 newest are kept                 | yes                     |
 | `telemetry/`                                                      | Local NDJSON events, pruned after `telemetry.retentionDays`        | yes                     |
 | `runtime/`, `cache/`, `misfires/`, `memory-recall/`, `schedules/` | Bookkeeping                                                        | internal                |
 
