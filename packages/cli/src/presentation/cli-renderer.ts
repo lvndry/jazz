@@ -1,4 +1,12 @@
+/** Direct terminal rendering for stream events, including per-attempt retry spend receipts. */
+import {
+  addFailedAttemptReceipt,
+  computeRetryWaste,
+  createRetryWasteTally,
+  formatRetryWaste,
+} from "@jazz/core/agent/metrics/failed-attempts";
 import type { CacheMissReason } from "@jazz/core/agent/metrics/prompt-cache";
+import { isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { type LLMError } from "@jazz/core/types/errors";
 import type { ColorProfile, DisplayConfig, OutputMode, RenderTheme } from "@jazz/core/types/output";
 import type { StreamEvent, StreamingConfig } from "@jazz/core/types/streaming";
@@ -227,6 +235,20 @@ export class CLIRenderer {
       case "prompt_cache":
         this.pendingCacheReason = event.reason;
         return null;
+
+      case "llm_attempt_failed": {
+        if (!this.config.showMetrics) {
+          return null;
+        }
+        const tally = createRetryWasteTally();
+        addFailedAttemptReceipt(tally, event.usage, event.usageUnknown, event.retried);
+        const waste = computeRetryWaste(
+          tally,
+          getModelsDevMetadataSync(this.currentModel ?? "", this.currentProvider ?? ""),
+          isZeroCostLocalModel(this.currentProvider ?? "", this.currentModel ?? ""),
+        );
+        return this.theme.colors.dim(`[${formatRetryWaste(waste, formatCost)}]\n`);
+      }
 
       case "usage_update":
         if (this.config.showMetrics) {

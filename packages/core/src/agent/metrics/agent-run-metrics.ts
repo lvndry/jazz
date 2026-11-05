@@ -327,6 +327,18 @@ export function computeRunCost(
 export interface RunSpendReport extends RunCost {
   /** Prompt plus completion tokens of the run's own model calls. */
   readonly totalTokens: number;
+  /** Accepted request usage, also available when the run fails before returning a response. */
+  readonly usage?: {
+    readonly promptTokens: number;
+    readonly completionTokens: number;
+    readonly requests: number;
+  };
+  /** Failed-attempt spend, kept even when no retry remained. */
+  readonly retryWaste?: {
+    readonly retries: number;
+    readonly wastedUSD?: number;
+    readonly lowerBound: boolean;
+  };
 }
 
 /** A run's spend so far, priced the same way its final `costUSD` is. */
@@ -334,9 +346,24 @@ export function runSpendReport(
   metrics: AgentRunMetrics,
   pricing: UsageCostPricing | undefined,
 ): RunSpendReport {
+  const waste = runRetryWaste(metrics, pricing);
   return {
     ...computeRunCost(metrics, pricing),
     totalTokens: metrics.totalPromptTokens + metrics.totalCompletionTokens,
+    usage: {
+      promptTokens: metrics.totalPromptTokens,
+      completionTokens: metrics.totalCompletionTokens,
+      requests: metrics.totalRequests,
+    },
+    ...(metrics.retryWaste.failedAttempts > 0
+      ? {
+          retryWaste: {
+            retries: waste.retries,
+            ...(waste.wastedUSD !== undefined ? { wastedUSD: waste.wastedUSD } : {}),
+            lowerBound: waste.lowerBound,
+          },
+        }
+      : {}),
   };
 }
 
@@ -454,12 +481,25 @@ export function recordFailedAttempt(
   observation: Omit<FailedAttemptObservation, "reason">,
   willRetry: boolean,
 ): FailedAttemptRecord {
-  recordLLMRetry(metrics, observation.error);
+  if (willRetry) {
+    recordLLMRetry(metrics, observation.error);
+  } else {
+    metrics.lastError = pushError(metrics, observation.error);
+  }
   return addFailedAttempt(
     metrics.retryWaste,
     { ...observation, reason: classifyFailedAttempt(observation.error) },
     willRetry,
   );
+}
+
+/** Count a failed attempt as retried only when the next provider attempt actually starts. */
+export function recordAttemptRetried(metrics: AgentRunMetrics, record: FailedAttemptRecord): void {
+  metrics.llmRetryCount += 1;
+  metrics.retryWaste.retryableFailures += 1;
+  if (isSubstantialOutput(record.streamedChars, record.toolCallStarted)) {
+    metrics.retryWaste.retriesAfterSubstantialOutput += 1;
+  }
 }
 
 /** A run's failed attempts, priced the way its `costUSD` prices them. */

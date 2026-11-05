@@ -32,6 +32,7 @@ import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { processDetachedCalls } from "@jazz/core/agent/detach/auto-detach";
 import { carryEgressTaint } from "@jazz/core/agent/execution/egress-taint";
+import type { RunSpendReport } from "@jazz/core/agent/metrics/agent-run-metrics";
 import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
 import { createBlackboard } from "@jazz/core/agent/subagents/blackboard";
 import {
@@ -1270,6 +1271,7 @@ export class ChatServiceImpl implements ChatService {
           // Set only when the turn fails: its work so far, so "continue" doesn't revert to
           // the pre-turn history.
           let failedTurnMessages: ChatMessage[] | undefined;
+          let turnSpend: RunSpendReport | undefined;
 
           const runnerOptions: AgentRunnerOptions = {
             ...chatTurnOptions(),
@@ -1282,6 +1284,9 @@ export class ChatServiceImpl implements ChatService {
             origin: deliveryTurn?.origin ?? { source: goalTurn === undefined ? "chat" : "goal" },
             // A goal cycle is charged as one run, so its sub-agents end with it.
             ...(goalTurn === undefined ? { subagents, blackboard } : {}),
+            onRunSpend: (spend) => {
+              turnSpend = spend;
+            },
             onFailedTurn: (messages) => {
               failedTurnMessages = [...messages];
             },
@@ -1397,6 +1402,10 @@ export class ChatServiceImpl implements ChatService {
                   conversationId: conversationId || "",
                   messages: failedTurnMessages ?? conversationHistory,
                   content: "",
+                  ...(turnSpend?.usage !== undefined ? { usage: turnSpend.usage } : {}),
+                  ...(turnSpend?.retryWaste !== undefined
+                    ? { retryWaste: turnSpend.retryWaste }
+                    : {}),
                 };
               }),
             ),
@@ -1416,7 +1425,7 @@ export class ChatServiceImpl implements ChatService {
             });
           }
 
-          // Accumulate token usage for /cost (only on full AgentResponse, not error fallback)
+          // A failed turn reports its spend through onRunSpend before the catch restores the loop.
           if ("usage" in response && response.usage) {
             sessionUsage = {
               requests: sessionUsage.requests + (response.usage.requests ?? 0),

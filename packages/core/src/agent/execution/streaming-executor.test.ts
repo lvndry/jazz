@@ -849,6 +849,8 @@ describe("executeWithStreaming cancellation", () => {
 
     expect(result.interrupted).toBe(true);
     expect(attempts).toBe(1);
+    expect(harness.runMetrics.llmRetryCount).toBe(0);
+    expect(harness.runMetrics.retryWaste.retryableFailures).toBe(0);
     expect(elapsedMs).toBe(0);
   });
 
@@ -1161,6 +1163,8 @@ describe("executeWithStreaming retries", () => {
 
     await expect(harness.run()).rejects.toThrow("come back in an hour");
     expect(attempts).toBe(1);
+    expect(harness.runMetrics.llmRetryCount).toBe(0);
+    expect(harness.runMetrics.retryWaste.retryableFailures).toBe(0);
   });
 
   it("does not retry a request the provider rejected", async () => {
@@ -1305,6 +1309,62 @@ describe("executeWithStreaming failed attempt records", () => {
     cancel: Effect.void,
   });
 
+  it("records the exhausted attempt without inventing a retry", async () => {
+    let attempts = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 0,
+      llmService: scriptedLLMService(() => {
+        attempts += 1;
+        return streamThenFail(
+          new LLMRequestError({ provider: "openai", message: "reset", statusCode: 502 }),
+        );
+      }),
+    });
+    await expect(harness.run()).rejects.toThrow();
+    expect(attempts).toBe(1);
+    expect(harness.runMetrics.retryWaste.failedAttempts).toBe(1);
+    expect(harness.runMetrics.retryWaste.retryableFailures).toBe(0);
+    expect(harness.runMetrics.llmRetryCount).toBe(0);
+    expect(harness.events.filter((event) => event.type === "llm_attempt_failed")).toMatchObject([
+      { retried: false },
+    ]);
+  });
+
+  it("charges an empty streamed completion as failed usage, never as a completed step", async () => {
+    let attempts = 0;
+    const empty = {
+      id: "empty",
+      model: "gpt-4",
+      content: "",
+      usage: { promptTokens: 900, completionTokens: 0, totalTokens: 900 },
+    };
+    const harness = makeStreamingHarness({
+      maxRetries: 1,
+      llmService: scriptedLLMService(() => {
+        attempts += 1;
+        return attempts === 1
+          ? Effect.succeed({
+              stream: Stream.succeed<StreamEvent>({
+                type: "complete",
+                response: empty,
+                totalDurationMs: 10,
+              }),
+              response: Effect.succeed(empty),
+              cancel: Effect.void,
+            })
+          : successfulStream;
+      }),
+    });
+    await harness.run();
+    expect(
+      harness.events.filter((event) => event.type === "complete" && event.response.id === "empty"),
+    ).toEqual([]);
+    expect(harness.events.filter((event) => event.type === "llm_attempt_failed")).toEqual([
+      { type: "llm_attempt_failed", retried: true, usage: empty.usage, usageUnknown: false },
+    ]);
+    expect(harness.runMetrics.retryWaste.promptTokens).toBe(900);
+  });
+
   it("records a stream that failed after output as an unknown-usage attempt, without its content", async () => {
     let attempts = 0;
     const harness = makeStreamingHarness({
@@ -1337,7 +1397,11 @@ describe("executeWithStreaming failed attempt records", () => {
     expect(tally.retryableFailures).toBe(1);
     expect(harness.runMetrics.llmRetryCount).toBe(1);
     expect(JSON.stringify(tally)).not.toContain(SECRET_TEXT);
-    expect(harness.events).toContainEqual({ type: "llm_attempt_failed", usageUnknown: true });
+    expect(harness.events).toContainEqual({
+      type: "llm_attempt_failed",
+      retried: true,
+      usageUnknown: true,
+    });
   });
 
   it("keeps the usage of an empty finish and hands it to the renderer exactly once", async () => {

@@ -113,13 +113,14 @@ export type StreamEvent =
   | { type: "usage_update"; usage: TokenUsage }
 
   /**
-   * A model attempt failed and the step will try again. `usage` is what the provider reported
-   * for it, set only when no `complete` event already carried that usage to the renderer, so
-   * a receipt that adds it never counts it twice. `usageUnknown` marks an attempt that may
-   * have billed output it never reported.
+   * A failed attempt's receipt, emitted when its retry starts or the step ends. `retried`
+   * distinguishes a real retry from a terminal failure or cancelled backoff. Usage belongs
+   * here because rejected completions never render as successful steps. `usageUnknown`
+   * marks an attempt that may have billed output it never reported.
    */
   | {
       type: "llm_attempt_failed";
+      retried: boolean;
       usage?: UsageCostTokens;
       usageUnknown: boolean;
     }

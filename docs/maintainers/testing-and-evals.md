@@ -170,3 +170,8 @@ p50 and p95 with proportional and absolute noise allowances. New suites use
 explicit absolute ceilings from `bench/budgets.json` until a baseline exists.
 Reports are retained as CI artifacts for investigation. Review budget changes as
 product trade-offs; do not raise a ceiling merely to make a regression pass.
+
+Failed-turn accounting uses the runner's exit spend report, including exhausted retries. Retry
+counts advance when the next provider attempt starts, so cancellation during backoff and a
+zero retry budget do not create phantom retries. Empty completions rejected for retry never
+render as successful steps; their usage belongs to the failed-attempt receipt and `/cost`.

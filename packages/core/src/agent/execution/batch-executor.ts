@@ -27,7 +27,11 @@ import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
 import { rejectEmptyCompletion } from "./empty-completion";
 import type { RecursiveRunner } from "../context/summarizer";
-import { emitLLMRetry, recordFailedAttempt } from "../metrics/agent-run-metrics";
+import {
+  emitLLMRetry,
+  recordFailedAttempt,
+  recordAttemptRetried,
+} from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 /**
@@ -133,14 +137,20 @@ export function executeWithoutStreaming(
             presentationService.presentRetry,
           );
 
+          let onRetry: Effect.Effect<void> | undefined;
           const completion = yield* Effect.retry(
             withLongRunningLlmNotice(
               agent.name,
               showSlowModelNotice,
-              Effect.suspend(() => {
+              Effect.gen(function* () {
+                if (onRetry !== undefined) {
+                  const notify = onRetry;
+                  onRetry = undefined;
+                  yield* notify;
+                }
                 const startedAt = Date.now();
                 let rejectedUsage: UsageCostTokens | undefined;
-                return llmService.createChatCompletion(provider, llmOptions).pipe(
+                return yield* llmService.createChatCompletion(provider, llmOptions).pipe(
                   Effect.flatMap((result) =>
                     rejectEmptyCompletion(
                       { completion: result },
@@ -159,7 +169,7 @@ export function executeWithoutStreaming(
                   ),
                   Effect.tapError((error) =>
                     Effect.gen(function* () {
-                      const willRetry = isRetryableLLMError(error);
+                      const retriesUsed = yield* Ref.get(retryAttemptRef);
                       const record = recordFailedAttempt(
                         runMetrics,
                         {
@@ -172,9 +182,11 @@ export function executeWithoutStreaming(
                           toolCallStarted: false,
                           usage: rejectedUsage,
                         },
-                        willRetry,
+                        false,
                       );
-                      yield* emitLLMRetry(runMetrics, error, record);
+                      onRetry = Effect.sync(() => recordAttemptRetried(runMetrics, record)).pipe(
+                        Effect.andThen(emitLLMRetry(runMetrics, error, record)),
+                      );
                       yield* logger.debug("Model attempt failed", {
                         attempt: record.index,
                         reason: record.reason,
@@ -183,7 +195,8 @@ export function executeWithoutStreaming(
                         model: record.model,
                         durationMs: record.durationMs,
                         usageReported: rejectedUsage !== undefined,
-                        willRetry,
+                        retryable: isRetryableLLMError(error),
+                        retriesRemaining: Math.max(0, maxRetries - retriesUsed),
                         agentId: agent.id,
                         conversationId: runMetrics.conversationId,
                       });

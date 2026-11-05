@@ -425,6 +425,15 @@ describe("executeWithoutStreaming empty responses", () => {
     expect(runMetrics.totalRequests).toBe(1);
   });
 
+  it("keeps failed usage when no retry is allowed, without counting a retry", async () => {
+    const harness = runWith([emptyCompletion()], 0);
+    await expect(harness.run()).rejects.toThrow("empty response");
+    expect(harness.calls()).toBe(1);
+    expect(harness.runContext.runMetrics.llmRetryCount).toBe(0);
+    expect(harness.runContext.runMetrics.retryWaste.retryableFailures).toBe(0);
+    expect(harness.runContext.runMetrics.retryWaste.promptTokens).toBe(12);
+  });
+
   it("fails clearly once the retry budget is spent on empty finishes", async () => {
     const harness = runWith([emptyCompletion()], 1);
 

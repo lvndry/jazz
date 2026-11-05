@@ -6,7 +6,7 @@ import {
   MAX_FAILED_ATTEMPT_RECORDS,
   SUBSTANTIAL_STREAMED_CHARS,
   addFailedAttempt,
-  addRetriedAttempt,
+  addFailedAttemptReceipt,
   computeRetryWaste,
   createRetryWasteTally,
   formatRetryWaste,
@@ -214,8 +214,8 @@ describe("retry waste", () => {
 
   it("folds a renderer's retried attempts the same way", () => {
     const tally = createRetryWasteTally();
-    addRetriedAttempt(tally, { promptTokens: 1_000_000, completionTokens: 0 }, false);
-    addRetriedAttempt(tally, undefined, true);
+    addFailedAttemptReceipt(tally, { promptTokens: 1_000_000, completionTokens: 0 }, false, true);
+    addFailedAttemptReceipt(tally, undefined, true, true);
 
     expect(computeRetryWaste(tally, PRICING, false)).toEqual({
       retries: 2,
@@ -314,8 +314,16 @@ describe("formatRetryWaste", () => {
     ...overrides,
   });
 
-  it("says nothing when nothing was retried", () => {
-    expect(formatRetryWaste(waste({ retries: 0 }), formatAmount)).toBeUndefined();
+  it("says nothing when no retry or waste was recorded", () => {
+    expect(
+      formatRetryWaste(waste({ retries: 0, wastedUSD: 0, lowerBound: false }), formatAmount),
+    ).toBeUndefined();
+  });
+
+  it("still shows failed spend when the retry budget was zero", () => {
+    expect(formatRetryWaste(waste({ retries: 0 }), formatAmount)).toBe(
+      "failed attempt, wasted >= $0.03",
+    );
   });
 
   it("labels a lower bound", () => {
