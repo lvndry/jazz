@@ -587,6 +587,16 @@ export interface AgentResponse {
    */
   readonly costIncomplete?: boolean;
   /**
+   * Failed model attempts this run retried, with what they wasted. The wasted dollars are
+   * already part of `costUSD`; `lowerBound` means the true figure may be higher because some
+   * attempt produced output without reporting usage. Absent when nothing was retried.
+   */
+  readonly retryWaste?: {
+    readonly retries: number;
+    readonly wastedUSD?: number;
+    readonly lowerBound: boolean;
+  };
+  /**
    * True when the run was stopped early because cumulative spend reached the configured
    * `maxCostUSD` cap. The answer is whatever the run had produced at that point — a partial
    * result, same as hitting the iteration limit.
