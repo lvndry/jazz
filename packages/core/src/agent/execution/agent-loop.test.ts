@@ -377,7 +377,7 @@ describe("executeAgentLoop", () => {
           })),
         );
       },
-    ) as unknown as typeof ToolExecutor.executeToolCalls;
+    );
     try {
       await Effect.runPromise(
         executeAgentLoop(
@@ -442,7 +442,7 @@ describe("executeAgentLoop", () => {
           })),
         );
       },
-    ) as unknown as typeof ToolExecutor.executeToolCalls;
+    );
     try {
       const result = await Effect.runPromise(
         executeAgentLoop(
@@ -874,7 +874,7 @@ describe("executeAgentLoop", () => {
         Effect.succeed([
           { toolCallId: "call_1", name: "test_tool", result: longOutput, success: true },
         ]),
-      ) as unknown as typeof ToolExecutor.executeToolCalls;
+      );
       const requests: ChatMessage[][] = [];
       const strategy: CompletionStrategy = {
         shouldShowReasoning: false,
@@ -1994,7 +1994,7 @@ describe("executeAgentLoop", () => {
           { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
         ]),
       );
-      ToolExecutor.executeToolCalls = execute as unknown as typeof ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = execute;
 
       try {
         const error = await runToFailure(strategyFailingAfter(1), {
@@ -2017,7 +2017,7 @@ describe("executeAgentLoop", () => {
           { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
         ]),
       );
-      ToolExecutor.executeToolCalls = execute as unknown as typeof ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = execute;
 
       try {
         const error = await runToFailure(strategyFailingAfter(1), {
@@ -3145,7 +3145,7 @@ describe("executeAgentLoop cost and token caps", () => {
       context: ExecuteToolCallsContext,
     ) => ReturnType<typeof ToolExecutor.executeToolCalls>,
   ): typeof ToolExecutor.executeToolCalls {
-    return mock(handler) as unknown as typeof ToolExecutor.executeToolCalls;
+    return mock(handler);
   }
 
   function succeedWithToolResults(toolCalls: ExecuteToolCallsToolCalls) {

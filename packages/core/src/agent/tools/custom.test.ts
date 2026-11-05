@@ -271,9 +271,11 @@ describe("registerCustomToolsForAgent", () => {
   it("registers record-handler custom tools as read-only", async () => {
     const { registry } = makeMockRegistry([]);
     let capturedTool: any;
-    (registry.registerTool as unknown as ReturnType<typeof mock>) = mock((tool: any) => {
-      capturedTool = tool;
-      return Effect.succeed(undefined);
+    Object.assign(registry, {
+      registerTool: mock((tool: any) => {
+        capturedTool = tool;
+        return Effect.succeed(undefined);
+      }),
     });
     const agent = makeAgent([recordToolDefinition], ["propose_action"]);
 
@@ -309,9 +311,11 @@ describe("registerCustomToolsForAgent", () => {
           ) => Effect.Effect<unknown, unknown, unknown>;
         }
       | undefined;
-    (registry.registerTool as unknown as ReturnType<typeof mock>) = mock((tool: any) => {
-      capturedTool = tool;
-      return Effect.succeed(undefined);
+    Object.assign(registry, {
+      registerTool: mock((tool: any) => {
+        capturedTool = tool;
+        return Effect.succeed(undefined);
+      }),
     });
 
     await runWithRegistry(registerCustomToolsForAgent(agent, agent.config.tools ?? []), registry);
@@ -336,9 +340,11 @@ describe("registerCustomToolsForAgent", () => {
     const agent = makeAgent([definitionWithoutResponse], ["propose_action"]);
 
     let capturedTool: any;
-    (registry.registerTool as unknown as ReturnType<typeof mock>) = mock((tool: any) => {
-      capturedTool = tool;
-      return Effect.succeed(undefined);
+    Object.assign(registry, {
+      registerTool: mock((tool: any) => {
+        capturedTool = tool;
+        return Effect.succeed(undefined);
+      }),
     });
 
     await runWithRegistry(registerCustomToolsForAgent(agent, agent.config.tools ?? []), registry);
@@ -354,9 +360,11 @@ describe("registerCustomToolsForAgent", () => {
     const agent = makeAgent([recordToolDefinition], ["propose_action"]);
 
     let capturedTool: any;
-    (registry.registerTool as unknown as ReturnType<typeof mock>) = mock((tool: any) => {
-      capturedTool = tool;
-      return Effect.succeed(undefined);
+    Object.assign(registry, {
+      registerTool: mock((tool: any) => {
+        capturedTool = tool;
+        return Effect.succeed(undefined);
+      }),
     });
 
     await runWithRegistry(registerCustomToolsForAgent(agent, agent.config.tools ?? []), registry);
@@ -955,6 +963,8 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
     definition: CustomToolDefinition,
     declaringAgentEnvAllowlist?: readonly string[],
   ): Promise<{
+    timeoutMs?: number;
+    riskLevel?: string;
     execute: (
       args: Record<string, unknown>,
       context: Record<string, unknown>,
@@ -962,9 +972,11 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
   }> {
     const { registry } = makeMockRegistry([]);
     let capturedTool: unknown;
-    (registry.registerTool as unknown as ReturnType<typeof mock>) = mock((tool: unknown) => {
-      capturedTool = tool;
-      return Effect.succeed(undefined);
+    Object.assign(registry, {
+      registerTool: mock((tool: unknown) => {
+        capturedTool = tool;
+        return Effect.succeed(undefined);
+      }),
     });
     const agent = makeAgent([definition], [definition.name], declaringAgentEnvAllowlist);
 
@@ -1179,7 +1191,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
       },
     };
 
-    const tool = (await registerAndCapture(definition)) as unknown as { timeoutMs?: number };
+    const tool = await registerAndCapture(definition);
     expect(tool.timeoutMs).toBe(245_000);
   });
 
@@ -1191,7 +1203,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
       handler: { type: "command", command: ["node", "-e", "process.exit(0);"] },
     };
 
-    const tool = (await registerAndCapture(definition)) as unknown as { riskLevel?: string };
+    const tool = await registerAndCapture(definition);
     expect(tool.riskLevel).toBe("high-risk");
   });
 

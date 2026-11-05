@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, spyOn } from "bun:test";
 import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Result } from "effect";
-import { invalidInput, partialFake } from "@/core/test-support/fakes";
+import { invalidInput, partialFake, withoutServices } from "@/core/test-support/fakes";
 import { applyApprovalEdit, ToolExecutor } from "./tool-executor";
 import type { AgentConfigService } from "../../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
@@ -476,20 +476,18 @@ describe("ToolExecutor.executeToolCalls", () => {
     ];
 
     const results = await Effect.runPromise(
-      ToolExecutor.executeToolCalls(
-        toolCalls,
-        { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
-        { showReasoning: false, showToolExecution: false, mode: "hybrid" as const },
-        null,
-        makeRunMetrics(),
-        "agent-1",
-        "conv-123",
-        "test-agent",
-      ).pipe(Effect.provide(testLayer)) as unknown as Effect.Effect<
-        readonly ToolCallExecutionResult[],
-        unknown,
-        never
-      >,
+      withoutServices(
+        ToolExecutor.executeToolCalls(
+          toolCalls,
+          { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
+          { showReasoning: false, showToolExecution: false, mode: "hybrid" as const },
+          null,
+          makeRunMetrics(),
+          "agent-1",
+          "conv-123",
+          "test-agent",
+        ).pipe(Effect.provide(testLayer)),
+      ),
     );
 
     expect(results).toHaveLength(2);

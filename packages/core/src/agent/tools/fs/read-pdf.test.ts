@@ -19,7 +19,7 @@ function stubFetch(fake: {
 }): void {
   globalThis.fetch = fakeFetch(
     async () =>
-      new Response(fake.body.byteLength > 0 ? (fake.body as unknown as BodyInit) : null, {
+      new Response(fake.body.byteLength > 0 ? new Uint8Array(fake.body) : null, {
         status: fake.status,
         statusText: fake.statusText,
         headers: fake.headers,

@@ -792,7 +792,7 @@ describe("OneShotPresentationService user messages", () => {
       content: "for 4 people\naround 8pm",
       typed: "for 4 people\naround 8pm",
     });
-    expect(lines.map((line) => JSON.parse(line) as unknown)).toEqual([
+    expect(lines.map((line): unknown => JSON.parse(line))).toEqual([
       { type: "user_message_delivered", ids: ["m1", "m2"] },
     ]);
     expect(inbox.take()).toBeUndefined();

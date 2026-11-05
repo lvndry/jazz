@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
+import { withoutServices } from "@/core/test-support/fakes";
 import type { ToolExecutionContext } from "@/core/types";
 import type { MCPJSONSchema } from "@/core/types/mcp";
 import { registerMCPServerTools } from "./mcp";
@@ -42,12 +43,7 @@ async function localValidationError(
   tool: Awaited<ReturnType<typeof buildTool>>,
   args: Record<string, unknown>,
 ): Promise<string | null> {
-  const exit = await Effect.runPromiseExit(
-    tool.execute.execute(args, context) as unknown as Effect.Effect<
-      { success: boolean; error?: string },
-      unknown
-    >,
-  );
+  const exit = await Effect.runPromiseExit(withoutServices(tool.execute.execute(args, context)));
   if (exit._tag === "Failure") {
     return null;
   }
@@ -58,11 +54,7 @@ function parseWithAdvertisedSchema(
   tool: Awaited<ReturnType<typeof buildTool>>,
   args: Record<string, unknown>,
 ) {
-  return (
-    tool.approval.parameters as unknown as {
-      safeParse: (value: unknown) => { success: boolean; data?: unknown };
-    }
-  ).safeParse(args);
+  return tool.approval.parameters.safeParse(args);
 }
 
 /** Schemas a real MCP server can legitimately publish that the Zod conversion handles badly. */

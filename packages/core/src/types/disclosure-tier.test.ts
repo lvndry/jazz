@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { ToolRegistryTag, type Tool, type ToolRegistry } from "@/core/interfaces/tool-registry";
-import { partialFake } from "@/core/test-support/fakes";
+import { partialFake, standIn } from "@/core/test-support/fakes";
 import { ToolNotFoundError } from "@/core/types/errors";
 import {
   allowedToolsForTier,
@@ -120,7 +120,7 @@ function registryOf(tools: readonly TierCandidateTool[], unhandable: readonly st
       const found = tools.find((tool) => tool.name === name);
       return found === undefined
         ? Effect.fail(new ToolNotFoundError({ toolName: name }))
-        : Effect.succeed(found as unknown as Tool);
+        : Effect.succeed(standIn<Tool>(found));
     },
   });
 }

@@ -4,7 +4,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
-import { partialFake } from "@/core/test-support/fakes";
+import { partialFake, withoutServices } from "@/core/test-support/fakes";
 import type { ChatMessage } from "@/core/types/message";
 import type {
   ApprovalRequest,
@@ -345,32 +345,31 @@ function harness(options: {
 
   const run = (context: ToolExecutionContext, call: ToolCall, ledger?: ToolBatchLedger) =>
     Effect.runPromiseExit(
-      ToolExecutor.executeToolCalls(
-        [call],
-        context,
-        { showReasoning: false, showToolExecution: false, mode: "hybrid" },
-        null,
-        createAgentRunMetrics({
-          agent: {
-            id: "a",
-            name: "a",
-            config: { persona: "default", llm: { provider: "openai", model: "m" } },
-          },
-          conversationId: "c",
-          provider: "openai",
-          model: "m",
-        } as never),
-        "a",
-        "c",
-        "a",
-        undefined,
-        undefined,
-        undefined,
-        ledger,
-      ).pipe(Effect.provide(layer)) as unknown as Effect.Effect<
-        readonly { result: unknown; success: boolean }[],
-        Error
-      >,
+      withoutServices(
+        ToolExecutor.executeToolCalls(
+          [call],
+          context,
+          { showReasoning: false, showToolExecution: false, mode: "hybrid" },
+          null,
+          createAgentRunMetrics({
+            agent: {
+              id: "a",
+              name: "a",
+              config: { persona: "default", llm: { provider: "openai", model: "m" } },
+            },
+            conversationId: "c",
+            provider: "openai",
+            model: "m",
+          } as never),
+          "a",
+          "c",
+          "a",
+          undefined,
+          undefined,
+          undefined,
+          ledger,
+        ).pipe(Effect.provide(layer)),
+      ),
     );
   return { executed, approvals, run };
 }

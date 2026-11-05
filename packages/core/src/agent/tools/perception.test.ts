@@ -15,7 +15,7 @@ import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
-import { partialFake } from "@/core/test-support/fakes";
+import { partialFake, standIn } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import * as modelsDevActual from "@/core/utils/models-dev";
@@ -238,8 +238,8 @@ describe("analyze_media provider and model selection", () => {
       Layer.succeed(LoggerServiceTag, silentLogger),
       Layer.succeed(PresentationServiceTag, makePresentation(true)),
       Layer.succeed(LLMServiceTag, llmService),
-      Layer.succeed(TerminalServiceTag, terminal as unknown as TerminalService),
-      Layer.succeed(AgentConfigServiceTag, configService as unknown as AgentConfigService),
+      Layer.succeed(TerminalServiceTag, standIn<TerminalService>(terminal)),
+      Layer.succeed(AgentConfigServiceTag, standIn<AgentConfigService>(configService)),
     );
 
     const outcome = (await Effect.runPromise(
@@ -287,7 +287,7 @@ describe("analyze_media provider and model selection", () => {
       Layer.succeed(LoggerServiceTag, silentLogger),
       Layer.succeed(PresentationServiceTag, makePresentation(true)),
       Layer.succeed(LLMServiceTag, llmService),
-      Layer.succeed(TerminalServiceTag, terminal as unknown as TerminalService),
+      Layer.succeed(TerminalServiceTag, standIn<TerminalService>(terminal)),
     );
 
     const outcome = (await Effect.runPromise(
@@ -747,9 +747,9 @@ describe("named companions", () => {
       Layer.succeed(LoggerServiceTag, silentLogger),
       Layer.succeed(PresentationServiceTag, makePresentation(false)),
       Layer.succeed(LLMServiceTag, makeLlmService()),
-      Layer.succeed(AgentConfigServiceTag, configService as unknown as AgentConfigService),
+      Layer.succeed(AgentConfigServiceTag, standIn<AgentConfigService>(configService)),
       ...(agentService
-        ? [Layer.succeed(AgentServiceTag, agentService as unknown as AgentService)]
+        ? [Layer.succeed(AgentServiceTag, standIn<AgentService>(agentService))]
         : []),
     );
     const outcome = Effect.runPromise(

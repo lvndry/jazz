@@ -10,7 +10,7 @@ import {
 } from "@/core/interfaces/mcp-server";
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
-import { partialFake } from "@/core/test-support/fakes";
+import { partialFake, withoutServices } from "@/core/test-support/fakes";
 import type { MCPTool } from "@/core/types/mcp";
 import { isApprovalRequiredResult, type ToolExecutionResult } from "@/core/types/tools";
 import { registerMCPServerTools, resolveToolRiskLevel } from "./mcp";
@@ -109,13 +109,15 @@ describe("MCP tool registration", () => {
     }
 
     const result = (await Effect.runPromise(
-      approval.execute(
-        { table: "users" },
-        {
-          agentId: "a",
-          conversationId: "c",
-        },
-      ) as unknown as Effect.Effect<{ result: { message: string } }, never>,
+      withoutServices(
+        approval.execute(
+          { table: "users" },
+          {
+            agentId: "a",
+            conversationId: "c",
+          },
+        ),
+      ),
     )) as { result: { message: string } };
 
     expect(result.result.message).toContain("drop_table");

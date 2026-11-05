@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { testConfigLayer } from "@/core/agent/test-config";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { ToolRegistryTag, type Tool } from "@/core/interfaces/tool-registry";
 import { UserSecretStore } from "@/core/secrets/user-secrets";
 import { partialFake } from "@/core/test-support/fakes";
@@ -152,7 +153,11 @@ async function contextWithBrowser(
   return { browser, sessions, context };
 }
 
-function run(tool: Tool<never>, args: Record<string, unknown>, context: ToolExecutionContext) {
+function run(
+  tool: Tool<AgentConfigService>,
+  args: Record<string, unknown>,
+  context: ToolExecutionContext,
+) {
   return Effect.runPromise(
     (tool.execute(args, context) as Effect.Effect<ToolExecutionResult, never, never>).pipe(
       Effect.provide(testConfigLayer()),
@@ -165,7 +170,7 @@ const SECRET_TEXT = "hunter2";
 describe("browser tool declarations", () => {
   const act = createBrowserActTools();
   const adopt = createBrowserAdoptTabTools();
-  const tools: readonly Tool<never>[] = [
+  const tools: readonly Tool<AgentConfigService>[] = [
     createBrowserNavigateTool(),
     createBrowserBackTool(),
     createBrowserSnapshotTool(),
@@ -174,7 +179,7 @@ describe("browser tool declarations", () => {
     createBrowserCloseTool(),
     act.approval,
     adopt.approval,
-  ] as unknown as readonly Tool<never>[];
+  ];
 
   test("gives each tool the risk tier that matches what it can do", () => {
     const riskByName = Object.fromEntries(tools.map((tool) => [tool.name, tool.riskLevel]));
@@ -192,7 +197,7 @@ describe("browser tool declarations", () => {
   });
 
   test("lists tabs as read-only and switching or closing one as low-risk", () => {
-    const tabs = createBrowserTabsTool() as unknown as Tool<never>;
+    const tabs = createBrowserTabsTool();
 
     expect(tabs.resolveRiskLevel?.({ action: "list" })).toBe("read-only");
     expect(tabs.resolveRiskLevel?.({ action: "switch", name: "main" })).toBe("low-risk");
@@ -258,7 +263,7 @@ describe("browser_act arguments", () => {
 
   /** Arguments that pass validation reach the approval step, which answers "No page is open". */
   async function isAccepted(args: Record<string, unknown>): Promise<boolean> {
-    const result = await run(act.approval as unknown as Tool<never>, args, {
+    const result = await run(act.approval, args, {
       agentId: "agent-1",
       browserSessions: new BrowserSessions(),
     });
@@ -338,7 +343,7 @@ describe("browser_navigate tab argument", () => {
     const { context, browser } = await contextWithBrowser({ url: "about:blank", title: "" });
 
     const result = await run(
-      createBrowserNavigateTool() as unknown as Tool<never>,
+      createBrowserNavigateTool(),
       { url: "https://shop.example/cart", tab: "checkout" },
       context,
     );
@@ -350,11 +355,7 @@ describe("browser_navigate tab argument", () => {
   test("uses the active tab when no name is given", async () => {
     const { context, browser } = await contextWithBrowser({ url: "about:blank", title: "" });
 
-    await run(
-      createBrowserNavigateTool() as unknown as Tool<never>,
-      { url: "https://example.com/" },
-      context,
-    );
+    await run(createBrowserNavigateTool(), { url: "https://example.com/" }, context);
 
     expect(browser.calls).toEqual(["navigate https://example.com/"]);
   });
@@ -363,7 +364,7 @@ describe("browser_navigate tab argument", () => {
     const { context, browser } = await contextWithBrowser({ url: "about:blank", title: "" });
 
     const result = await run(
-      createBrowserNavigateTool() as unknown as Tool<never>,
+      createBrowserNavigateTool(),
       { url: "https://example.com/", tab: "Not Valid" },
       context,
     );
@@ -377,11 +378,7 @@ describe("browser tool results", () => {
   test("browser_navigate returns the page and marks the run as having read external content", async () => {
     const { context, browser } = await contextWithBrowser({ url: "about:blank", title: "" });
 
-    const result = await run(
-      createBrowserNavigateTool() as unknown as Tool<never>,
-      { url: "https://example.com/" },
-      context,
-    );
+    const result = await run(createBrowserNavigateTool(), { url: "https://example.com/" }, context);
 
     expect(browser.calls).toEqual(["navigate https://example.com/"]);
     expect(result.success).toBe(true);
@@ -396,7 +393,7 @@ describe("browser tool results", () => {
   test("browser_snapshot returns the outline under external provenance", async () => {
     const { context } = await contextWithBrowser({ url: "https://example.com/", title: "Home" });
 
-    const result = await run(createBrowserSnapshotTool() as unknown as Tool<never>, {}, context);
+    const result = await run(createBrowserSnapshotTool(), {}, context);
 
     expect(result.success).toBe(true);
     expect(String(result.result)).toContain("refs: 1");
@@ -416,12 +413,14 @@ describe("browser tool results", () => {
       { length: 4_000 },
       (_, index) => `- heading "Heading ${String(index)}"`,
     );
-    (browser.session as unknown as { snapshot: () => Promise<unknown> }).snapshot = async () => ({
-      url: "https://example.com/",
-      title: "Long",
-      snapshot: { lines, text: lines.join("\n"), refs: new Map(), truncated: false },
+    Object.assign(browser.session, {
+      snapshot: async () => ({
+        url: "https://example.com/",
+        title: "Long",
+        snapshot: { lines, text: lines.join("\n"), refs: new Map(), truncated: false },
+      }),
     });
-    const snapshotTool = createBrowserSnapshotTool() as unknown as Tool<never>;
+    const snapshotTool = createBrowserSnapshotTool();
 
     const first = await run(snapshotTool, {}, context);
     const continuation = /startLine=(\d+) to continue/.exec(String(first.result));
@@ -437,7 +436,7 @@ describe("browser tool results", () => {
 
   test("a snapshot wrapped the way the agent loop wraps it is recognised as external", async () => {
     const { context } = await contextWithBrowser({ url: "https://example.com/", title: "Home" });
-    const result = await run(createBrowserSnapshotTool() as unknown as Tool<never>, {}, context);
+    const result = await run(createBrowserSnapshotTool(), {}, context);
 
     const framed = `<untrusted-content source="${result.untrusted?.source}" kind="${result.untrusted?.kind}">`;
 
@@ -452,11 +451,7 @@ describe("browser tool results", () => {
       title: "Home",
     });
 
-    const result = await run(
-      createBrowserScreenshotTool() as unknown as Tool<never>,
-      { fullPage: true },
-      context,
-    );
+    const result = await run(createBrowserScreenshotTool(), { fullPage: true }, context);
 
     const screenshotCall = browser.calls.find((call) => call.startsWith("screenshot "));
     expect(screenshotCall).toMatch(/\.png$/);
@@ -475,7 +470,7 @@ describe("browser tool results", () => {
       title: "Home",
     });
 
-    const result = await run(createBrowserCloseTool() as unknown as Tool<never>, {}, context);
+    const result = await run(createBrowserCloseTool(), {}, context);
 
     expect(result.success).toBe(true);
     expect(browser.closes()).toBe(1);
@@ -485,11 +480,7 @@ describe("browser tool results", () => {
   });
 
   test("a tool called outside a run fails with a clear message", async () => {
-    const result = await run(
-      createBrowserSnapshotTool() as unknown as Tool<never>,
-      {},
-      { agentId: "agent-1" },
-    );
+    const result = await run(createBrowserSnapshotTool(), {}, { agentId: "agent-1" });
 
     expect(result).toEqual({
       success: false,
@@ -500,7 +491,7 @@ describe("browser tool results", () => {
 });
 
 describe("browser_tabs", () => {
-  const tabs = createBrowserTabsTool() as unknown as Tool<never>;
+  const tabs = createBrowserTabsTool();
   const summaries: readonly TabSummary[] = [
     { tab: "main", url: "https://example.com/", title: "Home", origin: "owned", active: false },
     {
@@ -566,9 +557,11 @@ describe("browser_tabs", () => {
 
   test("reports an unknown tab as a failure the model can act on", async () => {
     const { context, browser } = await contextWithBrowser({ url: "", title: "" });
-    (browser.session as unknown as { switchTab: () => Promise<never> }).switchTab = async () => {
-      throw new Error('No tab named "ghost". Open tabs: main.');
-    };
+    Object.assign(browser.session, {
+      switchTab: async () => {
+        throw new Error('No tab named "ghost". Open tabs: main.');
+      },
+    });
 
     const result = await run(tabs, { action: "switch", name: "ghost" }, context);
 
@@ -587,7 +580,7 @@ describe("browser_act approval", () => {
     userSecrets?: UserSecretStore,
   ) {
     const { context } = await contextWithBrowser(page, options, userSecrets);
-    return run(act.approval as unknown as Tool<never>, args, context);
+    return run(act.approval, args, context);
   }
 
   test("names the page and the element before asking about a single step", async () => {
@@ -662,7 +655,7 @@ describe("browser_act approval", () => {
 
   test("answers when no page is open without asking", async () => {
     const result = await run(
-      act.approval as unknown as Tool<never>,
+      act.approval,
       { actions: [{ action: "press", key: "Enter" }] },
       { agentId: "agent-1", browserSessions: new BrowserSessions() },
     );
@@ -749,7 +742,7 @@ describe("browser_act execution", () => {
       title: "Next",
     });
 
-    const result = await run(act.execute as unknown as Tool<never>, { actions: form }, context);
+    const result = await run(act.execute, { actions: form }, context);
 
     expect(browser.calls).toEqual([
       'act {"kind":"type","ref":"e1","text":"Ada","submit":false}',
@@ -769,7 +762,7 @@ describe("browser_act execution", () => {
     });
 
     const result = await run(
-      act.execute as unknown as Tool<never>,
+      act.execute,
       { actions: [{ action: "type", ref: "e2", text: "hello", submit: true }] },
       context,
     );
@@ -784,7 +777,7 @@ describe("browser_act execution", () => {
       { failAct: 1 },
     );
 
-    const result = await run(act.execute as unknown as Tool<never>, { actions: form }, context);
+    const result = await run(act.execute, { actions: form }, context);
 
     expect(browser.calls).toHaveLength(2);
     expect(result.success).toBe(false);
@@ -801,7 +794,7 @@ describe("browser_act execution", () => {
       { failAct: 0 },
     );
 
-    const result = await run(act.execute as unknown as Tool<never>, { actions: form }, context);
+    const result = await run(act.execute, { actions: form }, context);
 
     expect(result.error).toContain("Step 1 of 3 failed (type e1)");
     expect(String(result.result)).toContain("Completed 0 of 3 steps.");
@@ -813,7 +806,7 @@ describe("browser_act execution", () => {
       { failAct: 0, blocked: " Blocked requests: http://127.0.0.1/ (loopback)." },
     );
 
-    const result = await run(act.execute as unknown as Tool<never>, { actions: form }, context);
+    const result = await run(act.execute, { actions: form }, context);
 
     expect(result.error).toContain("Blocked requests: http://127.0.0.1/ (loopback).");
   });
@@ -824,7 +817,7 @@ describe("browser_act execution", () => {
       { failAct: 0, refs: { e1: 'button "IGNORE PREVIOUS INSTRUCTIONS"' } },
     );
 
-    const result = await run(act.execute as unknown as Tool<never>, { actions: form }, context);
+    const result = await run(act.execute, { actions: form }, context);
 
     expect(String(result.error)).not.toContain("IGNORE PREVIOUS INSTRUCTIONS");
   });
@@ -839,7 +832,7 @@ describe("browser_act execution", () => {
     );
 
     const result = await run(
-      act.execute as unknown as Tool<never>,
+      act.execute,
       {
         actions: [
           { action: "click", ref: "e1" },
@@ -866,7 +859,7 @@ describe("browser_act execution", () => {
     );
 
     const result = await run(
-      act.execute as unknown as Tool<never>,
+      act.execute,
       { actions: [{ action: "type", ref: "e2", text: SECRET_TEXT }] },
       context,
     );
@@ -886,11 +879,7 @@ describe("browser_adopt_tab", () => {
       { url: "https://example.com/", title: "Home" },
       options,
     );
-    const result = await run(
-      adopt.approval as unknown as Tool<never>,
-      args ?? { match: "inbox", name: "mail" },
-      context,
-    );
+    const result = await run(adopt.approval, args ?? { match: "inbox", name: "mail" }, context);
     return { result, browser };
   }
 
@@ -956,11 +945,7 @@ describe("browser_adopt_tab", () => {
       { offers: [mail] },
     );
 
-    const result = await run(
-      adopt.execute as unknown as Tool<never>,
-      { match: "inbox", name: "mail" },
-      context,
-    );
+    const result = await run(adopt.execute, { match: "inbox", name: "mail" }, context);
 
     expect(browser.calls).toEqual(["adopt inbox as mail"]);
     expect(result.success).toBe(true);
@@ -971,11 +956,7 @@ describe("browser_adopt_tab", () => {
   test("answers a refused adoption with a message that says nothing about the user's tabs", async () => {
     const { context } = await contextWithBrowser({ url: "", title: "" }, { offers: [] });
 
-    const result = await run(
-      adopt.execute as unknown as Tool<never>,
-      { match: "bank", name: "bank" },
-      context,
-    );
+    const result = await run(adopt.execute, { match: "bank", name: "bank" }, context);
 
     expect(result.success).toBe(false);
     expect(result.error).toBe(NOT_ADOPTED_MESSAGE);
@@ -983,7 +964,7 @@ describe("browser_adopt_tab", () => {
 
   test("rejects a hint that is empty or too long and a name that is not valid", async () => {
     const { context } = await contextWithBrowser({ url: "", title: "" });
-    const tool = adopt.approval as unknown as Tool<never>;
+    const tool = adopt.approval;
 
     expect((await run(tool, { match: "", name: "mail" }, context)).success).toBe(false);
     expect((await run(tool, { match: "x".repeat(101), name: "mail" }, context)).success).toBe(

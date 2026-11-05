@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
 import { OccupancyServiceTag, type OccupancyService } from "@/core/interfaces/occupancy";
 import { RunStoreTag } from "@/core/interfaces/run-store";
+import { partialFake } from "@/core/test-support/fakes";
 import { GenerationInterruptedError } from "@/core/types/errors";
 import type { OccupancyEntry } from "@/core/types/occupancy";
 import { ToolActivityTracker } from "./tool-activity";
@@ -253,13 +254,15 @@ describe("withRunRecording occupancy heartbeat", () => {
 
   it("still completes when the occupancy service fails, best-effort end to end", async () => {
     const store = new InMemoryRunStore();
-    // The service's type promises no failures; cast to prove the recorder still swallows
-    // one if a future implementation breaks that promise.
-    const failing = Layer.succeed(OccupancyServiceTag, {
-      record: (() =>
-        Effect.fail(new Error("disk said no"))) as unknown as OccupancyService["record"],
-      list: (() => Effect.fail(new Error("disk said no"))) as unknown as OccupancyService["list"],
-    });
+    // The service's type promises no failures; this fake breaks that promise to prove the
+    // recorder still swallows one.
+    const failing = Layer.succeed(
+      OccupancyServiceTag,
+      partialFake<OccupancyService>({
+        record: () => Effect.fail(new Error("disk said no")),
+        list: () => Effect.fail(new Error("disk said no")),
+      }),
+    );
     const result = await Effect.runPromise(
       withRunRecording(INPUT, Effect.succeed(response("ok"))).pipe(
         Effect.provide(Layer.merge(Layer.succeed(RunStoreTag, store), failing)),

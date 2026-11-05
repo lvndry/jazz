@@ -30,6 +30,28 @@ export function partialFake<T extends object>(members: FakeMembers<T>): T {
 }
 
 /**
+ * View a hand-written fake whose member shapes differ from the interface it stands in for, such
+ * as a class that implements the few members the code under test calls, as that interface.
+ * @param implementation - the fake object.
+ * @returns the fake typed as `T`.
+ */
+export function standIn<T extends object>(implementation: object): T {
+  return implementation as T;
+}
+
+/**
+ * Run an effect with none of its required services provided, so a service lookup that the code
+ * under test reaches fails as a defect while earlier validation can still return normally.
+ * @param effect - the effect under test.
+ * @returns the same effect typed as requiring no services.
+ */
+export function withoutServices<Success, Failure, Requirements>(
+  effect: Effect.Effect<Success, Failure, Requirements>,
+): Effect.Effect<Success, Failure> {
+  return effect as Effect.Effect<Success, Failure>;
+}
+
+/**
  * Wrap a fetch implementation as a complete `typeof fetch`, adding the `preconnect` member the
  * runtime type requires.
  * @param implementation - the fetch behavior the test wants.

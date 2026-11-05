@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { Page } from "puppeteer-core";
 import { testConfigLayer } from "@/core/agent/test-config";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { partialFake } from "@/core/test-support/fakes";
 import {
@@ -366,7 +367,11 @@ async function contextFor(
   return context;
 }
 
-function run(tool: Tool<never>, args: Record<string, unknown>, context: ToolExecutionContext) {
+function run(
+  tool: Tool<AgentConfigService>,
+  args: Record<string, unknown>,
+  context: ToolExecutionContext,
+) {
   return Effect.runPromise(
     (tool.execute(args, context) as Effect.Effect<ToolExecutionResult, never, never>).pipe(
       Effect.provide(testConfigLayer()),
@@ -375,9 +380,9 @@ function run(tool: Tool<never>, args: Record<string, unknown>, context: ToolExec
 }
 
 describe("browser tools on a flagged page", () => {
-  const snapshotTool = createBrowserSnapshotTool() as unknown as Tool<never>;
+  const snapshotTool = createBrowserSnapshotTool();
   const act = createBrowserActTools();
-  const actProposal = act.approval as unknown as Tool<never>;
+  const actProposal = act.approval;
 
   test("browser_snapshot warns and stays untrusted external content", async () => {
     const recorded = { flags: [] as PageFlagId[] };

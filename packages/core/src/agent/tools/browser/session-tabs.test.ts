@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Page } from "puppeteer-core";
+import { standIn } from "@/core/test-support/fakes";
 import { BrowserSession, NOT_ADOPTED_MESSAGE, type BrowserEngine } from "./session";
 import { MAX_TABS, STALE_REF_MESSAGE } from "./tabs";
 
@@ -171,21 +172,21 @@ function makeEngine(options: { userPages?: readonly FakePage[] } = {}) {
   let released = 0;
   let userPageCalls = 0;
   let failNextAttach = false;
+  const userPages = options.userPages;
   const engine: BrowserEngine = {
     newPage: async () => {
       const page = new FakePage("about:blank", "", ownedContext);
       page.failAttach = failNextAttach;
       failNextAttach = false;
       owned.push(page);
-      return page as unknown as Page;
+      return standIn<Page>(page);
     },
-    userPages:
-      options.userPages === undefined
-        ? undefined
-        : async () => {
-            userPageCalls += 1;
-            return options.userPages as unknown as readonly Page[];
-          },
+    userPages: userPages
+      ? async () => {
+          userPageCalls += 1;
+          return userPages.map((userPage) => standIn<Page>(userPage));
+        }
+      : undefined,
     profileDirectory: undefined,
     release: async () => {
       released += 1;

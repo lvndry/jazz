@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { partialFake } from "@/core/test-support/fakes";
+import { invalidInput, partialFake } from "@/core/test-support/fakes";
 import type { ReduceToolResultsFn } from "./advised-tool-clearing";
 import {
   chunkForSummarizer,
@@ -207,7 +207,7 @@ describe("Summarizer", () => {
     it("treats a null summarizerModel as unset (parent model, no warning)", () => {
       const agent = createMockAgent({
         config: {
-          llm: { provider: "openai", model: "gpt-4", summarizerModel: null as unknown as string },
+          llm: { provider: "openai", model: "gpt-4", summarizerModel: invalidInput<string>(null) },
           persona: "default",
           tools: [],
         },
@@ -220,7 +220,7 @@ describe("Summarizer", () => {
     it("falls back and warns on a non-string summarizerModel without throwing", () => {
       const agent = createMockAgent({
         config: {
-          llm: { provider: "openai", model: "gpt-4", summarizerModel: 42 as unknown as string },
+          llm: { provider: "openai", model: "gpt-4", summarizerModel: invalidInput<string>(42) },
           persona: "default",
           tools: [],
         },

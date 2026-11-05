@@ -5,7 +5,7 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
-import { partialFake } from "@/core/test-support/fakes";
+import { partialFake, withoutServices } from "@/core/test-support/fakes";
 import type { ToolCall } from "@/core/types/tools";
 import { earlierCallsOnSamePaths, resolveMutatedPaths } from "./path-mutation-order";
 import { ToolBatchLedger } from "./tool-batch-ledger";
@@ -143,32 +143,31 @@ describe("ToolExecutor.executeToolCalls path ordering", () => {
       Layer.succeed(FileSystemContextServiceTag, pathResolver),
     );
     const outcomes = Effect.runPromise(
-      ToolExecutor.executeToolCalls(
-        toolCalls,
-        { agentId: "a", conversationId: "c", unrestrictedTools: true },
-        { showReasoning: false, showToolExecution: false, mode: "hybrid" },
-        null,
-        createAgentRunMetrics({
-          agent: {
-            id: "a",
-            name: "a",
-            config: { persona: "default", llm: { provider: "openai", model: "m" } },
-          },
-          conversationId: "c",
-          provider: "openai",
-          model: "m",
-        } as never),
-        "a",
-        "c",
-        "a",
-        undefined,
-        undefined,
-        undefined,
-        ledger,
-      ).pipe(Effect.provide(layer)) as unknown as Effect.Effect<
-        readonly { toolCallId: string }[],
-        Error
-      >,
+      withoutServices(
+        ToolExecutor.executeToolCalls(
+          toolCalls,
+          { agentId: "a", conversationId: "c", unrestrictedTools: true },
+          { showReasoning: false, showToolExecution: false, mode: "hybrid" },
+          null,
+          createAgentRunMetrics({
+            agent: {
+              id: "a",
+              name: "a",
+              config: { persona: "default", llm: { provider: "openai", model: "m" } },
+            },
+            conversationId: "c",
+            provider: "openai",
+            model: "m",
+          } as never),
+          "a",
+          "c",
+          "a",
+          undefined,
+          undefined,
+          undefined,
+          ledger,
+        ).pipe(Effect.provide(layer)),
+      ),
     );
     return { events, outcomes };
   }

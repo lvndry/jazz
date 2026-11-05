@@ -13,7 +13,7 @@ import type { AgentResponse, AgentRunnerOptions } from "@/core/agent/types";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import { partialFake } from "@/core/test-support/fakes";
+import { partialFake, withoutServices } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import { runClaimedWorkflow } from "./catch-up";
 import { addRunRecord, loadRunHistory } from "./run-history";
@@ -106,18 +106,20 @@ describe("claimed workflow execution", () => {
         }),
       ),
     );
-    const execution = runClaimedWorkflow({
-      workflow,
-      record,
-      history: [],
-      entry: {
-        workflowName: workflow.name,
-        label: "weekly",
-        schedule: "0 6 * * 1",
-        enabled: true,
-        agent: agent.id,
-      },
-    }).pipe(Effect.provide(services)) as unknown as Effect.Effect<void>;
+    const execution = withoutServices(
+      runClaimedWorkflow({
+        workflow,
+        record,
+        history: [],
+        entry: {
+          workflowName: workflow.name,
+          label: "weekly",
+          schedule: "0 6 * * 1",
+          enabled: true,
+          agent: agent.id,
+        },
+      }).pipe(Effect.provide(services)),
+    );
     await Effect.runPromise(execution);
     return (await Effect.runPromise(loadRunHistory())).find((entry) => entry.id === record.id);
   }
