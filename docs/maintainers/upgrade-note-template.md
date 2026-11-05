@@ -9,9 +9,17 @@ removed config key, flag or envelope field, or a default that now grants less. T
 one in [Upgrading Jazz](../upgrading.md#versioning-policy).
 
 Every pull request that makes such a change adds one note to
-[`docs/upgrading/`](../upgrading.md#migration-notes) in the same PR, and adds a line to the list in
-that section. A reviewer should block a `!` PR (`feat(scope)!:`) that has no note. The note is short:
-a reader with a failing setup finds the old name, the new name and the action, then leaves.
+[`docs/upgrading/`](../upgrading.md#migration-notes) in the same PR, and adds one line at the top of
+the list in that section (newest first). The first entry replaces the `None yet` placeholder. A
+reviewer should block a `!` PR (`feat(scope)!:`) that has no note. The note is short: a reader with
+a failing setup finds the old name, the new name and the action, then leaves.
+
+The list entry is a link to the note titled as the note is, a colon, and one sentence on what
+stopped working:
+
+```markdown
+- [Short title naming the change](./upgrading/short-slug.md): One sentence on what stopped working.
+```
 
 Copy the block below to `docs/upgrading/<short-slug>.md`. Write counts and limits as numerals.
 

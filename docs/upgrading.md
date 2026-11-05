@@ -60,11 +60,13 @@ setting, did you mean autoApprovedCommands?`). Look it up in the
 ## Migration notes
 
 Each breaking change after 0.16.28 has a short note under `docs/upgrading/` with a table of old
-names, new names and the action to take. Notes are linked here, newest first; the
-[release notes](https://github.com/lvndry/jazz/releases) name the release that ships each one.
-
-No breaking change has a note yet. Maintainers add one with each breaking PR; see
+names, new names and the action to take. The list below links every note, newest first, one line
+each: a link to the note titled as the note is, a colon, and one sentence on what stopped working.
+The [release notes](https://github.com/lvndry/jazz/releases) name the release that ships each one.
+Maintainers add the note and its line in the breaking PR; see
 [Upgrade notes for breaking changes](./maintainers/upgrade-note-template.md).
+
+- None yet. Replace this line with the first entry.
 
 ## Going back
 
