@@ -40,6 +40,7 @@ describe("parseEventCategories", () => {
       "text_chunk",
       "stream_start",
       "usage_update",
+      "prompt_cache",
       "complete",
       "approval_required",
       "approval_resolved",

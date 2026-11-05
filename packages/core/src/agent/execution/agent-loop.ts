@@ -111,6 +111,12 @@ import {
   telemetryErrorCategory,
   type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
+import { cacheTallyHitRate, cacheTallyIsPartial, promptCacheKey } from "../metrics/prompt-cache";
+import {
+  observePromptCache,
+  recordPromptCacheUsage,
+  type PromptCacheScope,
+} from "../metrics/prompt-cache-observer";
 import { lifecycleEventForStreamEvent } from "../plugins/lifecycle-bridge";
 import type { SubagentSupervisor } from "../subagents/supervisor";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
@@ -703,6 +709,7 @@ function finalizeRun(
     // (bridge daily caps, the per-run maxCostUSD guard) treat costIncomplete as
     // unpriced spend and refuse to enforce a cap they cannot verify.
     const { costUSD, costIncomplete } = computeRunCost(runMetrics, modelMetadata);
+    const cacheHitRate = cacheTallyHitRate(runMetrics.cacheTally);
 
     return {
       ...response,
@@ -714,6 +721,11 @@ function finalizeRun(
         requests: runMetrics.totalRequests,
         ...(runMetrics.totalCacheReadTokens > 0 && {
           cacheReadTokens: runMetrics.totalCacheReadTokens,
+        }),
+        ...(cacheHitRate !== undefined && { cacheHitRate }),
+        ...(cacheTallyIsPartial(runMetrics.cacheTally) && { cacheHitRatePartial: true }),
+        ...(runMetrics.lastCacheReason !== undefined && {
+          cacheMissReason: runMetrics.lastCacheReason,
         }),
       },
       ...(costUSD !== undefined ? { costUSD } : {}),
@@ -996,6 +1008,21 @@ function remainingRunBudget(
     remaining.maxOutputTokens = Math.max(0, maxOutputTokens - runMetrics.totalCompletionTokens);
   }
   return remaining;
+}
+
+function promptCacheScope(deps: LoopDeps): PromptCacheScope {
+  const renderer = deps.strategy.getRenderer();
+  return {
+    logger: deps.logger,
+    runMetrics: deps.runMetrics,
+    conversationKey: promptCacheKey(deps.agent.id, deps.actualConversationId),
+    provider: deps.provider,
+    model: deps.model,
+    emit:
+      deps.options.internal === true || renderer === null
+        ? undefined
+        : (event) => renderer.handleEvent(event),
+  };
 }
 
 /**
@@ -2132,6 +2159,8 @@ function runIteration(
               messages: requestMessages,
             }),
           );
+    const cacheScope = promptCacheScope(deps);
+    yield* observePromptCache(cacheScope, deps.tools, messagesForLLM);
     const completionStartTime = Date.now();
     const toolHost = provider === "claude_code" ? yield* buildToolHost(state, deps) : undefined;
     const attempt = yield* strategy
@@ -2177,6 +2206,8 @@ function runIteration(
       // run's totals cannot claim to be complete.
       if (completion.usage === undefined) {
         runMetrics.usageMissing = true;
+      } else {
+        yield* recordPromptCacheUsage(cacheScope, completion.usage, true);
       }
       state.response = {
         ...state.response,
@@ -2215,6 +2246,7 @@ function runIteration(
     if (completion.usage) {
       recordLLMUsage(runMetrics, completion.usage);
       yield* emitLLMUsage(runMetrics, completion.usage, completionDurationMs);
+      yield* recordPromptCacheUsage(cacheScope, completion.usage);
 
       calibrateTokenCounter({
         authoritativePromptTokens: completion.usage.promptTokens,

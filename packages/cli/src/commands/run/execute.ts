@@ -634,6 +634,13 @@ export function runAgentOnceCommand(
             ...(runResult.usage?.cacheReadTokens !== undefined && {
               cacheReadTokens: runResult.usage.cacheReadTokens,
             }),
+            ...(runResult.usage?.cacheHitRate !== undefined && {
+              cacheHitRate: Number(runResult.usage.cacheHitRate.toFixed(4)),
+            }),
+            ...(runResult.usage?.cacheHitRatePartial === true && { cacheHitRatePartial: true }),
+            ...(runResult.usage?.cacheMissReason !== undefined && {
+              cacheMissReason: runResult.usage.cacheMissReason,
+            }),
           },
           toolCalls,
           ...(composition ? { composition } : {}),

@@ -36,6 +36,7 @@ import {
   workStateSizeBytes,
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
+import { lastCacheObservation, promptCacheKey } from "@jazz/core/agent/metrics/prompt-cache";
 import { resolveAgentToolCategoryIds } from "@jazz/core/agent/tools/agent-tool-resolution";
 import { runShellCommand } from "@jazz/core/agent/tools/shell";
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
@@ -142,6 +143,7 @@ import {
   suggestCommand,
   type ChatCommandInfo,
 } from "./constants";
+import { cacheContextRows } from "./context-cache-rows";
 import {
   handleRenameCommand,
   handleStartCommand,
@@ -281,7 +283,12 @@ export function handleSpecialCommand(
         return yield* handleMemoryCommand(terminal, command.args);
 
       case "context":
-        return yield* handleContextCommand(terminal, agent, conversationHistory);
+        return yield* handleContextCommand(
+          terminal,
+          agent,
+          conversationHistory,
+          context.conversationId,
+        );
 
       case "work":
         return yield* handleWorkCommand(terminal, agent, context.conversationId, command.args);
@@ -3506,6 +3513,7 @@ function handleContextCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   conversationHistory: CommandContext["conversationHistory"],
+  conversationId: string,
 ): Effect.Effect<CommandResult, never, ToolRegistry | AgentConfigService | LLMService> {
   return Effect.gen(function* () {
     const toolRegistry = yield* ToolRegistryTag;
@@ -3585,6 +3593,8 @@ function handleContextCommand(
           { kind: "field", key: "skills", value: count(adjustedUsage.skillsTokens) },
           { kind: "field", key: "turns", value: count(adjustedUsage.messagesTokens) },
           { kind: "field", key: "free", value: count(adjustedUsage.freeSpace) },
+          { kind: "gap" },
+          ...cacheContextRows(lastCacheObservation(promptCacheKey(agent.id, conversationId))),
         ],
         `Compacts at ${String(compactPercent)}%.${windowNote === undefined ? "" : ` ${windowNote.charAt(0).toUpperCase()}${windowNote.slice(1)}.`}`,
       ),

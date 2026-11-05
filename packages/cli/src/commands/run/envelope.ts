@@ -11,6 +11,7 @@
  * command's job; saying what they look like on the wire is this file's.
  */
 
+import type { CacheMissReason } from "@jazz/core/agent/metrics/prompt-cache";
 import { isTruncated, type AnswerFailureCode } from "@jazz/core/agent/run/answer-outcome";
 import type { PendingInput } from "@jazz/core/agent/run/run-state";
 import { describeArtifact, type GeneratedArtifact } from "@jazz/core/types/artifact";
@@ -25,6 +26,12 @@ export interface OneShotTokenUsage {
   readonly totalTokens: number;
   /** Share of promptTokens served from the provider's prompt cache. */
   readonly cacheReadTokens?: number;
+  /** Cache reads over input, 0..1. Absent when the provider reported no cache fields. */
+  readonly cacheHitRate?: number;
+  /** Present and true when `cacheHitRate` covers only the requests that reported cache fields. */
+  readonly cacheHitRatePartial?: true;
+  /** Why the run's latest request's cacheable prefix changed; see the prompt-cache docs. */
+  readonly cacheMissReason?: CacheMissReason;
 }
 
 export interface OneShotToolCall {
