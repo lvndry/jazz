@@ -13,7 +13,7 @@ import {
   DEFAULT_MAX_LIVE_SUBAGENTS,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
-import { partialFake } from "@/core/test-support/fakes";
+import { partialFake, standIn } from "@/core/test-support/fakes";
 import {
   AgentRunner,
   createNestedRunExecutor,
@@ -1190,11 +1190,16 @@ describe("AgentRunner", () => {
       config: { ...mockAgent.config, tools: ["tool1", "web_search"], webSearchProvider: "brave" },
     };
 
+    const agentWithoutProvider: Agent = {
+      ...mockAgent,
+      config: { ...mockAgent.config, tools: ["tool1", "web_search"] },
+    };
+
     function configWith(settings: {
       readonly globalProvider?: string;
       readonly keys?: Record<string, string>;
     }): AgentConfigService {
-      return {
+      return standIn<AgentConfigService>({
         ...mockAgentConfigService,
         appConfig: Effect.succeed({
           ...mockAppConfig,
@@ -1204,12 +1209,12 @@ describe("AgentRunner", () => {
         }),
         getOrElse: (key: string, fallback: unknown) =>
           Effect.succeed(settings.keys?.[key] ?? fallback),
-      } as unknown as AgentConfigService;
+      });
     }
 
     function registryWithWebSearch(): ToolRegistry {
       const webSearch = createWebSearchTool();
-      return {
+      return standIn<ToolRegistry>({
         ...mockToolRegistry,
         listAllTools: () => Effect.succeed(["tool1", "tool2", "web_search"]),
         getTool: (name: string) =>
@@ -1223,11 +1228,11 @@ describe("AgentRunner", () => {
               { function: { name: "web_search", description: "s" } },
             ].filter((definition) => names.includes(definition.function.name)),
           ),
-      } as unknown as ToolRegistry;
+      });
     }
 
     function recordingLlm(declared: string[][], nativeSearch = false): LLMService {
-      return {
+      return standIn<LLMService>({
         ...mockLlmService,
         supportsNativeWebSearch: () => Effect.succeed(nativeSearch),
         createChatCompletion: (
@@ -1237,7 +1242,7 @@ describe("AgentRunner", () => {
           declared.push((options.tools ?? []).map((tool) => tool.function.name));
           return Effect.succeed({ id: "test-completion", model: "gpt-4", content: "done" });
         },
-      } as unknown as LLMService;
+      });
     }
 
     async function declaredToolsOfRun(
@@ -1275,19 +1280,11 @@ describe("AgentRunner", () => {
     });
 
     it("leaves web_search out when no provider is configured and the model has no native search", async () => {
-      const agentWithoutProvider: Agent = {
-        ...searchAgent,
-        config: { ...searchAgent.config, webSearchProvider: undefined as never },
-      };
       const declared = await declaredToolsOfRun(configWith({}), { agent: agentWithoutProvider });
       expect(declared).not.toContain("web_search");
     });
 
     it("offers web_search without a key when the model hosts native search", async () => {
-      const agentWithoutProvider: Agent = {
-        ...searchAgent,
-        config: { ...searchAgent.config, webSearchProvider: undefined as never },
-      };
       const declared = await declaredToolsOfRun(configWith({}), {
         agent: agentWithoutProvider,
         nativeSearch: true,
@@ -1317,22 +1314,22 @@ describe("AgentRunner", () => {
     });
 
     it("logs the omission with a reason class and never the key", async () => {
-      const debugMock = mockLogger.debug as unknown as Mock<(...args: unknown[]) => unknown>;
-      debugMock.mockClear();
+      const debugSpy = spyOn(mockLogger, "debug");
+      debugSpy.mockClear();
       await declaredToolsOfRun(configWith({}));
-      const logged = JSON.stringify(debugMock.mock.calls);
+      const logged = JSON.stringify(debugSpy.mock.calls);
       expect(logged).toContain("web_search");
       expect(logged).toContain("missing_credential");
 
-      debugMock.mockClear();
+      debugSpy.mockClear();
       await declaredToolsOfRun(configWith({ keys: { "web_search.brave.api_key": SECRET_KEY } }));
-      expect(JSON.stringify(debugMock.mock.calls)).not.toContain(SECRET_KEY);
+      expect(JSON.stringify(debugSpy.mock.calls)).not.toContain(SECRET_KEY);
     });
 
     it("does not let a deferred index list a tool that is not ready", async () => {
       const webSearch = createWebSearchTool();
       const summaryRequests: (readonly string[])[] = [];
-      const registry = {
+      const registry = standIn<ToolRegistry>({
         ...registryWithWebSearch(),
         getTool: (name: string) =>
           name === "web_search"
@@ -1347,7 +1344,7 @@ describe("AgentRunner", () => {
           summaryRequests.push(names);
           return Effect.succeed([]);
         },
-      } as unknown as ToolRegistry;
+      });
       await runWithTestLayers(
         AgentRunner.run({ ...defaultOptions, agent: searchAgent, stream: false, maxIterations: 1 }),
         { llm: recordingLlm([]), toolRegistry: registry, config: configWith({}) },
