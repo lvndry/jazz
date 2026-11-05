@@ -1,6 +1,9 @@
+import * as path from "node:path";
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { pinWriteTargets } from "@/core/sandbox/pinned-writes";
+import { denyWriteOutsideRoots } from "@/core/sandbox/runtime-policy";
 import { redactLines, type RedactedLines } from "@/core/secrets/redacted-lines";
 import {
   containsRedactionPlaceholder,
@@ -9,8 +12,8 @@ import {
 } from "@/core/secrets/redaction";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
-import { toError } from "@/core/utils/errors";
 import { jazzStateApprovalNotice, jazzStateChangeReason } from "@/core/utils/jazz-state-paths";
+import { withLock } from "@/core/utils/storage";
 import { diffExceedsPreview, FILE_MUTATION_PREVIEW_LINES } from "@/core/utils/tool-formatter";
 import {
   defineApprovalTool,
@@ -21,6 +24,14 @@ import {
 import { writeFileAtomically } from "./atomic-replace";
 import { buildKeyFromContext } from "../context-utils";
 import { toolKnownSecrets } from "../tool-secrets";
+import { fileSnapshot } from "./file-snapshot";
+import {
+  decodeFileBytes,
+  dominantLineEnding,
+  encodeFileText,
+  normalizeLineBreaks,
+  type DecodedFile,
+} from "./line-endings";
 
 /**
  * Write file tool - writes content to a file.
@@ -95,17 +106,16 @@ interface PlannedWrite {
 function planWrite(
   target: string,
   requested: string,
-): Effect.Effect<PlannedWrite, never, FileSystem.FileSystem> {
+  current: DecodedFile | undefined,
+): Effect.Effect<PlannedWrite> {
   return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const currentContent = yield* fs
-      .readFileString(target)
-      .pipe(Effect.catch(() => Effect.succeed(undefined)));
     const known = yield* toolKnownSecrets();
+    const currentContent = current?.text;
     const currentLines = currentContent?.split("\n");
     const shown = currentLines && redactLines(currentLines, known);
+    const normalized = normalizeLineBreaks(requested);
     const content =
-      currentLines && shown ? restoreKeptSecretLines(requested, currentLines, shown) : requested;
+      currentLines && shown ? restoreKeptSecretLines(normalized, currentLines, shown) : normalized;
     const secretLineIndexes = shown?.secretLineIndexes ?? new Set<number>();
     return {
       content,
@@ -151,6 +161,125 @@ function writeProblem(
   return `content leaves out or changes ${label} ${listed}${more} of ${target}, holding secret values you were shown redacted; writing it would lose them. Keep those lines exactly as read_file shows them, placeholders included, or use edit_file to change the other lines.`;
 }
 
+/** Most approved overwrites remembered at once; the oldest is forgotten first. */
+const MAX_PENDING_APPROVALS = 256;
+
+/** Stands for "no file there" in the version an approval was shown. */
+const ABSENT_FILE_VERSION = "absent";
+
+/**
+ * The file version each pending approval was shown, keyed by the approval's tool call, the target
+ * and the requested content. The first proposal of a call fixes its version; a proposal that
+ * repeats while the approval waits (a resumed run proposes again) leaves it as it was, so the
+ * execution compares against what the approver saw.
+ */
+const approvedVersions = new Map<string, string>();
+
+function approvalKey(toolCallId: string, canonicalPath: string, requested: string): string {
+  return `${toolCallId}\0${fileSnapshot(canonicalPath, requested)}`;
+}
+
+/** Records `version` for `key` unless a version is already recorded; true when it recorded. */
+function rememberApprovedVersion(key: string, version: string): boolean {
+  if (approvedVersions.has(key)) {
+    return false;
+  }
+  approvedVersions.set(key, version);
+  while (approvedVersions.size > MAX_PENDING_APPROVALS) {
+    const oldest = approvedVersions.keys().next();
+    if (oldest.done === true) {
+      break;
+    }
+    approvedVersions.delete(oldest.value);
+  }
+  return true;
+}
+
+function versionOf(canonicalPath: string, current: DecodedFile | undefined): string {
+  return current === undefined ? ABSENT_FILE_VERSION : fileSnapshot(canonicalPath, current.content);
+}
+
+/** The path a lock and a version are keyed on: the real file when there is one, else `target`. */
+function canonicalPathOf(fs: FileSystem.FileSystem, target: string) {
+  return fs.realPath(target).pipe(
+    Effect.catch(() =>
+      fs.realPath(path.dirname(target)).pipe(
+        Effect.map((parent) => path.join(parent, path.basename(target))),
+        Effect.catch(() => Effect.succeed(target)),
+      ),
+    ),
+  );
+}
+
+function isNotFound(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("reason" in error)) {
+    return false;
+  }
+  const { reason } = error;
+  if (typeof reason !== "object" || reason === null) {
+    return false;
+  }
+  if ("_tag" in reason && reason._tag === "NotFound") {
+    return true;
+  }
+  const cause = "cause" in reason ? reason.cause : undefined;
+  return typeof cause === "object" && cause !== null && "code" in cause && cause.code === "ENOTDIR";
+}
+
+/**
+ * The existing file at `canonicalPath`, or undefined when it confirmably does not exist. A file
+ * that exists but cannot be read fails, since its version cannot be checked.
+ */
+function readExistingFile(fs: FileSystem.FileSystem, canonicalPath: string) {
+  return fs.readFile(canonicalPath).pipe(
+    Effect.map((bytes): DecodedFile | undefined => decodeFileBytes(bytes)),
+    Effect.catch((error) =>
+      isNotFound(error)
+        ? Effect.succeed(undefined)
+        : Effect.fail(
+            new Error(
+              `${canonicalPath} cannot be read (${error instanceof Error ? error.message : String(error)}), so write_file cannot check what it would replace. Make the file readable, or write to a different path.`,
+            ),
+          ),
+    ),
+  );
+}
+
+/**
+ * The text to write for `content`: exactly what was requested for a new file; for a replaced
+ * file, its byte-order mark and line ending carry over unless the content brings its own.
+ */
+function encodeLikeReplaced(
+  content: string,
+  requested: string,
+  replaced: DecodedFile | undefined,
+): string {
+  if (replaced === undefined) {
+    return requested;
+  }
+  return encodeFileText({
+    bom: content.startsWith("﻿") ? "" : replaced.bom,
+    lineEnding: requested.includes("\r\n") ? dominantLineEnding(requested) : replaced.lineEnding,
+    text: content,
+  });
+}
+
+function staleWriteResult(target: string) {
+  return {
+    success: false,
+    result: { errorType: "StaleFileError", path: target },
+    error: `File changed since this write_file was proposed: ${target}. Read the file again, merge its current content into your complete new content, and call write_file again. Nothing was written.`,
+  } as const;
+}
+
+function unverifiedApprovalResult(target: string) {
+  return {
+    success: false,
+    result: { errorType: "UnverifiedApprovalError", path: target },
+    error: `This write_file has no recorded proposal in this process, so the file it would replace cannot be checked: ${target}. Call write_file again to get a fresh approval. Nothing was written.`,
+  } as const;
+}
+
 /**
  * Create write file tools (approval + execution pair).
  * Returns both tools that need to be registered.
@@ -173,23 +302,27 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        const { content, problem } = yield* planWrite(target, args.content);
+        const denied = yield* denyWriteOutsideRoots(context, [target]);
+        if (denied !== undefined) {
+          return { skipApproval: true, toolResult: denied };
+        }
+        const canonicalTarget = yield* canonicalPathOf(fs, target);
+        const current = yield* readExistingFile(fs, canonicalTarget);
+        const { content, problem } = yield* planWrite(target, args.content, current);
         if (problem !== undefined) {
           return yield* Effect.fail(new Error(problem));
         }
 
-        // Check if file exists and read original content for preview diff
-        const fileExists = yield* fs.exists(target).pipe(Effect.catch(() => Effect.succeed(false)));
-
-        let originalContent = "";
-        const isNewFile = !fileExists;
-
-        if (fileExists) {
-          try {
-            originalContent = yield* fs.readFileString(target);
-          } catch {
-            // If we can't read, treat as new file
-          }
+        const originalContent = current?.text ?? "";
+        const isNewFile = current === undefined;
+        if (context.toolCallId !== undefined) {
+          const recorded = rememberApprovedVersion(
+            approvalKey(context.toolCallId, canonicalTarget, args.content),
+            versionOf(canonicalTarget, current),
+          );
+          yield* Effect.logDebug(
+            `write_file approval: ${target} ${isNewFile ? "new file" : "overwrite"}, version ${recorded ? "recorded" : "kept from the first proposal"}`,
+          );
         }
 
         // This message is shown to whoever approves the write, which is not always a
@@ -233,79 +366,107 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        const { content, problem } = yield* planWrite(target, args.content);
-        if (problem !== undefined) {
-          return yield* Effect.fail(new Error(problem));
+        const pin = yield* pinWriteTargets(context, [target], { follow: true });
+        if (pin.denied !== undefined) {
+          return pin.denied;
         }
-
-        try {
-          const parentDir = target.substring(0, target.lastIndexOf("/"));
-          if (parentDir && parentDir !== target) {
-            const parentExists = yield* fs
-              .exists(parentDir)
-              .pipe(Effect.catch(() => Effect.succeed(false)));
-
-            if (!parentExists) {
-              yield* fs.makeDirectory(parentDir, { recursive: true });
-            }
-          }
-
-          // Check if file exists and read original content for diff
-          const fileExists = yield* fs
-            .exists(target)
+        const pinnedTarget = pin.paths[0] ?? target;
+        const parentDir = pinnedTarget.substring(0, pinnedTarget.lastIndexOf("/"));
+        if (parentDir && parentDir !== pinnedTarget) {
+          const parentExists = yield* fs
+            .exists(parentDir)
             .pipe(Effect.catch(() => Effect.succeed(false)));
 
-          let originalContent = "";
-          const isNewFile = !fileExists;
-
-          if (fileExists) {
-            try {
-              originalContent = yield* fs.readFileString(target);
-            } catch {
-              // If we can't read, treat as new file
+          if (!parentExists) {
+            const swappedBeforeMkdir = yield* pin.recheck();
+            if (swappedBeforeMkdir !== undefined) {
+              return swappedBeforeMkdir;
             }
+            yield* fs.makeDirectory(parentDir, { recursive: true });
           }
-
-          // Old content or new, never a truncated file, however the call is stopped.
-          yield* writeFileAtomically(fs, target, content);
-
-          // Generate diff for terminal output
-          const { diff, wasTruncated } = generateDiffWithMetadata(
-            originalContent,
-            content,
-            target,
-            { isNewFile },
-          );
-          const needsExpansion =
-            wasTruncated ||
-            diffExceedsPreview(diff) ||
-            content.split("\n").length > FILE_MUTATION_PREVIEW_LINES;
-          const fullDiff = needsExpansion
-            ? generateDiff(originalContent, content, target, {
-                isNewFile,
-                maxLines: Number.POSITIVE_INFINITY,
-                fullPatch: true,
-              })
-            : "";
-
-          return {
-            success: true,
-            result: {
-              path: target,
-              message: isNewFile ? `File created: ${target}` : `File written: ${target}`,
-              isNewFile,
-              diff,
-              wasTruncated,
-              fullDiff,
-            },
-          };
-        } catch (error) {
-          return {
-            success: false,
-            result: null,
-            error: `writeFile failed: ${toError(error).message}`,
-          };
         }
+        const canonicalTarget = yield* canonicalPathOf(fs, target);
+
+        // Shares edit_file's lock so the two serialize; the version check, the secret checks and
+        // the write all happen inside it.
+        return yield* withLock(
+          `${canonicalTarget}.jazz-edit.lock`,
+          Effect.gen(function* () {
+            const current = yield* readExistingFile(fs, canonicalTarget);
+            const key =
+              context.toolCallId === undefined
+                ? undefined
+                : approvalKey(context.toolCallId, canonicalTarget, args.content);
+            if (key !== undefined) {
+              const approvedVersion = approvedVersions.get(key);
+              approvedVersions.delete(key);
+              if (approvedVersion === undefined) {
+                yield* Effect.logDebug(
+                  `write_file execute: ${target} has no recorded proposal, write refused`,
+                );
+                return unverifiedApprovalResult(target);
+              }
+              if (approvedVersion !== versionOf(canonicalTarget, current)) {
+                yield* Effect.logDebug(
+                  `write_file execute: ${target} changed since approval, write refused`,
+                );
+                return staleWriteResult(target);
+              }
+            }
+
+            const { content, problem } = yield* planWrite(target, args.content, current);
+            if (problem !== undefined) {
+              return yield* Effect.fail(new Error(problem));
+            }
+
+            const originalContent = current?.text ?? "";
+            const isNewFile = current === undefined;
+
+            const swapped = yield* pin.recheck();
+            if (swapped !== undefined) {
+              return swapped;
+            }
+            // Old content or new, never a truncated file, however the call is stopped.
+            yield* writeFileAtomically(
+              fs,
+              canonicalTarget,
+              encodeLikeReplaced(content, args.content, current),
+            );
+            yield* Effect.logDebug(
+              `write_file execute: ${target} ${isNewFile ? "created" : "overwritten"}, approval ${key === undefined ? "unbound" : "verified"}`,
+            );
+
+            const { diff, wasTruncated } = generateDiffWithMetadata(
+              originalContent,
+              content,
+              target,
+              { isNewFile },
+            );
+            const needsExpansion =
+              wasTruncated ||
+              diffExceedsPreview(diff) ||
+              content.split("\n").length > FILE_MUTATION_PREVIEW_LINES;
+            const fullDiff = needsExpansion
+              ? generateDiff(originalContent, content, target, {
+                  isNewFile,
+                  maxLines: Number.POSITIVE_INFINITY,
+                  fullPatch: true,
+                })
+              : "";
+
+            return {
+              success: true,
+              result: {
+                path: target,
+                message: isNewFile ? `File created: ${target}` : `File written: ${target}`,
+                isNewFile,
+                diff,
+                wasTruncated,
+                fullDiff,
+              },
+            };
+          }),
+        );
       }),
   };
 

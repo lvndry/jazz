@@ -96,6 +96,8 @@ export interface ChatCompletionOptions {
   toolHost?: ToolHost;
   /** Provider-neutral reasoning request, validated against the resolved model profile by the adapter. */
   reasoning?: ReasoningSelection;
+  /** Stable id of the conversation, used as the provider-side prompt-cache routing key. */
+  conversationId?: string;
   /** Ollama runtime context window, sent as `num_ctx`. Ignored by other providers. */
   num_ctx?: number;
   /** Optional per-request API key overrides by provider (typically from agent config). */

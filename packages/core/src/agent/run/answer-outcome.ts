@@ -75,6 +75,35 @@ export function isEmptyCompletion(
   return visibleText.trim().length === 0 && (usage?.completionTokens ?? 0) === 0;
 }
 
+/**
+ * Whether a completion is an empty finish worth asking the model again: nothing visible, no
+ * reasoning, no tool calls, no media, no billed output tokens, and a finish reason that does not
+ * explain the silence (a content filter or a token limit would repeat).
+ */
+export function isRetryableEmptyCompletion(completion: {
+  readonly content: string;
+  readonly reasoning?: string | undefined;
+  readonly toolCalls?: ReadonlyArray<unknown> | undefined;
+  readonly artifacts?: ReadonlyArray<unknown> | undefined;
+  readonly finishReason?: FinishReason | undefined;
+  readonly usage?:
+    { readonly completionTokens: number; readonly reasoningTokens?: number } | undefined;
+}): boolean {
+  if (completion.reasoning !== undefined && completion.reasoning.trim().length > 0) {
+    return false;
+  }
+  if ((completion.toolCalls?.length ?? 0) > 0 || (completion.artifacts?.length ?? 0) > 0) {
+    return false;
+  }
+  if (completion.finishReason === "content-filter" || completion.finishReason === "length") {
+    return false;
+  }
+  if ((completion.usage?.reasoningTokens ?? 0) > 0) {
+    return false;
+  }
+  return isEmptyCompletion(completion.content, completion.usage);
+}
+
 /** An answer is cut off when the model stopped at its output limit. */
 export function isTruncated(finishReason: FinishReason | undefined): boolean {
   return finishReason === "length";

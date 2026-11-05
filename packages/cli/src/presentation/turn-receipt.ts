@@ -87,6 +87,22 @@ function stepCacheShare(
     : undefined;
 }
 
+/** One request's cache figure for a plain-text summary, or undefined when unreported. */
+export function formatRequestCache(
+  usage: {
+    readonly promptTokens: number;
+    readonly cacheReadTokens?: number;
+    readonly cacheWriteTokens?: number;
+  },
+  reason: CacheMissReason | undefined,
+): string | undefined {
+  const normalized = normalizeCacheUsage(usage);
+  if (normalized === undefined || normalized.totalInputTokens <= 0) {
+    return undefined;
+  }
+  return formatCacheSummary(normalized.cacheReadTokens / normalized.totalInputTokens, reason);
+}
+
 function stepHitRate(step: StepStats): number | undefined {
   const share = stepCacheShare(step);
   return share === undefined ? undefined : share.read / share.input;
@@ -100,10 +116,14 @@ function stepHitRate(step: StepStats): number | undefined {
 function cachePart(steps: readonly StepStats[]): string | undefined {
   let inputTokens = 0;
   let readTokens = 0;
+  let unreportedSteps = 0;
   let worst: { rate: number; reason: CacheMissReason | undefined } | undefined;
   for (const step of steps) {
     const share = stepCacheShare(step);
-    if (share === undefined) continue;
+    if (share === undefined) {
+      if ((step.promptTokens ?? 0) > 0) unreportedSteps += 1;
+      continue;
+    }
     const rate = share.read / share.input;
     inputTokens += share.input;
     readTokens += share.read;
@@ -114,7 +134,7 @@ function cachePart(steps: readonly StepStats[]): string | undefined {
   if (worst === undefined || inputTokens <= 0) {
     return undefined;
   }
-  return formatCacheSummary(readTokens / inputTokens, worst.reason);
+  return formatCacheSummary(readTokens / inputTokens, worst.reason, unreportedSteps > 0);
 }
 
 function tokenPart(

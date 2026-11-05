@@ -95,6 +95,7 @@ import {
   hydrateTranscriptFromUiEntries,
 } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
+import { followUpCount } from "@/cli/ui/message-queue";
 import { backgroundItems } from "@/cli/ui/models/background-work";
 import { store } from "@/cli/ui/store";
 import { announcePendingSuggestions } from "./chat/announce-pending-suggestions";
@@ -447,6 +448,7 @@ export class ChatServiceImpl implements ChatService {
        * Save this conversation for /resume. A failure is logged every time and shown once per
        * distinct error, so a save that keeps failing is visible instead of losing work silently.
        */
+      let lastSaveError: string | undefined;
       const saveSession = (
         history: readonly ChatMessage[],
         saveOptions: {
@@ -498,6 +500,7 @@ export class ChatServiceImpl implements ChatService {
           ),
           Effect.catch((error) =>
             Effect.gen(function* () {
+              lastSaveError = error.message;
               yield* logger.error("Conversation save failed", {
                 conversationId,
                 error: error.message,
@@ -582,7 +585,16 @@ export class ChatServiceImpl implements ChatService {
           }
         },
         checkQueuedMessage: () => {
-          const queued = store.takeQueuedProse().join("\n");
+          const steering = store.takeQueuedProse();
+          const queued = steering.join("\n");
+          if (steering.length > 0) {
+            Effect.runSync(
+              logger.debug("Queued messages steer the running turn", {
+                steering: steering.length,
+                heldForAfterTurn: followUpCount(store.getMessageQueueSnapshot()),
+              }),
+            );
+          }
           const detached = detachedResults.take();
           if (queued.length > 0) {
             Effect.runSync(terminal.user(queued));
@@ -760,7 +772,14 @@ export class ChatServiceImpl implements ChatService {
           // prose entries are combined. Anything left is picked up next loop.
           // Record entries in input history for ↑ recall parity with
           // interactively typed messages.
+          const nextLane = store.getMessageQueueSnapshot()[0]?.lane;
           const entries = store.takeQueuedTurn();
+          yield* logger.debug("Queued messages start a turn", {
+            lane: nextLane,
+            entries: entries.length,
+            afterInterruptedOrFailedTurn: flushRequested && lastTurnErrored,
+            stillQueued: store.getMessageQueueSnapshot().length,
+          });
           for (const entry of entries) {
             store.pushInputHistory(entry);
           }
@@ -773,6 +792,12 @@ export class ChatServiceImpl implements ChatService {
           yield* terminal.user(userMessage);
         } else {
           const draft = queued.length > 0 ? queued : draftToRestore;
+          if (queued.length > 0) {
+            yield* logger.debug("Queued messages returned to the composer after a failed turn", {
+              entries: store.getMessageQueueSnapshot().length,
+              followUps: followUpCount(store.getMessageQueueSnapshot()),
+            });
+          }
           draftToRestore = undefined;
           const askOptions: { commandSuggestions: true; defaultValue?: string } = {
             commandSuggestions: true,
@@ -1249,7 +1274,14 @@ export class ChatServiceImpl implements ChatService {
             },
             onCheckpoint: (messages) => {
               inFlightTranscript = messages;
-              return saveSession(messages, { housekeeping: false });
+              return Effect.suspend(() => {
+                lastSaveError = undefined;
+                return saveSession(messages, { housekeeping: false });
+              }).pipe(
+                Effect.flatMap(() =>
+                  lastSaveError === undefined ? Effect.void : Effect.fail(new Error(lastSaveError)),
+                ),
+              );
             },
             ...(options?.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }

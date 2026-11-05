@@ -24,6 +24,7 @@ import type { DisplayConfig } from "@/core/types/output";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
 import { buildCompletionOptions } from "./completion-request";
+import { rejectEmptyCompletion } from "./empty-completion";
 import type { RecursiveRunner } from "../context/summarizer";
 import { emitLLMRetry, recordLLMRetry } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
@@ -52,7 +53,7 @@ export function executeWithoutStreaming(
     const logger = yield* LoggerServiceTag;
     const presentationService = yield* PresentationServiceTag;
     const { agent } = options;
-    const { runMetrics, provider, model } = runContext;
+    const { runMetrics, provider, model, actualConversationId } = runContext;
     const maxRetries = runContext.maxRetries ?? DEFAULT_MAX_LLM_RETRIES;
 
     const reasoning = agent.config.llm.reasoning;
@@ -98,6 +99,7 @@ export function executeWithoutStreaming(
             tools: runContext.tools,
             messages: currentMessages,
             toolChoice: toolsAllowed ? "auto" : "none",
+            ...(actualConversationId ? { conversationId: actualConversationId } : {}),
             ...(toolHost !== undefined ? { toolHost } : {}),
           });
 
@@ -127,6 +129,19 @@ export function executeWithoutStreaming(
               agent.name,
               showSlowModelNotice,
               llmService.createChatCompletion(provider, llmOptions).pipe(
+                Effect.flatMap((result) =>
+                  rejectEmptyCompletion(
+                    { completion: result },
+                    {
+                      provider,
+                      model: agent.config.llm.model,
+                      agentId: agent.id,
+                      conversationId: runMetrics.conversationId,
+                      logger,
+                      runMetrics,
+                    },
+                  ).pipe(Effect.map((checked) => checked.completion)),
+                ),
                 Effect.tapError((error) =>
                   Effect.gen(function* () {
                     recordLLMRetry(runMetrics, error);

@@ -146,6 +146,7 @@ export function requestAlignedSummary(
           tools,
           messages,
           toolChoice: "none",
+          conversationId: cacheScope.runMetrics.conversationId,
         }),
       )
       .pipe(Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)), Effect.result);

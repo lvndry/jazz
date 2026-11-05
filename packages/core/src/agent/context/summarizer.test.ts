@@ -26,6 +26,7 @@ import { LLMRequestError } from "../../types/errors";
 import type { ChatMessage, ConversationMessages } from "../../types/message";
 import { frameUntrusted, UNTRUSTED_DATA_INSTRUCTION } from "../../utils/untrusted-content";
 import { createEgressTaint, taintedEgressNeedsApproval } from "../execution/egress-taint";
+import { collectUnlockedToolNames } from "../tools/unlocked-tools";
 import type { AgentResponse } from "../types";
 
 // Helper to create a mock agent
@@ -811,6 +812,41 @@ describe("Summarizer", () => {
         ) as Effect.Effect<AutoCompaction, never, never>,
       );
     }
+
+    it("keeps unlocks from summarized search_tools results, in first-unlock order", async () => {
+      const history = overThreshold();
+      history.splice(
+        2,
+        0,
+        {
+          role: "tool",
+          name: "search_tools",
+          tool_call_id: "a",
+          content: "{}",
+          unlockedToolNames: ["first_tool"],
+        },
+        {
+          role: "tool",
+          name: "search_tools",
+          tool_call_id: "b",
+          content: "{}",
+          unlockedToolNames: ["second_tool", "first_tool"],
+        },
+      );
+
+      const result = await runCompactIfNeeded(
+        createMockRecursiveRunner("## Goal\nreview"),
+        history,
+      );
+
+      expect(result.kind).toBe("compacted");
+      const messages = (result as { messages: ConversationMessages }).messages;
+      expect(messages.some((message) => message.tool_call_id === "a")).toBe(false);
+      expect(collectUnlockedToolNames(messages, ["first_tool", "second_tool"])).toEqual([
+        "first_tool",
+        "second_tool",
+      ]);
+    });
 
     it("refuses an empty summary and leaves the history as it was", async () => {
       const result = await runCompactIfNeeded(createMockRecursiveRunner("   "), overThreshold());

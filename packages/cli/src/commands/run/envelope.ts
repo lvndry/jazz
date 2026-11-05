@@ -28,6 +28,8 @@ export interface OneShotTokenUsage {
   readonly cacheReadTokens?: number;
   /** Cache reads over input, 0..1. Absent when the provider reported no cache fields. */
   readonly cacheHitRate?: number;
+  /** Present and true when `cacheHitRate` covers only the requests that reported cache fields. */
+  readonly cacheHitRatePartial?: true;
   /** Why the run's latest request's cacheable prefix changed; see the prompt-cache docs. */
   readonly cacheMissReason?: CacheMissReason;
 }

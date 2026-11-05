@@ -93,10 +93,14 @@ an expensive one.
 - The turn receipt after each answer ends with `cache 82%` when the provider reported cache
   figures. Press Ctrl+O on a multi-step turn for the per-step rates.
 - `/context` shows a `cache` row for the last request in the conversation.
-- `jazz run --json` adds `cacheHitRate` (0 to 1) and `cacheMissReason` to `tokenUsage`.
+- `jazz run --json` adds `cacheHitRate` (0 to 1) and `cacheMissReason` to `tokenUsage`, plus
+  `cacheHitRatePartial: true` when some requests reported no cache figures.
+- Plain-text output (`showMetrics`) appends the request's figure to its `[Tokens: ...]` line.
 
 The rate is cache reads divided by all input tokens of the request. A provider that reports
-no cache figures shows `unknown`, or no cache figure on the receipt, never 0%.
+no cache figures shows `unknown`, or no cache figure on the receipt, never 0%. When only some
+requests of a turn or run reported them, the figure covers those requests and reads
+`cache 90% (partial)`.
 
 When the rate is below 50%, the receipt adds what changed in the cacheable prefix compared
 with the previous request in the conversation:

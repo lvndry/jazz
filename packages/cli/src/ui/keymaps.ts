@@ -41,6 +41,11 @@ const RUN_BINDINGS: readonly KeyBinding[] = [
   { keys: "Ctrl+R", action: "Expand collapsed reasoning (repeat for earlier blocks)" },
   { keys: "Ctrl+E", action: "Expand the last write/edit diff in place", when: "empty input" },
   { keys: "Ctrl+O", action: "Expand the last truncated tool output" },
+  {
+    keys: "Tab",
+    action: "Queue the draft as its own turn after the current one",
+    when: "agent busy, draft typed",
+  },
   { keys: "Up", action: "Recall queued messages for editing", when: "agent busy" },
   { keys: "Ctrl+Enter", action: "Interrupt and send the draft and queue now", when: "agent busy" },
   { keys: "Ctrl+X", action: "Clear the message queue", when: "agent busy, empty input" },

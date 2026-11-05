@@ -60,7 +60,11 @@ export interface FingerprintInput {
   readonly provider: string;
   readonly model: string;
   readonly tools: readonly ToolFingerprintInput[];
-  readonly messages: readonly { readonly role: string; readonly kind?: string }[];
+  readonly messages: readonly {
+    readonly role: string;
+    readonly kind?: string;
+    readonly content?: unknown;
+  }[];
 }
 
 export interface CacheChange {
@@ -87,14 +91,33 @@ export function canonicalJson(value: unknown): string {
   });
 }
 
+export type TextHasher = (text: string) => string;
+
+/** Per-message hashes, keyed by message object and valid while its `content` is the same value. */
+export type MessageHashCache = WeakMap<
+  object,
+  { readonly content: unknown; readonly hash: string }
+>;
+
+const sharedMessageHashCache: MessageHashCache = new WeakMap();
+
 /**
  * Hash what the request sends, split by the order providers consume it: tools, then system,
  * then history. The ephemeral tail message is skipped because it is never part of the cached
  * prefix (it changes every step by design).
+ *
+ * A message already hashed in an earlier request is not serialized again, so a long tool loop
+ * hashes each message once rather than once per request. The conversation is append-only and
+ * rewrites (compaction, clearing) build new message objects, so a message object whose
+ * `content` is unchanged is treated as unchanged.
  */
-export function fingerprintRequest(input: FingerprintInput): RequestFingerprint {
+export function fingerprintRequest(
+  input: FingerprintInput,
+  hash: TextHasher = digest,
+  messageHashes: MessageHashCache = sharedMessageHashCache,
+): RequestFingerprint {
   const systemParts: string[] = [];
-  const messageHashes: string[] = [];
+  const hashes: string[] = [];
   for (const message of input.messages) {
     if (message.kind === "ephemeral") {
       continue;
@@ -103,15 +126,25 @@ export function fingerprintRequest(input: FingerprintInput): RequestFingerprint 
       systemParts.push(JSON.stringify(message));
       continue;
     }
-    messageHashes.push(digest(JSON.stringify(message)));
+    const cached = messageHashes.get(message);
+    if (cached !== undefined && cached.content === (message as { content?: unknown }).content) {
+      hashes.push(cached.hash);
+      continue;
+    }
+    const messageHash = hash(JSON.stringify(message));
+    messageHashes.set(message, {
+      content: (message as { content?: unknown }).content,
+      hash: messageHash,
+    });
+    hashes.push(messageHash);
   }
   return {
     provider: input.provider,
     model: input.model,
-    toolsHash: digest(canonicalJson(input.tools)),
-    systemHash: digest(systemParts.join("\n")),
-    messageHashes,
-    historyHash: digest(messageHashes.join(",")),
+    toolsHash: hash(canonicalJson(input.tools)),
+    systemHash: hash(systemParts.join("\n")),
+    messageHashes: hashes,
+    historyHash: hash(hashes.join(",")),
   };
 }
 
@@ -233,12 +266,15 @@ export interface CacheTally {
   readonly reportedInputTokens: number;
   readonly reportedCacheReadTokens: number;
   readonly reportedRequests: number;
+  /** Requests with input that reported no cache fields. */
+  readonly unreportedRequests: number;
 }
 
 export const EMPTY_CACHE_TALLY: CacheTally = {
   reportedInputTokens: 0,
   reportedCacheReadTokens: 0,
   reportedRequests: 0,
+  unreportedRequests: 0,
 };
 
 export function addToCacheTally(
@@ -248,13 +284,21 @@ export function addToCacheTally(
 ): CacheTally {
   const normalized = normalizeCacheUsage(usage, convention);
   if (normalized === undefined) {
-    return tally;
+    return usage.promptTokens > 0
+      ? { ...tally, unreportedRequests: tally.unreportedRequests + 1 }
+      : tally;
   }
   return {
+    ...tally,
     reportedInputTokens: tally.reportedInputTokens + normalized.totalInputTokens,
     reportedCacheReadTokens: tally.reportedCacheReadTokens + normalized.cacheReadTokens,
     reportedRequests: tally.reportedRequests + 1,
   };
+}
+
+/** True when the rate covers only some requests because others reported no cache fields. */
+export function cacheTallyIsPartial(tally: CacheTally | undefined): boolean {
+  return tally !== undefined && tally.reportedRequests > 0 && tally.unreportedRequests > 0;
 }
 
 export function cacheTallyHitRate(tally: CacheTally | undefined): number | undefined {
@@ -286,15 +330,22 @@ export function describeCacheReason(reason: CacheMissReason): string {
 export function formatCacheSummary(
   hitRate: number | undefined,
   reason: CacheMissReason | undefined,
+  partial = false,
 ): string {
   if (hitRate === undefined) {
     return "cache unknown";
   }
   const percent = `${String(Math.round(hitRate * 100))}%`;
-  if (hitRate >= LOW_CACHE_HIT_RATE || reason === undefined) {
-    return `cache ${percent}`;
+  const qualifiers: string[] = [];
+  if (partial) {
+    qualifiers.push("partial");
   }
-  return `cache ${percent} (${describeCacheReason(reason)})`;
+  if (hitRate < LOW_CACHE_HIT_RATE && reason !== undefined) {
+    qualifiers.push(describeCacheReason(reason));
+  }
+  return qualifiers.length === 0
+    ? `cache ${percent}`
+    : `cache ${percent} (${qualifiers.join(", ")})`;
 }
 
 export interface CacheObservation {

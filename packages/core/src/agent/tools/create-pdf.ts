@@ -19,6 +19,7 @@ import { z } from "zod";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { pinWriteTargets } from "@/core/sandbox/pinned-writes";
 import type { KnownSecret } from "@/core/secrets/redaction";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
@@ -76,6 +77,8 @@ export function pdfFilenameFromTitle(title: string): string {
   return `${slug.length > 0 ? slug : "document"}.pdf`;
 }
 
+const PDF_SOURCE_HTML_SUFFIX = ".source.html";
+
 /** Absolute destination for the PDF, honouring an explicit path over the derived filename. */
 export function resolvePdfOutputPath(
   args: Pick<CreatePdfArgs, "path" | "title">,
@@ -83,6 +86,15 @@ export function resolvePdfOutputPath(
 ): string {
   const requested = args.path ?? pdfFilenameFromTitle(args.title);
   return isAbsolute(requested) ? requested : resolvePath(workingDirectory, requested);
+}
+
+/** The PDF path and the sibling HTML source file the tool writes beside it. */
+export function createPdfOutputPaths(
+  args: Pick<CreatePdfArgs, "path" | "title">,
+  workingDirectory: string,
+): [pdfPath: string, htmlPath: string] {
+  const pdfPath = resolvePdfOutputPath(args, workingDirectory);
+  return [pdfPath, `${pdfPath}${PDF_SOURCE_HTML_SUFFIX}`];
 }
 
 async function renderPdf(
@@ -142,6 +154,17 @@ export function createPdfTool(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
 
+        const workingDirectory = yield* resolveWorkingDirectory(context);
+        // Chromium loads the source over file://, so the HTML has to exist on disk. It goes next
+        // to the PDF rather than in a temp dir so a broken render leaves something inspectable.
+        const [requestedPdfPath, requestedHtmlPath] = createPdfOutputPaths(args, workingDirectory);
+        const pin = yield* pinWriteTargets(context, [requestedPdfPath, requestedHtmlPath], {
+          follow: true,
+        });
+        if (pin.denied !== undefined) {
+          return pin.denied;
+        }
+        const [pdfPath = requestedPdfPath, htmlPath = requestedHtmlPath] = pin.paths;
         const executablePath = yield* Effect.tryPromise({
           try: () => resolveBrowserExecutablePath(browserLookup()),
           catch: () => new Error(MISSING_BROWSER_FOR_PDF_ERROR),
@@ -150,16 +173,18 @@ export function createPdfTool(
           return yield* Effect.fail(new Error(MISSING_BROWSER_FOR_PDF_ERROR));
         }
 
-        const workingDirectory = yield* resolveWorkingDirectory(context);
-        const pdfPath = resolvePdfOutputPath(args, workingDirectory);
-
-        // Chromium loads the source over file://, so the HTML has to exist on disk. It goes next
-        // to the PDF rather than in a temp dir so a broken render leaves something inspectable.
-        const htmlPath = `${pdfPath}.source.html`;
+        const swappedBeforeSource = yield* pin.recheck();
+        if (swappedBeforeSource !== undefined) {
+          return swappedBeforeSource;
+        }
         yield* fs.writeFileString(htmlPath, args.html);
 
         const egressPolicy = yield* egressPolicyForContext(context);
         const known = yield* toolKnownSecrets();
+        const swappedBeforeRender = yield* pin.recheck();
+        if (swappedBeforeRender !== undefined) {
+          return swappedBeforeRender;
+        }
         yield* Effect.tryPromise({
           try: () =>
             renderPdf(
