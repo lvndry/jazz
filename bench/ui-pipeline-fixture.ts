@@ -27,6 +27,7 @@ import { updateForTest } from "../packages/cli/src/ui/fullscreen/test-helpers";
 import { store } from "../packages/cli/src/ui/store";
 import { REVEAL_FRAME_MS } from "../packages/cli/src/ui/text/stream-pacer";
 import { stripAnsiCodes } from "../packages/cli/src/utils/string-utils";
+import { viewAs } from "../packages/daemon/src/partial-fake.fixture";
 
 export type RendererKind = "ink" | "opentui";
 
@@ -102,6 +103,22 @@ function terminalInput(): PassThrough & { isTTY: boolean; setRawMode: () => Pass
   return input;
 }
 
+/**
+ * The sink as the `NodeJS.WriteStream` the renderers take. Sound for this fixture: renderers read
+ * only `write`, `isTTY`, `columns` and `rows`, which the sink provides.
+ */
+function asTerminalOutput(sink: TerminalSink): NodeJS.WriteStream {
+  return viewAs<NodeJS.WriteStream>(sink);
+}
+
+/**
+ * The input as the `NodeJS.ReadStream` the renderers take. Sound for this fixture: renderers read
+ * only the stream interface plus `isTTY`, `setRawMode`, `ref` and `unref`, which it provides.
+ */
+function asTerminalInput(input: ReturnType<typeof terminalInput>): NodeJS.ReadStream {
+  return viewAs<NodeJS.ReadStream>(input);
+}
+
 /** Mount exactly one renderer; callers must close it before mounting the next. */
 export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
   resetPipelineStore();
@@ -109,8 +126,8 @@ export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
     const output = new TerminalSink();
     const input = terminalInput();
     const renderer = await createCliRenderer({
-      stdin: input as unknown as NodeJS.ReadStream,
-      stdout: output as unknown as NodeJS.WriteStream,
+      stdin: asTerminalInput(input),
+      stdout: asTerminalOutput(output),
       width: 120,
       height: 40,
       screenMode: "alternate-screen",
@@ -208,9 +225,9 @@ export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
     ),
   );
   const instance = render(tree, {
-    stdout: output as unknown as NodeJS.WriteStream,
-    stderr: output as unknown as NodeJS.WriteStream,
-    stdin: input as unknown as NodeJS.ReadStream,
+    stdout: asTerminalOutput(output),
+    stderr: asTerminalOutput(output),
+    stdin: asTerminalInput(input),
     interactive: true,
     patchConsole: false,
     exitOnCtrlC: false,

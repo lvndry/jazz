@@ -36,3 +36,13 @@ type FakeMembers<Value> =
 export function partialFake<Subject extends object>(members: FakeMembers<Subject>): Subject {
   return members as Subject;
 }
+
+/**
+ * Presents a test double as the full type its consumer declares, for values that cannot be built
+ * member by member (a real TTY stream needs a file descriptor; an SDK stream result carries
+ * dozens of members). Each call site must supply a double whose members cover everything the code
+ * under test reads.
+ */
+export function viewAs<Target>(double: object): Target {
+  return double as Target;
+}

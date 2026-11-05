@@ -19,15 +19,17 @@ interface TextEdit {
   readonly range: { readonly start: Position; readonly end: Position };
   readonly newText: string;
 }
-interface PreparedFile {
+type PreparedFile = {
   readonly path: string;
   readonly before: string;
   readonly after: string;
   readonly snapshot: string;
-}
-export interface PreparedWorkspaceEdit {
+};
+
+/** A type alias rather than an interface so the value is assignable to `JsonValue` as it is. */
+export type PreparedWorkspaceEdit = {
   readonly files: readonly PreparedFile[];
-}
+};
 
 async function lock(path: string): Promise<() => Promise<void>> {
   const lockPath = `${path}.jazz-edit.lock`;

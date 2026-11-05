@@ -615,6 +615,26 @@ interface PipelineWorkerStoreModule {
   readonly store: PipelineWorkerStore;
 }
 
+function hasFunctions(value: unknown, names: readonly string[]): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    names.every((name) => typeof Reflect.get(value, name) === "function")
+  );
+}
+
+function isPipelineWorkerFixture(value: unknown): value is PipelineWorkerFixture {
+  return hasFunctions(value, ["mountPipeline", "seedHistory", "awaitPaint"]);
+}
+
+function isPipelineWorkerStoreModule(value: unknown): value is PipelineWorkerStoreModule {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    hasFunctions(Reflect.get(value, "store"), ["appendStream"])
+  );
+}
+
 /**
  * Run as the pipeline worker: `qualify-ui.ts --pipeline-worker <checkout>`.
  * Measures the checkout's own fixture — the same 1k-char, 20-turn, 120x40
@@ -630,20 +650,14 @@ async function runPipelineWorker(): Promise<void> {
   if (typeof checkout !== "string" || checkout.length === 0) {
     throw new QualificationError("Pipeline worker requires a checkout path");
   }
-  const [fixtureModule, storeModule] = await Promise.all([
+  const [fixture, storeModule]: [unknown, unknown] = await Promise.all([
     import(join(checkout, "bench/ui-pipeline-fixture.ts")),
     import(join(checkout, "packages/cli/src/ui/store.ts")),
   ]);
-  const fixture = fixtureModule as unknown as PipelineWorkerFixture;
-  const store = (storeModule as unknown as PipelineWorkerStoreModule).store;
-  if (
-    typeof fixture.mountPipeline !== "function" ||
-    typeof fixture.seedHistory !== "function" ||
-    typeof fixture.awaitPaint !== "function" ||
-    typeof store?.appendStream !== "function"
-  ) {
+  if (!isPipelineWorkerFixture(fixture) || !isPipelineWorkerStoreModule(storeModule)) {
     throw new QualificationError("Pipeline worker fixture or store is missing required exports");
   }
+  const { store } = storeModule;
   const rows: BenchRow[] = [];
   for (const shape of ["unicode", "unbroken"] as const) {
     const pipeline = await fixture.mountPipeline("ink");
