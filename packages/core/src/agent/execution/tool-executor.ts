@@ -1075,6 +1075,7 @@ export class ToolExecutor {
             ? { memoryExposure: result.memoryExposure }
             : {}),
           ...(result.untrusted !== undefined ? { untrusted: result.untrusted } : {}),
+          ...(result.success && result.concludesTurn === true ? { concludesTurn: true } : {}),
           ...(result.success && result.unlockedToolNames !== undefined
             ? { unlockedToolNames: result.unlockedToolNames }
             : {}),
@@ -1630,6 +1631,8 @@ export interface ToolCallOutcome {
   readonly memoryExposure?: MemoryExposure;
   /** Carried from the tool's own result; the loop frames the result it appends. */
   readonly untrusted?: UntrustedProvenance;
+  /** Carried from the tool's own result: the turn's tool use ends here. */
+  readonly concludesTurn?: boolean;
   /** Carried from the tool's own result; the loop records it on the message it appends. */
   readonly unlockedToolNames?: readonly string[];
 }

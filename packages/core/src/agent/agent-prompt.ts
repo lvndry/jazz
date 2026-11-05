@@ -25,7 +25,11 @@ import {
   PROPOSE_LESSON_TOOL_NAME,
   VIEW_MEMORY_TOOL_NAME,
 } from "./memory-recall-log";
-import { renderProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
+import {
+  renderProjectInstructions,
+  type ProjectInstructionFile,
+  type ProjectInstructionOmission,
+} from "./project-instructions";
 import {
   renderPromptLayersWithStablePrefix,
   type PromptSection,
@@ -144,6 +148,7 @@ export interface AgentPromptOptions {
    * model without the user restating them every session.
    */
   readonly projectInstructions?: readonly ProjectInstructionFile[];
+  readonly projectInstructionOmissions?: readonly ProjectInstructionOmission[];
   /**
    * Directory that relative attachment paths in `userInput` resolve against.
    *
@@ -296,8 +301,11 @@ export class AgentPromptBuilder {
     // next turn rather than waiting for a process restart.
     if (options.projectInstructions && options.projectInstructions.length > 0) {
       for (const file of options.projectInstructions) {
-        hash.update(`agentsmd:${file.path}:${file.content}`);
+        hash.update(`agentsmd:${file.path}:${file.truncatedBytes ?? 0}:${file.content}`);
       }
+    }
+    for (const omission of options.projectInstructionOmissions ?? []) {
+      hash.update(`agentsmd-omitted:${omission.path}:${omission.bytes}`);
     }
     hash.update(`canGenerateMedia:${options.canGenerateMedia ?? true}`);
     // Invalidate daily since prompts include current date
@@ -488,10 +496,17 @@ export class AgentPromptBuilder {
             core.push({ id: "harness-indexes", content: harness.dynamic });
           }
 
-          if (options.projectInstructions && options.projectInstructions.length > 0) {
+          if (
+            (options.projectInstructions && options.projectInstructions.length > 0) ||
+            (options.projectInstructionOmissions && options.projectInstructionOmissions.length > 0)
+          ) {
             scope.push({
               id: "project-instructions",
-              content: renderProjectInstructions(options.projectInstructions),
+              content: renderProjectInstructions(
+                options.projectInstructions ?? [],
+                undefined,
+                options.projectInstructionOmissions,
+              ),
             });
           }
 

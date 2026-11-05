@@ -8,6 +8,15 @@
  */
 import { Effect } from "effect";
 import { z } from "zod";
+import {
+  BLOCKED_ROUNDS_REQUIRED,
+  blockedRuleInstruction,
+  blockerKey,
+  blockerRound,
+} from "@/core/agent/goal/goal-blocker";
+import { MAX_BLOCKER_CHARS } from "@/core/agent/goal/goal-evaluation";
+import { CLAIMED_GOAL_STATES } from "@/core/agent/goal/goal-state";
+import { GoalStoreTag } from "@/core/interfaces/goal-store";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { defineTool, makeZodValidator } from "./base-tool";
@@ -27,6 +36,14 @@ const reportGoalCycleParameters = z
       .min(1)
       .max(2000)
       .describe("What this cycle did, or for blocked, what stops the work and why."),
+    blocker: z
+      .string()
+      .min(1)
+      .max(MAX_BLOCKER_CHARS)
+      .optional()
+      .describe(
+        `For blocked: a short name for what stops the work. Use the identical text each cycle while the same thing still stands; the goal stops as blocked after ${BLOCKED_ROUNDS_REQUIRED} consecutive cycles report the same blocker.`,
+      ),
     nextAction: z
       .string()
       .min(1)
@@ -62,8 +79,8 @@ const reportGoalCycleParameters = z
 
 type ReportGoalCycleArgs = z.infer<typeof reportGoalCycleParameters>;
 
-export function createReportGoalCycleTool(): Tool<never> {
-  return defineTool<never, ReportGoalCycleArgs>({
+export function createReportGoalCycleTool(): Tool<GoalStoreTag> {
+  return defineTool<GoalStoreTag, ReportGoalCycleArgs>({
     name: REPORT_GOAL_CYCLE_TOOL_NAME,
     disclosure: "public",
     description:
@@ -72,11 +89,32 @@ export function createReportGoalCycleTool(): Tool<never> {
     riskLevel: "low-risk",
     hidden: false,
     validate: makeZodValidator(reportGoalCycleParameters),
-    handler: () =>
-      Effect.succeed({
-        success: true,
-        result: { recorded: true },
-      } satisfies ToolExecutionResult),
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        if (args.status !== "blocked") {
+          return { success: true, result: { recorded: true } } satisfies ToolExecutionResult;
+        }
+        const blocker = blockerKey(args);
+        const goals = yield* GoalStoreTag;
+        const open = (yield* goals.list({ states: CLAIMED_GOAL_STATES })).find(
+          (goal) => goal.cycle?.runId === context.runId,
+        );
+        const round = open === undefined ? 1 : blockerRound(open, blocker);
+        return {
+          success: true,
+          result:
+            round >= BLOCKED_ROUNDS_REQUIRED
+              ? { recorded: true }
+              : { recorded: true, instruction: blockedRuleInstruction(blocker, round) },
+        } satisfies ToolExecutionResult;
+      }).pipe(
+        Effect.catch(() =>
+          Effect.succeed({
+            success: true,
+            result: { recorded: true },
+          } satisfies ToolExecutionResult),
+        ),
+      ),
     createSummary: (result) => (result.success ? "Goal progress reported" : undefined),
   });
 }

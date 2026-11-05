@@ -27,8 +27,10 @@
  * cap counts that live spend, so parallel children cannot each spend the whole remainder.
  */
 
-import { Deferred, Duration, Effect, Exit, Fiber, Scope } from "effect";
+import { Deferred, Duration, Effect, Exit, Fiber, Option, Scope } from "effect";
 import type { RunCost } from "@/core/agent/metrics/agent-run-metrics";
+import type { CancelCause } from "@/core/agent/run/cancel-cause";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type {
   ToolExecutionResult,
   ToolProgressEvent,
@@ -459,9 +461,17 @@ export function createSubagentSupervisor(
             return entry === undefined ? [] : [entry];
           });
 
-    const cancelEntry = (entry: Entry, reason: string) =>
+    const cancelEntry = (entry: Entry, reason: string, cancelCause: CancelCause) =>
       Effect.gen(function* () {
         entry.cancelReason = reason;
+        const logger = yield* Effect.serviceOption(LoggerServiceTag);
+        if (Option.isSome(logger)) {
+          yield* logger.value.debug("Cancelling a sub-agent", {
+            subagentId: entry.id,
+            cancelCause,
+            status: entry.status,
+          });
+        }
         const fiber = entry.fiber;
         if (fiber !== undefined) {
           yield* Fiber.interrupt(fiber);
@@ -561,7 +571,9 @@ export function createSubagentSupervisor(
             }
           },
           cancel: () =>
-            FINISHED.has(entry.status) ? Effect.void : cancelEntry(entry, "Cancelled by the user."),
+            FINISHED.has(entry.status)
+              ? Effect.void
+              : cancelEntry(entry, "Cancelled by the user.", "user"),
           onToolEvent: (event) => {
             if (FINISHED.has(entry.status)) {
               return;
@@ -723,7 +735,7 @@ export function createSubagentSupervisor(
               } as const;
             }
             case "cancel": {
-              yield* cancelEntry(entry, "Cancelled by the parent agent.");
+              yield* cancelEntry(entry, "Cancelled by the parent agent.", "parent");
               return { ok: true, status: "cancelled", note: "Cancelled." } as const;
             }
           }
@@ -765,6 +777,7 @@ export function createSubagentSupervisor(
               yield* cancelEntry(
                 entry,
                 "Cancelled because the parent answered while this sub-agent was paused.",
+                "parent",
               );
             }
             if (!children.some(isLive)) {
