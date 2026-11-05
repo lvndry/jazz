@@ -250,160 +250,24 @@
   "packages/bot-shared/src/turn.test.ts": {
     "febbe0687d7079e44a15b802235157043bad5a5f188348db89fe00f50532bee8": 1
   },
-  "packages/cli/src/chat/commands/handler.test.ts": {
-    "0645c8e0ec1c6ea3844b0056f74624d929dee585a00949490c0a3cac98d0305b": 1,
-    "0a9b6c06dc46a74b2f8f41bbf0eb900335a2c1df38009dd790181a0fdad00c48": 1,
-    "171283c0694e0919c136c920c9a111ccf63542ca949d710b531344349760d725": 1,
-    "1e6c4b6a3775ea49d3338ffcc80ff40e18288c07146526e322ab95da80d23f40": 1,
-    "21d95693f9f21c1d90704c8696390906f1cd407c0897036a795eea75e270d85b": 1,
-    "23f0e6450d7c6d6df6776174b8868694cb65be757c67fb3a4aa741484361096c": 8,
-    "2bb11e94e1befc800f3958dccb0f20847b6640e86be34d1561ecf86d4d891053": 1,
-    "473ee43e0265706d6a79f528cfe12f7e3cfb18fbca3c4987d2237ba0426bac75": 1,
-    "49c90f8f057ceccd8da34f7e10152974fa211a4c2e2f0be5525aa74ee50c13ae": 1,
-    "701de6996b3217d4c667403d7932495db0c8f8fa4066754ef5d9babfbd8e0ac2": 2,
-    "89c761967ce77b8fcdbd8d60a5e1115bb4d28383c536d526200ea8d8397b4df2": 1,
-    "a300acfa2f28e4b4b665173086bb588fb484da10b00474e19cccb8a60b97f3bb": 1,
-    "a34c4169f8fe58a8283fb799ab3148b0e0383e21aa3b80dab3f316b110029472": 1,
-    "a54115b5b4188dd944671c0fbd48f631e823b76ac154a028eb77cedaa4de1fc3": 1,
-    "bcfb3240b3e00abda2a8a62a90b2b1bde4d5192e5fc7c56e04f599c9f65e02fd": 1,
-    "be2fc3eb6241315426b2c117343fe88eb673fbf98341f1eef5a9393881e04100": 1,
-    "ca18cb8d18e04697a7ccb0bf881950a56678391686ddc65f79ec9bd549ea4e69": 3,
-    "d6604010f9d66e9836a416ce523bce5bc3b36281c8d20156ca8a4002c14268a7": 1,
-    "da89990d53cc2fed2c1b461259621e1bedadace7d1767470f2b444d61d630f9e": 1,
-    "e38f8eb4e3b0eb501c5916551417f5c851453f275782d9e4e9329c99072b36ed": 1,
-    "e395be08aaa2f51e3858c1a23e82eca39beb9833d1d8e2b1b0851d07ef8f1f2a": 2,
-    "e42e15610848d1d895af93d1e4923ef43fbe198ef1a09476724234ee7c75a755": 1,
-    "e5a1ffdb1a131504626f919398c4978800092bcd8eb8bc374292a4b936393aa4": 2,
-    "f3a808347de334132ed5d55e5a901a155efbfee9a00771d971ba6e9dad44d5d4": 4
-  },
   "packages/cli/src/chat/commands/handler.ts": {
     "bba0fe07d5f9b582f0d34f36df1a20fc835fdca2fedf1a514be36558404d1140": 2
-  },
-  "packages/cli/src/chat/commands/help-and-model.test.ts": {
-    "132365186df0ab4a2d7067869a328c38caed6441e58f65083a87fadbd0b6ab31": 1,
-    "b691dc2bae4db2456de1f858abdd483994e93deb088081584ad53be3d2f3b1fe": 1,
-    "bcfb3240b3e00abda2a8a62a90b2b1bde4d5192e5fc7c56e04f599c9f65e02fd": 1,
-    "d6604010f9d66e9836a416ce523bce5bc3b36281c8d20156ca8a4002c14268a7": 1
-  },
-  "packages/cli/src/chat/commands/limit-command.test.ts": {
-    "2d4d6ba3a27b1d391b78f932c5b09d224bf09f0088e1853e9c3edee001bf96ad": 1,
-    "a34a842c135448071469f824aba247f36c3fd233642a6fb0e2a3780f8c65882c": 1,
-    "b4a79f7a6b22338afe55011a9ca8679a7ebb2bc176c141ad11cb46e0353a1428": 1,
-    "eaf1af78823d5ad0d62db3305fef0e41528f10d9577889312612ac9897df2b1e": 1
-  },
-  "packages/cli/src/chat/commands/mcp-prompt-args.test.ts": {
-    "0b48f7b680460758f775a2bf5ce5dcfb87f686bebefa5ff1364d2fdf70df7fcf": 1,
-    "a34a842c135448071469f824aba247f36c3fd233642a6fb0e2a3780f8c65882c": 1,
-    "b7b7b20addce7be2e8b51b49480287c842383b31f9b3e2e217715ec834e09844": 1
-  },
-  "packages/cli/src/chat/commands/session-limits.test.ts": {
-    "a34a842c135448071469f824aba247f36c3fd233642a6fb0e2a3780f8c65882c": 1
-  },
-  "packages/cli/src/commands/agent-management.test.ts": {
-    "0a7819fa040f0adac031d6dfe604b793246ed28a74abca706e15de39126ac3b9": 1,
-    "0ca94a15538f6029cc7ac65c21784c23e86487cdabd534ef7c1f3a2157336665": 1,
-    "69d7b99ff40136796365d4953fcce7cde78d2d01fcf843a83a9e1c26921fa3b6": 1,
-    "bee47bb146ada6fd4c792f5baad3ab7d091235449aebb352b8e02f4e2f1656db": 1,
-    "e5a1ffdb1a131504626f919398c4978800092bcd8eb8bc374292a4b936393aa4": 1
-  },
-  "packages/cli/src/commands/config.test.ts": {
-    "283f01059ea5a360e18a3776ee899925298c6cb32a96b16e2c796898f2560ccf": 1,
-    "3986cd8170a4c3ab9f58e50f0014bfd6965c1725b7e97cb56f8ed967b7b7bf62": 1,
-    "42fec62d01b08edef3edfe8c5abe382a0764ff38e1f0cc60d82c8d3e592cb594": 1,
-    "5f3e6775b5c8219bff8c8dfb453809f9bc25b4618fbfa8b60c713cc68d001fae": 1,
-    "8b87fd4e685a00697de3550e9b72c6c94bc22fb2987b6fbedb6774e2bc6873a6": 1,
-    "e217319629cd1b132e07b3052439ab0c9be5712573475caadceb6a3fa64e06ea": 1,
-    "f74bd61d71450a81a5cecb5c7e81244ec6191dc978c21ee93be50dcbb00179a3": 1
-  },
-  "packages/cli/src/commands/create-agent.test.ts": {
-    "274650c540005d13a0d3e68c3b008ad982e6c3fb52adc511fbf8cdd8c2eed9e8": 2,
-    "65e1af209a2fe2036a9b598636ff82dcca5184c87fbc2db0d3bd6be8e5d43ee6": 1,
-    "7fb8c433188ac76f4acab7be73a525e0040d4333ffcfc0787014e60f3699330e": 1,
-    "878432c8b0a3c077e6905334d67770dbdccafd87bae6503cc22658edf8191920": 1,
-    "a8842555a6d26c3ca0dd214ddf7a3163063642e0846b02a42004ddc676c8e6a3": 1,
-    "c159e9bcf60c19e7b407d14710ca1b1742055fb938b3f8a485ba4578aaa6d92f": 1,
-    "d102b2eff0327de5782c5ced73d7d142bcc55f11f11d659ee545b03eebd46c52": 1,
-    "d15214853f58f72c7c32ca096f9c076fcd573979202f57d1ed466dd5db8db1f2": 1,
-    "faa73425e0f0e483bd189494adb7d48d3b6dd915174499f5bda18b4b27046f6a": 3
   },
   "packages/cli/src/commands/detach-internal.ts": {
     "a7972dc3883e3cc3795494ccd2e555d988b1040ecc82f98903d2843df2d4fa17": 1
   },
-  "packages/cli/src/commands/goal.test.ts": {
-    "8a0352022323b2d05c444e30bce0c719e6e1da06c7389e973776c918d0135b0d": 1
-  },
   "packages/cli/src/commands/peer-invites.ts": {
     "f2cef05a1b0471bffa2e540f0cf3287090ef5e8d706190336afe2ee21a0e144c": 2
-  },
-  "packages/cli/src/commands/plugin.test.ts": {
-    "5c95d78a49e899f25312ee20f1a555fc54c5fc40aa401dbbe3410447a772e25d": 1
   },
   "packages/cli/src/commands/plugin.ts": {
     "24836b1e9a4b494a4acdca189cb6015da79e9c626fe925b13dc2da30e8d2df27": 3,
     "6fe9024d30e0d4757a348b83d246925b3f5aeaf2e79a0eff4bf12f3c9fb5826b": 1
   },
-  "packages/cli/src/commands/settings-wizard-providers.test.ts": {
-    "44690de316479052cd65f708c24bd98e8d2a3724466e0d36eca493beb57afd8f": 1,
-    "8bd7322d6f23412332a508b75eee63911bbfb1ec8e79597dd422f26b7a378b7a": 1,
-    "8e8071197a1d2ecbc47f1f56d41f12461a332f2d0a18ff984fa26ee7e636b908": 1
-  },
-  "packages/cli/src/commands/skill-library.test.ts": {
-    "db6241d6a72de9ec652a7354d64726adda90616f3ed27c694817f3c0e3ca4c64": 1
-  },
-  "packages/cli/src/commands/skill-remove.test.ts": {
-    "e87443b2dcbfcd641eba56e2afb1b9daaa697f89df846c40cdea6bfb9b8a7ef3": 1
-  },
-  "packages/cli/src/commands/wake-trigger.test.ts": {
-    "2bb11e94e1befc800f3958dccb0f20847b6640e86be34d1561ecf86d4d891053": 1,
-    "42c243ed78694e54ead81740ced7037e10af94a0ae1de7bf6e311b69bbc6307d": 1,
-    "bccf7c1321d01d17640c3b15ca185d55035500911986afff8861ea2590ae0050": 1,
-    "c20088e8c110d29e73882a5575df172684a212596fd73a802849456ede9b672a": 1
-  },
-  "packages/cli/src/commands/workflow.test.ts": {
-    "06ccf464d45ca0640541aef7c6f2336e313f25ab8a562ed832b328ab705f4466": 1,
-    "0866e72f6eb6a1079a70d691693f99db1c6240205e2c1d3d6f942364b4356f4d": 1,
-    "131d0845fe2c6927391e3157227fc09483ddfbd8155ccabd3e91e260ce0dbad1": 1,
-    "2c0470a598b272ebe3cce18b5a2ad5697c09582462f8bc6bb7602988b0c2ae17": 1,
-    "3026244acde6ac10d4276bf7592c28f4d2687bba8b908345f5898b1586d7573f": 1,
-    "4ccf0d766a4d4781a616fd00a0f9463b593de1f6eb4dccc44be32372b3322f40": 1,
-    "537a6f6130a93d5964e3cb1d61616a2157f406e8c16e75f6d6ec1455c3ae9a56": 1,
-    "59109c74f2a086459d104376006776c90f4b6933d0dfe41e4ec278038586bc23": 1,
-    "5d8ba767e472206ae178de5bb6d08f8db2bdea0ef1618e256df1b20d65d1880c": 1,
-    "6013d858127e4d75e6898d3465a8f24840f5800d9f6636ca69dd52f16b5f57ff": 1,
-    "96bc3a36548a80d3f86536ec84c169e5f433f35aa04fff8bea4214102b26b5ec": 1,
-    "a5b114ef4c88687ef623b3e24e464fa4c8c56c1aced458547b388a5e31cd8a24": 1,
-    "b442531ab019acb00037b1b720c7d850b3cee8a4670b7d07368a7a1b769df825": 1,
-    "c0a747aac1cdca104ffcddccc3db1efc866c7dafe7f257a1a1f420595d0b1899": 1,
-    "e603cb70cf088d334654f80716f511f66a9cdda5502b0cc96dd62e7914e93128": 3,
-    "ef80481aec1abfed4ee701f54668fa2e3bc27ad1314a7b8da67898d152b89a49": 1
-  },
-  "packages/cli/src/memory-review.test.ts": {
-    "eab842dc4809f70e21cc811ce5f222d3badf04e0069b0a5e3f19a1b59afa121c": 1
-  },
-  "packages/cli/src/plugin-manager.test.ts": {
-    "e0e5dcccbbd6a0ae6c89d2ccfd1b72a0efe031170a518a43b10486ffeb0e9a61": 1
-  },
-  "packages/cli/src/presentation/cli-presentation-service.test.ts": {
-    "b4ae7f355104b55f98230b2c2c42267ffc14155db82bbbf740735356d7db738c": 1
-  },
   "packages/cli/src/presentation/cli-renderer.test.ts": {
     "72e8b177e0690f2c7ed717e73172036aa56f97f6ad7f1c97364bfa14f54e6957": 1
   },
-  "packages/cli/src/setup/chatgpt-sign-in.test.ts": {
-    "59426481adc9b3a228b895b215cf5a84ac110829aac8fb389db808be7183eb32": 1,
-    "e50d645b56d198db291aa387bca120d592a8493ee1b7936552e79257a4b10c7d": 1
-  },
-  "packages/cli/src/setup/local-provider-url.test.ts": {
-    "f3a184025fdef6d13653dcc31e7fdd824bcf3b256a40b30ed229fbf56c3208e9": 1
-  },
   "packages/cli/src/setup/provider-api-key.test.ts": {
-    "2c14edb5cc9fdf15b8bbbb94e77bb84140312e9dad20a639a27ae7c1bbe368b1": 1,
-    "61fb93a8e791caf774b058336e49690c7d06e0c2b53176bcb6b573bef2c6baba": 1,
-    "9e3ec98a13293587ddf17ac2768069a26fcd56dfa4ba3456242184f7209ed287": 1,
-    "c12c3e1c62fe4ed27c4fd0d3c0c047f6f955490ce46ce274c87b986a31f94b3e": 1
-  },
-  "packages/cli/src/setup/web-search.test.ts": {
-    "20981d656871efd5225be8f67e312290041d2770b9e73293c69ce94339e29c3e": 1
+    "61fb93a8e791caf774b058336e49690c7d06e0c2b53176bcb6b573bef2c6baba": 1
   },
   "packages/cli/src/terminal.ts": {
     "4716743d8cb8e6b3b5f0d6d81e6443381fce3147c2298eb49b43349b67e40bc2": 1
@@ -416,16 +280,6 @@
   },
   "packages/cli/src/ui/fullscreen/bridge.test.tsx": {
     "ee4d5a9d435ba2ec29bcd2acb605cb903609a49718b2ed51220b3866d81ccdb8": 1
-  },
-  "packages/cli/src/ui/fullscreen/mount.test.ts": {
-    "2a3769050970a77676abd7c33163033a695596ec89b788af45a0779287d6d5f3": 1,
-    "5239b97fca408ca164dbaa88ff254c62044f67d11d91d8fb4eb2fe1c638fb2bb": 1,
-    "600ab1a36ae8c92ad8b4791703426e697a80fd7691d0edf89148912199c0f18d": 1,
-    "cd1c452533de1cbbd54088ef0e618b11ffc6085e901526b69ee3f2ade029674a": 1,
-    "d147994bac1b5f066d2f46a130138f9b9adee4bb4cadd71f8d35e9693dd3e1b6": 1,
-    "ededab3fd66f93d7a77d9687e2531a47288f9b1d96a52ec773ed3de5e3889448": 1,
-    "f5451ecaf732d581d80fd7af7460967153404307c8651dae453373bc6dc3578a": 1,
-    "f6bb37f777bc690cf2f685fd69748985ddaa08c04bf457c43cb1f7f2766a6097": 1
   },
   "packages/cli/src/ui/fullscreen/renderer-adapter.test.tsx": {
     "94e6c4d15a19729cf60005d29c0985aa4e5bd984b92f40c2b5d8e996bb651997": 2

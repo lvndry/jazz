@@ -17,6 +17,8 @@ import { readStateFile, writeStateFile } from "@jazz/core/utils/state-file";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
 import { fireWakeTriggerCommand } from "./wake-trigger";
+import { partialFake } from "../test-support/partial-fake";
+import { runWithoutServices } from "../test-support/run-without-services";
 
 const agent: Agent = {
   id: "test-agent",
@@ -25,12 +27,12 @@ const agent: Agent = {
   createdAt: new Date(0),
   updatedAt: new Date(0),
 };
-const logger = {
+const logger = partialFake<LoggerService>({
   debug: () => Effect.void,
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
-} as unknown as LoggerService;
+});
 
 describe("fireWakeTriggerCommand", () => {
   let previousHome: string | undefined;
@@ -85,18 +87,22 @@ describe("fireWakeTriggerCommand", () => {
     const services = Layer.mergeAll(
       NodeFileSystem.layer,
       Layer.succeed(LoggerServiceTag, logger),
-      Layer.succeed(AgentConfigServiceTag, {
-        appConfig: Effect.succeed({}),
-      } as unknown as AgentConfigService),
-      Layer.succeed(AgentServiceTag, {
-        getAgent: () => Effect.succeed(agent),
-      } as unknown as AgentService),
+      Layer.succeed(
+        AgentConfigServiceTag,
+        partialFake<AgentConfigService>({
+          appConfig: Effect.succeed({}),
+        }),
+      ),
+      Layer.succeed(
+        AgentServiceTag,
+        partialFake<AgentService>({
+          getAgent: () => Effect.succeed(agent),
+        }),
+      ),
     );
 
-    await Effect.runPromise(
-      fireWakeTriggerCommand({ agent: agent.id, id: "wake" }).pipe(
-        Effect.provide(services),
-      ) as unknown as Effect.Effect<void>,
+    await runWithoutServices(
+      fireWakeTriggerCommand({ agent: agent.id, id: "wake" }).pipe(Effect.provide(services)),
     );
 
     expect(runStoreProvided).toBe(true);

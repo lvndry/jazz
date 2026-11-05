@@ -6,12 +6,13 @@ import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { handleSpecialCommand } from "./handler";
 import type { CommandContext, CommandResult } from "./types";
+import { partialFake } from "../../test-support/partial-fake";
 
-const agent = {
+const agent = partialFake<Agent>({
   id: "a",
   name: "A",
   config: { persona: "default", llm: { provider: "openai", model: "gpt-4" }, tools: [] },
-} as unknown as Agent;
+});
 
 const context: CommandContext = {
   agent,
@@ -45,7 +46,7 @@ function harness(options: {
   const selections = [...options.selections];
   const typed = [...(options.typed ?? [])];
 
-  const manager = {
+  const manager = partialFake<MCPServerManager>({
     getServerPrompts: () => Effect.succeed([PROMPT]),
     completeArgument: (
       _server: string,
@@ -63,9 +64,9 @@ function harness(options: {
         messages: [{ role: "user", content: { type: "text", text: "ok" } }],
       });
     },
-  } as unknown as MCPServerManager;
+  });
 
-  const terminal = {
+  const terminal = partialFake<TerminalService>({
     log: mock(() => Effect.void),
     info: mock(() => Effect.void),
     warn: mock(() => Effect.void),
@@ -75,7 +76,7 @@ function harness(options: {
       return Effect.succeed(selections.shift());
     }),
     ask: mock(() => Effect.succeed(typed.shift())),
-  } as unknown as TerminalService;
+  });
 
   const layer = Layer.mergeAll(
     Layer.succeed(MCPServerManagerTag, manager),

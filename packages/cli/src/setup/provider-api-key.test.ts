@@ -6,12 +6,13 @@ import type { AppConfig } from "@jazz/core/types/config";
 import { describe, expect, it, mock } from "bun:test";
 import { Effect } from "effect";
 import { ensureProviderApiKey } from "./provider-api-key";
+import { partialFake } from "../test-support/partial-fake";
 
 function setup(answers: readonly (string | undefined)[], config: Partial<AppConfig> = {}) {
   const pending = [...answers];
   const saved: { key: string; value: unknown }[] = [];
   const errors: string[] = [];
-  const terminal = {
+  const terminal = partialFake<TerminalService>({
     log: mock(() => Effect.void),
     warn: mock(() => Effect.void),
     success: mock(() => Effect.void),
@@ -20,14 +21,14 @@ function setup(answers: readonly (string | undefined)[], config: Partial<AppConf
       return Effect.void;
     }),
     ask: mock(() => Effect.succeed(pending.shift())),
-  } as unknown as TerminalService;
-  const configService = {
+  });
+  const configService = partialFake<AgentConfigService>({
     appConfig: Effect.succeed({ llm: {}, ...config } as AppConfig),
     set: mock((key: string, value: unknown) => {
       saved.push({ key, value });
       return Effect.void;
     }),
-  } as unknown as AgentConfigService;
+  });
   return { terminal, configService, saved, errors };
 }
 
@@ -72,9 +73,12 @@ describe("ensureProviderApiKey", () => {
   });
 
   it("does not check a key for a provider pointed at a custom endpoint", async () => {
-    const { terminal, configService, saved } = setup(["sk-proxy"], {
-      llm: { openai: { base_url: "http://proxy.local/v1" } },
-    } as unknown as Partial<AppConfig>);
+    const { terminal, configService, saved } = setup(
+      ["sk-proxy"],
+      partialFake<Partial<AppConfig>>({
+        llm: { openai: { base_url: "http://proxy.local/v1" } },
+      }),
+    );
     const checkKey = mock(async () => "rejected" as const);
 
     await ensureProviderApiKey({
