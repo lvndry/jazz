@@ -52,7 +52,7 @@ export function executeWithoutStreaming(
     const logger = yield* LoggerServiceTag;
     const presentationService = yield* PresentationServiceTag;
     const { agent } = options;
-    const { runMetrics, provider, model } = runContext;
+    const { runMetrics, provider, model, actualConversationId } = runContext;
     const maxRetries = runContext.maxRetries ?? DEFAULT_MAX_LLM_RETRIES;
 
     const reasoning = agent.config.llm.reasoning;
@@ -99,6 +99,7 @@ export function executeWithoutStreaming(
             toolChoice: toolsAllowed ? ("auto" as const) : ("none" as const),
             ...(reasoning !== undefined ? { reasoning } : {}),
             ...(toolHost !== undefined ? { toolHost } : {}),
+            ...(actualConversationId ? { conversationId: actualConversationId } : {}),
             ...(typeof agent.config.llm.temperature === "number"
               ? { temperature: agent.config.llm.temperature }
               : {}),

@@ -118,8 +118,10 @@ export interface ChatMessage {
   }>;
   /**
    * For role === "assistant": reasoning blocks captured from the provider,
-   * replayed on subsequent requests within the same turn (Anthropic thinking
-   * signatures, OpenAI encrypted reasoning, OpenRouter reasoning_details).
+   * replayed on later requests when the provider and model accept it (Anthropic
+   * thinking signatures, OpenAI encrypted reasoning, DeepSeek and Moonshot
+   * reasoning_content). The adapter's `resolveReasoningReplay` decides which
+   * messages replay; parts are kept for every provider regardless.
    */
   reasoning_parts?: ReadonlyArray<StoredReasoningPart>;
   /**

@@ -181,9 +181,14 @@ describe("executeWithStreaming", () => {
       tool: "image-model",
       source: "model" as const,
     };
+    const requestedConversationIds: Array<string | undefined> = [];
     const mockLLMService: LLMService = {
-      createStreamingChatCompletion: () => {
+      createStreamingChatCompletion: (
+        _provider: unknown,
+        llmOptions: { conversationId?: string },
+      ) => {
         attempts += 1;
+        requestedConversationIds.push(llmOptions.conversationId);
         return Effect.succeed({
           stream:
             attempts === 1
@@ -266,6 +271,7 @@ describe("executeWithStreaming", () => {
     expect(result.conversationId).toBe("conv-123");
     expect(result.artifacts).toEqual([artifact]);
     expect(attempts).toBe(2);
+    expect(requestedConversationIds).toEqual(["conv-123", "conv-123"]);
   });
 
   it("should execute with tool calls", async () => {
