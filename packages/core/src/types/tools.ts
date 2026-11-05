@@ -14,6 +14,7 @@ import type { LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
+import type { WriteConfinementMode } from "@/core/sandbox/write-policy";
 import type { UserSecretStore } from "@/core/secrets/user-secrets";
 import type { Agent } from "@/core/types/agent";
 import type { GeneratedArtifact } from "@/core/types/artifact";
@@ -686,6 +687,12 @@ export interface ToolExecutionContext {
    * person name `!` only when this is true.
    */
   readonly offersShellEscape?: boolean;
+  /**
+   * Whether this run's shell commands and file mutations are fenced to its writable roots. Set
+   * by the runner from `shell.confinement` and whether a person is attending; absent means off,
+   * which is what a one-shot tool call outside an agent run gets.
+   */
+  readonly shellConfinement?: WriteConfinementMode;
   readonly [key: string]: unknown;
 }
 

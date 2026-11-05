@@ -2,6 +2,8 @@ import * as path from "node:path";
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { pinWriteTargets } from "@/core/sandbox/pinned-writes";
+import { denyWriteOutsideRoots } from "@/core/sandbox/runtime-policy";
 import { redactLines, type RedactedLines } from "@/core/secrets/redacted-lines";
 import {
   containsRedactionPlaceholder,
@@ -300,6 +302,10 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
+        const denied = yield* denyWriteOutsideRoots(context, [target]);
+        if (denied !== undefined) {
+          return { skipApproval: true, toolResult: denied };
+        }
         const canonicalTarget = yield* canonicalPathOf(fs, target);
         const current = yield* readExistingFile(fs, canonicalTarget);
         const { content, problem } = yield* planWrite(target, args.content, current);
@@ -360,13 +366,22 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        const parentDir = target.substring(0, target.lastIndexOf("/"));
-        if (parentDir && parentDir !== target) {
+        const pin = yield* pinWriteTargets(context, [target], { follow: true });
+        if (pin.denied !== undefined) {
+          return pin.denied;
+        }
+        const pinnedTarget = pin.paths[0] ?? target;
+        const parentDir = pinnedTarget.substring(0, pinnedTarget.lastIndexOf("/"));
+        if (parentDir && parentDir !== pinnedTarget) {
           const parentExists = yield* fs
             .exists(parentDir)
             .pipe(Effect.catch(() => Effect.succeed(false)));
 
           if (!parentExists) {
+            const swappedBeforeMkdir = yield* pin.recheck();
+            if (swappedBeforeMkdir !== undefined) {
+              return swappedBeforeMkdir;
+            }
             yield* fs.makeDirectory(parentDir, { recursive: true });
           }
         }
@@ -407,6 +422,10 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
             const originalContent = current?.text ?? "";
             const isNewFile = current === undefined;
 
+            const swapped = yield* pin.recheck();
+            if (swapped !== undefined) {
+              return swapped;
+            }
             // Old content or new, never a truncated file, however the call is stopped.
             yield* writeFileAtomically(
               fs,

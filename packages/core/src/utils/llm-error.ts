@@ -753,6 +753,9 @@ export function describeRetryableLLMError(error: unknown): string {
     if (error.unreadableResponse === true) {
       return "unreadable response";
     }
+    if (error.emptyResponse === true) {
+      return "empty response";
+    }
     if (error.statusCode === undefined) return "network issue";
     return `server error (${error.statusCode})`;
   }

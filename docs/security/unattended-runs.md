@@ -39,6 +39,14 @@ Inspect it with `jazz runs show <id>`, then approve with `jazz runs approve <id>
 with `jazz runs reject <id>`. Configure a [notify target](../configure/notifications.md)
 to receive its approval request.
 
+## Write confinement
+
+Unattended runs (`jazz run` piped or in CI, bridge bots, peers, webhooks, goals, loops) run shell
+commands with [write confinement](./write-confinement.md) on by default: writes are limited to the
+working directory, temp directories and tool caches, whatever the approval policy approved. A
+machine that cannot confine refuses the command instead of running it open. Set
+`shell.confinement` to `off` only where the job must write elsewhere.
+
 ## Egress after untrusted input
 
 An inbox digest at `read-only` reads mail somebody else wrote. Without a further rule, the next

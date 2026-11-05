@@ -88,6 +88,24 @@ entry has no matching `tool` message is invalid to most providers, and the resul
 appears three iterations later somewhere unrelated. Failing at the source keeps the bug
 findable.
 
+### Checkpoints and crash recovery
+
+A caller that registers `onCheckpoint` (interactive chat does) gets the turn's transcript
+before the first model call, after every iteration, and once more **before a tool batch that
+holds a call that is not read-only**. The pre-execution checkpoint is the only record that
+survives a SIGKILL or an out-of-memory kill mid-batch: without it, the saved conversation ends
+before the assistant's tool-call message and nothing says the call was attempted.
+
+- **Each call the batch will dispatch is closed as interrupted**: "may have made part of its
+  changes: check the current state before relying on it or running it again". A call the batch
+  already answered without dispatching (a sibling withheld by a goal proposal) keeps its real
+  answer. The checkpoint after the batch replaces this one with the real results.
+- **A failed pre-execution save stops the batch.** The calls are not run and the turn fails
+  with an error naming the save failure. A failed save at any other checkpoint is logged and
+  the run carries on.
+- **A resumed transcript may report dispatched calls as interrupted.** Whoever resumes a
+  conversation after a crash must verify the state a mutating call touches before repeating it.
+
 ### Mid-run steering
 
 Tool execution is slow, and users type while it happens. Anything queued during the tool
