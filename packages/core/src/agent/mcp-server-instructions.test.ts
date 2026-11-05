@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { MCPServerManagerTag, type MCPServerManager } from "@/core/interfaces/mcp-server";
 import type { PersonaService } from "@/core/interfaces/persona-service";
+import { partialFake } from "@/core/test-support/fakes";
 import { UNTRUSTED_TAG } from "@/core/utils/untrusted-content";
 import { AgentPromptBuilder, type AgentPromptOptions } from "./agent-prompt";
 import {
@@ -13,7 +14,7 @@ import {
   renderMcpServerInstructions,
 } from "./mcp-server-instructions";
 
-const personaService = {
+const personaService = partialFake<PersonaService>({
   getPersonaByIdentifier: () =>
     Effect.succeed({
       id: "persona",
@@ -23,7 +24,7 @@ const personaService = {
       createdAt: new Date(0),
       updatedAt: new Date(0),
     }),
-} as unknown as PersonaService;
+});
 
 const BASE_OPTIONS: AgentPromptOptions = {
   agentName: "Test",
@@ -178,12 +179,12 @@ describe("mcp server instructions in the system prompt", () => {
 });
 
 function managerWith(instructionsByServer: Record<string, string | undefined>): MCPServerManager {
-  return {
+  return partialFake<MCPServerManager>({
     getInstructions: (serverName: string) => Effect.succeed(instructionsByServer[serverName]),
-  } as unknown as MCPServerManager;
+  });
 }
 
-const silentLogger = { debug: () => Effect.void } as unknown as LoggerService;
+const silentLogger = partialFake<LoggerService>({ debug: () => Effect.void });
 
 function collect(
   manager: MCPServerManager,
