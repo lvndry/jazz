@@ -29,6 +29,11 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { UNTRUSTED_DATA_INSTRUCTION } from "@/core/utils/untrusted-content";
 import type { AdvisedDecision, ReduceToolResultsFn } from "./advised-tool-clearing";
+import {
+  alignedSummaryBlocker,
+  requestAlignedSummary,
+  type CacheAlignedSummary,
+} from "./cache-aligned-summary";
 import { CHECKPOINT_TITLE_HEADING } from "./checkpoint-title";
 import { logContextRung } from "./context-telemetry";
 import { resolveContextThresholds } from "./context-thresholds";
@@ -143,6 +148,75 @@ const SUMMARY_CHECKPOINT_INSTRUCTIONS = `Output only a Markdown checkpoint using
 ${SUMMARY_CHECKPOINT_FORMAT}
 
 Include every heading, even when its content is \`(none)\`. Under \`${CHECKPOINT_TITLE_HEADING}\`, write one line of 3 to 8 words naming what the whole conversation is about, the way a person would name it in a list of their conversations. Keep each section concise. Preserve exact file paths, function names, commands, IDs, values, and error messages where they matter. In \`## Covered So Far\`, list every file or source the transcript shows was read, searched, or examined (with exact paths), and anything that was explicitly skipped or left unread. ${UNTRUSTED_DATA_INSTRUCTION}`;
+
+/**
+ * Opens the iterative compaction prompt: merge a new transcript into the checkpoint that already
+ * stands in for older history.
+ */
+const UPDATE_CHECKPOINT_LEAD_IN =
+  "Update an existing checkpoint for an ongoing conversation. Carry forward everything in the prior checkpoint that remains true, fold in the new transcript, and explicitly replace facts contradicted by newer evidence. Do not drop earlier facts merely because the new transcript does not mention them. Move completed work from In Progress to Done, remove resolved blockers, and update Next Steps. Keep Covered So Far cumulative: anything the prior checkpoint says was already covered stays covered — never remove entries, so the resumed agent never re-reads a file it already read.\n\n";
+
+/** Opens the initial compaction prompt. */
+const CREATE_CHECKPOINT_LEAD_IN =
+  "Create a context checkpoint that another agent can use to continue this work without repeating it or losing constraints. Record goals, decisions and their rationale, completed and active work, blockers, next actions, and critical identifiers.\n\n";
+
+/**
+ * What task state already holds is durable on disk. Saying so lets the summary spend its budget
+ * on what the transcript adds rather than restating the plan.
+ */
+function recordedStateSection(recordedState: string | undefined): string {
+  return recordedState
+    ? `## Already recorded durably (do not restate)\n\n${recordedState}\n\n` +
+        "The above is saved outside this conversation and will survive compaction. Cover " +
+        "what the transcript adds beyond it, and flag anywhere the transcript contradicts it.\n\n"
+    : "";
+}
+
+/**
+ * The final message of a cache-aligned summary request. It follows the real conversation, so it
+ * names what to summarize (everything but the verbatim tail), what to do with an earlier
+ * checkpoint among those messages, and carries the persona's output rules, since the run's own
+ * system prompt is the one in force here.
+ */
+function alignedSummaryInstruction(input: {
+  readonly hasPriorSummary: boolean;
+  readonly keptVerbatimCount: number;
+  readonly recordedState: string | undefined;
+}): string {
+  const scope =
+    `The conversation above is being compacted. Do not continue the task and do not call any tool: write the checkpoint described below. ` +
+    `Summarize every message above except the final ${String(input.keptVerbatimCount)}, which stay in the conversation verbatim after compaction ` +
+    `(counting from the end, each assistant message and each tool result is one message; when unsure where the boundary falls, cover more rather than less).\n\n`;
+  const lead = input.hasPriorSummary
+    ? "The prior checkpoint is the summary message above and the new transcript is what follows it. " +
+      UPDATE_CHECKPOINT_LEAD_IN
+    : CREATE_CHECKPOINT_LEAD_IN;
+  return (
+    scope +
+    lead +
+    SUMMARY_CHECKPOINT_INSTRUCTIONS +
+    "\n\n" +
+    recordedStateSection(input.recordedState) +
+    "Never invent or repair details the conversation does not contain, and write no preamble or commentary about summarizing."
+  );
+}
+
+/**
+ * Replacing history with nothing, or with half a checkpoint, loses exactly what the summary was
+ * meant to keep. Failing here leaves the originals in place.
+ */
+function acceptSummary(response: {
+  readonly content: string;
+  readonly finishReason?: string | undefined;
+}): Effect.Effect<ChatMessage, SummaryRejectedError> {
+  if (response.content.trim().length === 0) {
+    return Effect.fail(new SummaryRejectedError("empty"));
+  }
+  if (response.finishReason === "length") {
+    return Effect.fail(new SummaryRejectedError("truncated"));
+  }
+  return Effect.succeed({ role: "assistant", content: response.content, kind: "summary" });
+}
 
 /**
  * Build the throwaway agent that performs summarization.
@@ -354,6 +428,28 @@ export class SummaryRejectedError extends Error {
     );
     this.name = "SummaryRejectedError";
   }
+}
+
+/** What `compact` hands the summary step when it may be sent as the conversation's next request. */
+interface CacheAlignedSummaryInput {
+  readonly alignment: CacheAlignedSummary;
+  readonly history: ConversationMessages;
+  /** Messages at the end of `history` that survive compaction verbatim. */
+  readonly keptVerbatimCount: number;
+  readonly contextWindowTokens: number;
+}
+
+/**
+ * How many messages at the end of `history` are not among those being summarized: the tail
+ * compaction keeps verbatim, which the summarize request has to tell the model to leave out.
+ */
+function keptVerbatimCount(
+  history: readonly ChatMessage[],
+  messagesToSummarize: readonly ChatMessage[],
+): number {
+  const lastSummarized = messagesToSummarize[messagesToSummarize.length - 1];
+  const lastIndex = lastSummarized === undefined ? -1 : history.lastIndexOf(lastSummarized);
+  return history.length - lastIndex - 1;
 }
 
 /** Observer for {@link CompactionProgress}; its effect must not fail. */
@@ -581,6 +677,7 @@ export const Summarizer = {
     modelContextWindow?: number,
     allowMemoryExtraction = false,
     egressTaint?: EgressTaint,
+    cacheAlignment?: CacheAlignedSummary,
   ): Effect.Effect<
     AutoCompaction,
     never,
@@ -653,6 +750,7 @@ export const Summarizer = {
           undefined,
           undefined,
           egressTaint,
+          cacheAlignment,
         ),
       );
 
@@ -709,6 +807,10 @@ export const Summarizer = {
    *   summarize), so an interface can show the work live. Absent for silent callers.
    * @param egressTaint - The live run's taint. When it is marked, the summary carries
    *   `egressTainted` even if no summarized message does.
+   * @param cacheAlignment - Set by a live run that has just sent `currentMessages` (less what
+   *   was appended since): the summary is then asked of the conversation's own model as one
+   *   more request that shares that request's cached prefix, see {@link requestAlignedSummary}.
+   *   Absent for callers with no previous request to share a prefix with.
    */
   compact(
     currentMessages: ConversationMessages,
@@ -720,6 +822,7 @@ export const Summarizer = {
     reduceToolResults?: ReduceToolResultsFn,
     onPhase?: CompactionProgressObserver,
     egressTaint?: EgressTaint,
+    cacheAlignment?: CacheAlignedSummary,
   ): Effect.Effect<
     CompactionOutcome | undefined,
     Error,
@@ -873,6 +976,14 @@ export const Summarizer = {
         conversationId,
         runRecursive,
         priorSummary,
+        workingMessages === currentMessages && cacheAlignment !== undefined
+          ? {
+              alignment: cacheAlignment,
+              history: currentMessages,
+              keptVerbatimCount: keptVerbatimCount(currentMessages, messagesToSummarize),
+              contextWindowTokens,
+            }
+          : undefined,
       );
 
       // Rebuild: [system, ...pinned, summary, continuation, ...recent]. Pinned messages
@@ -949,6 +1060,7 @@ export const Summarizer = {
     conversationId: string,
     runRecursive: RecursiveRunner,
     priorSummary?: ChatMessage,
+    cacheAligned?: CacheAlignedSummaryInput,
   ): Effect.Effect<
     ChatMessage,
     Error,
@@ -983,6 +1095,48 @@ export const Summarizer = {
       // Anything already in task state is durable on disk, so the summary need not carry
       // it. Passing it through lets the summarizer cover what the transcript adds instead.
       const recordedState = formatWorkState(yield* readWorkState(agent.id, conversationId));
+
+      if (cacheAligned !== undefined) {
+        const hint = modelHintFromAgent(agent);
+        const requestTokens =
+          DEFAULT_TOKEN_COUNTER.countMessages(cacheAligned.history, hint) +
+          DEFAULT_TOKEN_COUNTER.overheadFor(hint);
+        const instruction = alignedSummaryInstruction({
+          hasPriorSummary: priorSummary !== undefined,
+          keptVerbatimCount: cacheAligned.keptVerbatimCount,
+          recordedState,
+        });
+        const blocker = alignedSummaryBlocker({
+          summarizerModel: summarizerModelConfig,
+          agent,
+          pricing: cacheAligned.alignment.pricing,
+          requestTokens: requestTokens + DEFAULT_TOKEN_COUNTER.countText(instruction, hint),
+          contextWindowTokens: cacheAligned.contextWindowTokens,
+        });
+        if (blocker !== undefined) {
+          yield* logger.debug("Compaction summary uses the stand-alone summarizer", {
+            conversationId,
+            reason: blocker,
+          });
+        } else {
+          const aligned = yield* requestAlignedSummary({
+            alignment: cacheAligned.alignment,
+            agent,
+            history: cacheAligned.history,
+            instruction,
+          });
+          if (aligned.kind === "summary") {
+            yield* logger.info("Compaction summary reused the conversation's request prefix", {
+              conversationId,
+            });
+            return yield* acceptSummary(aligned);
+          }
+          yield* logger.info("Cache-aligned compaction summary fell back to the summarizer", {
+            conversationId,
+            reason: aligned.reason,
+          });
+        }
+      }
 
       // Define the specialized summarizer agent once, on the fly, with the selected model.
       const summarizer = buildSummarizerAgent(agent, summarizerModelConfig);
@@ -1074,21 +1228,14 @@ export const Summarizer = {
     return Effect.gen(function* () {
       const historyText = Summarizer.renderTranscript(messagesToSummarize);
 
-      // What task state already holds is durable on disk. Saying so lets the summary spend
-      // its budget on what the transcript adds rather than restating the plan.
-      const recordedStateBlock = recordedState
-        ? `## Already recorded durably (do not restate)\n\n${recordedState}\n\n` +
-          "The above is saved outside this conversation and will survive compaction. Cover " +
-          "what the transcript adds beyond it, and flag anywhere the transcript contradicts it.\n\n"
-        : "";
-
+      const recordedStateBlock = recordedStateSection(recordedState);
       const userInput = priorSummary?.content
-        ? "Update an existing checkpoint for an ongoing conversation. Carry forward everything in the prior checkpoint that remains true, fold in the new transcript, and explicitly replace facts contradicted by newer evidence. Do not drop earlier facts merely because the new transcript does not mention them. Move completed work from In Progress to Done, remove resolved blockers, and update Next Steps. Keep Covered So Far cumulative: anything the prior checkpoint says was already covered stays covered — never remove entries, so the resumed agent never re-reads a file it already read.\n\n" +
+        ? UPDATE_CHECKPOINT_LEAD_IN +
           SUMMARY_CHECKPOINT_INSTRUCTIONS +
           "\n\n" +
           recordedStateBlock +
           `<previous-summary>\n${priorSummary.content}\n</previous-summary>\n\n<new-transcript>\n${historyText}\n</new-transcript>`
-        : "Create a context checkpoint that another agent can use to continue this work without repeating it or losing constraints. Record goals, decisions and their rationale, completed and active work, blockers, next actions, and critical identifiers.\n\n" +
+        : CREATE_CHECKPOINT_LEAD_IN +
           SUMMARY_CHECKPOINT_INSTRUCTIONS +
           "\n\n" +
           recordedStateBlock +
@@ -1101,20 +1248,7 @@ export const Summarizer = {
         maxIterations: 1,
       });
 
-      // Replacing history with nothing, or with half a checkpoint, loses exactly what the
-      // summary was meant to keep. Failing here leaves the originals in place.
-      if (summaryResponse.content.trim().length === 0) {
-        return yield* Effect.fail(new SummaryRejectedError("empty"));
-      }
-      if (summaryResponse.finishReason === "length") {
-        return yield* Effect.fail(new SummaryRejectedError("truncated"));
-      }
-
-      return {
-        role: "assistant",
-        content: summaryResponse.content,
-        kind: "summary",
-      };
+      return yield* acceptSummary(summaryResponse);
     });
   },
 };

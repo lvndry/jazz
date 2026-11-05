@@ -1892,6 +1892,11 @@ function runIteration(
       contextWindowMaxTokens,
       allowMemoryExtraction,
       deps.context.egressTaint,
+      {
+        tools: deps.tools,
+        cacheScope: { ...promptCacheScope(deps), emit: undefined },
+        pricing: deps.modelMetadata,
+      },
     ).pipe(Effect.map(Option.some));
     // A summarizer call is a model call of its own; Esc has to reach it like any other.
     const interruptSignal = strategy.getInterruptSignal?.();
