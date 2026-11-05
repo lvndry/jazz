@@ -146,7 +146,7 @@ async function runBatch(input: {
     undefined,
     undefined,
     input.onDetachedToolComplete,
-  ).pipe(Effect.provide(layer)) as Effect.Effect<
+  ).pipe(Effect.provide(layer)) as unknown as Effect.Effect<
     readonly { result: unknown; success: boolean }[],
     unknown,
     never
