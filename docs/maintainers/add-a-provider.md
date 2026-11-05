@@ -191,8 +191,7 @@ are typed (`LLMRateLimitError`) so they're distinguishable from real failures.
 Bun aborts any `fetch` still running after 300 seconds unless it passes `timeout: false`, which
 would cut every limit above 5 minutes short. Build every provider with `llmFetch`
 ([`llm-fetch.ts`](../../packages/adapters/src/llm/llm-fetch.ts)) so Jazz's own limits are the only
-ones that apply. A test fails for any provider that does not; see
-[post-mortem 0001](./postmortems/0001-bun-fetch-300s-cutoff.md).
+ones that apply. A test fails for any provider that does not.
 
 ---
 

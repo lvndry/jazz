@@ -158,6 +158,12 @@ and computes the published SHA-256 itself. See [Plugins](docs/configure/plugins.
 - [ ] A breaking change adds an [upgrade note](docs/maintainers/upgrade-note-template.md) under `docs/upgrading/` with a migration table, and links it from [Upgrading](docs/upgrading.md#migration-notes)
 - [ ] Update relevant READMEs if interfaces change
 
+## Post-mortems
+
+Incident write-ups live in [`docs/maintainers/postmortems/`](docs/maintainers/postmortems/index.md), with a
+[template](docs/maintainers/postmortems/template.md). They are repo-only: the website build excludes that
+directory.
+
 ## Getting Help
 
 - **Issues**: [GitHub Issues](https://github.com/lvndry/jazz/issues)
