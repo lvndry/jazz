@@ -78,12 +78,13 @@ const finalCompletion: ChatCompletionResponse = {
   content: "There are 2 entries.",
 };
 
-function makeLLMService(): LLMService {
+function makeLLMService(onRequest?: (options: { conversationId?: string }) => void): LLMService {
   let call = 0;
   return {
     createStreamingChatCompletion: () => Effect.fail(new Error("streaming must not be used")),
-    createChatCompletion: () =>
+    createChatCompletion: (_provider: unknown, options: { conversationId?: string }) =>
       Effect.sync(() => {
+        onRequest?.(options);
         call += 1;
         return call === 1 ? toolCallCompletion : finalCompletion;
       }),
@@ -155,7 +156,8 @@ const runRecursive: RecursiveRunner = () =>
 
 function buildLayer(
   presentationService: OneShotPresentationService,
-  llmService: LLMService = makeLLMService(),
+  onRequest?: (options: { conversationId?: string }) => void,
+  llmService: LLMService = makeLLMService(onRequest),
 ) {
   return Layer.mergeAll(
     Layer.succeed(LoggerServiceTag, mockLogger),
@@ -244,6 +246,30 @@ describe("executeWithoutStreaming tool event emission", () => {
     const startEvent = events.find((event) => event.type === "tool_execution_start") as
       Extract<StreamEvent, { type: "tool_execution_start" }> | undefined;
     expect(startEvent?.toolName).toBe("ls");
+  });
+
+  it("passes the resolved conversation id to the provider request", async () => {
+    const presentationService = new OneShotPresentationService(DEFAULT_DISPLAY_CONFIG, new Set());
+    const conversationIds: Array<string | undefined> = [];
+
+    await Effect.runPromise(
+      executeWithoutStreaming(
+        makeOptions(),
+        makeRunContext(),
+        DEFAULT_DISPLAY_CONFIG,
+        false,
+        runRecursive,
+      ).pipe(
+        Effect.provide(
+          buildLayer(presentationService, (options) =>
+            conversationIds.push(options.conversationId),
+          ),
+        ),
+      ),
+    );
+
+    expect(conversationIds.length).toBeGreaterThan(0);
+    expect(new Set(conversationIds)).toEqual(new Set(["conv-123"]));
   });
 
   it("does not emit tool NDJSON when no event categories are requested", async () => {
@@ -370,7 +396,7 @@ describe("executeWithoutStreaming empty responses", () => {
             DEFAULT_DISPLAY_CONFIG,
             false,
             runRecursive,
-          ).pipe(Effect.provide(buildLayer(presentationService, llmService))),
+          ).pipe(Effect.provide(buildLayer(presentationService, undefined, llmService))),
         ),
       calls: () => calls,
       runContext,

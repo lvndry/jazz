@@ -3,11 +3,12 @@
  * classification, approval gating, concurrency limits, timeouts, and interruption.
  */
 
-import { Cause, Effect, Exit, Fiber, Option, Result } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { resolveCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import {
@@ -52,6 +53,7 @@ import { isCommandCoveredByAllowlist } from "@/core/utils/shell";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
 import { taintedEgressApprovalMessage, taintedEgressNeedsApproval } from "./egress-taint";
+import { earlierCallsOnSamePaths, resolveMutatedPaths } from "./path-mutation-order";
 import {
   privateDestinationApprovalMessage,
   privateDestinationNeedsApproval,
@@ -959,6 +961,7 @@ export class ToolExecutor {
             recordActivity(approvalResult.executeToolName, riskLevel, executeArgs);
             result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
               ...context,
+              toolCallId: toolCall.id,
               allowHiddenExecute: true,
               ...(isHttpApprovalTool(name)
                 ? { approvedHttpUrl: effectiveHttpUrl(name, approvalResult.executeArgs) }
@@ -1480,44 +1483,99 @@ export class ToolExecutor {
        * each fiber's finalizers, which is what kills a running shell command's process group.
        * Forking happens with interruption masked so no fiber can start without being tracked.
        */
+      const fileSystemContext = yield* Effect.serviceOption(FileSystemContextServiceTag);
+      const mutatedPathsByCall = yield* Effect.all(
+        toolCalls.map((toolCall) => {
+          const parsedArguments = parseToolCallArguments(toolCall);
+          if (!parsedArguments.ok) {
+            return Effect.succeed<string[]>([]);
+          }
+          return resolveMutatedPaths(
+            toolCall.function.name,
+            parsedArguments.args,
+            context,
+            Option.getOrUndefined(fileSystemContext),
+          );
+        }),
+      );
+      const waitsFor = earlierCallsOnSamePaths(mutatedPathsByCall);
+      const awaitedByLater = new Set(waitsFor.flat());
+      const callFinished = toolCalls.map((_toolCall, index) =>
+        awaitedByLater.has(index) ? Deferred.makeUnsafe<void>() : undefined,
+      );
+      if (awaitedByLater.size > 0) {
+        yield* logger.debug("Serializing tool calls that change the same path", {
+          agentId,
+          conversationId,
+          orderedCalls: waitsFor.filter((earlier) => earlier.length > 0).length,
+        });
+      }
+      const afterEarlierCallsOnItsPaths = <Value, Failure, Requirements>(
+        index: number,
+        call: Effect.Effect<Value, Failure, Requirements>,
+      ): Effect.Effect<Value, Failure, Requirements> => {
+        const earlier = waitsFor[index] ?? [];
+        const finished = callFinished[index];
+        if (earlier.length === 0 && finished === undefined) {
+          return call;
+        }
+        const waitForEarlier = Effect.forEach(
+          earlier,
+          (earlierIndex) => {
+            const earlierFinished = callFinished[earlierIndex];
+            return earlierFinished === undefined ? Effect.void : Deferred.await(earlierFinished);
+          },
+          { discard: true },
+        );
+        return waitForEarlier.pipe(
+          Effect.andThen(call),
+          Effect.ensuring(
+            finished === undefined ? Effect.void : Deferred.succeed(finished, undefined),
+          ),
+        );
+      };
+
       return yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           const toolFibers = yield* Effect.all(
-            toolCalls.map((toolCall) =>
+            toolCalls.map((toolCall, index) =>
               Effect.forkDetach(
                 Effect.interruptible(
                   // Tapped once here rather than at each of the several places a call can
                   // finish, so a new return path cannot quietly stop reporting.
-                  ToolExecutor.executeToolCall(
-                    toolCall,
-                    context,
-                    displayConfig,
-                    renderer,
-                    runMetrics,
-                    agentId,
-                    conversationId,
-                    approvalSet,
-                    false,
-                    preclassifiedRisk,
-                    ledger,
-                  ).pipe(
-                    Effect.tap((outcome) =>
-                      Effect.sync(() => {
-                        ledger?.markFinished(outcome);
-                        const returned = toolResultForProgress(outcome.result);
-                        context.onToolEvent?.({
-                          kind: "tool-finished",
-                          toolName: outcome.name,
-                          toolCallId: outcome.toolCallId,
-                          ok: outcome.success,
-                          ...(returned !== undefined
-                            ? {
-                                result: returned.text,
-                                ...(returned.truncated ? { resultTruncated: true } : {}),
-                              }
-                            : {}),
-                        });
-                      }),
+                  afterEarlierCallsOnItsPaths(
+                    index,
+                    ToolExecutor.executeToolCall(
+                      toolCall,
+                      context,
+                      displayConfig,
+                      renderer,
+                      runMetrics,
+                      agentId,
+                      conversationId,
+                      approvalSet,
+                      false,
+                      preclassifiedRisk,
+                      ledger,
+                    ).pipe(
+                      Effect.tap((outcome) =>
+                        Effect.sync(() => {
+                          ledger?.markFinished(outcome);
+                          const returned = toolResultForProgress(outcome.result);
+                          context.onToolEvent?.({
+                            kind: "tool-finished",
+                            toolName: outcome.name,
+                            toolCallId: outcome.toolCallId,
+                            ok: outcome.success,
+                            ...(returned !== undefined
+                              ? {
+                                  result: returned.text,
+                                  ...(returned.truncated ? { resultTruncated: true } : {}),
+                                }
+                              : {}),
+                          });
+                        }),
+                      ),
                     ),
                   ),
                 ),

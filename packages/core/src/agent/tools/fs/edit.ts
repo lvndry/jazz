@@ -20,6 +20,7 @@ import { buildKeyFromContext } from "../context-utils";
 import { toolKnownSecrets } from "../tool-secrets";
 import { writeFileAtomically } from "./atomic-replace";
 import { fileSnapshot } from "./file-snapshot";
+import { decodeFileBytes, encodeFileText, normalizeLineBreaks } from "./line-endings";
 import { normalizeFilterPattern } from "./utils";
 
 /**
@@ -266,6 +267,21 @@ function redactedEditProblem(
   return undefined;
 }
 export type EditFileArgs = z.infer<typeof editFileParameters>;
+
+/** `edits` with every `\r\n` in the text they carry as `\n`, the break the edits work on. */
+function normalizeEditText(edits: readonly EditOperation[]): EditOperation[] {
+  return edits.map((edit) => {
+    switch (edit.type) {
+      case "replace_lines":
+      case "insert":
+        return { ...edit, content: normalizeLineBreaks(edit.content) };
+      case "replace_pattern":
+        return { ...edit, replacement: normalizeLineBreaks(edit.replacement) };
+      case "delete_lines":
+        return edit;
+    }
+  });
+}
 
 type EditFileDeps = FileSystem.FileSystem | FileSystemContextService;
 
@@ -662,8 +678,8 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           };
         }
         const canonicalTarget = canonicalTargetResult.success;
-        const fileContentResult = yield* fs.readFileString(canonicalTarget).pipe(
-          Effect.map((content) => ({ ok: true as const, content })),
+        const fileContentResult = yield* fs.readFile(canonicalTarget).pipe(
+          Effect.map((bytes) => ({ ok: true as const, file: decodeFileBytes(bytes) })),
           Effect.catch((error) => Effect.succeed({ ok: false as const, error: String(error) })),
         );
 
@@ -671,12 +687,13 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           return `WARNING: File exists but cannot be read: ${target}. Error: ${fileContentResult.error}`;
         }
 
-        const fileContent = fileContentResult.content;
-        if (fileSnapshot(canonicalTarget, fileContent) !== args.snapshot) {
+        if (fileSnapshot(canonicalTarget, fileContentResult.file.content) !== args.snapshot) {
           return { skipApproval: true, toolResult: staleFileResult(target) };
         }
+        const fileContent = fileContentResult.file.text;
+        const edits = normalizeEditText(args.edits);
         const known = yield* toolKnownSecrets();
-        const redactedEdit = redactedEditProblem(args.edits, fileContent, known);
+        const redactedEdit = redactedEditProblem(edits, fileContent, known);
         if (redactedEdit !== undefined) {
           return yield* Effect.fail(new Error(redactedEdit));
         }
@@ -728,7 +745,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         let resultLines: string[];
 
         try {
-          const result = applyEdits(editable, args.edits);
+          const result = applyEdits(editable, edits);
           resultLines = result.resultLines;
         } catch (error) {
           // applyEdits throws JS exceptions (tagged errors), so try/catch is correct here
@@ -804,8 +821,8 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
 
             // Read file content — use Effect.catch to properly catch Effect failures.
             // A JS try/catch around yield* does NOT catch Effect-level failures.
-            const fileContentResult = yield* fs.readFileString(canonicalTarget).pipe(
-              Effect.map((content) => ({ ok: true as const, content })),
+            const fileContentResult = yield* fs.readFile(canonicalTarget).pipe(
+              Effect.map((bytes) => ({ ok: true as const, file: decodeFileBytes(bytes) })),
               Effect.catch((error) => Effect.succeed({ ok: false as const, error: String(error) })),
             );
 
@@ -818,12 +835,14 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
               };
             }
 
-            const fileContent = fileContentResult.content;
-            if (fileSnapshot(canonicalTarget, fileContent) !== args.snapshot) {
+            if (fileSnapshot(canonicalTarget, fileContentResult.file.content) !== args.snapshot) {
               return staleFileResult(target);
             }
+            const fileFormat = fileContentResult.file;
+            const fileContent = fileFormat.text;
+            const edits = normalizeEditText(args.edits);
             const known = yield* toolKnownSecrets();
-            const redactedEdit = redactedEditProblem(args.edits, fileContent, known);
+            const redactedEdit = redactedEditProblem(edits, fileContent, known);
             if (redactedEdit !== undefined) {
               return yield* Effect.fail(new Error(redactedEdit));
             }
@@ -833,12 +852,16 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
             // Apply edits using the shared helper function.
             // applyEdits throws JS exceptions (tagged errors), so try/catch is correct here.
             try {
-              const { resultLines, appliedEdits } = applyEdits(editable, args.edits);
+              const { resultLines, appliedEdits } = applyEdits(editable, edits);
 
               const newContent = resultLines.join("\n");
 
               // Old content or new, never a truncated file, however the call is stopped.
-              const writeResult = yield* writeFileAtomically(fs, canonicalTarget, newContent).pipe(
+              const writeResult = yield* writeFileAtomically(
+                fs,
+                canonicalTarget,
+                encodeFileText({ ...fileFormat, text: newContent }),
+              ).pipe(
                 Effect.map(() => ({ ok: true as const })),
                 Effect.catch((error) =>
                   Effect.succeed({ ok: false as const, error: String(error) }),
