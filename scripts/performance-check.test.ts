@@ -1,7 +1,12 @@
 /** Regression gates must reject real slowdowns, incompatible runs and oversized releases. */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import {
   absoluteRegressions,
+  ceilingsForTarget,
   regressions,
   sizeRegressions,
   type PerformanceReport,
@@ -171,8 +176,80 @@ describe("performance regression gate", () => {
   });
   test("allows small release noise but blocks growth and emergency oversize", () => {
     const mib = 1024 * 1024;
-    expect(sizeRegressions(150 * mib, 154 * mib, "binary")).toEqual([]);
-    expect(sizeRegressions(150 * mib, 160 * mib, "binary")).toHaveLength(1);
-    expect(sizeRegressions(205 * mib, 205 * mib, "binary")).toHaveLength(1);
+    const maxBytes = 200 * mib;
+    expect(sizeRegressions(150 * mib, 154 * mib, "binary", maxBytes)).toEqual([]);
+    expect(sizeRegressions(150 * mib, 160 * mib, "binary", maxBytes)).toHaveLength(1);
+    expect(sizeRegressions(205 * mib, 205 * mib, "binary", maxBytes)).toHaveLength(1);
+  });
+  test("ceilings admit the CI-measured sizes", () => {
+    const ceilings = ceilingsForTarget("linux-x64");
+    expect(ceilings).not.toBeNull();
+    expect(sizeRegressions(217_843_888, 217_843_888, "raw", ceilings?.maxBytes ?? null)).toEqual(
+      [],
+    );
+    expect(sizeRegressions(95_421_456, 95_421_456, "gzip", ceilings?.gzipMaxBytes ?? null)).toEqual(
+      [],
+    );
+  });
+  test("each ceiling fails an unchanged pair one byte over, independent of relative growth", () => {
+    const ceilings = ceilingsForTarget("linux-x64");
+    if (ceilings === null) {
+      throw new Error("linux-x64 must have ceilings");
+    }
+    const raw = sizeRegressions(
+      ceilings.maxBytes + 1,
+      ceilings.maxBytes + 1,
+      "raw",
+      ceilings.maxBytes,
+    );
+    expect(raw).toHaveLength(1);
+    expect(raw[0]).toContain("exceeds");
+    const gzip = sizeRegressions(
+      ceilings.gzipMaxBytes + 1,
+      ceilings.gzipMaxBytes + 1,
+      "gzip",
+      ceilings.gzipMaxBytes,
+    );
+    expect(gzip).toHaveLength(1);
+    expect(gzip[0]).toContain("exceeds");
+    expect(sizeRegressions(ceilings.maxBytes, ceilings.maxBytes, "raw", ceilings.maxBytes)).toEqual(
+      [],
+    );
+  });
+  test("a target without ceilings is not failed by another target's ceiling", () => {
+    const linuxCeilings = ceilingsForTarget("linux-x64");
+    expect(ceilingsForTarget("darwin-arm64")).toBeNull();
+    const oversized = (linuxCeilings?.maxBytes ?? 0) + 1;
+    expect(
+      sizeRegressions(
+        oversized,
+        oversized,
+        "raw",
+        ceilingsForTarget("darwin-arm64")?.maxBytes ?? null,
+      ),
+    ).toEqual([]);
+  });
+  test("an unknown target throws", () => {
+    expect(() => ceilingsForTarget("linux-riscv")).toThrow("Unknown binary target");
+  });
+  test("the CLI requires a known target", () => {
+    const directory = mkdtempSync(join(tmpdir(), "perf-check-"));
+    try {
+      const binaryPath = join(directory, "jazz");
+      writeFileSync(binaryPath, "x");
+      const script = fileURLToPath(new URL("./performance-check.ts", import.meta.url));
+      const run = (...args: string[]) =>
+        Bun.spawnSync([process.execPath, script, ...args], { stderr: "pipe", stdout: "pipe" });
+      const unknown = run("--binary", "--target", "linux-riscv", binaryPath, binaryPath);
+      expect(unknown.exitCode).not.toBe(0);
+      expect(unknown.stderr.toString()).toContain("Unknown binary target");
+      const missing = run("--binary", binaryPath, binaryPath);
+      expect(missing.exitCode).not.toBe(0);
+      expect(missing.stderr.toString()).toContain("--target");
+      const known = run("--binary", "--target", "linux-x64", binaryPath, binaryPath);
+      expect(known.exitCode).toBe(0);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
