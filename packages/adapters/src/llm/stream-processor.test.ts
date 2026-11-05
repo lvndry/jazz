@@ -949,10 +949,10 @@ describe("resolveStreamIdleTimeoutMs", () => {
 });
 
 describe("StreamProcessor tool call identity", () => {
-  const silentLogger = {
+  const silentLogger = partialFake<LoggerService>({
     debug: () => Effect.void,
     warn: () => Effect.void,
-  } as unknown as LoggerService;
+  });
 
   async function run(
     parts: readonly Record<string, unknown>[],
