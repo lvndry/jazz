@@ -533,7 +533,10 @@ describe("OneShotPresentationService.requestUserInput", () => {
     };
     expect(emitted.type).toBe("user_input_required");
     expect(emitted.question).toBe("When is your appointment?");
-    expect(emitted.suggestions.map((s) => s.value)).toEqual(["today", "tomorrow"]);
+    expect(emitted.suggestions.map((suggestion) => suggestion.value)).toEqual([
+      "today",
+      "tomorrow",
+    ]);
     expect(emitted.allowCustom).toBe(true);
 
     stdin.write(

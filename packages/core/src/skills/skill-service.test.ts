@@ -66,7 +66,7 @@ describe("scoreSkillsForQuery", () => {
 
   it("matches by description word", () => {
     const result = scoreSkillsForQuery("diffs", skills);
-    expect(result.find((s) => s.name === "code-review")).toBeDefined();
+    expect(result.find((skill) => skill.name === "code-review")).toBeDefined();
   });
 
   it("matches by description", () => {
@@ -100,7 +100,7 @@ describe("scoreSkillsForQuery", () => {
       skill({ name: "mango", description: "shared keyword foo" }),
     ];
     const result = scoreSkillsForQuery("foo", ties);
-    expect(result.map((s) => s.name)).toEqual(["apple", "mango", "zebra"]);
+    expect(result.map((skill) => skill.name)).toEqual(["apple", "mango", "zebra"]);
   });
 
   it("scores name substring match higher than description match", () => {

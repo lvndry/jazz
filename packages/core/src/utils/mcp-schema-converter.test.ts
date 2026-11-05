@@ -257,7 +257,7 @@ describe("MCP Schema Converter", () => {
 
       // Should return unknown and log warning
       expect(zodSchema.safeParse("anything").success).toBe(true);
-      expect(warnings.some((w) => w.includes("$ref not supported"))).toBe(true);
+      expect(warnings.some((warning) => warning.includes("$ref not supported"))).toBe(true);
     });
 
     it("should unwrap MCP SDK's nested jsonSchema format", () => {

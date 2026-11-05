@@ -202,7 +202,9 @@ const mockToolRegistry = {
   ),
   getToolDefinitions: mock(() => Effect.succeed(MOCK_TOOL_DEFINITIONS)),
   getToolDefinitionsFor: mock((names: readonly string[]) =>
-    Effect.succeed(MOCK_TOOL_DEFINITIONS.filter((d) => names.includes(d.function.name))),
+    Effect.succeed(
+      MOCK_TOOL_DEFINITIONS.filter((definition) => names.includes(definition.function.name)),
+    ),
   ),
   getToolSummaries: mock(() => Effect.succeed([])),
   // No categories are registered on this mock, so every name is treated as eager — matching

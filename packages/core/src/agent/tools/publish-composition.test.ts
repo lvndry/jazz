@@ -114,9 +114,9 @@ function handlerFor(options: {
       options.cloneSeed?.(args[2]);
     }
     if (args[0] === "diff" && args[1] === "--cached") {
-      const e = new Error("differences found") as Error & { code: number };
-      e.code = 1;
-      throw e;
+      const error = new Error("differences found") as Error & { code: number };
+      error.code = 1;
+      throw error;
     }
     return { stdout: "", stderr: "" };
   };
@@ -345,9 +345,13 @@ describe("publishComposition", () => {
     expect(out.visibility).toBe("public");
     expect(out.url).toBe("https://octo.github.io/compositions/compositions/weekly-spending/");
     expect(out.pagesEnabled).toBe(true);
-    expect(calls.some((c) => c.startsWith("gh repo create octo/compositions --public"))).toBe(true);
-    expect(calls.some((c) => c.startsWith("git clone"))).toBe(true);
-    expect(calls.some((c) => c.includes("user.email=jazz@users.noreply.github.com"))).toBe(true);
+    expect(calls.some((call) => call.startsWith("gh repo create octo/compositions --public"))).toBe(
+      true,
+    );
+    expect(calls.some((call) => call.startsWith("git clone"))).toBe(true);
+    expect(calls.some((call) => call.includes("user.email=jazz@users.noreply.github.com"))).toBe(
+      true,
+    );
   });
 
   test("recognizes first-publish 404 diagnostics from real subprocess stderr", async () => {
@@ -385,9 +389,9 @@ describe("publishComposition", () => {
     );
     expect(out.url).toBe("https://octo.github.io/compositions/compositions/weekly-spending/");
     expect(
-      calls.some((c) => c.startsWith("git clone https://github.com/octo/compositions.git")),
+      calls.some((call) => call.startsWith("git clone https://github.com/octo/compositions.git")),
     ).toBe(true);
-    expect(calls.some((c) => c.startsWith("gh repo create"))).toBe(false);
+    expect(calls.some((call) => call.startsWith("gh repo create"))).toBe(false);
   });
 
   test("fails with the auth hint when gh is not logged in", async () => {
@@ -418,7 +422,7 @@ describe("publishComposition", () => {
       throw new Error("unreachable");
     }
     expect(result.error).toBe(PUBLISH_PRIVATE_REQUIRES_CLOUDFLARE);
-    expect(calls.some((c) => c.startsWith("gh repo"))).toBe(false);
+    expect(calls.some((call) => call.startsWith("gh repo"))).toBe(false);
   });
 
   test("a private publish goes to the private repo on the cloudflare host", async () => {
@@ -431,14 +435,19 @@ describe("publishComposition", () => {
       "https://compositions-private.pages.dev/compositions/private/weekly-spending/",
     );
     expect(
-      calls.some((c) => c.startsWith("gh repo create octo/compositions-private --private")),
+      calls.some((call) => call.startsWith("gh repo create octo/compositions-private --private")),
     ).toBe(true);
     expect(
       urls.some(
-        (u) => u.startsWith("POST") && u.includes("/access/apps") && !u.includes("/policies"),
+        (request) =>
+          request.startsWith("POST") &&
+          request.includes("/access/apps") &&
+          !request.includes("/policies"),
       ),
     ).toBe(true);
-    expect(urls.filter((u) => u.startsWith("POST") && u.endsWith("/access/apps"))).toHaveLength(2);
+    expect(
+      urls.filter((request) => request.startsWith("POST") && request.endsWith("/access/apps")),
+    ).toHaveLength(2);
     expect(out.summary).toContain("Cloudflare Access");
   });
 
@@ -452,9 +461,13 @@ describe("publishComposition", () => {
     const out = expectPublish(result, "public-cf");
     expect(out.url).toBe("https://compositions.pages.dev/compositions/weekly-spending/");
     expect(out.summary).toContain("Cloudflare Pages");
-    expect(urls.some((u) => u.includes("/pages/projects/compositions/upload-token"))).toBe(true);
-    expect(urls.some((u) => u.includes("/pages/projects/compositions/deployments"))).toBe(true);
-    expect(urls.some((u) => u.includes("/access/apps"))).toBe(false);
+    expect(
+      urls.some((request) => request.includes("/pages/projects/compositions/upload-token")),
+    ).toBe(true);
+    expect(
+      urls.some((request) => request.includes("/pages/projects/compositions/deployments")),
+    ).toBe(true);
+    expect(urls.some((request) => request.includes("/access/apps"))).toBe(false);
   });
 
   test("private publishing without accessEmail fails before creating or pushing content", async () => {

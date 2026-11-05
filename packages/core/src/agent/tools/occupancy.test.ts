@@ -41,7 +41,7 @@ function cwdLayer(cwd: string) {
     resolvePath: () => Effect.succeed(cwd),
     findDirectory: () => Effect.succeed({ results: [] }),
     resolvePathForMkdir: () => Effect.succeed(cwd),
-    escapePath: (p) => p,
+    escapePath: (filePath) => filePath,
   });
 }
 

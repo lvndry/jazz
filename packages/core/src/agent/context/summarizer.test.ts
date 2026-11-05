@@ -566,11 +566,11 @@ describe("Summarizer", () => {
       // absorb them all, so some older messages are left to summarize.
       const messages: ConversationMessages = [
         { role: "system", content: "You are an assistant" },
-        ...Array.from({ length: 20 }, (_, i) => [
-          { role: "user" as const, content: `User message ${i + 1}: ${"x".repeat(100)}` },
+        ...Array.from({ length: 20 }, (_, index) => [
+          { role: "user" as const, content: `User message ${index + 1}: ${"x".repeat(100)}` },
           {
             role: "assistant" as const,
-            content: `Assistant response ${i + 1}: ${"y".repeat(100)}`,
+            content: `Assistant response ${index + 1}: ${"y".repeat(100)}`,
           },
         ]).flat(),
       ];
@@ -619,9 +619,9 @@ describe("Summarizer", () => {
         },
         { role: "tool", tool_call_id: "tc-old", content: "file contents" },
         // Pad with enough messages to push the above into the summarize portion
-        ...Array.from({ length: 16 }, (_, i) => [
-          { role: "user" as const, content: `Message ${i}: ${"z".repeat(100)}` },
-          { role: "assistant" as const, content: `Response ${i}: ${"w".repeat(100)}` },
+        ...Array.from({ length: 16 }, (_, index) => [
+          { role: "user" as const, content: `Message ${index}: ${"z".repeat(100)}` },
+          { role: "assistant" as const, content: `Response ${index}: ${"w".repeat(100)}` },
         ]).flat(),
         // This tool result references tc-old which will be in the summarized portion
         { role: "tool", tool_call_id: "tc-old", content: "orphaned result" },
@@ -631,7 +631,7 @@ describe("Summarizer", () => {
 
       // The orphaned tool result (referencing tc-old) should be dropped from recent
       const orphanedToolResults = result.sanitizedRecentMessages.filter(
-        (m) => m.role === "tool" && m.tool_call_id === "tc-old",
+        (message) => message.role === "tool" && message.tool_call_id === "tc-old",
       );
       expect(orphanedToolResults.length).toBe(0);
     });

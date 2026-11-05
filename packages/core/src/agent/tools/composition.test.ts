@@ -68,8 +68,8 @@ describe("withFavicon", () => {
   test("appends the link for bare fragments and keeps the default decodable", () => {
     const out = withFavicon("<div>hi</div>");
     expect(out).toContain('rel="icon"');
-    const m = out.match(/data:image\/svg\+xml,([^"'\s]+)/);
-    const uri = m?.[1];
+    const match = out.match(/data:image\/svg\+xml,([^"'\s]+)/);
+    const uri = match?.[1];
     expect(uri).toBeDefined();
     if (uri !== undefined) {
       expect(decodeURIComponent(uri)).toContain("<svg");

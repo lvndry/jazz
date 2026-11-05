@@ -70,7 +70,7 @@ const parentAgent: Agent = {
 };
 
 function getSpawnTool() {
-  const tool = createSubagentTools().find((t) => t.name === "spawn_subagent");
+  const tool = createSubagentTools().find((tool) => tool.name === "spawn_subagent");
   if (!tool) {
     throw new Error("spawn_subagent tool not found");
   }
@@ -195,7 +195,7 @@ describe("summarize_context", () => {
     });
 
     try {
-      const tool = createSubagentTools().find((t) => t.name === "summarize_context");
+      const tool = createSubagentTools().find((tool) => tool.name === "summarize_context");
       if (!tool) {
         throw new Error("summarize_context tool not found");
       }
@@ -249,7 +249,7 @@ describe("summarize_context", () => {
     });
 
     try {
-      const tool = createSubagentTools().find((t) => t.name === "summarize_context");
+      const tool = createSubagentTools().find((tool) => tool.name === "summarize_context");
       if (!tool) {
         throw new Error("summarize_context tool not found");
       }

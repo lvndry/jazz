@@ -152,7 +152,9 @@ describe(DOCS_PATH, () => {
     // two tables are: this row is what tells a reader which tools a peer's tier will not
     // hand over, so a stale one misdescribes an authorization boundary.
     const row = markdown.split("\n").find((line) => line.startsWith("| yes"));
-    const documented = new Set([...(row ?? "").matchAll(/`([a-z_0-9]+)`/g)].map((m) => m[1]!));
+    const documented = new Set(
+      [...(row ?? "").matchAll(/`([a-z_0-9]+)`/g)].map((match) => match[1]!),
+    );
 
     const registered = new Set(tools.filter((tool) => tool.egress).map((tool) => tool.name));
 

@@ -134,7 +134,11 @@ describe("ToolRegistry", () => {
       const allNames = yield* registry.listAllTools();
       const listed = yield* registry.listTools();
       const definitions = yield* registry.getToolDefinitions();
-      return { allNames, listed, definitionNames: definitions.map((d) => d.function.name) };
+      return {
+        allNames,
+        listed,
+        definitionNames: definitions.map((definition) => definition.function.name),
+      };
     });
 
     const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
@@ -279,8 +283,8 @@ describe("ToolRegistry", () => {
       });
 
       const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
-      const withSummary = result.find((s) => s.name === "with-summary");
-      const noSummary = result.find((s) => s.name === "no-summary");
+      const withSummary = result.find((summary) => summary.name === "with-summary");
+      const noSummary = result.find((summary) => summary.name === "no-summary");
 
       expect(withSummary?.summary).toBe("Short explicit summary.");
       expect(withSummary?.categoryDisplayName).toBe("Deferred");
@@ -302,7 +306,7 @@ describe("ToolRegistry", () => {
       });
 
       const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
-      expect(result.map((d) => d.function.name)).toEqual(["wanted"]);
+      expect(result.map((definition) => definition.function.name)).toEqual(["wanted"]);
     });
   });
 });
