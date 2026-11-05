@@ -4,7 +4,8 @@
  *
  * `writePolicyFor` builds the policy from the session's working directory plus this process's
  * home, temp directory and Jazz scratch directory, so the shell tool and the file tools confine
- * to one set of roots. The working directory is the session's own, never a path the model
+ * to one set of roots. When the working directory is inside a git repository the policy adds the
+ * repository's top level and git directories (`findRepositoryRoots`), so `git` works from a subdirectory. The working directory is the session's own, never a path the model
  * passed in: confining to a model-chosen `workingDirectory` would let it confine itself to `/`.
  *
  * `denyWriteOutsideRoots` is the file tools' one-line hook: call it with the paths a mutation
@@ -25,6 +26,7 @@ import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import { getWorkspaceDirectory } from "@/core/utils/paths";
+import { findRepositoryRoots } from "./repository-roots";
 import { buildWritePolicy, firstUnwritablePath, type WritePolicy } from "./write-policy";
 import { buildKeyFromContext } from "../agent/tools/context-utils";
 
@@ -35,6 +37,7 @@ export function writePolicyFor(sessionCwd: string): WritePolicy {
     jazzScratchDirectory: getWorkspaceDirectory(),
     platform: process.platform,
     tempDirectory: os.tmpdir(),
+    extraRoots: findRepositoryRoots(sessionCwd, os.homedir()),
   });
 }
 

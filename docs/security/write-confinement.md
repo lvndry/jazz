@@ -8,6 +8,7 @@ Write confinement is an operating-system fence under `execute_command` and the `
 `edit_file`, `create_pdf` and the `rm`, `mv`, `cp` and `mkdir` tools. With it on, a command can write only inside:
 
 - the session's working directory;
+- when the working directory is inside a git repository, **the repository's top-level directory**, so `git add` and `git commit` work from a subdirectory. For a linked worktree or a submodule, its git directory and the shared main `.git` are included too. A repository whose top level is your home directory or above it is ignored;
 - Jazz's scratch directory (`~/.jazz/workspace`);
 - temp directories (`$TMPDIR`, `/tmp`, `/var/tmp`);
 - developer tool caches: `~/.cache`, `~/.bun`, `~/.npm`, `~/.pnpm-store`, `~/.yarn`,

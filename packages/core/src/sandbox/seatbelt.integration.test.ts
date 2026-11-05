@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { getConfinementStatus } from "./backend";
 import { planLaunch } from "./confine";
 import { classifyWriteDenial } from "./denial";
+import { findRepositoryRoots } from "./repository-roots";
 import { buildWritePolicy } from "./write-policy";
 
 /**
@@ -102,5 +103,39 @@ describeConfined("real confined shell", () => {
 
   test("the confined shell can write to /dev/null and read its own stdin", () => {
     expect(runConfined("echo hi > /dev/null").exitCode).toBe(0);
+  });
+
+  test("git add and git commit work from a repository subdirectory", () => {
+    const repository = path.join(base, "repository");
+    const subdirectory = path.join(repository, "pkg");
+    mkdirSync(subdirectory, { recursive: true });
+    const git = (args: string[], cwd: string) =>
+      Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    expect(git(["init", "-q"], repository).exitCode).toBe(0);
+
+    const policy = buildWritePolicy({
+      workspace: subdirectory,
+      homeDir: path.join(base, "home"),
+      jazzScratchDirectory: path.join(base, "scratch"),
+      platform: process.platform,
+      tempDirectory: path.join(base, "no-temp"),
+      extraRoots: findRepositoryRoots(subdirectory, path.join(base, "home")),
+    });
+    const script =
+      'echo hi > "$PWD/file.txt" && echo top > ../top.txt && git add -A && ' +
+      "git -c user.name=t -c user.email=t@t.test -c commit.gpgsign=false commit -q -m init";
+    const plan = planLaunch({ mode: "on", policy, argv: ["sh", "-c", script], status });
+    if (plan.kind !== "confined") {
+      throw new Error("expected a confined plan");
+    }
+    const [command, ...args] = plan.argv;
+    const result = Bun.spawnSync([command ?? "", ...args], {
+      cwd: subdirectory,
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    expect(result.stderr.toString()).toBe("");
+    expect(result.exitCode).toBe(0);
+    expect(git(["log", "--oneline"], repository).stdout.toString()).toContain("init");
   });
 });
