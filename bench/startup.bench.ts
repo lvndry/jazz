@@ -29,8 +29,9 @@ if (
   iterations < 1 ||
   !Number.isSafeInteger(deadlineMs) ||
   deadlineMs < 1
-)
+) {
   throw new Error("Startup limits must be positive integers");
+}
 
 function environment(home: string, ink = false): NodeJS.ProcessEnv {
   return {
@@ -72,8 +73,9 @@ interface Readiness {
 }
 
 async function interactiveReadiness(home: string, ink: boolean): Promise<Readiness> {
-  if (process.platform === "win32")
+  if (process.platform === "win32") {
     throw new Error("Interactive startup benchmark requires a POSIX PTY");
+  }
   const startedAt = performance.now();
   let output = "";
   let outputBytes = 0;
@@ -100,19 +102,22 @@ async function interactiveReadiness(home: string, ink: boolean): Promise<Readine
           firstPaintMs = performance.now() - startedAt;
           terminal.write(marker);
         }
-        if (firstPaintMs !== undefined && inputReadyMs === undefined && plain.includes(marker))
+        if (firstPaintMs !== undefined && inputReadyMs === undefined && plain.includes(marker)) {
           inputReadyMs = performance.now() - startedAt;
+        }
       },
     },
   });
   try {
     while (inputReadyMs === undefined && performance.now() - startedAt < deadlineMs) {
-      if (child.exitCode !== null)
+      if (child.exitCode !== null) {
         throw new Error(`CLI exited before its home was usable: ${output}`);
+      }
       await Bun.sleep(2);
     }
-    if (firstPaintMs === undefined || inputReadyMs === undefined)
+    if (firstPaintMs === undefined || inputReadyMs === undefined) {
       throw new Error(`CLI did not paint a usable home within ${deadlineMs}ms: ${output}`);
+    }
     return { firstPaintMs, inputReadyMs, outputBytes };
   } finally {
     child.kill("SIGKILL");
@@ -122,7 +127,7 @@ async function interactiveReadiness(home: string, ink: boolean): Promise<Readine
 }
 
 function percentile(values: readonly number[], fraction: number): number {
-  const sorted = [...values].sort((a, b) => a - b);
+  const sorted = [...values].sort((left, right) => left - right);
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))] ?? 0;
 }
 
@@ -153,25 +158,30 @@ try {
             new Response(child.stderr).text(),
             child.exited,
           ]);
-          if (code !== 0 || !/^\d+\.\d+\.\d+/.test(stdout.trim()))
+          if (code !== 0 || !/^\d+\.\d+\.\d+/.test(stdout.trim())) {
             throw new Error(`${label} failed: ${stderr}`);
+          }
         },
         { iterations, warmupIterations: 1 },
       ),
     );
   }
-  if (process.env["BENCH_STARTUP_BASELINE"] !== "1")
+  if (process.env["BENCH_STARTUP_BASELINE"] !== "1") {
     for (const ink of [false, true]) {
       for (const fresh of [true, false]) {
         const samples: Readiness[] = [];
-        if (!fresh) await interactiveReadiness(home, ink);
+        if (!fresh) {
+          await interactiveReadiness(home, ink);
+        }
         const name = `compiled ${ink ? "Ink" : "OpenTUI"} ${fresh ? "fresh" : "warm"} home -> typed draft`;
         for (let iteration = 0; iteration < iterations; iteration++) {
           const sampleHome = fresh ? await preparedHome() : home;
           try {
             samples.push(await interactiveReadiness(sampleHome, ink));
           } finally {
-            if (fresh) await rm(sampleHome, { recursive: true, force: true });
+            if (fresh) {
+              await rm(sampleHome, { recursive: true, force: true });
+            }
           }
         }
         results.push({
@@ -193,6 +203,7 @@ try {
         });
       }
     }
+  }
 } finally {
   await rm(home, { recursive: true, force: true });
 }

@@ -35,13 +35,17 @@ export class PluginSecretStore {
 
   async get(pluginId: string, declaration: PluginSecretDeclaration): Promise<string | undefined> {
     const fromEnvironment = declaration.env ? this.environment[declaration.env]?.trim() : undefined;
-    if (fromEnvironment) return fromEnvironment;
+    if (fromEnvironment) {
+      return fromEnvironment;
+    }
     const backend = await this.backend();
     return Effect.runPromise(keyringGet(backend, account(pluginId, declaration.name)));
   }
 
   async set(pluginId: string, secretName: string, value: string): Promise<boolean> {
-    if (value.trim().length === 0) throw new Error("Refusing to store an empty plugin secret");
+    if (value.trim().length === 0) {
+      throw new Error("Refusing to store an empty plugin secret");
+    }
     const backend = await this.backend();
     return Effect.runPromise(keyringSet(backend, account(pluginId, secretName), value));
   }

@@ -47,7 +47,9 @@ const result = await Bun.build({
 });
 
 if (!result.success || result.metafile === undefined) {
-  for (const message of result.logs) process.stderr.write(`${message.message}\n`);
+  for (const message of result.logs) {
+    process.stderr.write(`${message.message}\n`);
+  }
   throw new Error("Build for analysis failed");
 }
 
@@ -69,7 +71,7 @@ for (const output of Object.values(meta.outputs ?? {})) {
   }
 }
 
-const sorted = [...byPackage.entries()].sort((a, b) => b[1] - a[1]);
+const sorted = [...byPackage.entries()].sort((left, right) => right[1] - left[1]);
 const megabytes = (bytes: number): string => (bytes / 1024 / 1024).toFixed(2);
 
 if (asJson) {

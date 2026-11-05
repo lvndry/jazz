@@ -72,9 +72,12 @@ export function ThemePicker({ model, viewport }: ThemePickerProps): ReactNode {
   const list = useRef<ScrollBoxRenderable | null>(null);
   useEffect(() => {
     const box = list.current;
-    if (box === null) return;
-    if (visibleSelected < box.scrollTop) box.scrollTop = visibleSelected;
-    else if (visibleSelected + 1 > box.scrollTop + listRows) {
+    if (box === null) {
+      return;
+    }
+    if (visibleSelected < box.scrollTop) {
+      box.scrollTop = visibleSelected;
+    } else if (visibleSelected + 1 > box.scrollTop + listRows) {
       box.scrollTop = visibleSelected + 1 - listRows;
     }
   }, [visibleSelected, listRows]);

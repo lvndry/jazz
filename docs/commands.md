@@ -1094,6 +1094,7 @@ Enter and queues the message.
 | Ctrl+R                                 | Expand collapsed reasoning (repeat for earlier blocks)                                            |
 | Ctrl+E (empty input)                   | Expand the last write/edit diff in place                                                          |
 | Ctrl+O                                 | Expand the last truncated tool output                                                             |
+| Tab (agent busy, draft typed)          | Queue the draft as its own turn after the current one                                             |
 | Up (agent busy)                        | Recall queued messages for editing                                                                |
 | Ctrl+Enter (agent busy)                | Interrupt and send the draft and queue now                                                        |
 | Ctrl+X (agent busy, empty input)       | Clear the message queue                                                                           |
@@ -1129,12 +1130,35 @@ Enter and queues the message.
 | Ctrl+R                           | Expand collapsed reasoning (repeat for earlier blocks)             |
 | Ctrl+E (empty input)             | Expand the last write/edit diff in place                           |
 | Ctrl+O                           | Expand the last truncated tool output                              |
+| Tab (agent busy, draft typed)    | Queue the draft as its own turn after the current one              |
 | Up (agent busy)                  | Recall queued messages for editing                                 |
 | Ctrl+Enter (agent busy)          | Interrupt and send the draft and queue now                         |
 | Ctrl+X (agent busy, empty input) | Clear the message queue                                            |
 | Ctrl+B (tool running)            | Move the running tool call to the background                       |
 
 <!-- keys-classic:end -->
+
+### Messages while the agent works
+
+A message sent while the agent is working joins the queue shown above the composer. There are two
+kinds of queued message:
+
+- **Steering** is what Enter queues. The agent reads it at its next step, as guidance on the
+  turn already running.
+- **Follow-up** is what Tab queues. It stays out of the running turn: when that turn ends, the
+  follow-up is sent as a turn of its own. It is listed with `after this turn`, so
+  "also do this when you finish" does not redirect the work in progress.
+
+Both can be edited or removed the same way: Up recalls the whole queue into the composer, where it
+returns as steering until you press Tab again, and Ctrl+X clears it. Order is kept: follow-ups run
+one at a time in the order queued, and a follow-up never delays steering queued behind it. When
+a turn ends cleanly, queued messages go out without another prompt. When it fails, the queue,
+follow-ups included, comes back to the composer for you to edit and send. Interrupting with a
+double Esc or Ctrl+Enter sends the queue, follow-ups included, right away, each follow-up as its
+own turn.
+
+Messages from Telegram, Discord, iMessage and WhatsApp, and messages written to `jazz run` on
+stdin, are always steering.
 
 ### Sending a tool call to the background
 

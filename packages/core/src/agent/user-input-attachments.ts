@@ -103,7 +103,9 @@ export async function collectUserInputAttachments(
   isLocalProvider = false,
 ): Promise<UserInputAttachments> {
   const matches = collectCandidates(userInput);
-  if (matches.length === 0) return { attachments: [], warnings: [] };
+  if (matches.length === 0) {
+    return { attachments: [], warnings: [] };
+  }
 
   const attachments: MessageAttachment[] = [];
   const warnings: string[] = [];
@@ -119,17 +121,23 @@ export async function collectUserInputAttachments(
 
     const candidate = stripDecoration(rawToken);
     const classified = classifyAttachmentPath(candidate);
-    if (classified === null) continue;
+    if (classified === null) {
+      continue;
+    }
 
     // `~` is what people type; nothing downstream expands it.
     const expanded = candidate.startsWith("~/") ? join(homedir(), candidate.slice(2)) : candidate;
     const absolutePath = isAbsolute(expanded) ? expanded : resolve(workingDirectory, expanded);
-    if (seenPaths.has(absolutePath)) continue;
+    if (seenPaths.has(absolutePath)) {
+      continue;
+    }
 
     let byteSize: number;
     try {
       const stats = await stat(absolutePath);
-      if (!stats.isFile()) continue;
+      if (!stats.isFile()) {
+        continue;
+      }
       byteSize = stats.size;
     } catch {
       // Not a real file — almost certainly prose that happened to look like a path.

@@ -75,7 +75,6 @@ export async function buildPluginCatalog(): Promise<void> {
   );
 }
 
-// eslint-disable-next-line n/no-unsupported-features/node-builtins -- Bun script entry point.
 if (import.meta.main) {
   buildPluginCatalog().catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

@@ -22,9 +22,9 @@ describe("renderCompositionOg", () => {
   });
 
   test("is deterministic for the same title", async () => {
-    const a = await renderCompositionOg("Determinism Check");
-    const b = await renderCompositionOg("Determinism Check");
-    expect(a.equals(b)).toBe(true);
+    const first = await renderCompositionOg("Determinism Check");
+    const second = await renderCompositionOg("Determinism Check");
+    expect(first.equals(second)).toBe(true);
   });
 
   test("wraps long titles without throwing", async () => {

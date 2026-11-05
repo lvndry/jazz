@@ -51,7 +51,7 @@ describe("view", () => {
     const outcome = await runEffect(service.view("agent-1", ""));
     expect(outcome.kind).toBe("directory");
     if (outcome.kind === "directory") {
-      expect(outcome.entries.map((e) => e.name)).toEqual(["notes.txt"]);
+      expect(outcome.entries.map((entry) => entry.name)).toEqual(["notes.txt"]);
     }
   });
 
@@ -125,8 +125,8 @@ describe("create", () => {
     // times is O(n^2) and times out well before reaching the cap.
     const agentRoot = path.join(tmpDir, "agent-1");
     fs.mkdirSync(agentRoot, { recursive: true });
-    for (let i = 0; i < MAX_WORKSPACE_FILES_PER_AGENT; i++) {
-      fs.writeFileSync(path.join(agentRoot, `file-${i}.txt`), "x");
+    for (let index = 0; index < MAX_WORKSPACE_FILES_PER_AGENT; index++) {
+      fs.writeFileSync(path.join(agentRoot, `file-${index}.txt`), "x");
     }
     const result = await runEither(service.create("agent-1", "one-too-many.txt", "x"));
     expect(result._tag).toBe("Failure");
@@ -140,7 +140,9 @@ describe("str_replace", () => {
     const outcome = await runEffect(service.strReplace("agent-1", "notes.txt", "world", "there"));
     expect(outcome.success).toBe(true);
     const view = await runEffect(service.view("agent-1", "notes.txt"));
-    if (view.kind === "file") expect(view.content).toBe("hello there");
+    if (view.kind === "file") {
+      expect(view.content).toBe("hello there");
+    }
   });
 
   test("fails with no match", async () => {
@@ -158,7 +160,9 @@ describe("insert", () => {
     await runEffect(service.create("agent-1", "notes.txt", "a\nb"));
     await runEffect(service.insert("agent-1", "notes.txt", 1, "inserted"));
     const view = await runEffect(service.view("agent-1", "notes.txt"));
-    if (view.kind === "file") expect(view.content).toBe("a\ninserted\nb");
+    if (view.kind === "file") {
+      expect(view.content).toBe("a\ninserted\nb");
+    }
   });
 });
 

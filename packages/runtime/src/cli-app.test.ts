@@ -91,7 +91,9 @@ describe("createCLIApp help path", () => {
         .find((command) => command.name() === "peers")
         ?.commands.find((command) => command.name() === "invite")
         ?.commands.find((command) => command.name() === "create");
-      if (create === undefined) throw new Error("Missing peers invite create command");
+      if (create === undefined) {
+        throw new Error("Missing peers invite create command");
+      }
       let captured: Record<string, unknown> = {};
       create.action((name: string, options: Record<string, unknown>) => {
         captured = { name, ...options };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { partialFake } from "@/core/test-support/fakes";
 import type { ChatMessage } from "@/core/types/message";
 import type { CompactToolsInput, CompactToolsOutcome } from "@/core/types/plugin";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
@@ -10,10 +11,10 @@ const modelHint: ModelHint = { provider: "anthropic", modelId: "test" };
 // Every message counts as well over MIN_CLEARABLE_RESULT_TOKENS so both tool results qualify.
 // reduceToolResultsAdvised only calls countMessage, so a two-method stub stands in for the
 // full counter.
-const fatCounter = {
+const fatCounter = partialFake<TokenCounter>({
   countMessage: () => 1_000,
   countMessages: () => 1_000,
-} as unknown as TokenCounter;
+});
 
 function transcript(): ChatMessage[] {
   return [

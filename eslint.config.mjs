@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 // Used via js.configs.* - ESLint can mis-detect this as extraneous in flat configs
@@ -16,15 +16,86 @@ const tsconfigRootDir = path.dirname(fileURLToPath(import.meta.url));
 const nodeGlobals = globals.node;
 
 /**
- * Packages below `@jazz/daemon` in the dependency direction: every package except the daemon
- * itself and the packages that compose it. `scripts/package-layering.test.ts` checks the same set.
+ * Allowed-imports matrix shared with `scripts/package-layering.test.ts`: per package, the workspace
+ * packages its production code may import and the extra ones its tests may. Plugins form one row.
  */
-const DAEMON_CONSUMERS = new Set(["daemon", "cli", "runtime", "website"]);
-const DAEMON_FREE_PACKAGES = readdirSync(path.join(tsconfigRootDir, "packages"), {
-  withFileTypes: true,
-})
-  .filter((entry) => entry.isDirectory() && !DAEMON_CONSUMERS.has(entry.name))
-  .map((entry) => entry.name);
+const LAYERING_MATRIX = JSON.parse(
+  readFileSync(path.join(tsconfigRootDir, "scripts", "package-layering.matrix.json"), "utf8"),
+);
+const WORKSPACE_PACKAGES = Object.keys(LAYERING_MATRIX.packages);
+const PLATFORM_SCOPE = "@jazz";
+const WORKSPACE_SCOPES = new Set(
+  ["packages", "plugins"].flatMap((area) =>
+    readdirSync(path.join(tsconfigRootDir, area)).flatMap((entry) => {
+      const manifestPath = path.join(tsconfigRootDir, area, entry, "package.json");
+      return existsSync(manifestPath)
+        ? [JSON.parse(readFileSync(manifestPath, "utf8")).name.split("/")[0]]
+        : [];
+    }),
+  ),
+);
+const PLUGIN_SCOPES = [...WORKSPACE_SCOPES].filter((scope) => scope !== PLATFORM_SCOPE);
+const TEST_FILE_GLOBS = ["**/*.test.ts", "**/*.test.tsx"];
+
+function forbiddenImportPatterns(allowedPackages, packageName) {
+  const pluginPatterns = PLUGIN_SCOPES.map((scope) => ({
+    group: [`${scope}/*`],
+    message: `${packageName} may not import ${scope}/* plugin packages: plugins are loaded, never imported.`,
+  }));
+  return pluginPatterns.concat(
+    WORKSPACE_PACKAGES.filter(
+      (candidate) => candidate !== packageName && !allowedPackages.includes(candidate),
+    ).map((candidate) => ({
+      group: [`@jazz/${candidate}`, `@jazz/${candidate}/*`, `@/${candidate}/*`],
+      message: `${packageName} may not import @jazz/${candidate}: see scripts/package-layering.matrix.json. Move the shared piece down into a package it may import, or change the matrix on purpose.`,
+    })),
+  );
+}
+
+const PACKAGE_LAYERING_CONFIGS = Object.entries(LAYERING_MATRIX.packages).flatMap(
+  ([packageName, row]) => {
+    const testImports = row.testImports ?? [];
+    const sourceFiles = [`packages/${packageName}/**/*.{ts,tsx}`];
+    const productionPatterns = forbiddenImportPatterns(row.imports, packageName);
+    const testPatterns = forbiddenImportPatterns([...row.imports, ...testImports], packageName);
+    return [
+      {
+        files: sourceFiles,
+        ignores: TEST_FILE_GLOBS.map((glob) => `packages/${packageName}/${glob}`),
+        rules: { "no-restricted-imports": ["error", { patterns: productionPatterns }] },
+      },
+      {
+        files: TEST_FILE_GLOBS.map((glob) => `packages/${packageName}/${glob}`),
+        rules: { "no-restricted-imports": ["error", { patterns: testPatterns }] },
+      },
+    ];
+  },
+);
+
+const PLUGIN_LAYERING_CONFIG = {
+  files: ["plugins/**/*.{ts,tsx}"],
+  rules: {
+    "no-restricted-imports": [
+      "error",
+      {
+        patterns: [
+          {
+            group: [
+              ...[...WORKSPACE_SCOPES].map((scope) => `${scope}/*`),
+              ...LAYERING_MATRIX.plugins.imports.flatMap((allowed) => [
+                `!${PLATFORM_SCOPE}/${allowed}`,
+                `!${PLATFORM_SCOPE}/${allowed}/*`,
+              ]),
+              "@/*",
+            ],
+            message:
+              "Plugins import only @jazz/plugin-sdk (not core, adapters or another plugin), so they stay publishable against the SDK alone.",
+          },
+        ],
+      },
+    ],
+  },
+};
 
 export default [
   // The website package lints with its own config (see packages/website/README.md).
@@ -113,54 +184,8 @@ export default [
       ],
     },
   },
-  {
-    files: DAEMON_FREE_PACKAGES.map((packageName) => `packages/${packageName}/**/*.{ts,tsx}`),
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: ["@jazz/daemon", "@jazz/daemon/*", "@/daemon/*"],
-              message:
-                "@jazz/daemon depends on this package; move the shared piece down into @jazz/adapters instead.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    /**
-     * Core publishes standalone and declares no workspace dependencies: its production code
-     * depends on `@jazz/adapters` and `@jazz/cli` only in tests, where those packages provide
-     * the Layers that satisfy core's contracts. `scripts/package-layering.test.ts` checks the
-     * same boundary without the linter.
-     */
-    files: ["packages/core/src/**/*.{ts,tsx}"],
-    ignores: ["packages/core/src/**/*.test.ts", "packages/core/src/**/*.test.tsx"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: [
-                "@jazz/adapters",
-                "@jazz/adapters/*",
-                "@jazz/cli",
-                "@jazz/cli/*",
-                "@/adapters/*",
-                "@/cli/*",
-              ],
-              message:
-                "core is published standalone: production code may not import from @jazz/adapters or @jazz/cli (tests may). Move the shared piece into core, or the dependency up into adapters.",
-            },
-          ],
-        },
-      ],
-    },
-  },
+  ...PACKAGE_LAYERING_CONFIGS,
+  PLUGIN_LAYERING_CONFIG,
   {
     /**
      * Every package's source, and every test and benchmark below, is linted in the one TypeScript
@@ -282,6 +307,32 @@ export default [
       "no-console": "off",
       "n/no-missing-import": "off",
       "n/no-unsupported-features/es-syntax": "off",
+    },
+  },
+  {
+    /**
+     * Scripts, benchmarks and evals run on Bun, which defines `import.meta.main` (true only for the
+     * entry module); eslint-plugin-n knows it only as an experimental Node 24 feature and flags
+     * every entry-point guard, so that one name is ignored here.
+     */
+    files: ["scripts/**/*.ts", "bench/**/*.ts", "evals/**/*.ts"],
+    rules: {
+      "n/no-unsupported-features/node-builtins": [
+        "error",
+        { allowExperimental: true, ignores: ["import.meta.main"] },
+      ],
+    },
+  },
+  {
+    /**
+     * Code conventions enforced per identifier and per statement, with no suppressions. `_` is the
+     * one single-character name allowed: it marks an intentionally unused parameter, which
+     * `no-unused-vars` already requires to start with an underscore.
+     */
+    files: ["**/*.{js,mjs,ts,tsx}"],
+    rules: {
+      curly: ["error", "all"],
+      "id-length": ["error", { min: 2, exceptions: ["_"], properties: "never" }],
     },
   },
   {

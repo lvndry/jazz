@@ -77,7 +77,9 @@ async function scanDirectory(
     }
     const current = directories[nextDirectory];
     nextDirectory += 1;
-    if (current === undefined || current.depth > maxDepth) continue;
+    if (current === undefined || current.depth > maxDepth) {
+      continue;
+    }
 
     let entries: Dirent[];
     try {
@@ -87,7 +89,9 @@ async function scanDirectory(
     }
 
     for (const entry of entries) {
-      if (results.length >= maxResults) break;
+      if (results.length >= maxResults) {
+        break;
+      }
       if (entry.name === ".git" || entry.name === ".env" || entry.name.startsWith(".env.")) {
         continue;
       }
@@ -100,7 +104,9 @@ async function scanDirectory(
 
       const fullPath = path.join(current.path, entry.name);
       const relativePath = path.relative(basePath, fullPath);
-      if (isInside(relativePath) && gitignore.ignores(relativePath)) continue;
+      if (isInside(relativePath) && gitignore.ignores(relativePath)) {
+        continue;
+      }
       // Matched below the scan root only: the root's own ancestors (the user's
       // home, the repo's name) would otherwise match every entry.
       const matches = path.relative(rootPath, fullPath).toLowerCase().includes(normalizedQuery);
@@ -115,9 +121,13 @@ async function scanDirectory(
 
       if (extensions && extensions.length > 0) {
         const extension = path.extname(entry.name).slice(1).toLowerCase();
-        if (!extensions.includes(extension)) continue;
+        if (!extensions.includes(extension)) {
+          continue;
+        }
       }
-      if (matches) results.push({ name: relativePath, path: fullPath, isDirectory: false });
+      if (matches) {
+        results.push({ name: relativePath, path: fullPath, isDirectory: false });
+      }
     }
   }
 
@@ -129,10 +139,16 @@ async function scanDirectory(
   // (e.g. "package.json") just for being a few characters shorter.
   results.sort((left, right) => {
     const depthDelta = left.name.split(path.sep).length - right.name.split(path.sep).length;
-    if (depthDelta !== 0) return depthDelta;
-    if (left.isDirectory !== right.isDirectory) return left.isDirectory ? 1 : -1;
+    if (depthDelta !== 0) {
+      return depthDelta;
+    }
+    if (left.isDirectory !== right.isDirectory) {
+      return left.isDirectory ? 1 : -1;
+    }
     const lengthDelta = left.name.length - right.name.length;
-    if (lengthDelta !== 0) return lengthDelta;
+    if (lengthDelta !== 0) {
+      return lengthDelta;
+    }
     return left.name.localeCompare(right.name);
   });
 
@@ -222,7 +238,9 @@ export async function resolveFilePickerPath(
   basePath: string,
   query: string,
 ): Promise<string | null> {
-  if (query.length === 0) return null;
+  if (query.length === 0) {
+    return null;
+  }
   const candidate = path.isAbsolute(query) ? query : path.resolve(basePath, query);
   try {
     await fs.access(candidate);

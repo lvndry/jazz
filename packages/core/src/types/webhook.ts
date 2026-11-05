@@ -172,12 +172,16 @@ export function parseProgressEvents(
     .split(",")
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
-  if (named.length === 0) return { kinds: new Set(TOOL_PROGRESS_KINDS) };
+  if (named.length === 0) {
+    return { kinds: new Set(TOOL_PROGRESS_KINDS) };
+  }
 
   const kinds = new Set<ToolProgressKind>();
   for (const name of named) {
     const known = TOOL_PROGRESS_KINDS.find((kind) => kind === name);
-    if (known === undefined) return { unknownKind: name };
+    if (known === undefined) {
+      return { unknownKind: name };
+    }
     kinds.add(known);
   }
   return { kinds };
@@ -191,7 +195,9 @@ export function isLoopbackProgressUrl(raw: string): boolean {
   } catch {
     return false;
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return false;
+  }
   const host = url.hostname.toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
 }

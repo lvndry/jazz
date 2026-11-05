@@ -35,7 +35,9 @@ describe("readFirstStdinLine", () => {
       history: [{ role: "user", content: "日本語" }],
     });
     const firstLine = readFirstStdinLine(stream);
-    for (const byte of Buffer.from(`${frame}\n`)) stream.write(Buffer.from([byte]));
+    for (const byte of Buffer.from(`${frame}\n`)) {
+      stream.write(Buffer.from([byte]));
+    }
     expect(await firstLine).toBe(frame);
     stream.destroy();
   });
@@ -61,7 +63,9 @@ describe("readFirstStdinLine", () => {
     const stream = new PassThrough();
     const frame = JSON.stringify({ prompt: "👋" });
     const firstLine = readFirstStdinLine(stream);
-    for (const byte of Buffer.from(frame)) stream.write(Buffer.from([byte]));
+    for (const byte of Buffer.from(frame)) {
+      stream.write(Buffer.from([byte]));
+    }
     stream.end();
     expect(await firstLine).toBe(frame);
   });

@@ -78,7 +78,9 @@ export async function deliverDueReminders<Scope>(options: ReminderDelivery<Scope
       // Checked before anything is claimed: another bridge sharing this data directory owns the
       // reminders this one cannot address, and they are left for it.
       const scope = options.decodeScope(agentId);
-      if (scope === undefined) continue;
+      if (scope === undefined) {
+        continue;
+      }
       const claimed = await claimDueReminders(target.home, agentId, now, target.ownership);
       for (const reminder of claimed) {
         let outcome: DeliveryOutcome;
@@ -134,7 +136,9 @@ function reminderBody(reminderText: string, late: boolean): RichText {
 
 /** One sweep: deliver what is due now. Exported for tests; the bridge uses the interval. */
 export async function sweepRemindersOnce(options: ReminderSweepOptions): Promise<void> {
-  if (sweepRunning) return;
+  if (sweepRunning) {
+    return;
+  }
   sweepRunning = true;
   try {
     await deliverDueReminders({

@@ -207,7 +207,9 @@ function wizardSession() {
               lastUsedAgentId,
               previouslyOpenedId,
             );
-            if (selectedAgent === null) break;
+            if (selectedAgent === null) {
+              break;
+            }
             previouslyOpenedId = selectedAgent.id;
             const action = yield* showAgentActions(selectedAgent);
             switch (action) {
@@ -658,9 +660,9 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     const lastAt = (entry: ConversationEntry): number =>
       new Date(entry.lastMessageAt ?? entry.startedAt).getTime();
     entries.sort(
-      (a, b) =>
-        Number(waiting.has(b.conversationId)) - Number(waiting.has(a.conversationId)) ||
-        lastAt(b) - lastAt(a),
+      (left, right) =>
+        Number(waiting.has(right.conversationId)) - Number(waiting.has(left.conversationId)) ||
+        lastAt(right) - lastAt(left),
     );
     entries.splice(MAX_RESUME_CHOICES);
 
@@ -810,8 +812,8 @@ function promptNotificationsOnFirstRun(
     }
     if (detectedProviders.length > 0) {
       yield* terminal.success("Detected API keys from environment:");
-      for (const p of detectedProviders) {
-        yield* terminal.log(`   • ${p}`);
+      for (const provider of detectedProviders) {
+        yield* terminal.log(`   • ${provider}`);
       }
       yield* terminal.log("");
     } else {

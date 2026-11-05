@@ -37,7 +37,9 @@ function errorsOf(input: unknown): readonly string[] {
 describe("parseThemeFile", () => {
   it("resolves defs, xterm indices, and derived roles", () => {
     const result = parseThemeFile(file(), "test");
-    if (!result.ok) throw new Error(result.errors.join("; "));
+    if (!result.ok) {
+      throw new Error(result.errors.join("; "));
+    }
     const dark = result.theme.variants.dark;
     expect(result.theme.variants.light).toBeUndefined();
     expect(dark?.background).toBe("#0A0A0A");
@@ -55,7 +57,9 @@ describe("parseThemeFile", () => {
       }),
       "test",
     );
-    if (!result.ok) throw new Error(result.errors.join("; "));
+    if (!result.ok) {
+      throw new Error(result.errors.join("; "));
+    }
     expect(result.theme.variants.dark?.background).toBe("#0A0A0A");
     expect(result.theme.variants.light?.background).toBe("#FFFFFF");
     expect(result.theme.variants.light?.selected).toBe("#1A1A1A");
@@ -64,14 +68,18 @@ describe("parseThemeFile", () => {
 
   it("lets a role reference another role", () => {
     const result = parseThemeFile(file({ accentDim: "primary" }), "test");
-    if (!result.ok) throw new Error(result.errors.join("; "));
+    if (!result.ok) {
+      throw new Error(result.errors.join("; "));
+    }
     expect(result.theme.variants.dark?.accentDim).toBe("#00D7FF");
   });
 
   it("accepts transparent and none for the ground", () => {
     for (const value of ["transparent", "none"]) {
       const result = parseThemeFile(file({ background: value }), "test");
-      if (!result.ok) throw new Error(result.errors.join("; "));
+      if (!result.ok) {
+        throw new Error(result.errors.join("; "));
+      }
       expect(result.theme.variants.dark?.background).toBe(TRANSPARENT);
     }
   });
@@ -123,14 +131,18 @@ describe("parseThemeFile", () => {
     const input = file({}, { ground: { color: "#0a0a0a", xterm: 232 } });
     const truecolor = parseThemeFile(input, "test");
     const limited = parseThemeFile(input, "test", { xterm256: true });
-    if (!truecolor.ok || !limited.ok) throw new Error("expected both to parse");
+    if (!truecolor.ok || !limited.ok) {
+      throw new Error("expected both to parse");
+    }
     expect(truecolor.theme.variants.dark?.background).toBe("#0A0A0A");
     expect(limited.theme.variants.dark?.background).toBe(xtermIndexToHex(232));
   });
 
   it("works out the variant of a single-variant file from its ground", () => {
     const result = parseThemeFile(file({}, { ground: "#fbfbfb" }), "test");
-    if (!result.ok) throw new Error(result.errors.join("; "));
+    if (!result.ok) {
+      throw new Error(result.errors.join("; "));
+    }
     expect(Object.keys(result.theme.variants)).toEqual(["light"]);
   });
 });

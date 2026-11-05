@@ -34,7 +34,9 @@ export function sliceTerminalCells(text: string, maxCells: number): string {
   let result = "";
   for (const grapheme of terminalGraphemes(text)) {
     const width = terminalCellWidth(grapheme);
-    if (used + width > budget) break;
+    if (used + width > budget) {
+      break;
+    }
     result += grapheme;
     used += width;
   }
@@ -49,7 +51,9 @@ export function sliceTerminalCellsFromEnd(text: string, maxCells: number): strin
   for (let index = graphemes.length - 1; index >= 0; index -= 1) {
     const grapheme = graphemes[index] as string;
     const width = terminalCellWidth(grapheme);
-    if (used + width > budget) break;
+    if (used + width > budget) {
+      break;
+    }
     result = grapheme + result;
     used += width;
   }
@@ -58,9 +62,13 @@ export function sliceTerminalCellsFromEnd(text: string, maxCells: number): strin
 
 export function clipTerminalCells(text: string, maxCells: number, ellipsis = ELLIPSIS): string {
   const budget = Math.max(0, maxCells);
-  if (terminalCellWidth(text) <= budget) return text;
+  if (terminalCellWidth(text) <= budget) {
+    return text;
+  }
   const ellipsisWidth = terminalCellWidth(ellipsis);
-  if (budget <= ellipsisWidth) return sliceTerminalCells(text, budget);
+  if (budget <= ellipsisWidth) {
+    return sliceTerminalCells(text, budget);
+  }
   return `${sliceTerminalCells(text, budget - ellipsisWidth)}${ellipsis}`;
 }
 
@@ -70,9 +78,13 @@ export function clipTerminalCellsFromStart(
   ellipsis = ELLIPSIS,
 ): string {
   const budget = Math.max(0, maxCells);
-  if (terminalCellWidth(text) <= budget) return text;
+  if (terminalCellWidth(text) <= budget) {
+    return text;
+  }
   const ellipsisWidth = terminalCellWidth(ellipsis);
-  if (budget <= ellipsisWidth) return sliceTerminalCellsFromEnd(text, budget);
+  if (budget <= ellipsisWidth) {
+    return sliceTerminalCellsFromEnd(text, budget);
+  }
   return `${ellipsis}${sliceTerminalCellsFromEnd(text, budget - ellipsisWidth)}`;
 }
 
@@ -83,7 +95,9 @@ export function fitTerminalSegments<Segment extends TextSegment>(
   const fitted: Segment[] = [];
   let remaining = Math.max(0, maxCells);
   for (const segment of segments) {
-    if (remaining === 0) break;
+    if (remaining === 0) {
+      break;
+    }
     const width = terminalCellWidth(segment.text);
     if (width <= remaining) {
       fitted.push(segment);
@@ -91,7 +105,9 @@ export function fitTerminalSegments<Segment extends TextSegment>(
       continue;
     }
     const text = sliceTerminalCells(segment.text, remaining);
-    if (text.length > 0) fitted.push({ ...segment, text });
+    if (text.length > 0) {
+      fitted.push({ ...segment, text });
+    }
     break;
   }
   return fitted;
@@ -128,6 +144,8 @@ export function wrapTerminalCells(text: string, maxCells: number): string[] {
       breakUsed = used;
     }
   }
-  if (line.length > 0) lines.push(line.join(""));
+  if (line.length > 0) {
+    lines.push(line.join(""));
+  }
   return lines.length > 0 ? lines : [""];
 }

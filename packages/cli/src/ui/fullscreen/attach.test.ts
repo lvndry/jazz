@@ -12,6 +12,7 @@ import { expect, test } from "bun:test";
 import { mountFullscreenApp } from "./attach";
 import type { MountedRenderer } from "./mount";
 import { createTerminalOracle } from "./testing/terminal-oracle";
+import { viewAs } from "../../test-support/view-as";
 
 test("runtime errors hand off once after releasing the native renderer", async () => {
   const oracle = await createTerminalOracle({ width: 60, height: 20 });
@@ -82,7 +83,9 @@ test("partial setup releases acquisitions even when a listener cleanup throws", 
     requestRender: () => undefined,
     presentNativeScene: nativeWriter,
     on: (event: string, listener: () => void) => {
-      if (event === "handler:error") throw setupFailure;
+      if (event === "handler:error") {
+        throw setupFailure;
+      }
       listeners.set(event, listener);
     },
     off: (event: string) => {
@@ -97,7 +100,7 @@ test("partial setup releases acquisitions even when a listener cleanup throws", 
     const reported = await new Promise<unknown>((resolve) => {
       handle = mountFullscreenApp({
         mount: async (): Promise<MountedRenderer> => ({
-          renderer: backend as unknown as CliRenderer,
+          renderer: viewAs<CliRenderer>(backend),
           release: () => {
             releases++;
             restored = backend.presentNativeScene === nativeWriter;

@@ -350,7 +350,9 @@ export class JobQueueServiceImpl implements JobQueueService {
         JOB_BATCH_FILE_KIND,
         { onCorrupt: "fail" },
       );
-      if (active !== undefined) return active;
+      if (active !== undefined) {
+        return active;
+      }
       return (
         (yield* readStateFile(
           archivedBatchFilePath(baseJobBatchDirectory, agentId, batchId),
@@ -368,7 +370,9 @@ export class JobQueueServiceImpl implements JobQueueService {
       const fs = yield* FileSystem.FileSystem;
       const agentDir = agentDirectory(baseJobBatchDirectory, agentId);
       const exists = yield* fs.exists(agentDir).pipe(Effect.catch(() => Effect.succeed(false)));
-      if (!exists) return [];
+      if (!exists) {
+        return [];
+      }
 
       const names = yield* fs
         .readDirectory(agentDir)
@@ -380,7 +384,9 @@ export class JobQueueServiceImpl implements JobQueueService {
       const batches: JobBatchRecord[] = [];
       for (const batchId of batchIds) {
         const batch = yield* peekBatchFile(batchFilePath(baseJobBatchDirectory, agentId, batchId));
-        if (batch !== null && batch !== "corrupt") batches.push(batch);
+        if (batch !== null && batch !== "corrupt") {
+          batches.push(batch);
+        }
       }
       return batches.sort((left, right) => right.createdAt - left.createdAt);
     });
@@ -465,7 +471,9 @@ export function listAgentIdsWithActiveBatches(
     const exists = yield* fs
       .exists(baseJobBatchDirectory)
       .pipe(Effect.catch(() => Effect.succeed(false)));
-    if (!exists) return [];
+    if (!exists) {
+      return [];
+    }
 
     const names = yield* fs
       .readDirectory(baseJobBatchDirectory)
@@ -512,14 +520,22 @@ export function nextClaimableAt(
 
     let soonest: number | null = null;
     for (const name of names) {
-      if (!name.endsWith(".json")) continue;
+      if (!name.endsWith(".json")) {
+        continue;
+      }
       const batchId = name.slice(0, -".json".length);
       const batch = yield* peekBatchFile(batchFilePath(baseJobBatchDirectory, agentId, batchId));
-      if (batch === null || batch === "corrupt" || batch.completedAt !== null) continue;
+      if (batch === null || batch === "corrupt" || batch.completedAt !== null) {
+        continue;
+      }
 
       for (const job of batch.jobs) {
-        if (job.status !== "pending") continue;
-        if (soonest === null || job.nextAttemptAt < soonest) soonest = job.nextAttemptAt;
+        if (job.status !== "pending") {
+          continue;
+        }
+        if (soonest === null || job.nextAttemptAt < soonest) {
+          soonest = job.nextAttemptAt;
+        }
       }
     }
 
@@ -539,7 +555,9 @@ export function claimDueJobs(
     const fs = yield* FileSystem.FileSystem;
     const agentDir = agentDirectory(baseJobBatchDirectory, agentId);
     const exists = yield* fs.exists(agentDir).pipe(Effect.catch(() => Effect.succeed(false)));
-    if (!exists) return [];
+    if (!exists) {
+      return [];
+    }
 
     const names = yield* fs
       .readDirectory(agentDir)
@@ -550,7 +568,9 @@ export function claimDueJobs(
 
     const claimed: ClaimedJob[] = [];
     for (const batchId of batchIds) {
-      if (claimed.length >= count) break;
+      if (claimed.length >= count) {
+        break;
+      }
       const remaining = count - claimed.length;
 
       const claimedInBatch = yield* withLock(
@@ -558,7 +578,9 @@ export function claimDueJobs(
         Effect.gen(function* () {
           const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
           const batch = yield* readBatchFile(filePath);
-          if (batch === null || batch.completedAt !== null) return [] as ClaimedJob[];
+          if (batch === null || batch.completedAt !== null) {
+            return [] as ClaimedJob[];
+          }
 
           const currentlyRunning = batch.jobs.filter((job) => job.status === "running").length;
           const batchBudget = Math.max(0, batch.concurrencyCap - currentlyRunning);
@@ -685,8 +707,9 @@ export function completeJob(
       Effect.gen(function* () {
         const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
         const batch = yield* readBatchFile(filePath);
-        if (batch === null)
+        if (batch === null) {
           return { batchNowComplete: false, batch: null } satisfies CompleteJobResult;
+        }
 
         const now = Date.now();
         const wasAlreadyComplete = batch.completedAt !== null;
@@ -936,7 +959,9 @@ export function listUndeliveredAgentBatches(
     }).pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     const due: JobBatchRecord[] = [];
     for (const name of names) {
-      if (!name.endsWith(".json")) continue;
+      if (!name.endsWith(".json")) {
+        continue;
+      }
       const batchId = name.slice(0, -".json".length);
       const batch = yield* peekBatchFile(batchFilePath(baseJobBatchDirectory, agentId, batchId));
       if (batch !== null && batch !== "corrupt" && fanInClaimable(batch, now, chatAttachments)) {
@@ -1209,17 +1234,23 @@ export function reclaimExpiredLeases(
           unlockedPeek !== "corrupt" &&
           unlockedPeek.completedAt === null &&
           unlockedPeek.jobs.some((job) => isLeaseAbandoned(batchId, job, now));
-        if (!peekHasExpiredLease) continue;
+        if (!peekHasExpiredLease) {
+          continue;
+        }
 
         const completion = yield* withLock(
           batchLockPath(baseJobBatchDirectory, agentId, batchId),
           Effect.gen(function* () {
             const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
             const batch = yield* readBatchFile(filePath);
-            if (batch === null || batch.completedAt !== null) return null;
+            if (batch === null || batch.completedAt !== null) {
+              return null;
+            }
 
             const expired = batch.jobs.filter((job) => isLeaseAbandoned(batchId, job, now));
-            if (expired.length === 0) return null;
+            if (expired.length === 0) {
+              return null;
+            }
 
             const jobs = batch.jobs.map((job) =>
               isLeaseAbandoned(batchId, job, now)
@@ -1249,7 +1280,9 @@ export function reclaimExpiredLeases(
           }),
         ).pipe(Effect.catch(() => Effect.succeed(null)));
 
-        if (completion !== null) newlyCompleted.push(completion);
+        if (completion !== null) {
+          newlyCompleted.push(completion);
+        }
       }
     }
 

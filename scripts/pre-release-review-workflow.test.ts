@@ -44,20 +44,25 @@ const workflow = Bun.YAML.parse(
 ) as ReviewWorkflow;
 const directories: string[] = [];
 afterEach(() => {
-  for (const directory of directories.splice(0))
+  for (const directory of directories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 function step(job: WorkflowJob, name: string): WorkflowStep {
   const result = job.steps.find((candidate) => candidate.name === name);
-  if (result === undefined) throw new Error(`Missing workflow step: ${name}`);
+  if (result === undefined) {
+    throw new Error(`Missing workflow step: ${name}`);
+  }
   return result;
 }
 
 function inlineNode(name: string): string {
   const source = step(workflow.jobs.review, name).run ?? "";
   const match = /node --input-type=module <<'NODE'\n([\s\S]*?)\nNODE(?:\n|$)/.exec(source);
-  if (match?.[1] === undefined) throw new Error(`Missing inline Node reader: ${name}`);
+  if (match?.[1] === undefined) {
+    throw new Error(`Missing inline Node reader: ${name}`);
+  }
   return match[1];
 }
 

@@ -290,9 +290,13 @@ export function registerPeerTools(): Effect.Effect<void, Error, ToolRegistry | A
     const registerTool = registry.registerForCategory(PEERS_CATEGORY);
 
     const askPeerTool = createAskPeerTool(peers);
-    if (askPeerTool !== undefined) yield* registerTool(askPeerTool);
+    if (askPeerTool !== undefined) {
+      yield* registerTool(askPeerTool);
+    }
 
-    if (peers.length > 0) yield* registerTool(createRequestClarificationTool());
+    if (peers.length > 0) {
+      yield* registerTool(createRequestClarificationTool());
+    }
   });
 }
 

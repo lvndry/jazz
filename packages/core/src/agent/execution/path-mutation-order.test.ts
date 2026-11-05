@@ -5,6 +5,7 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
+import { partialFake, withoutServices } from "@/core/test-support/fakes";
 import type { ToolCall } from "@/core/types/tools";
 import { earlierCallsOnSamePaths, resolveMutatedPaths } from "./path-mutation-order";
 import { ToolBatchLedger } from "./tool-batch-ledger";
@@ -14,11 +15,11 @@ import { silentLogger } from "../test-logger";
 
 describe("resolveMutatedPaths", () => {
   const context = { agentId: "agent-1", conversationId: "c" };
-  const fileSystemContext = {
+  const fileSystemContext = partialFake<FileSystemContextService>({
     getCwd: () => Effect.succeed("/work"),
     resolvePath: (_key: unknown, rawPath: string) =>
       Effect.succeed(rawPath.startsWith("/") ? rawPath : `/work/${rawPath}`),
-  } as unknown as FileSystemContextService;
+  });
 
   const resolve = (toolName: string, args: Record<string, unknown>) =>
     Effect.runPromise(
@@ -97,9 +98,9 @@ describe("earlierCallsOnSamePaths", () => {
 });
 
 describe("ToolExecutor.executeToolCalls path ordering", () => {
-  const pathResolver = {
+  const pathResolver = partialFake<FileSystemContextService>({
     resolvePath: (_key: unknown, rawPath: string) => Effect.succeed(rawPath),
-  } as unknown as FileSystemContextService;
+  });
 
   function pathCall(id: string, name: string, args: Record<string, string>): ToolCall {
     return { id, type: "function", function: { name, arguments: JSON.stringify(args) } };
@@ -107,7 +108,7 @@ describe("ToolExecutor.executeToolCalls path ordering", () => {
 
   function runBatch(toolCalls: ToolCall[], ledger?: ToolBatchLedger, sleepMillis = 30) {
     const events: string[] = [];
-    const registry = {
+    const registry = partialFake<ToolRegistry>({
       getTool: (name: string) => Effect.succeed({ name, timeoutMs: 5000 }),
       executeTool: (name: string, args: Record<string, string>) =>
         Effect.gen(function* () {
@@ -117,8 +118,8 @@ describe("ToolExecutor.executeToolCalls path ordering", () => {
           events.push(`end ${label}`);
           return { success: true, result: label };
         }),
-    } as unknown as ToolRegistry;
-    const presentation = {
+    });
+    const presentation = partialFake<PresentationService>({
       formatToolsDetected: () => Effect.succeed(""),
       writeOutput: () => Effect.void,
       writeBlankLine: () => Effect.void,
@@ -127,44 +128,46 @@ describe("ToolExecutor.executeToolCalls path ordering", () => {
       formatToolResult: () => "",
       formatToolExecutionError: () => Effect.succeed(""),
       signalToolExecutionStarted: () => Effect.void,
-    } as unknown as PresentationService;
+    });
     const layer = Layer.mergeAll(
       Layer.succeed(ToolRegistryTag, registry),
       Layer.succeed(PresentationServiceTag, presentation),
       Layer.succeed(LoggerServiceTag, silentLogger),
-      Layer.succeed(AgentConfigServiceTag, {
-        appConfig: Effect.succeed({}),
-      } as unknown as AgentConfigService),
+      Layer.succeed(
+        AgentConfigServiceTag,
+        partialFake<AgentConfigService>({
+          appConfig: Effect.succeed({}),
+        }),
+      ),
       Layer.succeed(FileSystem.FileSystem, {} as FileSystem.FileSystem),
       Layer.succeed(FileSystemContextServiceTag, pathResolver),
     );
     const outcomes = Effect.runPromise(
-      ToolExecutor.executeToolCalls(
-        toolCalls,
-        { agentId: "a", conversationId: "c", unrestrictedTools: true },
-        { showReasoning: false, showToolExecution: false, mode: "hybrid" },
-        null,
-        createAgentRunMetrics({
-          agent: {
-            id: "a",
-            name: "a",
-            config: { persona: "default", llm: { provider: "openai", model: "m" } },
-          },
-          conversationId: "c",
-          provider: "openai",
-          model: "m",
-        } as never),
-        "a",
-        "c",
-        "a",
-        undefined,
-        undefined,
-        undefined,
-        ledger,
-      ).pipe(Effect.provide(layer)) as unknown as Effect.Effect<
-        readonly { toolCallId: string }[],
-        Error
-      >,
+      withoutServices(
+        ToolExecutor.executeToolCalls(
+          toolCalls,
+          { agentId: "a", conversationId: "c", unrestrictedTools: true },
+          { showReasoning: false, showToolExecution: false, mode: "hybrid" },
+          null,
+          createAgentRunMetrics({
+            agent: {
+              id: "a",
+              name: "a",
+              config: { persona: "default", llm: { provider: "openai", model: "m" } },
+            },
+            conversationId: "c",
+            provider: "openai",
+            model: "m",
+          } as never),
+          "a",
+          "c",
+          "a",
+          undefined,
+          undefined,
+          undefined,
+          ledger,
+        ).pipe(Effect.provide(layer)),
+      ),
     );
     return { events, outcomes };
   }

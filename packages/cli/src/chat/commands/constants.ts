@@ -433,10 +433,16 @@ export function getPluginCommandNames(): ReadonlySet<string> {
  * the picker should get out of the way.
  */
 export function slashCommandQuery(text: string): string | null {
-  if (!text.startsWith("/")) return null;
-  if (text.includes("\n")) return null;
+  if (!text.startsWith("/")) {
+    return null;
+  }
+  if (text.includes("\n")) {
+    return null;
+  }
   const rest = text.slice(1);
-  if (/\s/.test(rest)) return null;
+  if (/\s/.test(rest)) {
+    return null;
+  }
   return rest;
 }
 

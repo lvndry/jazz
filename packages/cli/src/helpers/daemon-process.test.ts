@@ -8,8 +8,11 @@ describe("daemonPidPath", () => {
     try {
       expect(daemonPidPath(4747)).toBe("/tmp/jazz-home-test/daemon-4747.pid");
     } finally {
-      if (previous === undefined) delete process.env["JAZZ_HOME"];
-      else process.env["JAZZ_HOME"] = previous;
+      if (previous === undefined) {
+        delete process.env["JAZZ_HOME"];
+      } else {
+        process.env["JAZZ_HOME"] = previous;
+      }
     }
   });
 });

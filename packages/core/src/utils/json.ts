@@ -50,7 +50,8 @@ export function extractJsonObject(content: string, requiredKey: string): unknown
       continue;
     }
     try {
-      return JSON.parse(candidate) as unknown;
+      const parsedCandidate: unknown = JSON.parse(candidate);
+      return parsedCandidate;
     } catch {
       // Not the whole value; fall through to the next form.
     }
@@ -63,7 +64,7 @@ export function extractJsonObject(content: string, requiredKey: string): unknown
     start = start === 0 ? -1 : trimmed.lastIndexOf("{", start - 1)
   ) {
     try {
-      const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown;
+      const parsed: unknown = JSON.parse(trimmed.slice(start, end + 1));
       if (typeof parsed === "object" && parsed !== null && requiredKey in parsed) {
         return parsed;
       }

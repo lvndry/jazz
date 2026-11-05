@@ -53,16 +53,22 @@ export function safeRunLogFields(
   const fields: Record<string, unknown> = {};
   for (const key of NUMBER_FIELDS) {
     const value = event[key];
-    if (typeof value === "number" && Number.isFinite(value)) fields[key] = value;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      fields[key] = value;
+    }
   }
   for (const key of BOOLEAN_FIELDS) {
     const value = event[key];
-    if (typeof value === "boolean") fields[key] = value;
+    if (typeof value === "boolean") {
+      fields[key] = value;
+    }
   }
   if (Array.isArray(event["toolNames"])) {
     fields["toolCount"] = event["toolNames"].length;
   }
-  if (typeof event["error"] === "string") fields["hasError"] = true;
+  if (typeof event["error"] === "string") {
+    fields["hasError"] = true;
+  }
   return fields;
 }
 
@@ -166,7 +172,9 @@ export function createRunLog(
   let broken = false;
   let closed = false;
   const append = (record: Record<string, unknown>): void => {
-    if (broken || closed) return;
+    if (broken || closed) {
+      return;
+    }
     try {
       writeSync(descriptor, `${JSON.stringify(record)}\n`);
     } catch {
@@ -188,7 +196,9 @@ export function createRunLog(
   });
 
   const flush = (): void => {
-    if (pending === undefined) return;
+    if (pending === undefined) {
+      return;
+    }
     const { type, chunks, characters, firstMs } = pending;
     pending = undefined;
     append({

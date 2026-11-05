@@ -111,7 +111,11 @@ export function mergeSuggestions<Command extends SuggestionEntry, Mention extend
   commands: readonly Command[],
   mentions: readonly Mention[],
 ): SuggestionMenu<Command | Mention> | undefined {
-  if (commands.length > 0) return { items: commands, prefix: "/" };
-  if (mentions.length > 0) return { items: mentions, prefix: "@" };
+  if (commands.length > 0) {
+    return { items: commands, prefix: "/" };
+  }
+  if (mentions.length > 0) {
+    return { items: mentions, prefix: "@" };
+  }
   return undefined;
 }

@@ -1,9 +1,10 @@
 /** Provider key probes distinguish invalid credentials from endpoint permissions. */
 import { describe, expect, it } from "bun:test";
 import { checkApiKey } from "./api-key-check";
+import { fakeFetch } from "../test-support/fakes";
 
 function answering(status: number): typeof fetch {
-  return (async () => new Response("{}", { status })) as unknown as typeof fetch;
+  return fakeFetch(async () => new Response("{}", { status }));
 }
 
 describe("checkApiKey", () => {
@@ -18,9 +19,9 @@ describe("checkApiKey", () => {
   });
 
   it("leaves the key unchecked on other statuses, network errors, and unknown providers", async () => {
-    const failing = (async () => {
+    const failing = fakeFetch(async () => {
       throw new Error("offline");
-    }) as unknown as typeof fetch;
+    });
     expect(await checkApiKey("openai", "sk", answering(500))).toBe("unchecked");
     expect(await checkApiKey("openai", "sk", failing)).toBe("unchecked");
     expect(await checkApiKey("ollama", "sk", answering(401))).toBe("unchecked");
@@ -28,10 +29,10 @@ describe("checkApiKey", () => {
 
   it("sends the key the way the provider expects it", async () => {
     const seen: Record<string, string>[] = [];
-    const recording = (async (_url: string, init?: RequestInit) => {
+    const recording = fakeFetch(async (_url: string, init?: RequestInit) => {
       seen.push(init?.headers as Record<string, string>);
       return new Response("{}", { status: 200 });
-    }) as unknown as typeof fetch;
+    });
     await checkApiKey("openai", "sk-1", recording);
     await checkApiKey("anthropic", "sk-2", recording);
     expect(seen[0]?.["Authorization"]).toBe("Bearer sk-1");

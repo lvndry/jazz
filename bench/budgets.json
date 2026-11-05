@@ -3,7 +3,14 @@
   "latencyNoiseMs": 0.5,
   "binaryRelativeAllowance": 0.05,
   "binaryNoiseBytes": 1048576,
-  "binaryMaxBytes": 209715200,
+  "binaryTargets": {
+    "linux-x64": { "maxBytes": 229000000, "gzipMaxBytes": 101000000 },
+    "linux-x64-musl": null,
+    "linux-arm64": null,
+    "linux-arm64-musl": null,
+    "darwin-x64": null,
+    "darwin-arm64": null
+  },
   "absolute": [
     {
       "suite": "filesystem-config-models",

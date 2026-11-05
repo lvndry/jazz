@@ -497,7 +497,9 @@ export class AgentServiceImpl implements AgentService {
 
       for (const field of ["numCtx", "maxContextTokens"] as const) {
         const value: unknown = config.llm[field];
-        if (value === undefined || value === null) continue;
+        if (value === undefined || value === null) {
+          continue;
+        }
         if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
           return yield* Effect.fail(
             new AgentConfigurationError({

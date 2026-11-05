@@ -15,7 +15,9 @@ export function emitTelemetry(
 ): Effect.Effect<void> {
   return Effect.flatMap(Effect.context<never>(), (context) => {
     const maybeTelemetry = Context.getOption(context, TelemetryServiceTag);
-    if (maybeTelemetry._tag === "None") return Effect.void;
+    if (maybeTelemetry._tag === "None") {
+      return Effect.void;
+    }
     // `Effect.suspend` brings a synchronous throw from `emit` itself into the
     // effect as a defect, so `catchAllDefect` can absorb it along with any
     // defect raised while running.

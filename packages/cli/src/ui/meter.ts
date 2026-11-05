@@ -18,7 +18,9 @@ export const CONTEXT_ERROR_PERCENT = CONTEXT_TRIM_THRESHOLD_RATIO * 100;
 
 /** Whole percent of `max` that `used` covers, clamped to 0–100. */
 export function contextPercent(used: number, max: number): number {
-  if (!(max > 0)) return 0;
+  if (!(max > 0)) {
+    return 0;
+  }
   return Math.min(100, Math.max(0, Math.round((used / max) * 100)));
 }
 

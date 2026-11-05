@@ -361,12 +361,14 @@ describe("footer hints", () => {
     expect(hintsFor("transcript", false)).toEqual(["ctrl+f to search"]);
     expect(hintsFor("input", true, true)).toEqual([
       "enter to queue",
+      "tab to queue after turn",
       "esc esc to interrupt",
       "ctrl+r for reasoning",
     ]);
     expect(hintsFor("input", true, true, undefined, false, true)).toEqual([
       "ctrl+enter to send all",
       "enter to queue",
+      "tab to queue after turn",
       "up to recall",
       "ctrl+x to clear",
     ]);

@@ -278,7 +278,9 @@ function todoPanelRows(
   maxRows: number,
   tick = 0,
 ): LiveRow[] {
-  if (todos.length === 0 || maxRows <= 0) return [];
+  if (todos.length === 0 || maxRows <= 0) {
+    return [];
+  }
 
   const { label, progress } = planProgress(todos);
   const header = alignRow(
@@ -291,7 +293,9 @@ function todoPanelRows(
   // One row for the header; the rest of the budget goes to items, capped so
   // the band never asks for more than the window it actually slides.
   const itemSlots = Math.max(0, Math.min(TODO_WINDOW_ROWS, maxRows - 1));
-  if (itemSlots === 0) return [header];
+  if (itemSlots === 0) {
+    return [header];
+  }
 
   const { start, items, overflow } = planWindow(todos, itemSlots);
   const itemRows = items.map((todo, index) =>
@@ -405,7 +409,9 @@ export function liveRows(
 ): readonly LiveRow[] {
   const width = Math.max(1, viewport.width);
   const capacity = reservedHeight(model, maxRows);
-  if (capacity === 0) return [];
+  if (capacity === 0) {
+    return [];
+  }
 
   // The todo checklist, when present, is the plan made visible: it earns the
   // band's room ahead of the (redundant) manage_todos tool row. The step row is
@@ -426,9 +432,13 @@ export function liveRows(
   let showWaiting = model.waiting !== undefined && !streaming && retry.length === 0;
   let showStep = model.step !== undefined && !showTodo;
   while ((showWaiting ? 1 : 0) + (showStep ? 1 : 0) + Math.min(demand, 1) > capacity) {
-    if (showWaiting) showWaiting = false;
-    else if (showStep) showStep = false;
-    else break;
+    if (showWaiting) {
+      showWaiting = false;
+    } else if (showStep) {
+      showStep = false;
+    } else {
+      break;
+    }
   }
 
   // The adapter may already have collapsed some tools; if so the summary row is
@@ -472,16 +482,26 @@ export function liveRows(
     );
   }
   rows.push(...todoPanel);
-  for (const tool of shown) rows.push({ ...toolRow(tool, tick, glyphs, width), tool });
-  if (hiddenNames.length > 0) rows.push(overflowRow(hiddenNames, glyphs, width));
+  for (const tool of shown) {
+    rows.push({ ...toolRow(tool, tick, glyphs, width), tool });
+  }
+  if (hiddenNames.length > 0) {
+    rows.push(overflowRow(hiddenNames, glyphs, width));
+  }
 
   return rows;
 }
 
 function liveBandAnimates(model: LiveModel, streaming: boolean, maxRows?: number): boolean {
-  if (reservedHeight(model, maxRows) === 0) return false;
-  if (model.tools.length > 0) return true;
-  if (model.todoList?.some((todo) => todo.status === "in_progress") === true) return true;
+  if (reservedHeight(model, maxRows) === 0) {
+    return false;
+  }
+  if (model.tools.length > 0) {
+    return true;
+  }
+  if (model.todoList?.some((todo) => todo.status === "in_progress") === true) {
+    return true;
+  }
   return model.waiting !== undefined && !streaming;
 }
 
@@ -500,7 +520,9 @@ function LiveZoneView({ model, viewport, streaming, maxRows }: LiveZoneProps): R
   const animate = liveBandAnimates(model, streamingNow, maxRows);
 
   useEffect(() => {
-    if (!animate) return;
+    if (!animate) {
+      return;
+    }
     const timer = setInterval(() => {
       setTick((value) => value + 1);
     }, MOTION.indicator);
@@ -514,7 +536,9 @@ function LiveZoneView({ model, viewport, streaming, maxRows }: LiveZoneProps): R
   // rows back. Note this is keyed on the reservation rather than on the rows,
   // so the gap between one tool finishing and the next starting holds its
   // height instead of blinking the input down and back up.
-  if (height === 0) return null;
+  if (height === 0) {
+    return null;
+  }
 
   return (
     <box

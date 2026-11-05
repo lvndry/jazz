@@ -26,6 +26,7 @@ import { pickThemeInteractively } from "../theme-picker-prompt";
 import { APPROVAL_ARM_MS, flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
 import { frameWhen, renderForTest, updateForTest } from "./test-helpers";
 import { LIVE_ZONE_MAX_ROWS } from "./types";
+import { partialFake } from "../../test-support/partial-fake";
 
 /**
  * Paints the frame after a simulated key.
@@ -141,7 +142,9 @@ describe("fullscreen bridge", () => {
     const text = await frame();
     const rows = text.split("\n").filter((row) => row.length > 0);
     expect(rows).toHaveLength(HEIGHT);
-    for (const row of rows) expect([...row]).toHaveLength(WIDTH);
+    for (const row of rows) {
+      expect([...row]).toHaveLength(WIDTH);
+    }
   });
 
   it("puts the active agent, model and context meter in the header from run stats", async () => {
@@ -393,7 +396,9 @@ describe("fullscreen bridge", () => {
       withHandler: boolean,
     ): Promise<string> =>
       frame(() => {
-        if (withHandler) store.setBackgroundHandler(() => {});
+        if (withHandler) {
+          store.setBackgroundHandler(() => {});
+        }
         store.setActivity({
           phase: "tool-execution",
           agentName: "jazz",
@@ -405,7 +410,9 @@ describe("fullscreen bridge", () => {
           })),
         });
       }).finally(() => {
-        if (withHandler) store.setBackgroundHandler(null);
+        if (withHandler) {
+          store.setBackgroundHandler(null);
+        }
       });
 
     it("offers ctrl+b once a call has run past the delay", async () => {
@@ -916,7 +923,7 @@ describe("fullscreen bridge", () => {
     expect(rendered.captureCharFrame()).toContain("1 queued");
     expect(rendered.captureCharFrame()).toContain("follow up");
     expect(rendered.captureCharFrame()).toContain("enter to queue");
-    expect(store.getMessageQueueSnapshot()).toEqual(["follow up"]);
+    expect(store.getMessageQueueSnapshot()).toEqual([{ text: "follow up", lane: "steer" }]);
 
     rendered.mockInput.pressKey("ARROW_UP");
     await settleKeypress(rendered.flush);
@@ -935,6 +942,28 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
   });
 
+  it("queues the draft as a follow-up on Tab, held back from the running turn", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    store.setChatBusy(true);
+    await rendered.flush();
+    store.registerImmediateCommandRunner(() => false);
+
+    await typeInto(rendered.mockInput, rendered.flush, "then summarize");
+    rendered.mockInput.pressTab();
+    await settleKeypress(rendered.flush);
+    const frame = rendered.captureCharFrame();
+    const steering = store.takeQueuedProse();
+    const snapshot = store.getMessageQueueSnapshot();
+    rendered.renderer.destroy();
+    store.clearQueue();
+    store.setChatBusy(false);
+
+    expect(frame).toContain("after this turn");
+    expect(steering).toEqual([]);
+    expect(snapshot).toEqual([{ text: "then summarize", lane: "followup" }]);
+  });
+
   it("answers a read-only command in a centered panel mid-turn instead of queueing it", async () => {
     const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
@@ -946,7 +975,9 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
     const ran: string[] = [];
     store.registerImmediateCommandRunner((text) => {
-      if (text !== "/info") return false;
+      if (text !== "/info") {
+        return false;
+      }
       ran.push(text);
       const panelId = store.beginCommandPanel();
       store.appendCommandPanel(panelId, text, {
@@ -993,7 +1024,7 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush);
     rendered.renderer.destroy();
 
-    expect(store.getMessageQueueSnapshot()).toEqual(["/compact now"]);
+    expect(store.getMessageQueueSnapshot()).toEqual([{ text: "/compact now", lane: "steer" }]);
   });
 
   it("keeps the composer enabled after the chat prompt resolves while a queue is shown", async () => {
@@ -2287,7 +2318,9 @@ describe("fullscreen bridge", () => {
         ],
       },
       (result) => {
-        if (result.kind === "select") selected.push(result.value);
+        if (result.kind === "select") {
+          selected.push(result.value);
+        }
       },
     );
     await rendered.flush();
@@ -2458,10 +2491,10 @@ describe("fullscreen bridge", () => {
 
   it("drains buffered stdin so a pending Enter cannot land on a new card", () => {
     const leftover: Array<string | Buffer> = ["\r", "a"];
-    const stdin = {
+    const stdin = partialFake<NodeJS.ReadStream>({
       readable: true,
       read: () => leftover.shift() ?? null,
-    } as unknown as NodeJS.ReadStream;
+    });
     flushPendingTerminalKeys(stdin);
     expect(leftover).toEqual([]);
   });
@@ -2905,8 +2938,11 @@ describe("fullscreen bridge", () => {
       });
       await rendered.flush();
       await afterArming(rendered.flush);
-      if (typeof key === "string") rendered.mockInput.pressKey(key);
-      else rendered.mockInput.pressKey("a", key);
+      if (typeof key === "string") {
+        rendered.mockInput.pressKey(key);
+      } else {
+        rendered.mockInput.pressKey("a", key);
+      }
       await settleKeypress(rendered.flush);
 
       rendered.renderer.destroy();
@@ -2940,8 +2976,11 @@ describe("fullscreen bridge", () => {
       await rendered.flush();
       await typeInto(rendered.mockInput, rendered.flush, "queued");
 
-      if (typeof key === "string") rendered.mockInput.pressKey(key);
-      else rendered.mockInput.pressKey(key.name, { ctrl: key.ctrl });
+      if (typeof key === "string") {
+        rendered.mockInput.pressKey(key);
+      } else {
+        rendered.mockInput.pressKey(key.name, { ctrl: key.ctrl });
+      }
       await settleKeypress(rendered.flush);
       const frame = rendered.captureCharFrame();
 
@@ -2974,8 +3013,11 @@ describe("fullscreen bridge", () => {
       });
       await rendered.renderOnce();
       const pressCtrlC = async (): Promise<void> => {
-        if (typeof key === "string") rendered.mockInput.pressKey(key);
-        else rendered.mockInput.pressKey(key.name, { ctrl: key.ctrl });
+        if (typeof key === "string") {
+          rendered.mockInput.pressKey(key);
+        } else {
+          rendered.mockInput.pressKey(key.name, { ctrl: key.ctrl });
+        }
       };
 
       await pressCtrlC();
@@ -3094,8 +3136,11 @@ describe("fullscreen bridge", () => {
       await rendered.flush();
       await typeInto(rendered.mockInput, rendered.flush, "queued");
 
-      if (typeof key === "string") rendered.mockInput.pressKey(key);
-      else rendered.mockInput.pressKey(key.name, key);
+      if (typeof key === "string") {
+        rendered.mockInput.pressKey(key);
+      } else {
+        rendered.mockInput.pressKey(key.name, key);
+      }
       await settleKeypress(rendered.flush);
       const frame = rendered.captureCharFrame();
 
@@ -3141,7 +3186,10 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
     rendered.renderer.destroy();
 
-    expect(queue).toEqual(["first", "second"]);
+    expect(queue).toEqual([
+      { text: "first", lane: "steer" },
+      { text: "second", lane: "steer" },
+    ]);
     expect(flushRequested).toBe(true);
     expect(interrupted).toBe(1);
   });
@@ -3198,8 +3246,11 @@ describe("fullscreen bridge", () => {
       await rendered.renderOnce();
       store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
       await rendered.flush();
-      if (typeof key === "string") rendered.mockInput.pressKey(key);
-      else rendered.mockInput.pressKey(key.name, key);
+      if (typeof key === "string") {
+        rendered.mockInput.pressKey(key);
+      } else {
+        rendered.mockInput.pressKey(key.name, key);
+      }
       await settleKeypress(rendered.flush);
 
       process.kill = originalKill;
@@ -3742,7 +3793,9 @@ describe("fullscreen bridge", () => {
         },
       ]) {
         const { outputs } = reduceEvent(accumulator, event);
-        for (const entry of outputs) store.printOutput(entry);
+        for (const entry of outputs) {
+          store.printOutput(entry);
+        }
       }
     }
 
@@ -3779,7 +3832,9 @@ describe("fullscreen bridge", () => {
           },
         ]) {
           const { outputs } = reduceEvent(accumulator, event);
-          for (const entry of outputs) store.printOutput(entry);
+          for (const entry of outputs) {
+            store.printOutput(entry);
+          }
         }
       });
       expect(text).toContain("view_memory");

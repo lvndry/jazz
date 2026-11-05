@@ -48,8 +48,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-  else process.env["JAZZ_HOME"] = previousHome;
+  if (previousHome === undefined) {
+    delete process.env["JAZZ_HOME"];
+  } else {
+    process.env["JAZZ_HOME"] = previousHome;
+  }
   await nodeFs.rm(jazzHome, { recursive: true, force: true });
 });
 
@@ -195,7 +198,9 @@ function fakeConfigLayer(initialPeers: readonly PeerConfig[] = []) {
     has: () => Effect.succeed(false),
     set: <A>(key: string, value: A) =>
       Effect.sync(() => {
-        if (key === "peers") peers = value as unknown as readonly PeerConfig[];
+        if (key === "peers" && Array.isArray(value)) {
+          peers = value;
+        }
         revision += 1;
       }),
     revision: Effect.sync(() => revision),
@@ -219,7 +224,9 @@ describe("acceptInviteOnInviterSide", () => {
       ).pipe(Effect.provide(layer)),
     );
 
-    if (outcome.kind !== "ok") throw new Error(`expected ok, got ${outcome.kind}`);
+    if (outcome.kind !== "ok") {
+      throw new Error(`expected ok, got ${outcome.kind}`);
+    }
     expect(outcome.inviterAskUrl).toEqual(CREATE_INPUT.inviterAskUrl);
     expect(outcome.token).toMatch(/^[0-9a-f]{48}$/);
 
@@ -242,7 +249,9 @@ describe("acceptInviteOnInviterSide", () => {
       ).pipe(Effect.provide(layer)),
     );
 
-    if (outcome.kind !== "ok") throw new Error(`expected ok, got ${outcome.kind}`);
+    if (outcome.kind !== "ok") {
+      throw new Error(`expected ok, got ${outcome.kind}`);
+    }
     expect(currentPeers()).toEqual([{ name: "alice", disclosure: "internal" }]);
   });
 

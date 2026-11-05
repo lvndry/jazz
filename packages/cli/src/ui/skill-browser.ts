@@ -26,7 +26,9 @@ export function filterSkills(
   query: string,
 ): readonly SkillMetadata[] {
   const terms = skillLine(query).toLowerCase().split(" ").filter(Boolean);
-  if (terms.length === 0) return skills;
+  if (terms.length === 0) {
+    return skills;
+  }
   return skills.filter((skill) => {
     const haystack =
       `${skill.name} ${skillSourceLabel(skill.source)} ${skill.description}`.toLowerCase();
@@ -49,7 +51,9 @@ export function skillDetailRows(skill: SkillMetadata, width: number): readonly S
     ...(skill.path === "" ? [] : [["Location", skillLine(skill.path)]]),
   ] as const;
   for (const [heading, value] of sections) {
-    if (rows.length > 0) rows.push({ text: "", heading: false });
+    if (rows.length > 0) {
+      rows.push({ text: "", heading: false });
+    }
     rows.push({ text: heading, heading: true });
     for (const text of wrapTerminalCells(value, contentWidth)) {
       rows.push({ text, heading: false });

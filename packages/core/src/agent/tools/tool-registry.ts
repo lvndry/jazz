@@ -44,7 +44,9 @@ const SUMMARY_FALLBACK_MAX_LENGTH = 100;
 function truncateForSummary(description: string): string {
   // Unicode line and paragraph separators break a line as surely as "\n" does in the prompt.
   const firstLine = description.split(/\r\n|[\n\r\u2028\u2029]/)[0]?.trim() ?? "";
-  if (firstLine.length <= SUMMARY_FALLBACK_MAX_LENGTH) return firstLine;
+  if (firstLine.length <= SUMMARY_FALLBACK_MAX_LENGTH) {
+    return firstLine;
+  }
   const cut = firstLine.slice(0, SUMMARY_FALLBACK_MAX_LENGTH);
   const lastSpace = cut.lastIndexOf(" ");
   return `${lastSpace > 0 ? cut.slice(0, lastSpace) : cut}...`;
@@ -144,7 +146,9 @@ class DefaultToolRegistry implements ToolRegistry {
   unregisterTool(name: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
       const tool = this.tools.get(name);
-      if (!tool) return;
+      if (!tool) {
+        return;
+      }
 
       this.tools.delete(name);
       this.toolCategories.delete(name);
@@ -195,7 +199,9 @@ class DefaultToolRegistry implements ToolRegistry {
     return Effect.sync(() => {
       const names: string[] = [];
       this.tools.forEach((tool) => {
-        if (!this.isUnlisted(tool)) names.push(tool.name);
+        if (!this.isUnlisted(tool)) {
+          names.push(tool.name);
+        }
       });
       return names;
     });
@@ -262,7 +268,9 @@ class DefaultToolRegistry implements ToolRegistry {
       const definitions: ToolDefinition[] = [];
 
       this.tools.forEach((tool) => {
-        if (tool.hidden || !requested.has(tool.name)) return;
+        if (tool.hidden || !requested.has(tool.name)) {
+          return;
+        }
         definitions.push({
           type: "function",
           function: {
@@ -284,7 +292,9 @@ class DefaultToolRegistry implements ToolRegistry {
       const summaries: ToolSummary[] = [];
 
       this.tools.forEach((tool) => {
-        if (tool.hidden || !requested.has(tool.name)) return;
+        if (tool.hidden || !requested.has(tool.name)) {
+          return;
+        }
         const categoryId = this.toolCategories.get(tool.name);
         const category = categoryId ? this.categories.get(categoryId) : undefined;
         summaries.push({
@@ -393,7 +403,7 @@ class DefaultToolRegistry implements ToolRegistry {
       const categories: ToolCategory[] = Array.from(categoryIds)
         .map((id) => this.categories.get(id))
         .filter((cat): cat is ToolCategory => cat !== undefined)
-        .sort((a, b) => a.displayName.localeCompare(b.displayName));
+        .sort((left, right) => left.displayName.localeCompare(right.displayName));
 
       return categories;
     });
