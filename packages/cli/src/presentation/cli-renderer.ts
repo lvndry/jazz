@@ -247,7 +247,8 @@ export class CLIRenderer {
           getModelsDevMetadataSync(this.currentModel ?? "", this.currentProvider ?? ""),
           isZeroCostLocalModel(this.currentProvider ?? "", this.currentModel ?? ""),
         );
-        return this.theme.colors.dim(`[${formatRetryWaste(waste, formatCost)}]\n`);
+        const line = formatRetryWaste(waste, formatCost);
+        return line === undefined ? null : this.theme.colors.dim(`[${line}]\n`);
       }
 
       case "usage_update":

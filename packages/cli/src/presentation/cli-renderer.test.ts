@@ -418,6 +418,28 @@ describe("CLIRenderer", () => {
 });
 
 describe("direct terminal retry receipts", () => {
+  it("prints no receipt for an unretried failure with no reported spend", () => {
+    const output: string[] = [];
+    const write = spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    try {
+      const renderer = new CLIRenderer({
+        displayConfig: { mode: "raw", showReasoning: false, showToolExecution: false },
+        streamingConfig: {},
+        showMetrics: true,
+        agentName: "test",
+      });
+      Effect.runSync(
+        renderer.handleEvent({ type: "llm_attempt_failed", retried: false, usageUnknown: false }),
+      );
+      expect(output).toEqual([]);
+    } finally {
+      write.mockRestore();
+    }
+  });
+
   it("shows the failed attempt's billed cost", () => {
     const output: string[] = [];
     const write = spyOn(process.stdout, "write").mockImplementation((chunk) => {
