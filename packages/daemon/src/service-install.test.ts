@@ -277,8 +277,11 @@ describe("waiting for the daemon to prove it is reachable", () => {
 describe("resolving who to run the service as", () => {
   const originalSudoUser = process.env["SUDO_USER"];
   afterEach(() => {
-    if (originalSudoUser === undefined) delete process.env["SUDO_USER"];
-    else process.env["SUDO_USER"] = originalSudoUser;
+    if (originalSudoUser === undefined) {
+      delete process.env["SUDO_USER"];
+    } else {
+      process.env["SUDO_USER"] = originalSudoUser;
+    }
   });
 
   it("refuses when $SUDO_USER is absent — there is no non-root identity to preserve", async () => {

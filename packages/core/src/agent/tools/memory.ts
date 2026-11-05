@@ -165,7 +165,9 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { outcome: MemoryViewOutcome };
       if (data.outcome.kind === "directory") {
         return `Listed memory (${data.outcome.entries.length} item(s))`;
@@ -576,7 +578,9 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { message: string };
       return data.message;
     },
@@ -682,7 +686,9 @@ export function createProposeLessonTool(): Tool<MemoryToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { id: string };
       return `Proposed lesson ${data.id}: the user reviews it with /memory review`;
     },
@@ -787,7 +793,9 @@ export function createReviseMemoryTool(): Tool<MemoryToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { message: string };
       return data.message;
     },

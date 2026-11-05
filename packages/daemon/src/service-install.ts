@@ -58,7 +58,9 @@ export type InitSystem = "systemd" | "launchd" | "unsupported";
  * inline check, since there is exactly one thing to decide.
  */
 export function detectInitSystem(): InitSystem {
-  if (process.platform === "darwin") return "launchd";
+  if (process.platform === "darwin") {
+    return "launchd";
+  }
   if (process.platform === "linux") {
     return existsSync("/run/systemd/system") ? "systemd" : "unsupported";
   }
@@ -78,8 +80,12 @@ const LAUNCHD_LABEL = "com.jazz.daemon";
 
 /** The unit/plist path for whichever init system is actually present, or `undefined` if not. */
 export function installedUnitPath(initSystem: InitSystem): string | undefined {
-  if (initSystem === "systemd") return SYSTEMD_UNIT_PATH;
-  if (initSystem === "launchd") return LAUNCHD_PLIST_PATH;
+  if (initSystem === "systemd") {
+    return SYSTEMD_UNIT_PATH;
+  }
+  if (initSystem === "launchd") {
+    return LAUNCHD_PLIST_PATH;
+  }
   return undefined;
 }
 
@@ -300,7 +306,9 @@ export function reRunWithSudoCommand(invocation: readonly string[]): string {
 export class ServiceInstallError extends Error {}
 
 function requireRoot(): Effect.Effect<void, ServiceInstallError> {
-  if (isRoot()) return Effect.void;
+  if (isRoot()) {
+    return Effect.void;
+  }
   return Effect.gen(function* () {
     const invocation = yield* getJazzSchedulerInvocation();
     return yield* Effect.fail(
@@ -421,8 +429,12 @@ export function waitForDaemonHealthy(
 
   return Effect.gen(function* () {
     for (;;) {
-      if (yield* probe()) return;
-      if (Date.now() >= deadline) break;
+      if (yield* probe()) {
+        return;
+      }
+      if (Date.now() >= deadline) {
+        break;
+      }
       yield* Effect.sleep(Duration.millis(HEALTH_CHECK_POLL_INTERVAL_MS));
     }
 

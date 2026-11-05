@@ -3,12 +3,13 @@ import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { MemoryServiceTag, type MemoryService } from "@/core/interfaces/memory-service";
+import { partialFake } from "@/core/test-support/fakes";
 import { resolveInjectedPreferences } from "./agent-runner";
 
-const SILENT_LOGGER = {
+const SILENT_LOGGER = partialFake<LoggerService>({
   debug: () => Effect.void,
   warn: () => Effect.void,
-} as unknown as LoggerService;
+});
 
 function memoryServiceWith(overrides: Partial<MemoryService>): MemoryService {
   return overrides as MemoryService;

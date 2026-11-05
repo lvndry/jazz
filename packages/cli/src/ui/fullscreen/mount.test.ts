@@ -13,6 +13,7 @@ import {
   type GuardedStream,
   type LifecycleRenderer,
 } from "./mount";
+import { partialFake } from "../../test-support/partial-fake";
 import { applyTheme, getThemeName, initializeTheme, setTerminalBackground, THEME } from "../theme";
 import { setSystemTheme } from "../themes/registry";
 import type { OutputEntry } from "../types";
@@ -72,7 +73,9 @@ describe("installTerminalLifecycle", () => {
         pid: 1,
         on: (event: string, listener: () => void) => listeners.set(event, listener),
         off: (event: string, listener: () => void) => {
-          if (listeners.get(event) === listener) listeners.delete(event);
+          if (listeners.get(event) === listener) {
+            listeners.delete(event);
+          }
         },
         kill: (_pid: number, signal: string) => kills.push(signal),
       },
@@ -83,7 +86,7 @@ describe("installTerminalLifecycle", () => {
     const calls = { destroy: 0, suspend: 0, resume: 0 };
     return {
       calls,
-      renderer: {
+      renderer: partialFake<LifecycleRenderer>({
         get isDestroyed() {
           return calls.destroy > 0;
         },
@@ -100,7 +103,7 @@ describe("installTerminalLifecycle", () => {
         },
         requestRender: () => {},
         resetTerminalBgColor: () => {},
-      } as unknown as LifecycleRenderer,
+      }),
     };
   }
 
@@ -120,7 +123,7 @@ describe("installTerminalLifecycle", () => {
     const { listeners, runtime } = stubRuntime();
     const { calls, renderer } = stubRenderer();
     const order: string[] = [];
-    const tracked = {
+    const tracked = partialFake<LifecycleRenderer>({
       ...renderer,
       isDestroyed: false,
       resume: () => {
@@ -128,7 +131,7 @@ describe("installTerminalLifecycle", () => {
         order.push("resume");
         return Promise.resolve();
       },
-    } as unknown as LifecycleRenderer;
+    });
 
     installTerminalLifecycle(tracked, runtime, () => order.push("ground"));
     listeners.get("SIGCONT")?.();
@@ -178,14 +181,14 @@ describe("installTerminalLifecycle", () => {
   test("stops the process once when suspend throws before returning its transition", async () => {
     const { listeners, kills, runtime } = stubRuntime();
     const { calls, renderer } = stubRenderer();
-    const throwing = {
+    const throwing = partialFake<LifecycleRenderer>({
       ...renderer,
       isDestroyed: false,
       suspend: () => {
         calls.suspend += 1;
         throw new Error("transition pending");
       },
-    } as unknown as LifecycleRenderer;
+    });
 
     installTerminalLifecycle(throwing, runtime);
     expect(() => listeners.get("SIGTSTP")?.()).not.toThrow();
@@ -198,7 +201,7 @@ describe("installTerminalLifecycle", () => {
     const { listeners, kills, runtime } = stubRuntime();
     const { calls, renderer } = stubRenderer();
     let finishSuspend: (() => void) | undefined;
-    const pending = {
+    const pending = partialFake<LifecycleRenderer>({
       ...renderer,
       isDestroyed: false,
       suspend: () => {
@@ -207,7 +210,7 @@ describe("installTerminalLifecycle", () => {
           finishSuspend = resolve;
         });
       },
-    } as unknown as LifecycleRenderer;
+    });
 
     installTerminalLifecycle(pending, runtime);
     listeners.get("SIGTSTP")?.();
@@ -225,14 +228,14 @@ describe("installTerminalLifecycle", () => {
     const { listeners, runtime } = stubRuntime();
     const { renderer } = stubRenderer();
     const order: string[] = [];
-    const throwing = {
+    const throwing = partialFake<LifecycleRenderer>({
       ...renderer,
       isDestroyed: false,
       requestRender: () => order.push("render"),
       resume: () => {
         throw new Error("resume requires completed suspension");
       },
-    } as unknown as LifecycleRenderer;
+    });
 
     installTerminalLifecycle(throwing, runtime, () => order.push("ground"));
     expect(() => listeners.get("SIGCONT")?.()).not.toThrow();
@@ -248,7 +251,9 @@ describe("installTerminalLifecycle", () => {
     const failingRuntime = {
       ...runtime,
       on(event: string, listener: () => void) {
-        if (event === "SIGCONT") throw failure;
+        if (event === "SIGCONT") {
+          throw failure;
+        }
         runtime.on(event, listener);
       },
     };
@@ -390,7 +395,9 @@ describe("repaintAfterResize", () => {
         return renders;
       },
       resize: () => {
-        for (const listener of [...listeners]) listener();
+        for (const listener of [...listeners]) {
+          listener();
+        }
       },
       on: (_event: "resize", listener: () => void) => listeners.add(listener),
       off: (_event: "resize", listener: () => void) => listeners.delete(listener),
@@ -441,7 +448,7 @@ describe("syncTerminalGround", () => {
       destroyed: false,
       forceFullRepaintRequested: false,
     };
-    const renderer = {
+    const members = {
       get isDestroyed() {
         return calls.destroyed;
       },
@@ -460,7 +467,8 @@ describe("syncTerminalGround", () => {
       requestRender: () => {
         calls.renders += 1;
       },
-    } as unknown as GroundRenderer;
+    };
+    const renderer = partialFake<GroundRenderer>(members);
     return { calls, renderer };
   }
 
@@ -599,13 +607,15 @@ describe("detectTerminalColors", () => {
     initializeTheme({});
     const palette = Array.from({ length: 16 }, () => null as string | null);
     palette[6] = "#2aa198";
-    await detectTerminalColors({
-      getPalette: async () => ({
-        palette,
-        defaultForeground: "#839496",
-        defaultBackground: "#002b36",
+    await detectTerminalColors(
+      partialFake<PaletteSource>({
+        getPalette: async () => ({
+          palette,
+          defaultForeground: "#839496",
+          defaultBackground: "#002b36",
+        }),
       }),
-    } as unknown as PaletteSource);
+    );
 
     expect(getThemeName()).toBe("system");
     expect(THEME.primary).toBe("#2AA198");
@@ -615,11 +625,13 @@ describe("detectTerminalColors", () => {
   test("keeps the current palette when the terminal never answers", async () => {
     initializeTheme({});
     const before = THEME.primary;
-    await detectTerminalColors({
-      getPalette: async () => {
-        throw new Error("timed out");
-      },
-    } as unknown as PaletteSource);
+    await detectTerminalColors(
+      partialFake<PaletteSource>({
+        getPalette: async () => {
+          throw new Error("timed out");
+        },
+      }),
+    );
 
     expect(THEME.primary).toBe(before);
   });

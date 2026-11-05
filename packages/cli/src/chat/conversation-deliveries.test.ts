@@ -45,9 +45,13 @@ async function finishedWait(conversationId: string): Promise<string> {
       { workingDir: "/tmp", reason: "review run finished" },
     ),
   );
-  if (!outcome.success) throw new Error("enqueue failed");
+  if (!outcome.success) {
+    throw new Error("enqueue failed");
+  }
   const [claimed] = await run(claimDueJobs(batchDirectory, "agent-1", Date.now(), 1, "worker"));
-  if (claimed === undefined) throw new Error("nothing claimed");
+  if (claimed === undefined) {
+    throw new Error("nothing claimed");
+  }
   await run(
     completeJob(batchDirectory, "agent-1", claimed.batchId, claimed.jobId, {
       success: true,

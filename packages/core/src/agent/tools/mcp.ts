@@ -101,26 +101,44 @@ export function resolveToolRiskLevel(
   annotations: MCPToolAnnotations | undefined,
   trusted: boolean,
 ): ToolRiskLevel {
-  if (!trusted) return "high-risk";
-  if (annotations?.readOnlyHint === true) return "read-only";
-  if (annotations?.destructiveHint === true) return "high-risk";
+  if (!trusted) {
+    return "high-risk";
+  }
+  if (annotations?.readOnlyHint === true) {
+    return "read-only";
+  }
+  if (annotations?.destructiveHint === true) {
+    return "high-risk";
+  }
   return "low-risk";
 }
 
 /** One-line summary of what a tool call would touch, for the approval prompt. */
 function describeAnnotations(annotations: MCPToolAnnotations | undefined): string | undefined {
-  if (!annotations) return undefined;
+  if (!annotations) {
+    return undefined;
+  }
   const labels: string[] = [];
-  if (annotations.readOnlyHint === true) labels.push("read-only");
-  if (annotations.destructiveHint === true) labels.push("destructive");
-  if (annotations.idempotentHint === true) labels.push("idempotent");
-  if (annotations.openWorldHint === true) labels.push("open-world");
+  if (annotations.readOnlyHint === true) {
+    labels.push("read-only");
+  }
+  if (annotations.destructiveHint === true) {
+    labels.push("destructive");
+  }
+  if (annotations.idempotentHint === true) {
+    labels.push("idempotent");
+  }
+  if (annotations.openWorldHint === true) {
+    labels.push("open-world");
+  }
   return labels.length > 0 ? labels.join(", ") : undefined;
 }
 
 function previewArguments(args: Record<string, unknown>): string {
   const serialized = safeStringify(args);
-  if (serialized.length <= APPROVAL_ARGS_PREVIEW_LIMIT) return serialized;
+  if (serialized.length <= APPROVAL_ARGS_PREVIEW_LIMIT) {
+    return serialized;
+  }
   return `${serialized.slice(0, APPROVAL_ARGS_PREVIEW_LIMIT)}… (truncated)`;
 }
 
@@ -149,7 +167,9 @@ function ensureConnected(
     const serverName = serverConfig.name;
 
     const isConnected = yield* mcpManager.isConnected(serverName);
-    if (isConnected) return undefined;
+    if (isConnected) {
+      return undefined;
+    }
 
     yield* presentation.presentStatus(
       `Connecting to ${toPascalCase(serverName)} MCP server...`,
@@ -196,7 +216,9 @@ function executeMCPTool(
     yield* logger.debug("MCP tool execution started", { argumentCount: Object.keys(args).length });
 
     const connectionFailure = yield* ensureConnected(serverConfig);
-    if (connectionFailure !== undefined) return connectionFailure;
+    if (connectionFailure !== undefined) {
+      return connectionFailure;
+    }
 
     const presentation = yield* PresentationServiceTag;
 
@@ -207,7 +229,9 @@ function executeMCPTool(
     const reportProgress = (progress: MCPProgress): void => {
       const now = Date.now();
       const isFinal = progress.total !== undefined && progress.progress >= progress.total;
-      if (!isFinal && now - lastShownAt < PROGRESS_THROTTLE_MS) return;
+      if (!isFinal && now - lastShownAt < PROGRESS_THROTTLE_MS) {
+        return;
+      }
       lastShownAt = now;
 
       const share =
@@ -333,7 +357,9 @@ function adaptMCPToolToJazz(
 
 /** Render one resource block as text the model can read. */
 function renderResourceContent(content: MCPResourceContent): string {
-  if (content.text !== undefined) return content.text;
+  if (content.text !== undefined) {
+    return content.text;
+  }
   if (content.blob !== undefined) {
     return `[binary resource ${content.mimeType ?? "of unknown type"}, ${content.blob.length} base64 chars — not inlined]`;
   }
@@ -379,7 +405,9 @@ export function buildResourceTools(
         const mcpManager = yield* MCPServerManagerTag;
 
         const connected = yield* ensureConnected(serverConfig);
-        if (connected !== undefined) return connected;
+        if (connected !== undefined) {
+          return connected;
+        }
 
         const resources = yield* Effect.result(mcpManager.getServerResources(serverName));
         if (resources._tag === "Failure") {
@@ -447,7 +475,9 @@ export function buildResourceTools(
         }
 
         const connected = yield* ensureConnected(serverConfig);
-        if (connected !== undefined) return connected;
+        if (connected !== undefined) {
+          return connected;
+        }
 
         const contents = yield* Effect.result(mcpManager.readResource(serverName, uri));
         if (contents._tag === "Failure") {

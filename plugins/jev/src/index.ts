@@ -172,7 +172,9 @@ export function createJevDecisionProvider(api: PluginHostApi): DecisionProvider 
 }
 
 function routingRequest(input: SkillRouteInput): DecisionRequest | undefined {
-  if (input.skills.length === 0 || input.skills.length + 1 > MAX_CHOICE_OPTIONS) return undefined;
+  if (input.skills.length === 0 || input.skills.length + 1 > MAX_CHOICE_OPTIONS) {
+    return undefined;
+  }
   const state = {
     request: input.requestText,
     skills: input.skills.map((skill) => ({ name: skill.name, description: skill.description })),
@@ -211,7 +213,9 @@ async function routeSkills(
   signal: AbortSignal,
 ): Promise<SkillRouteOutcome> {
   const request = routingRequest(input);
-  if (request === undefined) return { status: "abstained", reason: "routing input exceeds limits" };
+  if (request === undefined) {
+    return { status: "abstained", reason: "routing input exceeds limits" };
+  }
   const result = await client.decide(request, { signal });
   const outcome = result.answers.find(({ id }) => id === "best_skill")?.outcome;
   if (outcome?.status !== "answered" || outcome.answer.kind !== "choice") {
@@ -306,7 +310,9 @@ async function classifyCommandRisk(
 
 function compactToolsRequest(input: CompactToolsInput): DecisionRequest | undefined {
   const count = input.candidates.length;
-  if (count === 0 || count > MAX_COMPACT_CANDIDATES) return undefined;
+  if (count === 0 || count > MAX_COMPACT_CANDIDATES) {
+    return undefined;
+  }
   const state = {
     goal: input.goal,
     candidates: input.candidates.map((candidate) => ({
@@ -352,16 +358,26 @@ export function compactAction(
   outcome: DecisionOutcome | undefined,
   resultChars: number,
 ): CompactToolAction {
-  if (outcome?.status !== "answered" || outcome.answer.kind !== "choice") return "keep";
+  if (outcome?.status !== "answered" || outcome.answer.kind !== "choice") {
+    return "keep";
+  }
   const probability = new Map(
     outcome.answer.probabilities.map(({ value, probability }) => [value, probability] as const),
   );
   const top = outcome.answer.choice;
   const topProbability = probability.get(top) ?? 0;
-  if (top === "drop" && (probability.get("drop") ?? 0) >= COMPACT_STRONG_DROP) return "drop";
-  if (top === "keep" && topProbability >= COMPACT_KEEP_CONFIDENCE) return "keep";
-  if (resultChars > COMPACT_BIG_RESULT_CHARS) return "truncate";
-  if (topProbability < COMPACT_KEEP_CONFIDENCE) return "keep";
+  if (top === "drop" && (probability.get("drop") ?? 0) >= COMPACT_STRONG_DROP) {
+    return "drop";
+  }
+  if (top === "keep" && topProbability >= COMPACT_KEEP_CONFIDENCE) {
+    return "keep";
+  }
+  if (resultChars > COMPACT_BIG_RESULT_CHARS) {
+    return "truncate";
+  }
+  if (topProbability < COMPACT_KEEP_CONFIDENCE) {
+    return "keep";
+  }
   return "truncate";
 }
 
@@ -371,8 +387,9 @@ async function compactTools(
   signal: AbortSignal,
 ): Promise<CompactToolsOutcome> {
   const request = compactToolsRequest(input);
-  if (request === undefined)
+  if (request === undefined) {
     return { status: "abstained", reason: "compaction input exceeds limits" };
+  }
   const result = await client.decide(request, { signal });
   if (result.answers.every(({ outcome }) => outcome.status === "abstained")) {
     return { status: "abstained", reason: "Jev did not answer compaction" };

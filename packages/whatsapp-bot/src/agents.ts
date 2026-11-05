@@ -21,8 +21,12 @@ export function isChatAgentId(agentId: string): boolean {
 
 /** Reverse of `agentIdForChat`: rebuild the JID the id was made from. */
 export function jidFromAgentId(agentId: string): Jid | undefined {
-  if (!isChatAgentId(agentId)) return undefined;
-  if (agentId.startsWith("wag_")) return `${agentId.slice("wag_".length)}@g.us`;
+  if (!isChatAgentId(agentId)) {
+    return undefined;
+  }
+  if (agentId.startsWith("wag_")) {
+    return `${agentId.slice("wag_".length)}@g.us`;
+  }
   return `${agentId.slice("wa_".length)}@s.whatsapp.net`;
 }
 

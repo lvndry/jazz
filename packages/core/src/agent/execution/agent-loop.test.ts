@@ -10,6 +10,7 @@ import { Duration, Effect, Fiber, FileSystem, Layer } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { formatMemorySourceTag } from "@/core/memory/source-trust";
+import { partialFake } from "@/core/test-support/fakes";
 import { GenerationInterruptedError, LLMRequestError } from "@/core/types/errors";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
@@ -98,7 +99,7 @@ const mockPresentationService = {
   presentAgentResponse: () => Effect.void,
   presentWarning: () => Effect.void,
   presentStatus: () => Effect.void,
-  renderMarkdown: (c: string) => Effect.succeed(c),
+  renderMarkdown: (content: string) => Effect.succeed(content),
   signalToolExecutionStarted: () => Effect.void,
   requestApproval: () => Effect.succeed({ approved: true }),
 } as any;
@@ -114,14 +115,14 @@ const mockAgentConfigService = {
   appConfig: Effect.succeed({}),
 } as any;
 
-const mockLLMService: LLMService = {
+const mockLLMService: LLMService = partialFake<LLMService>({
   createStreamingChatCompletion: () => Effect.fail(new Error("not implemented")),
   createChatCompletion: () => Effect.fail(new Error("not implemented")),
   listProviders: () => Effect.succeed([]),
   getProvider: () => Effect.fail(new Error("not implemented")),
   supportsNativeWebSearch: () => Effect.succeed(false),
   resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
-} as unknown as LLMService;
+});
 
 const mockSkillService = {
   listSkills: () => Effect.succeed([]),
@@ -376,7 +377,7 @@ describe("executeAgentLoop", () => {
           })),
         );
       },
-    ) as unknown as typeof ToolExecutor.executeToolCalls;
+    );
     try {
       await Effect.runPromise(
         executeAgentLoop(
@@ -442,7 +443,7 @@ describe("executeAgentLoop", () => {
           })),
         );
       },
-    ) as unknown as typeof ToolExecutor.executeToolCalls;
+    );
     try {
       const result = await Effect.runPromise(
         executeAgentLoop(
@@ -942,7 +943,7 @@ describe("executeAgentLoop", () => {
         Effect.succeed([
           { toolCallId: "call_1", name: "test_tool", result: longOutput, success: true },
         ]),
-      ) as unknown as typeof ToolExecutor.executeToolCalls;
+      );
       const requests: ChatMessage[][] = [];
       const strategy: CompletionStrategy = {
         shouldShowReasoning: false,
@@ -1671,6 +1672,44 @@ describe("executeAgentLoop", () => {
     expect(result.messages?.some((message) => message.content.includes(advisory))).toBe(false);
   });
 
+  it("counts an interrupted request's cache usage with its reason", async () => {
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "gpt-4",
+            content: "partial",
+            usage: {
+              promptTokens: 1000,
+              completionTokens: 5,
+              totalTokens: 1005,
+              cacheReadTokens: 500,
+            },
+          },
+          interrupted: true,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: 5 }),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(result.usage?.cacheHitRate).toBeCloseTo(0.5);
+    expect(result.usage?.cacheMissReason).toBeDefined();
+  });
+
   it("should handle interruption from strategy", async () => {
     let getCompletionCalls = 0;
     const strategy: CompletionStrategy = {
@@ -1934,7 +1973,9 @@ describe("executeAgentLoop", () => {
 
         expect(reported).toBe(false);
         expect(error).toBeInstanceOf(RunParkRequested);
-        expect((error as RunParkRequested).messages?.some((m) => m.role === "tool")).toBe(false);
+        expect(
+          (error as RunParkRequested).messages?.some((message) => message.role === "tool"),
+        ).toBe(false);
       } finally {
         ToolExecutor.executeToolCalls = originalExecute;
       }
@@ -2060,7 +2101,7 @@ describe("executeAgentLoop", () => {
           { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
         ]),
       );
-      ToolExecutor.executeToolCalls = execute as unknown as typeof ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = execute;
 
       try {
         const error = await runToFailure(strategyFailingAfter(1), {
@@ -2083,7 +2124,7 @@ describe("executeAgentLoop", () => {
           { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
         ]),
       );
-      ToolExecutor.executeToolCalls = execute as unknown as typeof ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = execute;
 
       try {
         const error = await runToFailure(strategyFailingAfter(1), {
@@ -2472,7 +2513,8 @@ describe("executeAgentLoop", () => {
       ).pipe(Effect.provide(TestLayer)),
     );
 
-    expect(result.usage).toEqual({ promptTokens: 42, completionTokens: 17, requests: 1 });
+    expect(result.usage).toMatchObject({ promptTokens: 42, completionTokens: 17, requests: 1 });
+    expect(result.usage?.cacheHitRate).toBeUndefined();
     expect(result.costUSD).toBeUndefined();
     expect(result.messages).toBeDefined();
   });
@@ -2722,10 +2764,10 @@ describe("detectMeltdown", () => {
   it("returns false for two tools alternating with different arguments each time", () => {
     // Simulates a legitimate web_search → web_fetch research loop where every
     // call has unique arguments — previously a false positive under name-only check.
-    const calls: TrackedToolCall[] = Array.from({ length: 10 }, (_, i) =>
-      i % 2 === 0
-        ? tc("web_search", { query: `query ${i}` })
-        : tc("web_fetch", { url: `https://example.com/${i}` }),
+    const calls: TrackedToolCall[] = Array.from({ length: 10 }, (_, index) =>
+      index % 2 === 0
+        ? tc("web_search", { query: `query ${index}` })
+        : tc("web_fetch", { url: `https://example.com/${index}` }),
     );
     expect(detectMeltdown(calls)).toBe(false);
   });
@@ -2740,8 +2782,8 @@ describe("detectMeltdown", () => {
 
   it("returns true when two tools alternate with identical arguments each time", () => {
     // The agent alternates but is making the exact same calls — genuine loop.
-    const calls: TrackedToolCall[] = Array.from({ length: 10 }, (_, i) =>
-      i % 2 === 0
+    const calls: TrackedToolCall[] = Array.from({ length: 10 }, (_, index) =>
+      index % 2 === 0
         ? tc("web_search", { query: "stuck query" })
         : tc("web_fetch", { url: "https://stuck.com" }),
     );
@@ -2749,8 +2791,8 @@ describe("detectMeltdown", () => {
   });
 
   it("uses only the last 10 calls for the window", () => {
-    const diverse = Array.from({ length: 20 }, (_, i) =>
-      tc("web_search", { query: `unique ${i}` }),
+    const diverse = Array.from({ length: 20 }, (_, index) =>
+      tc("web_search", { query: `unique ${index}` }),
     );
     const meltdown = Array(10).fill(tc("web_search", { query: "stuck" })) as TrackedToolCall[];
     expect(detectMeltdown([...diverse, ...meltdown])).toBe(true);
@@ -2784,7 +2826,9 @@ describe("executeAgentLoop context window accounting", () => {
   // would resolve the real catalog — which carries no ollama provider at all.
   function seedCatalog(catalog: unknown): void {
     const jazzHome = process.env["JAZZ_HOME"];
-    if (jazzHome === undefined) throw new Error("JAZZ_HOME is not set for this test");
+    if (jazzHome === undefined) {
+      throw new Error("JAZZ_HOME is not set for this test");
+    }
     writeFileSync(join(jazzHome, "cache", "models-dev.json"), JSON.stringify(catalog));
     clearModelsDevCache();
   }
@@ -2799,10 +2843,16 @@ describe("executeAgentLoop context window accounting", () => {
 
   afterEach(() => {
     clearModelsDevCache();
-    if (originalJazzHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = originalJazzHome;
-    if (originalOffline === undefined) delete process.env["JAZZ_OFFLINE"];
-    else process.env["JAZZ_OFFLINE"] = originalOffline;
+    if (originalJazzHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = originalJazzHome;
+    }
+    if (originalOffline === undefined) {
+      delete process.env["JAZZ_OFFLINE"];
+    } else {
+      process.env["JAZZ_OFFLINE"] = originalOffline;
+    }
   });
 
   // ~500k characters ≈ 143k tokens at qwen's 3.5 chars/token: over 80% of the pinned
@@ -2928,7 +2978,9 @@ describe("executeAgentLoop context window accounting", () => {
         runRecursive,
       ).pipe(Effect.provide(TestLayer)),
     );
-    return (seen ?? []).filter((message) => message.role === "tool").map((m) => m.content ?? "");
+    return (seen ?? [])
+      .filter((message) => message.role === "tool")
+      .map((message) => message.content ?? "");
   }
 
   it("leaves every tool result verbatim while the window is under the clear threshold", async () => {
@@ -2944,7 +2996,9 @@ describe("executeAgentLoop context window accounting", () => {
     const results = await toolResultsSeenByModel(20_000, 60_000);
     expect(results).toHaveLength(PROTECTED_TOOL_CYCLES + 1);
     expect(results[0]).toStartWith("[tool result");
-    for (const recent of results.slice(1)) expect(recent).toStartWith("recent ");
+    for (const recent of results.slice(1)) {
+      expect(recent).toStartWith("recent ");
+    }
   });
 
   async function clearRunRequestAndHistory(
@@ -3199,7 +3253,7 @@ describe("executeAgentLoop cost and token caps", () => {
       context: ExecuteToolCallsContext,
     ) => ReturnType<typeof ToolExecutor.executeToolCalls>,
   ): typeof ToolExecutor.executeToolCalls {
-    return mock(handler) as unknown as typeof ToolExecutor.executeToolCalls;
+    return mock(handler);
   }
 
   function succeedWithToolResults(toolCalls: ExecuteToolCallsToolCalls) {
@@ -3685,8 +3739,12 @@ describe("executeAgentLoop cost and token caps", () => {
     // tokens are accumulated (60% — past the 50% notice threshold).
     const firstIterationMessages = seenMessages[0] ?? [];
     const secondIterationMessages = seenMessages[1] ?? [];
-    expect(firstIterationMessages.some((m) => m.content?.includes("TOKEN NOTICE"))).toBe(false);
-    expect(secondIterationMessages.some((m) => m.content?.includes("TOKEN NOTICE"))).toBe(true);
+    expect(
+      firstIterationMessages.some((message) => message.content?.includes("TOKEN NOTICE")),
+    ).toBe(false);
+    expect(
+      secondIterationMessages.some((message) => message.content?.includes("TOKEN NOTICE")),
+    ).toBe(true);
   });
 
   it("injects the meltdown signal after the tool results, never between a call and its result", async () => {
@@ -3737,7 +3795,9 @@ describe("executeAgentLoop cost and token caps", () => {
     ToolExecutor.executeToolCalls = originalExecute;
 
     const lastRequest = seenMessages[seenMessages.length - 1] ?? [];
-    const meltdownIndex = lastRequest.findIndex((m) => m.content?.includes("MELTDOWN DETECTED"));
+    const meltdownIndex = lastRequest.findIndex((message) =>
+      message.content?.includes("MELTDOWN DETECTED"),
+    );
     expect(meltdownIndex).toBeGreaterThan(0);
     expect(lastRequest[meltdownIndex - 1]?.role).toBe("tool");
     for (const [index, message] of lastRequest.entries()) {

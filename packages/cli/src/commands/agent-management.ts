@@ -54,12 +54,12 @@ export function formatAgentsListBlock(
 ): string {
   const width = Math.max(60, Math.min(getTerminalWidth(), 120));
 
-  const g = getGlyphs();
+  const glyphs = getGlyphs();
   const title = `Agents (${agents.length})`;
   const innerWidth = width - 2;
-  const header = `${g.boxTL}${g.boxH.repeat(innerWidth)}${g.boxTR}`;
-  const footer = `${g.boxBL}${g.boxH.repeat(innerWidth)}${g.boxBR}`;
-  const sep = `${g.boxML}${g.boxH.repeat(innerWidth)}${g.boxMR}`;
+  const header = `${glyphs.boxTL}${glyphs.boxH.repeat(innerWidth)}${glyphs.boxTR}`;
+  const footer = `${glyphs.boxBL}${glyphs.boxH.repeat(innerWidth)}${glyphs.boxBR}`;
+  const sep = `${glyphs.boxML}${glyphs.boxH.repeat(innerWidth)}${glyphs.boxMR}`;
 
   const lines: string[] = [];
   lines.push(chalk.dim(header));
@@ -67,7 +67,7 @@ export function formatAgentsListBlock(
   const titleLine = ` ${chalk.bold(title)} ${chalk.dim(
     "— use `jazz agent show <id|name>` or `jazz agent chat <id|name>`",
   )}`;
-  lines.push(chalk.dim(g.boxV) + padRight(titleLine, innerWidth) + chalk.dim(g.boxV));
+  lines.push(chalk.dim(glyphs.boxV) + padRight(titleLine, innerWidth) + chalk.dim(glyphs.boxV));
   lines.push(chalk.dim(sep));
 
   // Columns (keep conservative so we don't rely on perfect ANSI width measurement)
@@ -100,10 +100,10 @@ export function formatAgentsListBlock(
     padRight("Reasoning", reasoningW) +
     descriptionCell("Description");
   lines.push(
-    chalk.dim(g.boxV) +
+    chalk.dim(glyphs.boxV) +
       " " +
       chalk.dim(truncateMiddle(colHeader, innerWidth - 1)) +
-      chalk.dim(g.boxV),
+      chalk.dim(glyphs.boxV),
   );
   lines.push(chalk.dim(sep));
 
@@ -126,10 +126,10 @@ export function formatAgentsListBlock(
       descriptionCell(agent.description ?? "");
 
     lines.push(
-      chalk.dim(g.boxV) +
+      chalk.dim(glyphs.boxV) +
         " " +
         CHALK_THEME.white(padRight(truncate(row, rowWidth), rowWidth)) +
-        chalk.dim(g.boxV),
+        chalk.dim(glyphs.boxV),
     );
 
     const metaParts: string[] = [];
@@ -140,7 +140,9 @@ export function formatAgentsListBlock(
     // Use a simple separator that's identical width in any font; the meta
     // line is dim throughout so visual weight is uniform.
     const meta = metaParts.join(chalk.dim("  -  "));
-    lines.push(chalk.dim(g.boxV) + " " + padRight(meta, innerWidth - 1) + chalk.dim(g.boxV));
+    lines.push(
+      chalk.dim(glyphs.boxV) + " " + padRight(meta, innerWidth - 1) + chalk.dim(glyphs.boxV),
+    );
 
     if (options.verbose) {
       const tools = agent.config.tools ?? [];
@@ -150,7 +152,9 @@ export function formatAgentsListBlock(
               truncateMiddle(tools.join(", "), innerWidth - 20),
             )}`
           : `${chalk.dim("tools")} ${chalk.dim("none configured")}`;
-      lines.push(chalk.dim(g.boxV) + " " + padRight(toolsLine, innerWidth - 1) + chalk.dim(g.boxV));
+      lines.push(
+        chalk.dim(glyphs.boxV) + " " + padRight(toolsLine, innerWidth - 1) + chalk.dim(glyphs.boxV),
+      );
     }
 
     lines.push(chalk.dim(sep));
@@ -438,24 +442,27 @@ function formatAgentDetailsBlock(agent: {
     readonly tools?: readonly string[] | undefined;
   };
 }): string {
-  const g = getGlyphs();
+  const glyphs = getGlyphs();
   const width = Math.max(60, Math.min(getTerminalWidth(), 120));
   const innerWidth = width - 2;
 
-  const header = `${g.boxTL}${g.boxH.repeat(innerWidth)}${g.boxTR}`;
-  const footer = `${g.boxBL}${g.boxH.repeat(innerWidth)}${g.boxBR}`;
-  const sep = `${g.boxML}${g.boxH.repeat(innerWidth)}${g.boxMR}`;
-  const v = chalk.dim(g.boxV);
+  const header = `${glyphs.boxTL}${glyphs.boxH.repeat(innerWidth)}${glyphs.boxTR}`;
+  const footer = `${glyphs.boxBL}${glyphs.boxH.repeat(innerWidth)}${glyphs.boxBR}`;
+  const sep = `${glyphs.boxML}${glyphs.boxH.repeat(innerWidth)}${glyphs.boxMR}`;
+  const verticalBar = chalk.dim(glyphs.boxV);
 
   const model = agentModelString(agent.config.llm);
   const tools = agent.config.tools ?? [];
 
   const lines: string[] = [];
   lines.push(chalk.dim(header));
-  lines.push(v + padRight(` ${chalk.bold(`Agent: ${agent.name}`)}`, innerWidth) + v);
+  lines.push(
+    verticalBar + padRight(` ${chalk.bold(`Agent: ${agent.name}`)}`, innerWidth) + verticalBar,
+  );
   lines.push(chalk.dim(sep));
 
-  const kv = (k: string, val: string) => v + padRight(` ${chalk.dim(k)} ${val}`, innerWidth) + v;
+  const kv = (key: string, val: string) =>
+    verticalBar + padRight(` ${chalk.dim(key)} ${val}`, innerWidth) + verticalBar;
 
   lines.push(kv("ID:", agent.id));
   lines.push(kv("Model:", model));
@@ -471,18 +478,18 @@ function formatAgentDetailsBlock(agent: {
 
   lines.push(chalk.dim(sep));
   lines.push(
-    v +
+    verticalBar +
       padRight(
         ` ${chalk.bold(`Tools (${tools.length})`)}${tools.length ? ":" : " - none configured"}`,
         innerWidth,
       ) +
-      v,
+      verticalBar,
   );
 
   if (tools.length > 0) {
     const wrapped = wrapCommaList(tools, Math.max(20, innerWidth - 4));
     for (const line of wrapped) {
-      lines.push(v + padRight(`   ${line}`, innerWidth) + v);
+      lines.push(verticalBar + padRight(`   ${line}`, innerWidth) + verticalBar);
     }
   }
 

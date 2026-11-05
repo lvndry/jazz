@@ -180,7 +180,8 @@ export function toolOutputTexts(messages: readonly ChatMessage[]): string[] {
     }
     const parts = [message.content];
     try {
-      stringLeaves(JSON.parse(message.content) as unknown, parts);
+      const parsedContent: unknown = JSON.parse(message.content);
+      stringLeaves(parsedContent, parts);
     } catch {
       // Plain-text result; the raw content is all there is.
     }

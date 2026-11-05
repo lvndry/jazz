@@ -15,6 +15,7 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
 import { removeSkillCommand } from "./skill-remove";
+import { partialFake } from "../test-support/partial-fake";
 
 let jazzHome: string;
 let originalJazzHome: string | undefined;
@@ -27,7 +28,7 @@ function terminal(interactive = false, confirm = () => Effect.succeed(false)) {
     error: mock(() => Effect.void),
     success: mock(() => Effect.void),
   };
-  const layer = Layer.succeed(TerminalServiceTag, service as unknown as TerminalService);
+  const layer = Layer.succeed(TerminalServiceTag, partialFake<TerminalService>(service));
   return { service, layer };
 }
 
@@ -45,8 +46,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (originalJazzHome === undefined) delete process.env["JAZZ_HOME"];
-  else process.env["JAZZ_HOME"] = originalJazzHome;
+  if (originalJazzHome === undefined) {
+    delete process.env["JAZZ_HOME"];
+  } else {
+    process.env["JAZZ_HOME"] = originalJazzHome;
+  }
   rmSync(jazzHome, { recursive: true, force: true });
 });
 

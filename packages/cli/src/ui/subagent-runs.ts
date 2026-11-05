@@ -110,7 +110,9 @@ function lastNonBlankLine(text: string): string | undefined {
   while (end > 0) {
     const start = text.lastIndexOf("\n", end - 1) + 1;
     const line = text.slice(start, end).trim();
-    if (line.length > 0 && !FENCE_LINE.test(line)) return line;
+    if (line.length > 0 && !FENCE_LINE.test(line)) {
+      return line;
+    }
     end = start - 1;
   }
   return undefined;
@@ -143,8 +145,12 @@ export function appendToSubagentRun(
   text: string,
   channel: SubagentChannel,
 ): SubagentRun {
-  if (text.length === 0) return run;
-  if (channel === "tail") return { ...run, activity: lastNonBlankLine(text) ?? run.activity };
+  if (text.length === 0) {
+    return run;
+  }
+  if (channel === "tail") {
+    return { ...run, activity: lastNonBlankLine(text) ?? run.activity };
+  }
   // A metrics note closes a step; the step's own last line is still the better summary.
   const summarizes = channel !== "note";
 
@@ -158,7 +164,9 @@ export function appendToSubagentRun(
     };
   }
   const opening = text.replace(/^\n+/, "");
-  if (opening.length === 0) return run;
+  if (opening.length === 0) {
+    return run;
+  }
   return withEntry(
     run,
     { kind: channel, text: opening },
@@ -181,7 +189,9 @@ export function finishSubagentTool(
 ): SubagentRun {
   let found = false;
   const entries = run.entries.map((entry) => {
-    if (entry.kind !== "tool" || entry.toolCallId !== toolCallId) return entry;
+    if (entry.kind !== "tool" || entry.toolCallId !== toolCallId) {
+      return entry;
+    }
     found = true;
     return {
       ...entry,
@@ -190,7 +200,9 @@ export function finishSubagentTool(
       durationMs: outcome.durationMs,
     };
   });
-  if (!found) return run;
+  if (!found) {
+    return run;
+  }
   return { ...run, entries, activity: outcome.summary.length > 0 ? outcome.summary : run.activity };
 }
 
@@ -199,14 +211,18 @@ export function finishSubagentRun(
   status: Exclude<SubagentStatus, "running">,
   endedAt: number,
 ): SubagentRun {
-  if (run.status !== "running") return run;
+  if (run.status !== "running") {
+    return run;
+  }
   return { ...run, status, endedAt, pendingMessages: [] };
 }
 
 /** A message can only reach a sub-agent whose loop is still going and polls for one. */
 export function steerSubagentRun(run: SubagentRun, message: string): SubagentRun | null {
   const text = message.trim();
-  if (!run.acceptsMessages || run.status !== "running" || text.length === 0) return null;
+  if (!run.acceptsMessages || run.status !== "running" || text.length === 0) {
+    return null;
+  }
   return withEntry(
     { ...run, pendingMessages: [...run.pendingMessages, text] },
     { kind: "steer", text },
@@ -217,7 +233,9 @@ export function steerSubagentRun(run: SubagentRun, message: string): SubagentRun
 /** The parent's message has already reached the sub-agent; this only records it. */
 export function recordParentSteer(run: SubagentRun, message: string): SubagentRun {
   const text = message.trim();
-  if (text.length === 0) return run;
+  if (text.length === 0) {
+    return run;
+  }
   return withEntry(run, { kind: "steer", text, sender: "parent" }, run.activity);
 }
 
@@ -225,7 +243,9 @@ export function takeSubagentMessages(run: SubagentRun): {
   readonly run: SubagentRun;
   readonly message: string | undefined;
 } {
-  if (run.pendingMessages.length === 0) return { run, message: undefined };
+  if (run.pendingMessages.length === 0) {
+    return { run, message: undefined };
+  }
   return {
     run: { ...run, pendingMessages: [] },
     message: run.pendingMessages.join("\n\n"),

@@ -64,7 +64,7 @@ describe("grep tool", () => {
 
     const data = result.result as { matches: Array<{ file: string; text: string }> };
     expect(data.matches.length).toBeGreaterThanOrEqual(1);
-    expect(data.matches.some((m) => m.text.includes("hello world"))).toBe(true);
+    expect(data.matches.some((match) => match.text.includes("hello world"))).toBe(true);
   });
 
   it("should find regex matches with re: prefix", async () => {
@@ -121,7 +121,7 @@ describe("grep tool", () => {
 
     const data = result.result as { matches: Array<{ file: string }> };
     expect(data.matches.length).toBeGreaterThanOrEqual(1);
-    expect(data.matches.every((m) => m.file.endsWith(".ts"))).toBe(true);
+    expect(data.matches.every((match) => match.file.endsWith(".ts"))).toBe(true);
   });
 
   it("should respect maxResults", async () => {
@@ -162,7 +162,7 @@ describe("grep tool", () => {
 
     const data = result.result as { files: string[] };
     expect(data.files.length).toBeGreaterThanOrEqual(1);
-    expect(data.files.every((f) => typeof f === "string")).toBe(true);
+    expect(data.files.every((file) => typeof file === "string")).toBe(true);
   });
 
   // ---------------------------------------------------------------
@@ -180,7 +180,7 @@ describe("grep tool", () => {
     const data = result.result as { counts: Array<{ file: string; count: number }> };
     expect(data.counts.length).toBeGreaterThanOrEqual(1);
     // math.js has 2 functions
-    const mathEntry = data.counts.find((c) => c.file.endsWith("math.js"));
+    const mathEntry = data.counts.find((countEntry) => countEntry.file.endsWith("math.js"));
     if (mathEntry) {
       expect(mathEntry.count).toBe(2);
     }
@@ -243,7 +243,7 @@ describe("grep tool", () => {
     expect(result.success).toBe(true);
 
     const data = result.result as { matches: Array<{ file: string }> };
-    expect(data.matches.every((m) => !m.file.includes("/sub/"))).toBe(true);
+    expect(data.matches.every((match) => !match.file.includes("/sub/"))).toBe(true);
   });
 });
 

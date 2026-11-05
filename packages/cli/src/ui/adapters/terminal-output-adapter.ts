@@ -33,10 +33,12 @@ export interface PendingStream {
  * alive the whole intermediate string it was cut from, one per slice.
  */
 function copiedSliceContent(content: PresentationContent, text: string): PresentationContent {
-  if (content.kind === "agent")
+  if (content.kind === "agent") {
     return { ...content, markdown: Buffer.from(text, "utf16le").toString("utf16le") };
-  if (content.kind === "reasoning")
+  }
+  if (content.kind === "reasoning") {
     return { ...content, text: Buffer.from(text, "utf16le").toString("utf16le") };
+  }
   return content;
 }
 
@@ -45,8 +47,12 @@ function copiedSliceContent(content: PresentationContent, text: string): Present
  * which the document keeps anyway, so a settled answer is held once.
  */
 function settledSliceContent(content: PresentationContent, text: string): PresentationContent {
-  if (content.kind === "agent") return { ...content, markdown: text };
-  if (content.kind === "reasoning") return { ...content, text };
+  if (content.kind === "agent") {
+    return { ...content, markdown: text };
+  }
+  if (content.kind === "reasoning") {
+    return { ...content, text };
+  }
   return content;
 }
 
@@ -60,8 +66,12 @@ function sourceText(content: PresentationContent): string | undefined {
 
 /** Two projected entries that print the same; folded reasoning is rebuilt on every projection. */
 function sameSource(previous: PresentationEntry, next: PresentationEntry): boolean {
-  if (previous === next) return true;
-  if (previous.id !== next.id || previous.timestamp !== next.timestamp) return false;
+  if (previous === next) {
+    return true;
+  }
+  if (previous.id !== next.id || previous.timestamp !== next.timestamp) {
+    return false;
+  }
   const before = previous.content;
   const after = next.content;
   return (
@@ -241,16 +251,24 @@ export function createClassicProjection(): (
       }
     };
     if (earlierOutputs !== placedEarlier) {
-      for (const entry of earlierOutputs) place(entry);
+      for (const entry of earlierOutputs) {
+        place(entry);
+      }
       placedEarlier = earlierOutputs;
     }
-    for (const entry of currentOutputs) place(entry);
+    for (const entry of currentOutputs) {
+      place(entry);
+    }
     const replays = options.replays ?? [];
     for (; replaysPlaced < replays.length; replaysPlaced += 1) {
       const replay = replays[replaysPlaced];
-      if (replay !== undefined) place(replay);
+      if (replay !== undefined) {
+        place(replay);
+      }
     }
-    if (next !== undefined) emitted = next;
+    if (next !== undefined) {
+      emitted = next;
+    }
     return { entries: emitted, pending };
   };
 }

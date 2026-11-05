@@ -8,5 +8,5 @@
   },
   "references": [{ "path": "../core" }],
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test.tsx"]
+  "exclude": ["node_modules", "dist", "src/test-support/**", "**/*.test.ts","**/*.test.tsx"]
 }

@@ -50,7 +50,9 @@ function receiptLine(receipt: ReceiptFacts): string {
 }
 
 function capped(lines: readonly string[]): readonly string[] {
-  if (lines.length <= INTERRUPT_LIST_ROWS) return lines;
+  if (lines.length <= INTERRUPT_LIST_ROWS) {
+    return lines;
+  }
   const shown = lines.slice(0, INTERRUPT_LIST_ROWS - 1);
   return [...shown, `+${String(lines.length - shown.length)} more`];
 }

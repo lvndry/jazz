@@ -126,8 +126,10 @@ function regionBlocks(
   let seq = firstSeq;
   let lane = 0;
   for (const region of regions) {
-    if (region.kind === "reasoning" && shown(region.id)) continue;
-    if (region.kind === "reasoning")
+    if (region.kind === "reasoning" && shown(region.id)) {
+      continue;
+    }
+    if (region.kind === "reasoning") {
       blocks.push({
         id: region.id,
         seq: seq++,
@@ -136,7 +138,7 @@ function regionBlocks(
         collapsed: false,
         live: true,
       });
-    else
+    } else {
       blocks.push({
         id: region.id,
         seq: seq++,
@@ -147,6 +149,7 @@ function regionBlocks(
         lane: lane++,
         state: "running",
       });
+    }
   }
   return blocks;
 }
@@ -181,7 +184,7 @@ export function blocksFrom(
       seq += 1;
     }
   }
-  if (streaming.trim().length > 0)
+  if (streaming.trim().length > 0) {
     blocks.push({
       id: streamingId ?? "streaming",
       seq: seq++,
@@ -189,6 +192,7 @@ export function blocksFrom(
       markdown: streaming,
       streaming: true,
     });
+  }
   blocks.push(...regionBlocks(regions, (id) => entries.some((entry) => entry.id === id), seq));
   return foldTurn(blocks);
 }
@@ -196,8 +200,12 @@ export function blocksFrom(
 // `previous` is undefined on the first block or a missing cache slot; still
 // compare so sharing can no-op without a null check at every call site.
 function sameBlock(previous: Block | undefined, current: Block): previous is Block {
-  if (previous === undefined || previous.kind !== current.kind) return false;
-  if (previous.id !== current.id || previous.seq !== current.seq) return false;
+  if (previous === undefined || previous.kind !== current.kind) {
+    return false;
+  }
+  if (previous.id !== current.id || previous.seq !== current.seq) {
+    return false;
+  }
   switch (previous.kind) {
     case "user":
       return (
@@ -270,11 +278,15 @@ export function shareUnchangedBlocks(
   previous: readonly Block[],
   next: readonly Block[],
 ): readonly Block[] {
-  if (previous.length === 0) return next;
+  if (previous.length === 0) {
+    return next;
+  }
   let changed = previous.length !== next.length;
   const shared = next.map((current, index) => {
     const cached = previous[index];
-    if (sameBlock(cached, current)) return cached;
+    if (sameBlock(cached, current)) {
+      return cached;
+    }
     changed = true;
     return current;
   });

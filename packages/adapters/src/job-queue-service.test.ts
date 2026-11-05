@@ -47,7 +47,7 @@ function makeService(): JobQueueServiceImpl {
 }
 
 function jobInputs(count: number) {
-  return Array.from({ length: count }, (_, i) => ({ command: `echo job-${i}` }));
+  return Array.from({ length: count }, (_, index) => ({ command: `echo job-${index}` }));
 }
 
 describe("enqueueBatch", () => {
@@ -60,7 +60,9 @@ describe("enqueueBatch", () => {
       }),
     );
     expect(outcome.success).toBe(true);
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
     expect(outcome.batch.jobs).toHaveLength(3);
     expect(outcome.batch.jobs.every((job) => job.status === "pending")).toBe(true);
     expect(outcome.batch.completedAt).toBeNull();
@@ -83,17 +85,19 @@ describe("enqueueBatch", () => {
       }),
     );
     expect(outcome.success).toBe(false);
-    if (outcome.success) return;
+    if (outcome.success) {
+      return;
+    }
     expect(outcome.message).toContain("exceeding the maximum");
   });
 
   test("rejects once the active-batch-per-agent cap is reached", async () => {
     const service = makeService();
-    for (let i = 0; i < MAX_ACTIVE_BATCHES_PER_AGENT; i++) {
+    for (let index = 0; index < MAX_ACTIVE_BATCHES_PER_AGENT; index++) {
       const outcome = await runEffect(
         service.enqueueBatch("agent-1", "conv-1", jobInputs(1), {
           workingDir: "/tmp",
-          reason: `batch ${i}`,
+          reason: `batch ${index}`,
         }),
       );
       expect(outcome.success).toBe(true);
@@ -135,7 +139,9 @@ describe("claimDueJobs", () => {
       }),
     );
     expect(outcome.success).toBe(true);
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
 
     const now = Date.now();
     const [first, second] = await Promise.all([
@@ -175,7 +181,9 @@ describe("claimDueJobs", () => {
       }),
     );
     expect(outcome.success).toBe(true);
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
 
     const claimed = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 10, "worker-a"));
     expect(claimed).toHaveLength(2);
@@ -198,12 +206,16 @@ describe("completeJob", () => {
       }),
     );
     expect(outcome.success).toBe(true);
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
     const batchId = outcome.batch.id;
 
     const [claimed] = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
     expect(claimed).toBeDefined();
-    if (!claimed) return;
+    if (!claimed) {
+      return;
+    }
 
     const result = await runEffect(
       completeJob(tmpDir, "agent-1", batchId, claimed.jobId, {
@@ -213,7 +225,7 @@ describe("completeJob", () => {
       }),
     );
     expect(result.batchNowComplete).toBe(false);
-    const job = result.batch?.jobs.find((j) => j.id === claimed.jobId);
+    const job = result.batch?.jobs.find((batchJob) => batchJob.id === claimed.jobId);
     expect(job?.status).toBe("pending");
     expect(job?.attempt).toBe(1);
     expect(job?.nextAttemptAt).toBeGreaterThan(Date.now());
@@ -228,7 +240,9 @@ describe("completeJob", () => {
       }),
     );
     expect(outcome.success).toBe(true);
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
     const batchId = outcome.batch.id;
 
     const claimed = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 2, "worker-a"));
@@ -264,11 +278,15 @@ describe("completeJob", () => {
       }),
     );
     expect(outcome.success).toBe(true);
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
     const batchId = outcome.batch.id;
 
     const [claimed] = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
-    if (!claimed) return;
+    if (!claimed) {
+      return;
+    }
     await runEffect(
       completeJob(tmpDir, "agent-1", batchId, claimed.jobId, {
         success: false,
@@ -296,7 +314,9 @@ describe("reclaimExpiredLeases", () => {
       }),
     );
     expect(outcome.success).toBe(true);
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
 
     const claimed = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
     expect(claimed).toHaveLength(1);
@@ -320,7 +340,9 @@ describe("reclaimExpiredLeases", () => {
     const outcome = await runEffect(
       service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
     );
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
     await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
     const batchPath = path.join(tmpDir, "agent-1", `${outcome.batch.id}.json`);
     const stored = JSON.parse(fs.readFileSync(batchPath, "utf8"));
@@ -338,9 +360,13 @@ describe("reclaimExpiredLeases", () => {
     const outcome = await runEffect(
       service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
     );
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
     const [claimed] = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
-    if (claimed === undefined) throw new Error("nothing claimed");
+    if (claimed === undefined) {
+      throw new Error("nothing claimed");
+    }
     const later = Date.now() + 60_000;
     expect(
       await runEffect(
@@ -365,9 +391,13 @@ describe("polling job progress", () => {
     const outcome = await runEffect(
       service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
     );
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
     const [claimed] = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
-    if (claimed === undefined) throw new Error("nothing claimed");
+    if (claimed === undefined) {
+      throw new Error("nothing claimed");
+    }
 
     expect(
       await runEffect(
@@ -383,9 +413,13 @@ describe("polling job progress", () => {
     const outcome = await runEffect(
       service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
     );
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
     const [claimed] = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
-    if (claimed === undefined) throw new Error("nothing claimed");
+    if (claimed === undefined) {
+      throw new Error("nothing claimed");
+    }
 
     expect(
       await runEffect(
@@ -403,9 +437,13 @@ describe("fan-in delivery", () => {
     const outcome = await runEffect(
       service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
     );
-    if (!outcome.success) throw new Error("enqueue failed");
+    if (!outcome.success) {
+      throw new Error("enqueue failed");
+    }
     const [claimed] = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
-    if (claimed === undefined) throw new Error("nothing claimed");
+    if (claimed === undefined) {
+      throw new Error("nothing claimed");
+    }
     const result = await runEffect(
       completeJob(tmpDir, "agent-1", claimed.batchId, claimed.jobId, {
         success: true,
@@ -519,7 +557,9 @@ describe("cancelBatch", () => {
       }),
     );
     expect(outcome.success).toBe(true);
-    if (!outcome.success) return;
+    if (!outcome.success) {
+      return;
+    }
 
     const cancelOutcome = await runEffect(service.cancelBatch("agent-1", outcome.batch.id));
     expect(cancelOutcome.success).toBe(true);
@@ -557,7 +597,9 @@ describe("nextClaimableAt", () => {
     const outcome = await runEffect(
       service.enqueueBatch("a1", "c1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
     );
-    if (!outcome.success) throw new Error(outcome.message);
+    if (!outcome.success) {
+      throw new Error(outcome.message);
+    }
 
     const claimed = await runEffect(claimDueJobs(tmpDir, "a1", Date.now(), 4, "owner"));
     expect(claimed.length).toBe(1);
@@ -583,11 +625,15 @@ describe("nextClaimableAt", () => {
         maxAttempts: 3,
       }),
     );
-    if (!outcome.success) throw new Error(outcome.message);
+    if (!outcome.success) {
+      throw new Error(outcome.message);
+    }
 
     const claimed = await runEffect(claimDueJobs(tmpDir, "a1", Date.now(), 4, "owner"));
     const first = claimed[0];
-    if (first === undefined) throw new Error("expected a claimed job");
+    if (first === undefined) {
+      throw new Error("expected a claimed job");
+    }
     await runEffect(
       completeJob(tmpDir, "a1", first.batchId, first.jobId, {
         success: false,
@@ -629,7 +675,9 @@ describe("archiving delivered batches", () => {
     if (completed.batch === null) {
       throw new Error("batch vanished");
     }
-    if (!delivered) return completed.batch;
+    if (!delivered) {
+      return completed.batch;
+    }
     await runEffect(claimBatchFanIn(tmpDir, "agent-1", completed.batch.id));
     await runEffect(settleBatchFanIn(tmpDir, "agent-1", completed.batch.id, { delivered: true }));
     return (await runEffect(service.getBatch("agent-1", completed.batch.id)))!;
@@ -730,7 +778,9 @@ describe("damaged and versioned batch files", () => {
     const outcome = await runEffect(
       service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
     );
-    if (!outcome.success) throw new Error("enqueue failed");
+    if (!outcome.success) {
+      throw new Error("enqueue failed");
+    }
     const batchPath = path.join(tmpDir, "agent-1", `${outcome.batch.id}.json`);
     const stored = JSON.parse(fs.readFileSync(batchPath, "utf8"));
     expect(stored.schemaVersion).toBe(2);

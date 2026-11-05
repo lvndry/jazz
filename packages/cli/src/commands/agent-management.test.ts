@@ -7,6 +7,7 @@ import { type Agent } from "@jazz/core/types/index";
 import { describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { listAgentsCommand, deleteAgentCommand } from "./agent-management";
+import { partialFake } from "../test-support/partial-fake";
 
 const testAgent = {
   id: "a1",
@@ -15,14 +16,14 @@ const testAgent = {
 } as Agent;
 
 // Mock dependencies
-const mockAgentService = {
+const mockAgentService = partialFake<AgentService>({
   listAgents: mock(() => Effect.succeed([])),
   inspectAgents: mock(() => Effect.succeed({ agents: [], unreadable: [] })),
   getAgent: mock(() => Effect.succeed({ id: "a1", name: "agent1" } as Agent)),
   deleteAgent: mock(() => Effect.void),
-} as unknown as AgentService;
+});
 
-const mockTerminal = {
+const mockTerminal = partialFake<TerminalService>({
   isInteractive: true,
   info: mock(() => Effect.void),
   log: mock(() => Effect.void),
@@ -31,22 +32,22 @@ const mockTerminal = {
   warn: mock(() => Effect.void),
   ask: mock(() => Effect.succeed("")),
   confirm: mock(() => Effect.succeed(true)),
-} as unknown as TerminalService;
+});
 
-const mockPlainTerminal = {
+const mockPlainTerminal = partialFake<TerminalService>({
   ...mockTerminal,
   isInteractive: false,
-} as unknown as TerminalService;
+});
 
-const mockCLIOptions = {
+const mockCLIOptions = partialFake<CLIOptions>({
   verbose: false,
-} as unknown as CLIOptions;
+});
 
-const mockJazzStateService = {
+const mockJazzStateService = partialFake<JazzStateService>({
   get: () => Effect.succeed(undefined),
   set: () => Effect.void,
   load: () => Effect.succeed({}),
-} as unknown as JazzStateService;
+});
 
 describe("Agent Management Commands", () => {
   const testLayer = Layer.mergeAll(

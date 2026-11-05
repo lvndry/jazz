@@ -15,7 +15,9 @@ import {
 const directories: string[] = [];
 
 afterEach(() => {
-  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true });
+  for (const directory of directories.splice(0)) {
+    rmSync(directory, { recursive: true });
+  }
 });
 
 function temporaryJazzHome(): string {

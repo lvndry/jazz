@@ -4,6 +4,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
+import { partialFake, withoutServices } from "@/core/test-support/fakes";
 import type { ChatMessage } from "@/core/types/message";
 import type {
   ApprovalRequest,
@@ -299,7 +300,7 @@ function harness(options: {
 }) {
   const executed: string[] = [];
   const approvals: ApprovalRequest[] = [];
-  const registry = {
+  const registry = partialFake<ToolRegistry>({
     getTool: (name: string) =>
       Effect.succeed({
         name,
@@ -316,8 +317,8 @@ function harness(options: {
           untrusted: { kind: "external", source: `${name} https://page.example` },
         };
       }),
-  } as unknown as ToolRegistry;
-  const presentation = {
+  });
+  const presentation = partialFake<PresentationService>({
     formatToolsDetected: () => Effect.succeed(""),
     writeOutput: () => Effect.void,
     writeBlankLine: () => Effect.void,
@@ -333,7 +334,7 @@ function harness(options: {
         options.onApproval?.();
         return { approved: options.approve };
       }),
-  } as unknown as PresentationService;
+  });
   const layer = Layer.mergeAll(
     Layer.succeed(ToolRegistryTag, registry),
     Layer.succeed(PresentationServiceTag, presentation),
@@ -344,32 +345,31 @@ function harness(options: {
 
   const run = (context: ToolExecutionContext, call: ToolCall, ledger?: ToolBatchLedger) =>
     Effect.runPromiseExit(
-      ToolExecutor.executeToolCalls(
-        [call],
-        context,
-        { showReasoning: false, showToolExecution: false, mode: "hybrid" },
-        null,
-        createAgentRunMetrics({
-          agent: {
-            id: "a",
-            name: "a",
-            config: { persona: "default", llm: { provider: "openai", model: "m" } },
-          },
-          conversationId: "c",
-          provider: "openai",
-          model: "m",
-        } as never),
-        "a",
-        "c",
-        "a",
-        undefined,
-        undefined,
-        undefined,
-        ledger,
-      ).pipe(Effect.provide(layer)) as unknown as Effect.Effect<
-        readonly { result: unknown; success: boolean }[],
-        Error
-      >,
+      withoutServices(
+        ToolExecutor.executeToolCalls(
+          [call],
+          context,
+          { showReasoning: false, showToolExecution: false, mode: "hybrid" },
+          null,
+          createAgentRunMetrics({
+            agent: {
+              id: "a",
+              name: "a",
+              config: { persona: "default", llm: { provider: "openai", model: "m" } },
+            },
+            conversationId: "c",
+            provider: "openai",
+            model: "m",
+          } as never),
+          "a",
+          "c",
+          "a",
+          undefined,
+          undefined,
+          undefined,
+          ledger,
+        ).pipe(Effect.provide(layer)),
+      ),
     );
   return { executed, approvals, run };
 }

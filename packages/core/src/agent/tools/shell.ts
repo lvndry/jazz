@@ -62,7 +62,9 @@ function collectMktempVars(command: string): Set<string> {
   const vars = new Set<string>();
   for (const match of command.matchAll(MKTEMP_ASSIGNMENT)) {
     const name = match[1];
-    if (name) vars.add(name);
+    if (name) {
+      vars.add(name);
+    }
   }
   return vars;
 }
@@ -74,11 +76,15 @@ function collectMktempVars(command: string): Set<string> {
  * `/subpath`) whose value was assigned from `mktemp` earlier in the command?
  */
 function isTempPathToken(token: string, mktempVars: Set<string>): boolean {
-  if (token === MKTEMP_SENTINEL) return true; // inline $(mktemp …) / `mktemp …`
+  if (token === MKTEMP_SENTINEL) {
+    return true;
+  } // inline $(mktemp …) / `mktemp …`
   if (token.split("/").includes("..")) {
     return false; // `$TMPDIR/../..` climbs out of the temp dir
   }
-  if (/^\$\{?TMPDIR\}?(?:\/.*)?$/.test(token)) return true; // $TMPDIR or ${TMPDIR}[/…]
+  if (/^\$\{?TMPDIR\}?(?:\/.*)?$/.test(token)) {
+    return true;
+  } // $TMPDIR or ${TMPDIR}[/…]
   const varName = token.match(/^\$\{?(\w+)\}?(?:\/.*)?$/)?.[1]; // $var / ${var}[/…]
   return varName !== undefined && mktempVars.has(varName);
 }
@@ -95,7 +101,9 @@ function isTempPathToken(token: string, mktempVars: Set<string>): boolean {
 function isTempCleanupRm(command: string): boolean {
   const mktempVars = collectMktempVars(command);
   const rmInvocations = command.match(/\brm\b[^\n;&|]*/g);
-  if (!rmInvocations || rmInvocations.length === 0) return false;
+  if (!rmInvocations || rmInvocations.length === 0) {
+    return false;
+  }
   return rmInvocations.every((invocation) => {
     const targets = invocation
       .slice(2) // drop the leading "rm"
@@ -468,8 +476,12 @@ export const FORBIDDEN_COMMANDS: readonly ForbiddenRule[] = [
 export function matchForbiddenCommand(command: string): ForbiddenRule | null {
   const matchable = blankQuotedOperators(command);
   for (const rule of FORBIDDEN_COMMANDS) {
-    if (!rule.pattern.test(matchable)) continue;
-    if (rule.exemptions?.some((exemption) => exemption.matches(command))) continue;
+    if (!rule.pattern.test(matchable)) {
+      continue;
+    }
+    if (rule.exemptions?.some((exemption) => exemption.matches(command))) {
+      continue;
+    }
     return rule;
   }
   return null;
@@ -575,8 +587,12 @@ type InteractiveShellKind = "zsh" | "bash";
 
 function interactiveShellKind(shellPath: string): InteractiveShellKind | undefined {
   const name = shellPath.split("/").pop();
-  if (name === "zsh") return "zsh";
-  if (name === "bash") return "bash";
+  if (name === "zsh") {
+    return "zsh";
+  }
+  if (name === "bash") {
+    return "bash";
+  }
   return undefined;
 }
 
@@ -661,7 +677,9 @@ export function runShellCommand(input: {
     let child: ChildProcess | undefined;
 
     const finish = (effect: Effect.Effect<ShellCommandOutput, Error>): void => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       if (timeoutId) {
         clearTimeout(timeoutId);
@@ -799,7 +817,9 @@ export function runShellCommand(input: {
         clearTimeout(pipeGraceId);
         pipeGraceId = null;
       }
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       if (timeoutId) {
         clearTimeout(timeoutId);

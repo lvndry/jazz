@@ -207,10 +207,14 @@ export async function resolveAttachments(
   const byPath = new Map<string, MessageAttachment>();
   for (const message of messages) {
     for (const attachment of message.attachments ?? []) {
-      if (!byPath.has(attachment.path)) byPath.set(attachment.path, attachment);
+      if (!byPath.has(attachment.path)) {
+        byPath.set(attachment.path, attachment);
+      }
     }
   }
-  if (byPath.size === 0) return new Map();
+  if (byPath.size === 0) {
+    return new Map();
+  }
 
   const resolved = new Map<string, ResolvedAttachment>();
   await Promise.all(

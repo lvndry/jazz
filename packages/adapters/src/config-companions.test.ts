@@ -43,8 +43,11 @@ afterEach(() => {
   process.chdir(originalCwd);
   for (const key of ENV_KEYS) {
     const value = originalEnv[key];
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
   }
 });
 

@@ -104,7 +104,9 @@ function collectSchemaErrors(
     const properties = (schema["properties"] as Record<string, JsonSchema> | undefined) ?? {};
     const required = Array.isArray(schema["required"]) ? (schema["required"] as string[]) : [];
     for (const key of required) {
-      if (!(key in object)) errors.push(`${path.length > 0 ? `${path}.` : ""}${key} is required`);
+      if (!(key in object)) {
+        errors.push(`${path.length > 0 ? `${path}.` : ""}${key} is required`);
+      }
     }
     if (schema["additionalProperties"] === false) {
       for (const key of Object.keys(object)) {
@@ -139,7 +141,9 @@ function collectSchemaErrors(
 function makeArgumentValidator(schema: JsonValue): ToolValidator<Record<string, unknown>> {
   const isObjectSchema = isRecord(schema);
   return (args) => {
-    if (!isObjectSchema) return { valid: true, value: args };
+    if (!isObjectSchema) {
+      return { valid: true, value: args };
+    }
     const errors: string[] = [];
     collectSchemaErrors(args, schema, "", errors);
     return errors.length === 0 ? { valid: true, value: args } : { valid: false, errors };
@@ -203,10 +207,12 @@ export function adaptPluginToolToJazz(
     handler: (args, context) =>
       invoke.prepare(info.name, args, context).pipe(
         Effect.map((proposal) => {
-          if ("isError" in proposal && proposal.isError === true)
+          if ("isError" in proposal && proposal.isError === true) {
             return toExecutionResult(proposal);
-          if (!("message" in proposal))
+          }
+          if (!("message" in proposal)) {
             return { success: false, result: proposal.content, error: proposal.content };
+          }
           return {
             success: false,
             result: {

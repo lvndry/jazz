@@ -29,7 +29,9 @@ function isCi(env: NodeJS.ProcessEnv): boolean {
  * daemon, or other remote surface.
  */
 export function shouldOpenCompletedComposition(context: CompositionBrowserContext): boolean {
-  if (isCi(context.env)) return false;
+  if (isCi(context.env)) {
+    return false;
+  }
   if (
     context.platform !== "darwin" &&
     context.platform !== "linux" &&
@@ -39,7 +41,9 @@ export function shouldOpenCompletedComposition(context: CompositionBrowserContex
   }
 
   const surface = context.env["JAZZ_SURFACE"]?.trim();
-  if (surface !== undefined && surface.length > 0 && surface !== "cli") return false;
+  if (surface !== undefined && surface.length > 0 && surface !== "cli") {
+    return false;
+  }
 
   // A browser on a machine with no terminal attached is almost always a daemon,
   // cron job, or headless container. Either stream being a TTY is enough to
@@ -98,14 +102,22 @@ export async function openCompletedCompositionInBrowser(
   },
   launcher: CompositionBrowserLauncher = createSystemCompositionBrowserLauncher(),
 ): Promise<boolean> {
-  if (!shouldOpenCompletedComposition(context)) return false;
-  if (!isAbsolute(htmlPath)) return false;
+  if (!shouldOpenCompletedComposition(context)) {
+    return false;
+  }
+  if (!isAbsolute(htmlPath)) {
+    return false;
+  }
 
   const extension = extname(htmlPath).toLowerCase();
-  if (extension !== ".html" && extension !== ".htm") return false;
+  if (extension !== ".html" && extension !== ".htm") {
+    return false;
+  }
 
   const command = commandForPlatform(context.platform);
-  if (command === undefined) return false;
+  if (command === undefined) {
+    return false;
+  }
 
   const fileUrl = pathToFileURL(htmlPath).href;
   const args = context.platform === "win32" ? ["url.dll,FileProtocolHandler", fileUrl] : [fileUrl];

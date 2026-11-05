@@ -587,7 +587,12 @@ describe("SubagentSupervisor queue", () => {
         const afterSecond = statusOf(supervisor);
         yield* Deferred.succeed(releases[2]!, "three done");
         const waited = yield* supervisor.wait([], "all", 5_000);
-        return { queued, afterFirst, afterSecond, results: waited.subagents.map((c) => c.result) };
+        return {
+          queued,
+          afterFirst,
+          afterSecond,
+          results: waited.subagents.map((subagent) => subagent.result),
+        };
       }),
     );
     expect(states.queued).toEqual([
