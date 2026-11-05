@@ -54,6 +54,7 @@ export const WEB_SEARCH_PROVIDERS = [
   { name: "Exa", value: "exa" },
   { name: "Tavily", value: "tavily" },
   { name: "Linkup", value: "linkup" },
+  { name: "Keenable", value: "keenable" },
   { name: "treg (TinyFish first, paid fallback)", value: "treg" },
 ] as const;
 
@@ -166,6 +167,7 @@ export function createWebSearchTool(): ReturnType<
           brave: executeBraveSearch,
           perplexity: executePerplexitySearch,
           linkup: executeLinkupSearch,
+          keenable: executeKeenableSearch,
           treg: executeTregSearch,
         };
 
@@ -369,6 +371,83 @@ function executeParallelSearch(
       query: args.query,
       completedAt: new Date().toISOString(),
       provider: "parallel" as const,
+    };
+  });
+}
+
+const KEENABLE_SEARCH_URL = "https://api.keenable.ai/v1/search";
+const KEENABLE_TIMEOUT_MS = 60_000;
+const KEENABLE_SNIPPET_MAX_CHARS = 1_000;
+
+/** The fields this tool reads from Keenable's `/v1/search` response. */
+interface KeenableSearchResponse {
+  readonly results?: readonly {
+    readonly title?: string;
+    readonly url?: string;
+    readonly description?: string;
+    readonly snippet?: string;
+  }[];
+}
+
+function executeKeenableSearch(
+  args: WebSearchArgs,
+  apiKey: string,
+): Effect.Effect<WebSearchResult, Error, LoggerService> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+
+    yield* logger.debug("Web search provider request started", {
+      provider: "keenable",
+      queryLength: args.query.length,
+    });
+
+    const response = yield* Effect.retry(
+      Effect.tryPromise({
+        try: async () => {
+          const res = await fetch(KEENABLE_SEARCH_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-API-Key": apiKey,
+              "X-Keenable-Title": "Jazz",
+            },
+            body: JSON.stringify({
+              query: args.query,
+              max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
+            }),
+            signal: AbortSignal.timeout(KEENABLE_TIMEOUT_MS),
+          });
+
+          if (!res.ok) {
+            throw new Error(`Keenable search failed: ${res.statusText}`);
+          }
+
+          return (await res.json()) as KeenableSearchResponse;
+        },
+        catch: (error) => new Error(`Keenable search failed: ${toError(error).message}`),
+      }),
+      SEARCH_RETRY_POLICY,
+    );
+
+    const results: WebSearchItem[] = (response.results ?? [])
+      .filter((result) => Boolean(result.url))
+      .map((result) => ({
+        title: result.title || "",
+        url: result.url || "",
+        snippet: result.description || (result.snippet ?? "").slice(0, KEENABLE_SNIPPET_MAX_CHARS),
+      }));
+
+    yield* logger.info("Web search provider request completed", {
+      provider: "keenable",
+      resultCount: results.length,
+    });
+
+    return {
+      results,
+      totalResults: results.length,
+      query: args.query,
+      completedAt: new Date().toISOString(),
+      provider: "keenable" as const,
     };
   });
 }
