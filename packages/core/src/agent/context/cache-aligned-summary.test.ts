@@ -9,7 +9,7 @@ import { PresentationServiceTag, type PresentationService } from "../../interfac
 import type { Agent, AppConfig } from "../../types";
 import type { ChatCompletionOptions, ChatCompletionResponse } from "../../types/chat";
 import { LLMRequestError } from "../../types/errors";
-import type { ChatMessage, ConversationMessages } from "../../types/message";
+import type { ConversationMessages } from "../../types/message";
 import type { ToolDefinition } from "../../types/tools";
 import {
   createAgentRunMetrics,
@@ -103,8 +103,8 @@ function makeTools(): ToolDefinition[] {
   ];
 }
 
-function makeConversation(): ChatMessage[] {
-  const messages: ChatMessage[] = [{ role: "system", content: "the real system prompt" }];
+function makeConversation(): ConversationMessages {
+  const messages: ConversationMessages = [{ role: "system", content: "the real system prompt" }];
   for (let index = 0; index < 16; index++) {
     messages.push({ role: "user", content: `ask ${index} ` + "detail ".repeat(100) });
     messages.push({ role: "assistant", content: `answer ${index} ` + "text ".repeat(100) });
@@ -117,7 +117,7 @@ interface Harness {
   readonly runnerInputs: string[];
   readonly metrics: AgentRunMetrics;
   readonly conversationKey: string;
-  readonly previousMessages: ChatMessage[];
+  readonly previousMessages: ConversationMessages;
   readonly tools: ToolDefinition[];
   compact(options: {
     readonly agent?: Agent;
@@ -164,11 +164,11 @@ async function makeHarness(): Promise<Harness> {
       conversationId,
     } as AgentResponse);
   };
-  const history = [
+  const history: ConversationMessages = [
     ...previousMessages,
     { role: "user", content: "one more thing" },
     { role: "assistant", content: "on it" },
-  ] as ConversationMessages;
+  ];
 
   return {
     requests,
@@ -255,9 +255,9 @@ describe("cache-aligned compaction summary", () => {
     });
     expect(sent.toolsHash).toBe(previous.toolsHash);
     expect(sent.systemHash).toBe(previous.systemHash);
-    expect(sent.messageHashes.slice(0, previous.messageHashes.length)).toEqual(
-      previous.messageHashes,
-    );
+    expect(sent.messageHashes.slice(0, previous.messageHashes.length)).toEqual([
+      ...previous.messageHashes,
+    ]);
     expect(sent.messageHashes.length).toBeGreaterThan(previous.messageHashes.length);
     expect(classifyCacheChange(previous, sent).reason).toBe("none");
     expect(lastCacheObservation(harness.conversationKey)?.change.reason).toBe("none");
