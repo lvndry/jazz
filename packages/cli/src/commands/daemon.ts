@@ -37,6 +37,7 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { OneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
 import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/core/secrets/registry";
 import type { AppConfig } from "@jazz/core/types/config";
+import { registerReleaseHook } from "@jazz/core/utils/crash-report";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/errors";
 import { acquireFileLock } from "@jazz/core/utils/file-lock";
@@ -514,8 +515,16 @@ export function daemonCommand(options: DaemonCommandOptions) {
       };
       process.once("SIGINT", stop);
       process.once("SIGTERM", stop);
+      const unregisterCrashRelease = registerReleaseHook("daemon-resources", async () => {
+        clearInterval(ticker);
+        await clearDaemonPid(daemonOptions.port);
+        await clearDaemonStatus(daemonOptions.port);
+        await server.stop(true);
+        await releaseHomeLock();
+      });
 
       return Effect.sync(() => {
+        unregisterCrashRelease();
         clearInterval(ticker);
         void clearDaemonPid(daemonOptions.port);
         void clearDaemonStatus(daemonOptions.port);

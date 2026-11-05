@@ -5,8 +5,12 @@
  * anything.
  */
 
+import { getLogsDirectory } from "@jazz/adapters/logger";
+import { installCrashHandlers } from "@jazz/core/utils/crash-report";
 import { toError } from "@jazz/core/utils/errors";
 import { startBridge } from "./bridge";
+
+installCrashHandlers({ role: "discord-bot", logsDirectory: getLogsDirectory() });
 
 try {
   startBridge();

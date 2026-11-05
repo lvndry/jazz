@@ -29,6 +29,27 @@ Set `logging.level` to `debug` in `~/.jazz/config.json` to keep debug logging on
 `logging.format` to `json` for one object per line. `--verbose` only adds detail to
 `jazz agent list`; it does not change what is logged.
 
+## Crash reports
+
+When a Jazz process dies of an uncaught exception or an unhandled rejection (the daemon, a chat
+bot, `jazz run`, the chat), it writes a report to `logs/crashes/` before it exits with code 1:
+
+```text
+~/.jazz/logs/crashes/crash-2026-11-05T09-14-02-117Z-telegram-bot-48211.log
+```
+
+The name carries the time, the role (`daemon`, `run`, `chat`, `cli`, or a bot such as
+`telegram-bot`) and the process id. The file is plain text: the role, version, platform, runtime,
+uptime, the error and its stack, and the last 100 lines the process wrote to stderr. Secret values
+are replaced by placeholders, but read it before you attach it to an issue. Only the 20 newest
+reports are kept.
+
+On a crash the process also stops what it was serving first: a bot stops taking messages and
+cancels its running turns, the daemon releases its lock and port, and the fullscreen interface
+restores the terminal. Release steps get 3 seconds in total. The same error and the report path
+are printed on stderr. When a bot's per-conversation `jazz run` crashes, the bot logs the report
+path server-side; the chat only sees the usual failure message.
+
 ## The provider rejects the key
 
 The message names the provider, for example "OpenAI API key is missing or invalid".
