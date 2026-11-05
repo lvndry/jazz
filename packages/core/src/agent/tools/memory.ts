@@ -119,11 +119,7 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
     name: "view_memory",
     disclosure: "private",
     description:
-      "Check memory BEFORE answering or acting on any request the user's preferences, opinions, " +
-      "style, history, relationships, prior decisions or past work could shape — tasks " +
-      "('let's write a blog' → writing preferences) as much as questions ('what's my favorite X'). " +
-      "Skip it only for impersonal requests (factual lookups, technical questions, time/weather). " +
-      "Call with no path to list every scope and its files, then read only scopes relevant to the conversation. An empty scope means nothing is saved yet.",
+      "Read the user's saved memory. Call with no path to list every scope and its files, then read only scopes relevant to the conversation. An empty scope means nothing is saved yet.",
     parameters: viewMemoryParameters,
     riskLevel: "read-only",
     hidden: false,
@@ -236,7 +232,7 @@ const createMemoryParameters = z.object({
     .string()
     .optional()
     .describe(
-      'Defaults to the shared "personal" scope. Pass a scope to file the entry under a different topic.',
+      'Defaults to the shared "personal" scope. Pass a project, domain or situation scope when the fact clearly belongs to only that.',
     ),
 });
 
@@ -627,10 +623,9 @@ export function createProposeLessonTool(): Tool<MemoryToolDeps> {
     disclosure: "private",
     summary: "Propose a rule learned from your own mistake, for the user to review.",
     description:
-      "Call this when you got something wrong and had to change course: you reversed a recommendation, " +
-      "the user or new evidence showed your approach was mistaken, or a check you skipped would have caught it. " +
+      "Propose a lesson from a mistake you made, for the user to review. " +
       "State the general rule that would have prevented it and the mistake it prevents. " +
-      "The user reviews each proposal before it is saved, so propose only rules worth keeping for months, one per mistake.",
+      "Propose only rules worth keeping for months, one per mistake.",
     parameters: proposeLessonParameters,
     riskLevel: "low-risk",
     hidden: false,

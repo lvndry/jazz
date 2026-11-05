@@ -1394,6 +1394,13 @@ function handleToolPhase(
           : [[toolResult.toolCallId, toolResult.memoryExposure] as const],
       ),
     );
+    const unlockedToolNamesMap = new Map(
+      toolResults.flatMap((toolResult) =>
+        toolResult.unlockedToolNames === undefined
+          ? []
+          : [[toolResult.toolCallId, toolResult.unlockedToolNames] as const],
+      ),
+    );
     const provenanceMap = new Map(
       toolResults.flatMap((toolResult) =>
         toolResult.untrusted === undefined
@@ -1482,6 +1489,7 @@ function handleToolPhase(
             keepCutResult,
           );
           const memoryExposure = exposureMap.get(toolCall.id);
+          const unlockedToolNames = unlockedToolNamesMap.get(toolCall.id);
           const memoryDelivery: MemoryDelivery | undefined =
             memoryExposure === undefined
               ? undefined
@@ -1492,6 +1500,7 @@ function handleToolPhase(
             content: formattedResult,
             tool_call_id: toolCall.id,
             ...(memoryDelivery !== undefined ? { memoryDelivery } : {}),
+            ...(unlockedToolNames !== undefined ? { unlockedToolNames } : {}),
             ...(provenance?.kind === "external" ? { egressTainted: true as const } : {}),
           });
           recordToolResultTokens(runMetrics, toolCall.function.name, formattedResult.length);

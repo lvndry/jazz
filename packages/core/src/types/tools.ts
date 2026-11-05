@@ -221,6 +221,11 @@ export interface ToolExecutionResult {
    * result in the untrusted envelope, and `external` provenance marks the run's `EgressTaint`.
    */
   readonly untrusted?: UntrustedProvenance;
+  /**
+   * Deferred-tier tools this call made callable. The agent loop records them on the result's
+   * message so every later run of the conversation declares them again.
+   */
+  readonly unlockedToolNames?: readonly string[];
 }
 
 /**
@@ -580,7 +585,7 @@ export interface ToolExecutionContext {
   readonly allowHiddenExecute?: boolean;
   /** Names of this run's `deferred`-tier tools `search_tools` may look up. */
   readonly deferredToolNames?: readonly string[];
-  /** Called by `search_tools` to make fetched schemas callable for the rest of this run — mirrors `compactConversation`. */
+  /** Called by `search_tools` to make fetched schemas callable for the rest of this run; the runner declares them again at the start of every later run. */
   readonly unlockDeferredTools?: (definitions: readonly ToolDefinition[]) => void;
   /**
    * Attach a media file (image/pdf/audio/video) to the current turn so the model actually
