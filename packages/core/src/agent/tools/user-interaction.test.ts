@@ -16,6 +16,7 @@ function harness(outcome: Record<string, unknown>) {
 async function ask(outcome: Record<string, unknown>): Promise<{
   success: boolean;
   result: string;
+  outcome?: string;
 }> {
   const effect = askUserQuestion!.execute(
     {
@@ -69,6 +70,31 @@ describe("ask_user_question", () => {
     }
   });
 
+  it("gives every option a display label, defaulting to its value", async () => {
+    let shown: ReadonlyArray<{ value: string; label?: string }> = [];
+    const effect = askUserQuestion!.execute(
+      {
+        question: "Which?",
+        suggested_responses: [{ value: "a" }, { value: "b", label: "B (Recommended)" }],
+      },
+      { agentId: "a", conversationId: "c" },
+    ) as never as Effect.Effect<unknown, never, never>;
+    await Effect.runPromise(
+      effect.pipe(
+        Effect.provide(
+          Layer.succeed(PresentationServiceTag, {
+            requestUserInput: (request: { suggestions: typeof shown }) => {
+              shown = request.suggestions;
+              return Effect.succeed({ kind: "answered", response: "a" });
+            },
+          } as never),
+        ),
+      ) as Effect.Effect<unknown, never, never>,
+    );
+    expect(shown.map((option) => option.label)).toEqual(["a", "B (Recommended)"]);
+    expect(shown.map((option) => option.value)).toEqual(["a", "b"]);
+  });
+
   it("passes a real answer through", async () => {
     const result = await ask({ kind: "answered", response: "next Tuesday at 3pm" });
     expect(result.success).toBe(true);
@@ -78,7 +104,10 @@ describe("ask_user_question", () => {
   it("reports a refusal as a failed result, never as an answer", async () => {
     const result = await ask({ kind: "declined" });
     expect(result.success).toBe(false);
+    expect(result.outcome).toBe("declined");
     expect(result.result).not.toContain("User responded");
+    expect(result.result).not.toContain("today");
+    expect(result.result).not.toContain("tomorrow");
   });
 
   it("returns the same result for a refusal live and on resume", async () => {
@@ -111,7 +140,9 @@ describe("ask_user_question", () => {
     const unavailable = await ask({ kind: "unavailable" });
     const declined = await ask({ kind: "declined" });
     expect(unavailable.success).toBe(false);
-    expect(unavailable.result).not.toBe(declined.result);
+    expect(unavailable.outcome).toBe("unavailable");
+    expect(unavailable.outcome).not.toBe(declined.outcome);
+    expect(unavailable.result).not.toContain("User responded");
   });
 });
 

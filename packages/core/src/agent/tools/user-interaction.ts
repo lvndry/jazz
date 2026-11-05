@@ -44,7 +44,7 @@ const askUserSchema = z.object({
     .min(2)
     .max(4)
     .describe(
-      "Concrete, self-contained options. List a recommended option first and end its label with (Recommended).",
+      "Concrete, self-contained options. When you recommend one, list it first and end its label with (Recommended).",
     ),
   allow_multiple: z.boolean().optional().default(false).describe("Allow several selections."),
 });
@@ -249,7 +249,10 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
 
         const request: UserInputRequest = {
           question: args.question,
-          suggestions: args.suggested_responses,
+          suggestions: args.suggested_responses.map((suggestion) => ({
+            ...suggestion,
+            label: suggestion.label ?? suggestion.value,
+          })),
           allowCustom: true,
           allowMultiple: args.allow_multiple === true,
         };
@@ -260,7 +263,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
             : context.resolvedUserInputs?.get(context.toolCallId);
         if (prior !== undefined) {
           if (prior.kind === "declined") {
-            return { success: false, result: QUESTION_DECLINED_RESULT };
+            return { success: false, result: QUESTION_DECLINED_RESULT, outcome: "declined" };
           }
           return { success: true, result: `User responded: ${prior.response}` };
         }
@@ -279,12 +282,13 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
         const outcome = yield* presentation.requestUserInput(request);
 
         if (outcome.kind === "declined") {
-          return { success: false, result: QUESTION_DECLINED_RESULT };
+          return { success: false, result: QUESTION_DECLINED_RESULT, outcome: "declined" };
         }
 
         if (outcome.kind === "unavailable") {
           return {
             success: false,
+            outcome: "unavailable",
             result:
               "Nobody could be asked — no human ever saw this question. Do not report it as unanswered or wait for a reply. " +
               "Decide yourself, state the assumption you are proceeding on, and carry on.",
