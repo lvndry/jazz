@@ -8,6 +8,22 @@ import {
 } from "./gen-tool-catalog";
 
 describe("tool catalog", () => {
+  it("lists the tools the agent runner registers per run, marked as such", async () => {
+    const rows = await toolCatalogRows();
+    const perRun = new Map(rows.map((row) => [row.name, row.registration]));
+    expect(perRun.get("browser_adopt_tab")).toBe("per run");
+    expect(perRun.get("ask_peer")).toContain("peer");
+    expect(perRun.get("find_skills")).toContain("skills");
+    expect(perRun.get("read_file")).toBe("startup");
+  });
+
+  it("shows the summary a model sees: the runtime's truncation of a long first description line", async () => {
+    const rows = await toolCatalogRows();
+    const row = rows.find((candidate) => candidate.name === "list_triggers");
+    expect(row?.description.endsWith("...")).toBe(true);
+    expect(row?.description.length).toBeLessThanOrEqual(103);
+  });
+
   it("places every tool in a registered group", async () => {
     const rows = await toolCatalogRows();
     expect(rows.filter((row) => row.group === "Other").map((row) => row.name)).toEqual([]);

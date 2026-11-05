@@ -41,7 +41,7 @@ import {
 const SUMMARY_FALLBACK_MAX_LENGTH = 100;
 
 /** Fallback for `ToolSummary.summary`; cuts at a word boundary so it doesn't end mid-word. */
-function truncateForSummary(description: string): string {
+export function truncateForSummary(description: string): string {
   // Unicode line and paragraph separators break a line as surely as "\n" does in the prompt.
   const firstLine = description.split(/\r\n|[\n\r\u2028\u2029]/)[0]?.trim() ?? "";
   if (firstLine.length <= SUMMARY_FALLBACK_MAX_LENGTH) return firstLine;

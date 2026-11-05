@@ -1,6 +1,7 @@
 /**
  * Generates `docs/maintainers/tool-catalog.md`: one row per built-in tool, read from the same
- * registration code the harness runs (`registerAllTools`), so the page cannot disagree with what a
+ * registration code the harness runs (`registerAllTools` at startup, then the per-run registrars
+ * the agent runner calls: browser tab adoption, skill tools and peer tools), so the page cannot disagree with what a
  * model is offered.
  *
  * Each row carries the tool's group (its registered category), whether the group is `eager`
@@ -23,8 +24,14 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { registerAllTools } from "@jazz/core/agent/tools/register-tools";
-import { createToolRegistryLayer } from "@jazz/core/agent/tools/tool-registry";
+import {
+  registerAllTools,
+  registerBrowserAdoptionTools,
+  registerPeerTools,
+  registerSkillSystemTools,
+} from "@jazz/core/agent/tools/register-tools";
+import { createToolRegistryLayer, truncateForSummary } from "@jazz/core/agent/tools/tool-registry";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import {
   ToolRegistryTag,
   type Tool,
@@ -48,6 +55,22 @@ export const REGENERATE_COMMAND = "bun run docs:tool-catalog";
 const CHARACTERS_PER_TOKEN = 4;
 const UNGROUPED = "Other";
 
+const ALWAYS_REGISTERED = "startup";
+
+interface RegisteredTool {
+  readonly tool: Tool<ToolRequirements>;
+  readonly category: ToolCategory | undefined;
+  readonly registration: string;
+}
+
+/**
+ * Peer tools are registered only for a configured peer, so the generator supplies one. Only its
+ * name and address reach the peer tool's own text.
+ */
+const placeholderPeerConfig = {
+  appConfig: Effect.succeed({ peers: [{ name: "peer", url: "https://peer.example" }] }),
+} as unknown as AgentConfigService;
+
 type JsonSchemaObject = {
   readonly properties?: Readonly<Record<string, unknown>>;
   readonly required?: readonly string[];
@@ -59,6 +82,7 @@ export interface ToolCatalogRow {
   readonly tier: "eager" | "deferred";
   readonly internal: boolean;
   readonly hidden: boolean;
+  readonly registration: string;
   readonly riskLevel: string;
   readonly parameters: readonly string[];
   readonly description: string;
@@ -92,13 +116,9 @@ function compareText(left: string, right: string): number {
  * Registers every global built-in tool through a registry that records each tool's category, so
  * hidden and internal tools keep theirs, and returns the registered tools with that category.
  */
-async function registeredTools(): Promise<
-  readonly { tool: Tool<ToolRequirements>; category: ToolCategory | undefined }[]
-> {
-  const recorded = new Map<
-    string,
-    { tool: Tool<ToolRequirements>; category: ToolCategory | undefined }
-  >();
+async function registeredTools(): Promise<readonly RegisteredTool[]> {
+  const recorded = new Map<string, RegisteredTool>();
+  let registration = ALWAYS_REGISTERED;
   const registry = await Effect.runPromise(
     Effect.gen(function* () {
       return yield* ToolRegistryTag;
@@ -108,7 +128,7 @@ async function registeredTools(): Promise<
     get(target, property) {
       if (property === "registerTool") {
         return (tool: Tool<ToolRequirements>, category?: ToolCategory) => {
-          recorded.set(tool.name, { tool, category });
+          recorded.set(tool.name, { tool, category, registration });
           return target.registerTool(tool, category);
         };
       }
@@ -122,9 +142,17 @@ async function registeredTools(): Promise<
         : value;
     },
   });
-  await Effect.runPromise(
-    registerAllTools().pipe(Effect.provide(Layer.succeed(ToolRegistryTag, recording))),
+  const registryLayer = Layer.succeed(ToolRegistryTag, recording);
+  const peerConfigLayer = Layer.succeed(ToolRegistryTag, recording).pipe(
+    Layer.merge(Layer.succeed(AgentConfigServiceTag, placeholderPeerConfig)),
   );
+  await Effect.runPromise(registerAllTools().pipe(Effect.provide(registryLayer)));
+  registration = "per run";
+  await Effect.runPromise(registerBrowserAdoptionTools().pipe(Effect.provide(registryLayer)));
+  registration = "per run, when the agent has skills";
+  await Effect.runPromise(registerSkillSystemTools([]).pipe(Effect.provide(registryLayer)));
+  registration = "per run, when a peer is configured";
+  await Effect.runPromise(registerPeerTools().pipe(Effect.provide(peerConfigLayer)));
   return [...recorded.values()];
 }
 
@@ -138,14 +166,14 @@ export async function toolCatalogRows(): Promise<readonly ToolCatalogRow[]> {
   }
   const categoryByName = new Map(registered.map(({ tool, category }) => [tool.name, category]));
 
-  const rows = registered.map(({ tool, category }): ToolCatalogRow => {
+  const rows = registered.map(({ tool, category, registration }): ToolCatalogRow => {
     const owner = approvalOwnerByExecuteName.get(tool.name);
     const effectiveCategory = category ?? (owner ? categoryByName.get(owner.name) : undefined);
     const tier = effectiveCategory?.loadTier ?? "eager";
     const schema = parameterSchema(tool);
     const fullCharacters =
       tool.name.length + tool.description.length + JSON.stringify(schema).length;
-    const summary = tool.summary ?? firstLine(tool.description);
+    const summary = tool.summary ?? truncateForSummary(tool.description);
     const summaryCharacters = tool.name.length + summary.length;
     return {
       name: tool.name,
@@ -153,6 +181,7 @@ export async function toolCatalogRows(): Promise<readonly ToolCatalogRow[]> {
       tier,
       internal: effectiveCategory?.internal === true,
       hidden: tool.hidden,
+      registration,
       riskLevel: tool.riskLevel,
       parameters: parameterNames(schema),
       description: tool.hidden ? `Runs the action \`${owner?.name ?? "?"}\` proposed.` : summary,
@@ -168,19 +197,14 @@ export async function toolCatalogRows(): Promise<readonly ToolCatalogRow[]> {
   );
 }
 
-/** The summary the deferred-tool list shows when a tool sets none: the first line of its description. */
-function firstLine(description: string): string {
-  return description.split(/\r\n|[\n\r\u2028\u2029]/)[0]?.trim() ?? "";
-}
-
 function escapeCell(text: string): string {
   return text.replaceAll("|", "\\|");
 }
 
 function toolsTable(rows: readonly ToolCatalogRow[]): string {
   const lines = [
-    "| Tool | Group | Tier | Risk | Parameters | Schema tokens | Always-on tokens | Summary |",
-    "| --- | --- | --- | --- | --- | ---: | ---: | --- |",
+    "| Tool | Group | Tier | Registered | Risk | Parameters | Schema tokens | Always-on tokens | Summary |",
+    "| --- | --- | --- | --- | --- | --- | ---: | ---: | --- |",
   ];
   for (const row of rows) {
     const parameters = row.parameters.map((name) => `\`${name}\``).join(", ");
@@ -189,7 +213,7 @@ function toolsTable(rows: readonly ToolCatalogRow[]): string {
       .join(", ");
     const group = markers === "" ? row.group : `${row.group} (${markers})`;
     lines.push(
-      `| \`${row.name}\` | ${escapeCell(group)} | ${row.tier} | \`${row.riskLevel}\` | ${parameters} | ${row.schemaTokens} | ${row.alwaysOnTokens} | ${escapeCell(row.description)} |`,
+      `| \`${row.name}\` | ${escapeCell(group)} | ${row.tier} | ${row.registration} | \`${row.riskLevel}\` | ${parameters} | ${row.schemaTokens} | ${row.alwaysOnTokens} | ${escapeCell(row.description)} |`,
     );
   }
   return lines.join("\n");
@@ -234,7 +258,13 @@ holds it: the full definition in an \`eager\` group, the name and one-line summa
 half of an approval pair and is never sent to a model. For what each risk level allows, see
 [tool inventory](../tools/index.md) and [tool lifecycle](./tool-lifecycle.md).
 
-Tools registered per agent (skills, MCP servers, plugins, custom tools) are not listed.
+**Registered** is when the tool exists: \`startup\` for every run, \`per run\` for a tool the
+agent runner registers at the start of each run, and \`per run, when ...\` for one that exists only
+under that condition. The generator calls the same registration functions the runner calls and
+supplies a placeholder peer so the peer tools appear.
+
+Not listed: MCP server tools, plugin tools and \`customTools\` from agent configs, which come from
+configuration; and the skill tools' skill-name constraint, which depends on the skills installed.
 
 ## Groups
 
