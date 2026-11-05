@@ -4,7 +4,7 @@
  * bursts, foreign control writes, resize and composer input. Only deterministic
  * fixture content is used; no provider, credentials or user state are accessed.
  */
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -20,6 +20,8 @@ const gridSchema = z.strictObject({
 });
 /** How long a resize may take to reach both the native buffer and the observed screen. */
 const RESIZE_SETTLE_TIMEOUT_MS = 5_000;
+/** How long the fixture gets to capture a native grid, covering its own 5 s frame wait plus a loaded runner. */
+const RESULT_TIMEOUT_MS = 15_000;
 const resultSchema = z.strictObject({ sequence: z.number().int().nonnegative(), grid: gridSchema });
 const gridText = (grid: TerminalGrid): string =>
   grid.cells.map((row) => row.map((cell) => cell.chars).join("")).join("\n");
@@ -63,21 +65,35 @@ test.skipIf(process.platform === "win32")(
 
     async function command(action: "burst" | "noise" | "capture" | "exit"): Promise<number> {
       const current = ++sequence;
-      await writeFile(controlPath, JSON.stringify({ sequence: current, action }), { mode: 0o600 });
+      await writeControl({ sequence: current, action });
       return current;
+    }
+
+    /** Replace the control file in one rename so the fixture never reads a truncated command. */
+    async function writeControl(value: { sequence: number; action: string }): Promise<void> {
+      const pendingPath = `${controlPath}.pending`;
+      await writeFile(pendingPath, JSON.stringify(value), { mode: 0o600 });
+      await rename(pendingPath, controlPath);
     }
 
     async function waitResult(current: number): Promise<TerminalGrid> {
       const started = performance.now();
       for (;;) {
-        const parsed = resultSchema.safeParse(
-          await Bun.file(resultPath)
-            .json()
-            .catch(() => null),
-        );
+        const raw: unknown = await Bun.file(resultPath)
+          .json()
+          .catch(() => null);
+        const parsed = resultSchema.safeParse(raw);
         if (parsed.success && parsed.data.sequence === current) return parsed.data.grid;
-        if (performance.now() - started > 5_000)
-          throw new Error("Native expected grid was not captured");
+        const exited = child?.exitCode ?? null;
+        if (exited !== null || performance.now() - started > RESULT_TIMEOUT_MS) {
+          throw new Error(
+            `Native expected grid ${current} was not captured (${
+              exited === null
+                ? `no result after ${RESULT_TIMEOUT_MS}ms`
+                : `fixture exited ${exited}`
+            }); last result file: ${JSON.stringify(raw)}; terminal tail: ${Bun.stripANSI(transport).slice(-500)}`,
+          );
+        }
         await Bun.sleep(10);
       }
     }
@@ -110,9 +126,7 @@ test.skipIf(process.platform === "win32")(
         throw new Error(
           `PTY fixture compilation failed: ${built.logs.map((log) => log.message).join("\n")}`,
         );
-      await writeFile(controlPath, JSON.stringify({ sequence: 0, action: "capture" }), {
-        mode: 0o600,
-      });
+      await writeControl({ sequence: 0, action: "capture" });
       child = Bun.spawn([binary], {
         cwd: directory,
         env: {
@@ -199,5 +213,5 @@ test.skipIf(process.platform === "win32")(
       await rm(directory, { recursive: true, force: true });
     }
   },
-  30_000,
+  60_000,
 );
