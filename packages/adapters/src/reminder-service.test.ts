@@ -123,8 +123,8 @@ describe("add", () => {
 
   test("rejects once the per-agent reminder count cap is reached", async () => {
     const service = makeService();
-    for (let i = 0; i < MAX_REMINDERS_PER_AGENT; i++) {
-      const outcome = await runEffect(service.add("agent-1", "1d", `reminder ${i}`, "UTC"));
+    for (let index = 0; index < MAX_REMINDERS_PER_AGENT; index++) {
+      const outcome = await runEffect(service.add("agent-1", "1d", `reminder ${index}`, "UTC"));
       expect(outcome.success).toBe(true);
     }
     const result = await runEither(service.add("agent-1", "1d", "one too many", "UTC"));
@@ -148,7 +148,7 @@ describe("add", () => {
     expect(second.success).toBe(true);
     const list = await runEffect(service.list("agent-1"));
     expect(list.length).toBe(2);
-    expect(list.map((r) => r.text).sort()).toEqual(["first", "second"]);
+    expect(list.map((reminder) => reminder.text).sort()).toEqual(["first", "second"]);
   });
 });
 
@@ -173,8 +173,8 @@ describe("list", () => {
     await runEffect(service.add("agent-2", "30m", "for agent 2", "UTC"));
     const listOne = await runEffect(service.list("agent-1"));
     const listTwo = await runEffect(service.list("agent-2"));
-    expect(listOne.map((r) => r.text)).toEqual(["for agent 1"]);
-    expect(listTwo.map((r) => r.text)).toEqual(["for agent 2"]);
+    expect(listOne.map((reminder) => reminder.text)).toEqual(["for agent 1"]);
+    expect(listTwo.map((reminder) => reminder.text)).toEqual(["for agent 2"]);
   });
 });
 
@@ -224,7 +224,7 @@ describe("claimDueReminders", () => {
     }
 
     const remainingAgent1 = await runEffect(service.list("agent-1"));
-    expect(remainingAgent1.map((r) => r.text)).toEqual(["future agent 1"]);
+    expect(remainingAgent1.map((reminder) => reminder.text)).toEqual(["future agent 1"]);
 
     const remainingAgent2 = await runEffect(service.list("agent-2"));
     expect(remainingAgent2).toEqual([]);

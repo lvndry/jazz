@@ -86,6 +86,22 @@ const CONFIG_DIR_MODE = 0o700;
 type ConfigDocument = Record<string, unknown>;
 
 /**
+ * View a typed config as the untyped document it was built from, aliasing the same object. Sound
+ * because an `AppConfig` is a plain JSON-shaped object; the view only widens property types.
+ */
+function documentOf(config: AppConfig): ConfigDocument {
+  return config as object as ConfigDocument;
+}
+
+/**
+ * View a document as the typed config. Sound only for documents that started as an `AppConfig`
+ * or are merged from layers whose files were validated; the callers pass nothing else.
+ */
+function configOf(document: ConfigDocument): AppConfig {
+  return document as object as AppConfig;
+}
+
+/**
  * How long the known secrets are reused before the keyring is read again, so a token another
  * process stores (`jazz peers add` in a second terminal) is withheld within a minute.
  */
@@ -296,7 +312,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
 
   /** Mirror a write into the merged runtime view, so readers see it without a reload. */
   private applyToRuntime(key: string, value: unknown, secret: boolean): void {
-    const runtime = this.currentConfig as unknown as ConfigDocument;
+    const runtime = documentOf(this.currentConfig);
     if (secret && !structuralHomeFor(this.currentConfig, key)) {
       return;
     }
@@ -578,11 +594,11 @@ function sanitizeEffectiveConfig(config: AppConfig): AppConfig {
   if (report !== undefined) {
     process.stderr.write(report);
   }
-  const sanitized = structuredClone(config) as unknown as ConfigDocument;
+  const sanitized = documentOf(structuredClone(config));
   for (const issue of issues) {
     deepDelete(sanitized, issue.removed);
   }
-  return sanitized as unknown as AppConfig;
+  return configOf(sanitized);
 }
 
 function requireValidEffectiveConfig(
@@ -885,11 +901,11 @@ function baseConfigForRuntime(): AppConfig {
  * project override impossible.
  */
 function mergeConfigLayers(base: AppConfig, layers: readonly object[]): AppConfig {
-  let merged = base as unknown as ConfigDocument;
+  let merged = documentOf(base);
   for (const layer of layers) {
     merged = mergeInto(merged, layer);
   }
-  return merged as unknown as AppConfig;
+  return configOf(merged);
 }
 
 function mergeInto(base: Readonly<ConfigDocument>, layer: object): ConfigDocument {
@@ -919,11 +935,11 @@ function buildRuntimeConfig(sources: RuntimeConfigSources): AppConfig {
     globalOverrides ?? {},
     localOverrides ?? {},
   );
-  const runtime = structuredClone(withMcp) as unknown as ConfigDocument;
+  const runtime = documentOf(structuredClone(withMcp));
   for (const [path, value] of sources.resolvedSecrets) {
     deepSet(runtime, path, value);
   }
-  return runtime as unknown as AppConfig;
+  return configOf(runtime);
 }
 
 /** Capture the already-resolved secret overlay so rebuilding sources never drops credentials. */
@@ -1032,7 +1048,7 @@ function resolveSecrets(
   return Effect.gen(function* () {
     yield* migrateKeyringProviderName(backend, keyringGet, keyringSet, keyringDelete);
 
-    const resolved = structuredClone(config) as unknown as ConfigDocument;
+    const resolved = documentOf(structuredClone(config));
     const fromEnv = new Set<string>();
     const candidates = new Set([...SECRET_PATHS, ...runtimeSecretPaths(config)]);
 
@@ -1074,11 +1090,11 @@ function resolveSecrets(
       if (droppedLegacy) {
         noticeLegacyGoogleRemoved(globalConfigPath);
       }
-      return { config: resolved as unknown as AppConfig, document: cleaned };
+      return { config: configOf(resolved), document: cleaned };
     }
 
     yield* chmodQuietly(fs, globalConfigPath, CONFIG_FILE_MODE);
-    return { config: resolved as unknown as AppConfig, document };
+    return { config: configOf(resolved), document };
   });
 }
 
@@ -1146,12 +1162,12 @@ function migratePlaintextSecrets(
   });
 }
 
-function expandHome(p: string): string {
-  if (p.startsWith("~")) {
+function expandHome(rawPath: string): string {
+  if (rawPath.startsWith("~")) {
     const home = process.env["HOME"] || process.env["USERPROFILE"] || "";
-    return home ? p.replace(/^~/, home) : p;
+    return home ? rawPath.replace(/^~/, home) : rawPath;
   }
-  return p;
+  return rawPath;
 }
 
 /** One config file as read from disk. */
@@ -1440,7 +1456,7 @@ export function loadAgentsMcpServers(
         process.stderr.write(`jazz: skipping MCP server "${name}" in ${filePath}: ${normalized}\n`);
         return;
       }
-      servers[name] = { ...normalized, definedIn } as unknown as MCPServerConfig;
+      servers[name] = { ...normalized, definedIn } as MCPServerConfig;
     };
 
     for (const [name, definition] of Object.entries(user)) {
@@ -1736,8 +1752,8 @@ function deepDelete(obj: Record<string, unknown>, path: string): void {
 
   const chain: Record<string, unknown>[] = [obj];
   let cur: Record<string, unknown> = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const next = cur[parts[i] as string];
+  for (let index = 0; index < parts.length - 1; index++) {
+    const next = cur[parts[index] as string];
     if (!next || typeof next !== "object") {
       return;
     }
@@ -1747,12 +1763,12 @@ function deepDelete(obj: Record<string, unknown>, path: string): void {
 
   delete cur[parts[parts.length - 1] as string];
 
-  for (let i = chain.length - 1; i > 0; i--) {
-    const node = chain[i] as Record<string, unknown>;
+  for (let index = chain.length - 1; index > 0; index--) {
+    const node = chain[index] as Record<string, unknown>;
     if (Object.keys(node).length > 0) {
       break;
     }
-    delete (chain[i - 1] as Record<string, unknown>)[parts[i - 1] as string];
+    delete (chain[index - 1] as Record<string, unknown>)[parts[index - 1] as string];
   }
 }
 
@@ -1770,9 +1786,9 @@ function deepSet(obj: object, path: string, value: unknown): boolean {
     return false;
   }
   let cur: Record<string, unknown> = obj as Record<string, unknown>;
-  for (let i = 0; i < parts.length; i++) {
-    const key = parts[i] as string;
-    if (i === parts.length - 1) {
+  for (let index = 0; index < parts.length; index++) {
+    const key = parts[index] as string;
+    if (index === parts.length - 1) {
       cur[key] = value;
     } else {
       const next = cur[key];

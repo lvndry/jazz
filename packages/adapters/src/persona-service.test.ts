@@ -24,6 +24,7 @@ import {
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { BUILTIN_PERSONA_NAMES, PersonaServiceImpl } from "./persona-service";
+import { partialFake } from "./test-support/fakes";
 
 const tempDir = mkdtempSync(join(tmpdir(), "jazz-persona-test-"));
 
@@ -40,8 +41,8 @@ describe("PersonaService", () => {
   beforeEach(() => {
     const personasDir = join(tempDir, "personas");
     try {
-      for (const f of readdirSync(personasDir)) {
-        rmSync(join(personasDir, f), { recursive: true, force: true });
+      for (const fileName of readdirSync(personasDir)) {
+        rmSync(join(personasDir, fileName), { recursive: true, force: true });
       }
     } catch {
       // Dir may not exist yet
@@ -317,7 +318,7 @@ describe("PersonaService", () => {
       });
 
       const result = await run(program);
-      const names = result.map((p) => p.name);
+      const names = result.map((persona) => persona.name);
       expect(names).toContain("default");
       expect(names).toContain("coder");
       expect(names).toContain("researcher");
@@ -344,7 +345,7 @@ describe("PersonaService", () => {
             return yield* service.listPersonas();
           }),
         );
-        const names = result.map((p) => p.name);
+        const names = result.map((persona) => persona.name);
         expect(names).toContain("default");
         expect(names).toContain("coder");
       } finally {
@@ -648,7 +649,7 @@ describe("PersonaService", () => {
 
   describe("plugin personas (global)", () => {
     const pluginRuntime = (): PluginRuntimeService =>
-      ({
+      partialFake<PluginRuntimeService>({
         listAllPersonas: () =>
           Effect.succeed([
             {
@@ -659,7 +660,7 @@ describe("PersonaService", () => {
               tone: "playful",
             },
           ]),
-      }) as unknown as PluginRuntimeService;
+      });
 
     const withPlugin = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Effect.runPromise(

@@ -117,9 +117,9 @@ describe("add", () => {
 
   test("rejects once the per-agent pending trigger cap is reached", async () => {
     const service = makeService();
-    for (let i = 0; i < MAX_WAKE_TRIGGERS_PER_AGENT; i++) {
+    for (let index = 0; index < MAX_WAKE_TRIGGERS_PER_AGENT; index++) {
       const outcome = await runEffect(
-        service.add("agent-1", "conv-1", "1d", `prompt ${i}`, "reason", "UTC"),
+        service.add("agent-1", "conv-1", "1d", `prompt ${index}`, "reason", "UTC"),
       );
       expect(outcome.success).toBe(true);
     }
@@ -163,8 +163,8 @@ describe("list", () => {
     await runEffect(service.add("agent-2", "conv-2", "30m", "for agent 2", "reason", "UTC"));
     const listOne = await runEffect(service.list("agent-1"));
     const listTwo = await runEffect(service.list("agent-2"));
-    expect(listOne.map((t) => t.prompt)).toEqual(["for agent 1"]);
-    expect(listTwo.map((t) => t.prompt)).toEqual(["for agent 2"]);
+    expect(listOne.map((trigger) => trigger.prompt)).toEqual(["for agent 1"]);
+    expect(listTwo.map((trigger) => trigger.prompt)).toEqual(["for agent 2"]);
   });
 });
 
@@ -221,7 +221,7 @@ describe("claimDueWakeTriggers", () => {
     }
 
     const remainingAgent1 = await runEffect(service.list("agent-1"));
-    expect(remainingAgent1.map((t) => t.prompt)).toEqual(["future agent 1"]);
+    expect(remainingAgent1.map((trigger) => trigger.prompt)).toEqual(["future agent 1"]);
 
     const remainingAgent2 = await runEffect(service.list("agent-2"));
     expect(remainingAgent2).toEqual([]);

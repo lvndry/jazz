@@ -191,7 +191,7 @@ describe("view", () => {
     const outcome = await runEffect(service.view("agent-1"));
     expect(outcome.kind).toBe("directory");
     if (outcome.kind === "directory") {
-      expect(outcome.entries.map((e) => e.name)).toEqual(["notes.txt"]);
+      expect(outcome.entries.map((entry) => entry.name)).toEqual(["notes.txt"]);
     }
   });
 
@@ -278,8 +278,8 @@ describe("create", () => {
 
   test("rejects once the per-scope file count cap is exceeded", async () => {
     const service = makeService();
-    for (let i = 0; i < MAX_MEMORY_FILES_PER_SCOPE; i++) {
-      await runEffect(service.create(`agent-1/file-${i}.txt`, "x", writeContext));
+    for (let index = 0; index < MAX_MEMORY_FILES_PER_SCOPE; index++) {
+      await runEffect(service.create(`agent-1/file-${index}.txt`, "x", writeContext));
     }
     const result = await runEither(service.create("agent-1/one-too-many.txt", "x", writeContext));
     expect(result._tag).toBe("Failure");

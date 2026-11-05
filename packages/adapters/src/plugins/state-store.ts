@@ -245,7 +245,7 @@ export class PluginStateStore {
       throw error;
     }
     try {
-      return parseState(JSON.parse(raw) as unknown);
+      return parseState(JSON.parse(raw));
     } catch (error) {
       if (error instanceof PluginStateError) {
         throw error;

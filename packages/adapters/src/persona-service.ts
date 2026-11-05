@@ -48,10 +48,10 @@ async function readPersonaDefinition(
  * Only quotes strings that contain newlines, double quotes, or colons.
  * When quoting: escapes backslashes first (\\), then double quotes (").
  */
-function escapeYaml(s: string): string {
-  return s.includes("\n") || s.includes('"') || s.includes(":")
-    ? `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
-    : s;
+function escapeYaml(text: string): string {
+  return text.includes("\n") || text.includes('"') || text.includes(":")
+    ? `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+    : text;
 }
 
 /**
@@ -140,13 +140,17 @@ function parseToolProfile(data: Record<string, unknown>): PersonaToolProfile | u
 
   const categories = block["categories"];
   if (Array.isArray(categories)) {
-    const cleaned = categories.filter((c): c is string => typeof c === "string" && c.length > 0);
+    const cleaned = categories.filter(
+      (category): category is string => typeof category === "string" && category.length > 0,
+    );
     profile.categories = cleaned;
   }
 
   const deny = block["deny"];
   if (Array.isArray(deny)) {
-    const cleaned = deny.filter((d): d is string => typeof d === "string" && d.length > 0);
+    const cleaned = deny.filter(
+      (pattern): pattern is string => typeof pattern === "string" && pattern.length > 0,
+    );
     if (cleaned.length > 0) {
       profile.deny = cleaned;
     }
@@ -269,7 +273,9 @@ export class PersonaServiceImpl implements PersonaService {
 
         // Check for duplicate name among custom personas
         const existing = yield* this.listCustomPersonas();
-        const nameExists = existing.some((p) => p.name.toLowerCase() === input.name.toLowerCase());
+        const nameExists = existing.some(
+          (persona) => persona.name.toLowerCase() === input.name.toLowerCase(),
+        );
         if (nameExists) {
           return yield* Effect.fail(
             new PersonaAlreadyExistsError({
@@ -350,11 +356,11 @@ updatedAt: "${now.toISOString()}"
             parse: (data, defDir) => parsePersonaFrontmatter(data, defDir, "builtin"),
           }).pipe(
             Effect.mapError(
-              (e) =>
+              (persona) =>
                 new StorageError({
                   operation: "list",
                   path: builtinDir,
-                  reason: toError(e).message,
+                  reason: toError(persona).message,
                 }),
             ),
           );
@@ -388,7 +394,9 @@ updatedAt: "${now.toISOString()}"
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
         const all = yield* this.listPersonas();
-        const persona = all.find((p) => p.name.toLowerCase() === name.toLowerCase());
+        const persona = all.find(
+          (candidate) => candidate.name.toLowerCase() === name.toLowerCase(),
+        );
         if (!persona) {
           return yield* Effect.fail(
             new PersonaNotFoundError({
@@ -431,17 +439,20 @@ updatedAt: "${now.toISOString()}"
 
         const personas: Persona[] = [];
         const seenDirs = new Set<string>();
-        for (const m of meta) {
-          if (excludeInternal && (INTERNAL_PERSONA_NAMES as readonly string[]).includes(m.name)) {
+        for (const metadata of meta) {
+          if (
+            excludeInternal &&
+            (INTERNAL_PERSONA_NAMES as readonly string[]).includes(metadata.name)
+          ) {
             continue;
           }
-          if (seenDirs.has(m.path)) {
+          if (seenDirs.has(metadata.path)) {
             continue;
           }
-          seenDirs.add(m.path);
+          seenDirs.add(metadata.path);
           const persona = yield* this.loadPersonaFromFile(
-            m.path,
-            source === "builtin" ? `builtin-${m.name}` : path.basename(m.path),
+            metadata.path,
+            source === "builtin" ? `builtin-${metadata.name}` : path.basename(metadata.path),
           ).pipe(
             Effect.catch((err: StorageError | StorageNotFoundError) =>
               Effect.gen(function* () {
@@ -451,10 +462,13 @@ updatedAt: "${now.toISOString()}"
                     "reason" in err && typeof (err as { reason?: string }).reason === "string"
                       ? (err as { reason: string }).reason
                       : String(err);
-                  yield* loggerOpt.value.warn(`Persona file failed to load, skipping: ${m.path}`, {
-                    path: m.path,
-                    error: msg,
-                  });
+                  yield* loggerOpt.value.warn(
+                    `Persona file failed to load, skipping: ${metadata.path}`,
+                    {
+                      path: metadata.path,
+                      error: msg,
+                    },
+                  );
                 }
                 return null;
               }),
@@ -511,24 +525,24 @@ updatedAt: "${now.toISOString()}"
         const builtinDir = this.getBuiltinPersonasDir();
         if (builtinDir) {
           const builtinPersonas = yield* this.listPersonasFromDir(builtinDir, "builtin", true);
-          for (const p of builtinPersonas) {
-            seenNames.add(p.name.toLowerCase());
-            result.push(p);
+          for (const persona of builtinPersonas) {
+            seenNames.add(persona.name.toLowerCase());
+            result.push(persona);
           }
         }
 
         // 2. Custom personas (override built-in by name)
         const custom = yield* this.listCustomPersonas();
-        for (const p of custom) {
-          const key = p.name.toLowerCase();
+        for (const persona of custom) {
+          const key = persona.name.toLowerCase();
           if (seenNames.has(key)) {
-            const idx = result.findIndex((r) => r.name.toLowerCase() === key);
+            const idx = result.findIndex((existing) => existing.name.toLowerCase() === key);
             if (idx >= 0) {
-              result[idx] = p;
+              result[idx] = persona;
             }
           } else {
             seenNames.add(key);
-            result.push(p);
+            result.push(persona);
           }
         }
 
@@ -600,7 +614,8 @@ updatedAt: "${now.toISOString()}"
 
           const all = yield* this.listCustomPersonas();
           const duplicateExists = all.some(
-            (p) => p.name.toLowerCase() === updates.name!.toLowerCase() && p.id !== id,
+            (persona) =>
+              persona.name.toLowerCase() === updates.name!.toLowerCase() && persona.id !== id,
           );
           if (duplicateExists) {
             return yield* Effect.fail(

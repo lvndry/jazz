@@ -53,7 +53,9 @@ describe("toSpan", () => {
     expect(span.spanId).toBe(rootSpanIdForRun("run-1"));
     expect(span.parentSpanId).toBeUndefined();
     expect(span.name).toBe("run-agent");
-    expect(span.attributes.find((a) => a.key === "langfuse.observation.type")?.value).toEqual({
+    expect(
+      span.attributes.find((attribute) => attribute.key === "langfuse.observation.type")?.value,
+    ).toEqual({
       stringValue: "agent",
     });
   });
@@ -112,7 +114,9 @@ describe("toSpan", () => {
     expect(child.parentSpanId).toBe(tool.spanId);
     expect(generation.parentSpanId).toBe(child.spanId);
     expect(generation.traceId).toBe(child.traceId);
-    expect(child.attributes.find((a) => a.key === "langfuse.session.id")?.value).toEqual({
+    expect(
+      child.attributes.find((attribute) => attribute.key === "langfuse.session.id")?.value,
+    ).toEqual({
       stringValue: "session-1",
     });
   });
@@ -153,7 +157,7 @@ describe("toSpan", () => {
       }),
     );
     const attributes = Object.fromEntries(
-      span.attributes.map((a) => [a.key, Object.values(a.value)[0]]),
+      span.attributes.map((attribute) => [attribute.key, Object.values(attribute.value)[0]]),
     );
     expect(attributes["langfuse.observation.type"]).toBe("event");
     expect(attributes["gen_ai.request.model"]).toBeUndefined();

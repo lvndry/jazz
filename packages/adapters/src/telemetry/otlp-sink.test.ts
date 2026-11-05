@@ -6,6 +6,7 @@ import { serve } from "bun";
 import { describe, expect, it } from "bun:test";
 import type { ResolvedOtlpConfig } from "./otlp-config";
 import { OtlpTelemetrySink } from "./otlp-sink";
+import { fakeFetch } from "../test-support/fakes";
 
 const EVENT: TelemetryEvent = {
   id: "event-1",
@@ -36,7 +37,7 @@ function makeConfig(overrides: Partial<ResolvedOtlpConfig> = {}): ResolvedOtlpCo
 /** Records calls and replies with a queue of responses. */
 function stubFetch(responses: (Response | Error)[]) {
   const calls: { url: string; init: RequestInit }[] = [];
-  const impl = (async (url: string | URL | Request, init?: RequestInit) => {
+  const impl = fakeFetch(async (url: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(url), init: init ?? {} });
     const next = responses.shift();
     if (next === undefined) {
@@ -46,7 +47,7 @@ function stubFetch(responses: (Response | Error)[]) {
       throw next;
     }
     return next;
-  }) as unknown as typeof globalThis.fetch;
+  });
   return { impl, calls };
 }
 

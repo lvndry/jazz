@@ -17,6 +17,7 @@ import { parsePluginManifest } from "./manifest-schema";
 import { PluginModuleLoader } from "./module-loader";
 import { PluginRegistryServiceImpl } from "./plugin-registry-service";
 import { ALL_AGENTS } from "./state-store";
+import { fakeFetch } from "../test-support/fakes";
 
 const SOURCE_MANIFEST = {
   schemaVersion: 1,
@@ -54,11 +55,11 @@ async function githubTarball(manifest: Record<string, unknown>): Promise<Uint8Ar
 /** A fetch that returns each tarball in turn, so successive installs get distinct manifests. */
 function sequentialFetch(...tarballs: readonly Uint8Array[]): typeof fetch {
   let call = 0;
-  return (async () => {
+  return fakeFetch(async () => {
     const body = tarballs[Math.min(call, tarballs.length - 1)];
     call += 1;
-    return new Response(body as unknown as BodyInit, { status: 200 });
-  }) as unknown as typeof fetch;
+    return new Response(body?.slice(), { status: 200 });
+  });
 }
 
 describe("parseGitHubPluginSource", () => {
@@ -120,7 +121,7 @@ function tarHeader(name: string, typeFlag: string, linkName: string): Uint8Array
 }
 
 function respondWith(body: Uint8Array, init: ResponseInit = { status: 200 }): typeof fetch {
-  return (async () => new Response(body as unknown as BodyInit, init)) as unknown as typeof fetch;
+  return fakeFetch(async () => new Response(body.slice(), init));
 }
 
 async function extractInto(fetchImpl: typeof fetch, limits = DEFAULT_TARBALL_LIMITS) {
@@ -183,8 +184,7 @@ describe("materializeGitHubSource", () => {
       { name: "lvndry-warp-abc123/jazz-plugin.json", data: JSON.stringify(SOURCE_MANIFEST) },
       { name: "lvndry-warp-abc123/src/index.ts", data: PLUGIN_ENTRY },
     ]);
-    const fetchImpl = (async () =>
-      new Response(tarball as unknown as BodyInit, { status: 200 })) as unknown as typeof fetch;
+    const fetchImpl = fakeFetch(async () => new Response(tarball.slice(), { status: 200 }));
     const destination = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-extract-"));
     await materializeGitHubSource({ owner: "lvndry", repo: "warp" }, destination, fetchImpl);
     expect(await fs.readFile(path.join(destination, "src", "index.ts"), "utf8")).toBe(PLUGIN_ENTRY);
@@ -194,13 +194,13 @@ describe("materializeGitHubSource", () => {
   test("follows the API redirect to codeload and refuses one to any other origin", async () => {
     const tarball = await githubTarball(SOURCE_MANIFEST);
     const redirectingTo = (location: string): typeof fetch =>
-      (async (input: string | URL | Request) => {
+      fakeFetch(async (input: string | URL | Request) => {
         const url = new URL(input instanceof Request ? input.url : input.toString());
         if (url.hostname === "api.github.com") {
           return new Response(null, { status: 302, headers: { location } });
         }
-        return new Response(tarball as unknown as BodyInit, { status: 200 });
-      }) as unknown as typeof fetch;
+        return new Response(tarball.slice(), { status: 200 });
+      });
 
     const destination = await extractInto(
       redirectingTo("https://codeload.github.com/o/r/legacy.tar.gz/refs/heads/main"),
@@ -222,7 +222,7 @@ describe("materializeGitHubSource", () => {
     const streamed = (): Response =>
       new Response(new Blob([tarball as BlobPart]).stream(), { status: 200 });
     expect(streamed().headers.get("content-length")).toBeNull();
-    const undeclared = (async () => streamed()) as unknown as typeof fetch;
+    const undeclared = fakeFetch(async () => streamed());
     await expect(extractInto(undeclared, limits)).rejects.toThrow("Download exceeds");
   });
 
@@ -237,10 +237,12 @@ describe("materializeGitHubSource", () => {
   });
 
   test("times out a download that never finishes", async () => {
-    const hanging = ((_input: unknown, init?: RequestInit) =>
-      new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
-      })) as unknown as typeof fetch;
+    const hanging = fakeFetch(
+      (_input: unknown, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        }),
+    );
     const limits = { ...DEFAULT_TARBALL_LIMITS, timeoutMs: 20 };
     await expect(extractInto(hanging, limits)).rejects.toThrow();
   });
@@ -264,8 +266,7 @@ describe("materializeGitHubSource", () => {
   });
 
   test("throws on a non-200 response", async () => {
-    const fetchImpl = (async () =>
-      new Response("no" as unknown as BodyInit, { status: 404 })) as unknown as typeof fetch;
+    const fetchImpl = fakeFetch(async () => new Response("no", { status: 404 }));
     const destination = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-extract-"));
     await expect(
       materializeGitHubSource({ owner: "o", repo: "r" }, destination, fetchImpl),
@@ -311,8 +312,7 @@ describe("source-repo install lifecycle", () => {
       },
       { name: "lvndry-jazz-plugin-warp-abc/src/index.ts", data: PLUGIN_ENTRY },
     ]);
-    const fetchImpl = (async () =>
-      new Response(tarball as unknown as BodyInit, { status: 200 })) as unknown as typeof fetch;
+    const fetchImpl = fakeFetch(async () => new Response(tarball.slice(), { status: 200 }));
     const registry = new PluginRegistryServiceImpl({
       pluginDirectory: path.join(root, "plugins"),
       fetchImpl,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Option } from "effect";
 import { PersonaRegistryServiceImpl } from "./persona-registry-service";
+import { fakeFetch } from "./test-support/fakes";
 
 const BASE_URL = "https://registry.test/library";
 
@@ -58,7 +59,7 @@ function mockFetch(routes: Record<string, string>): ReturnType<typeof mock> {
     }
     return Promise.resolve(new Response(body, { status: 200 }));
   });
-  global.fetch = fetchMock as unknown as typeof fetch;
+  global.fetch = fakeFetch(fetchMock);
   return fetchMock;
 }
 
@@ -129,9 +130,7 @@ describe("PersonaRegistryService", () => {
       mockFetch(defaultRoutes());
       await run(service().listEntries());
 
-      global.fetch = mock(() =>
-        Promise.reject(new Error("network down")),
-      ) as unknown as typeof fetch;
+      global.fetch = fakeFetch(mock(() => Promise.reject(new Error("network down"))));
       const entries = await run(service().listEntries({ refresh: true }));
 
       expect(entries.map((entry) => entry.name)).toEqual(["rubber-duck", "zebra"]);
@@ -159,9 +158,7 @@ describe("PersonaRegistryService", () => {
     });
 
     it("fails when the registry is unreachable and nothing is cached", async () => {
-      global.fetch = mock(() =>
-        Promise.reject(new Error("network down")),
-      ) as unknown as typeof fetch;
+      global.fetch = fakeFetch(mock(() => Promise.reject(new Error("network down"))));
 
       const error = await runFailure(service().listEntries());
 

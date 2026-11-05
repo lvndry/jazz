@@ -25,6 +25,7 @@ import { acquireFileLock } from "@jazz/core/utils/file-lock";
 import { getRunsDirectory } from "@jazz/core/utils/paths";
 import { decodeStateFile, encodeStateFile, type StateFileKind } from "@jazz/core/utils/state-file";
 import { Effect, Layer } from "effect";
+import { asStoredRecord } from "./state-record";
 
 /** Run ids are UUIDs; anything else came from outside and must not reach a path join. */
 const RUN_ID_PATTERN = /^[0-9a-fA-F-]{8,64}$/;
@@ -42,7 +43,7 @@ const RUN_RECORD_KIND: StateFileKind<RunRecord> = {
     if (typeof record !== "object" || record === null || Array.isArray(record)) {
       return { ok: false, error: "expected a run record" };
     }
-    return { ok: true, content: record as unknown as RunRecord };
+    return { ok: true, content: asStoredRecord<RunRecord>(record) };
   },
   serialize: (record) => ({ ...record }),
 };

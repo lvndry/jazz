@@ -16,9 +16,10 @@ import {
   resolveHeldSecrets,
   validateConfigFiles,
 } from "./config";
+import { partialFake } from "./test-support/fakes";
 
 // Mock FileSystem
-const mockFS = {
+const mockFS = partialFake<FileSystem.FileSystem>({
   writeFileString: mock(() => Effect.void),
   makeDirectory: mock(() => Effect.void),
   access: mock(() => Effect.void),
@@ -48,7 +49,7 @@ const mockFS = {
   truncate: mock(() => Effect.void),
   utimes: mock(() => Effect.void),
   writeFile: mock(() => Effect.void),
-} as unknown as FileSystem.FileSystem;
+});
 
 /** A config path in a fresh private directory, so a test's real write lands nowhere shared. */
 function tempConfigPath(name: string): string {
@@ -197,9 +198,9 @@ describe("AgentConfigService", () => {
     await Effect.runPromise(service.set(path, true));
 
     expect(await Effect.runPromise(service.get<boolean>(path))).toBe(true);
-    const written = readWritten(configPath) as unknown as {
+    const written = readWritten<{
       llm: { capabilityOverrides: Record<string, Record<string, unknown>> };
-    };
+    }>(configPath);
     expect(written.llm.capabilityOverrides["nvidia"]).toEqual({
       "deepseek-ai/deepseek-v4.1-flash": { supportsTools: true },
     });
@@ -321,7 +322,7 @@ describe("createConfigLayer", () => {
     const writeFileString = mock((filePath: string, content: string) =>
       Effect.sync(() => fileContents.set(filePath, content)),
     );
-    return {
+    return partialFake<FileSystem.FileSystem>({
       exists: (filePath: string) => Effect.succeed(fileContents.has(filePath)),
       readFileString: (filePath: string) => Effect.succeed(fileContents.get(filePath) ?? ""),
       writeFileString,
@@ -337,7 +338,7 @@ describe("createConfigLayer", () => {
       ),
       remove: mock((filePath: string) => Effect.sync(() => fileContents.delete(filePath))),
       chmod: mock(() => Effect.void),
-    } as unknown as FileSystem.FileSystem;
+    });
   }
 
   it("removes the legacy google client block from the config file", async () => {
@@ -858,10 +859,10 @@ describe("createConfigLayer", () => {
 describe("validateConfigFiles", () => {
   it("fails explicitly on values normal startup would warn about and ignore", async () => {
     const customConfigPath = path.join(os.tmpdir(), "jazz-explicit-validation.json");
-    const fs = {
+    const fs = partialFake<FileSystem.FileSystem>({
       exists: () => Effect.succeed(true),
       readFileString: () => Effect.succeed(JSON.stringify({ maxRetries: "five" })),
-    } as unknown as FileSystem.FileSystem;
+    });
 
     const exit = await Effect.runPromiseExit(
       validateConfigFiles(customConfigPath).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
@@ -1085,11 +1086,11 @@ describe("noticing an edit made by another process", () => {
 });
 
 describe("known secrets", () => {
-  const doorsConfig = {
+  const doorsConfig = partialFake<AppConfig>({
     peers: [{ name: "sam", url: "https://sam.example" }],
     webhooks: [{ name: "deploy", agentId: "agent-1" }],
     notify: { targets: [{ name: "ops", kind: "discord" }] },
-  } as unknown as AppConfig;
+  });
 
   it("resolves every door, notify and daemon secret from the environment, then the keyring", async () => {
     const keyring: Record<string, string> = {
@@ -1123,7 +1124,7 @@ describe("known secrets", () => {
     const lookedUp: string[] = [];
     await Effect.runPromise(
       resolveHeldSecrets(
-        { daemon: { token: "daemon-token-in-config" } } as unknown as AppConfig,
+        partialFake<AppConfig>({ daemon: { token: "daemon-token-in-config" } }),
         (path) => {
           lookedUp.push(path);
           return Effect.succeed(undefined);
