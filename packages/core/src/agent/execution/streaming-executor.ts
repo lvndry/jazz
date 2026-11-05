@@ -16,7 +16,11 @@ import {
   makeUserVisibleLlmRetrySchedule,
   withLongRunningLlmNotice,
 } from "@/core/agent/execution/llm-retry-present";
-import { isEmptyCompletion, judgeAnswer } from "@/core/agent/run/answer-outcome";
+import {
+  isEmptyCompletion,
+  isRetryableEmptyCompletion,
+  judgeAnswer,
+} from "@/core/agent/run/answer-outcome";
 import { DEFAULT_MAX_LLM_RETRIES, LLM_TIMEOUT_SECONDS } from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -276,10 +280,41 @@ export function executeWithStreaming(
             ),
           );
 
+          /**
+           * An empty finish bills no output, so it joins the transient failures the shared
+           * retry budget already covers, under its own reason.
+           */
+          const rejectEmptyCompletion = <Result extends { completion: ChatCompletionResponse }>(
+            result: Result,
+          ) =>
+            Effect.gen(function* () {
+              if (!isRetryableEmptyCompletion(result.completion)) {
+                return result;
+              }
+              yield* logger.warn("Model returned an empty response, retrying", {
+                reason: "empty_response",
+                provider,
+                model: agent.config.llm.model,
+                finishReason: result.completion.finishReason ?? "none",
+                completionTokens: result.completion.usage?.completionTokens ?? 0,
+                agentId: agent.id,
+                conversationId: actualConversationId,
+              });
+              return yield* Effect.fail(
+                new LLMRequestError({
+                  provider,
+                  message:
+                    "The model returned an empty response (no text and no tool calls) and kept doing so after retrying.",
+                  emptyResponse: true,
+                }),
+              );
+            });
+
           const nonStreamingAttempt = Effect.suspend(() =>
             llmService.createChatCompletion(provider, llmOptions),
           ).pipe(
             Effect.map((completion) => ({ completion, interrupted: false })),
+            Effect.flatMap(rejectEmptyCompletion),
             Effect.tapError((error) =>
               Effect.gen(function* () {
                 recordLLMRetry(runMetrics, error);
@@ -305,6 +340,7 @@ export function executeWithStreaming(
               return yield* nonStreamingAttempt;
             }
             return yield* streamingAttempt.pipe(
+              Effect.flatMap(rejectEmptyCompletion),
               Effect.tapError((error) =>
                 isRetryableLLMError(error) && !(error instanceof LLMRateLimitError)
                   ? Ref.updateAndGet(streamingFailuresRef, (count) =>

@@ -1158,4 +1158,92 @@ describe("executeWithStreaming retries", () => {
     await expect(harness.run()).rejects.toThrow("bad request");
     expect(attempts).toBe(1);
   });
+  describe("empty responses", () => {
+    const emptyCompletion = (overrides: Record<string, unknown> = {}) => ({
+      id: "empty",
+      model: "gpt-4",
+      content: "",
+      finishReason: "stop" as const,
+      usage: { promptTokens: 10, completionTokens: 0, totalTokens: 10 },
+      ...overrides,
+    });
+    const completedStream = (completion: ReturnType<typeof emptyCompletion>) =>
+      Effect.succeed({
+        stream: Stream.empty,
+        response: Effect.succeed(completion),
+        cancel: Effect.void,
+      });
+
+    it("asks again after an empty finish and answers from the retry", async () => {
+      let attempts = 0;
+      const harness = makeStreamingHarness({
+        maxRetries: 3,
+        llmService: scriptedLLMService(() => {
+          attempts += 1;
+          return completedStream(
+            attempts === 1 ? emptyCompletion() : emptyCompletion({ content: "answer" }),
+          );
+        }),
+      });
+
+      const result = await harness.run();
+
+      expect(result.content).toBe("answer");
+      expect(attempts).toBe(2);
+    });
+
+    it("fails clearly once the retry budget is spent on empty finishes", async () => {
+      let attempts = 0;
+      const harness = makeStreamingHarness({
+        maxRetries: 2,
+        llmService: scriptedLLMService(
+          () => {
+            attempts += 1;
+            return completedStream(emptyCompletion());
+          },
+          () => {
+            attempts += 1;
+            return Effect.succeed(emptyCompletion());
+          },
+        ),
+      });
+
+      await expect(harness.run()).rejects.toThrow("empty response");
+      expect(attempts).toBe(3);
+    });
+
+    it("does not retry reasoning-only output", async () => {
+      let attempts = 0;
+      const harness = makeStreamingHarness({
+        maxRetries: 3,
+        llmService: scriptedLLMService(() => {
+          attempts += 1;
+          return completedStream(emptyCompletion({ reasoning: "thinking it through" }));
+        }),
+      });
+
+      await harness.run();
+
+      expect(attempts).toBe(1);
+    });
+
+    it("does not retry when output tokens were billed", async () => {
+      let attempts = 0;
+      const harness = makeStreamingHarness({
+        maxRetries: 3,
+        llmService: scriptedLLMService(() => {
+          attempts += 1;
+          return completedStream(
+            emptyCompletion({
+              usage: { promptTokens: 10, completionTokens: 400, totalTokens: 410 },
+            }),
+          );
+        }),
+      });
+
+      await harness.run();
+
+      expect(attempts).toBe(1);
+    });
+  });
 });
