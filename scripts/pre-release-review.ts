@@ -111,7 +111,7 @@ function exactCoverage(
   if (
     entries.size !== actual.length ||
     entries.size !== expected.length ||
-    expected.some((v) => !entries.has(v))
+    expected.some((entry) => !entries.has(entry))
   ) {
     throw new Error(`Incomplete or duplicate ${label} coverage`);
   }
@@ -373,9 +373,9 @@ function checkReportPatch(report: ReviewReport, patch: string): void {
 /** Read raw index entries after staging/application; no new symlinks or submodules may publish. */
 export function validateIndexChanges(raw: string): void {
   const parts = raw.split("\0");
-  for (let i = 0; i < parts.length - 1; i += 2) {
-    const header = parts[i];
-    const file = parts[i + 1];
+  for (let index = 0; index < parts.length - 1; index += 2) {
+    const header = parts[index];
+    const file = parts[index + 1];
     if (header === undefined || file === undefined) {
       throw new Error("Malformed index diff");
     }
@@ -458,14 +458,14 @@ export function validatePatchPaths(numstat: string): void {
   if (entries.pop() !== "") {
     throw new Error("Malformed patch paths");
   }
-  for (let i = 0; i < entries.length; i++) {
-    const match = /^(?:\d+|-)\t(?:\d+|-)\t([\s\S]*)$/.exec(entries[i] ?? "");
+  for (let index = 0; index < entries.length; index++) {
+    const match = /^(?:\d+|-)\t(?:\d+|-)\t([\s\S]*)$/.exec(entries[index] ?? "");
     if (!match) {
       throw new Error("Malformed patch paths");
     }
     if (match[1] === "") {
-      validatePatchPath(entries[++i] ?? "");
-      validatePatchPath(entries[++i] ?? "");
+      validatePatchPath(entries[++index] ?? "");
+      validatePatchPath(entries[++index] ?? "");
     } else {
       validatePatchPath(match[1] ?? "");
     }

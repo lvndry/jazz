@@ -100,7 +100,9 @@ const round = (value: number): number => Number(value.toFixed(4));
 
 /** Median of a nonempty numeric sample; odd sample counts keep it a real observation. */
 export function medianOf(values: readonly number[]): number {
-  if (values.length === 0) throw new QualificationError("medianOf requires at least one value");
+  if (values.length === 0) {
+    throw new QualificationError("medianOf requires at least one value");
+  }
   return [...values].sort((first, second) => first - second)[Math.floor(values.length / 2)] ?? 0;
 }
 
@@ -110,7 +112,9 @@ export function summarizeRow(
   durations: readonly number[],
   metrics: Readonly<Record<string, number>>,
 ): BenchRow {
-  if (durations.length === 0) throw new QualificationError(`No observed durations for ${name}`);
+  if (durations.length === 0) {
+    throw new QualificationError(`No observed durations for ${name}`);
+  }
   if (durations.some((duration) => !Number.isFinite(duration) || duration < 0)) {
     throw new QualificationError(`Non-finite or negative duration observed for ${name}`);
   }
@@ -151,8 +155,11 @@ export function parseQualificationCli(argv: readonly string[]): QualificationCli
         problems.push(`${argument} requires a value`);
         continue;
       }
-      if (options.has(argument)) problems.push(`${argument} is provided more than once`);
-      else options.set(argument, value);
+      if (options.has(argument)) {
+        problems.push(`${argument} is provided more than once`);
+      } else {
+        options.set(argument, value);
+      }
     } else if (argument.startsWith("--")) {
       problems.push(`Unknown argument: ${argument}`);
     } else {
@@ -160,14 +167,22 @@ export function parseQualificationCli(argv: readonly string[]): QualificationCli
     }
   }
   const mode = positional[0];
-  if (positional.length > 1) problems.push("Unexpected positional argument");
-  if (mode === undefined) problems.push(`Missing mode. ${expected}`);
-  else if (mode !== "pipeline" && mode !== "memory")
-    problems.push(`Unknown mode "${mode}". Expected pipeline or memory. ${expected}`);
-  for (const key of ["--base", "--head", "--output"] as const) {
-    if (!options.has(key)) problems.push(`Missing ${key}. ${expected}`);
+  if (positional.length > 1) {
+    problems.push("Unexpected positional argument");
   }
-  if (problems.length > 0) throw new QualificationError(problems.join("; "));
+  if (mode === undefined) {
+    problems.push(`Missing mode. ${expected}`);
+  } else if (mode !== "pipeline" && mode !== "memory") {
+    problems.push(`Unknown mode "${mode}". Expected pipeline or memory. ${expected}`);
+  }
+  for (const key of ["--base", "--head", "--output"] as const) {
+    if (!options.has(key)) {
+      problems.push(`Missing ${key}. ${expected}`);
+    }
+  }
+  if (problems.length > 0) {
+    throw new QualificationError(problems.join("; "));
+  }
   return {
     mode: mode as QualificationMode,
     base: resolve(options.get("--base") ?? ""),
@@ -203,7 +218,9 @@ export async function validateCheckout(
   const problems: string[] = [];
   try {
     const info = await stat(checkout);
-    if (!info.isDirectory()) problems.push(`${label} checkout is not a directory: ${checkout}`);
+    if (!info.isDirectory()) {
+      problems.push(`${label} checkout is not a directory: ${checkout}`);
+    }
   } catch {
     problems.push(`${label} checkout does not exist: ${checkout}`);
   }
@@ -216,7 +233,9 @@ export async function validateCheckout(
       problems.push(`${label} checkout is missing ${file}`);
     }
   }
-  if (problems.length > 0) throw new QualificationError(problems.join("; "));
+  if (problems.length > 0) {
+    throw new QualificationError(problems.join("; "));
+  }
 }
 
 /**
@@ -369,7 +388,9 @@ export function parseWorkerOutput(
   for (let index = 0; index < rows.length; index += 1) {
     const expected = PIPELINE_ROWS[index];
     const row = rows[index];
-    if (expected === undefined || row === undefined) continue;
+    if (expected === undefined || row === undefined) {
+      continue;
+    }
     if (row.name !== expected.name) {
       throw new QualificationError(
         `Pipeline row ${index} is "${row.name}", expected "${expected.name}"`,
@@ -478,9 +499,13 @@ export function aggregateObservations(
     return sample;
   });
   const [first] = ordered;
-  if (!first) throw new QualificationError(`No ${mode} ${side} observations`);
+  if (!first) {
+    throw new QualificationError(`No ${mode} ${side} observations`);
+  }
   const names = first.rows.map((row) => row.name);
-  if (names.length === 0) throw new QualificationError(`No ${mode} ${side} observations`);
+  if (names.length === 0) {
+    throw new QualificationError(`No ${mode} ${side} observations`);
+  }
   for (const sample of ordered) {
     const sampleNames = sample.rows.map((row) => row.name);
     if (sampleNames.length !== names.length || sampleNames.some((name) => !names.includes(name))) {
@@ -507,11 +532,16 @@ export function aggregateObservations(
         rows.push(row);
       }
       const first = rows[0];
-      if (first === undefined) return undefined;
+      if (first === undefined) {
+        return undefined;
+      }
       const metricKeys = Object.keys(first.metrics).sort();
       for (const sample of rows) {
         const keys = Object.keys(sample.metrics).sort();
-        if (keys.length !== metricKeys.length || keys.some((key, i) => key !== metricKeys[i])) {
+        if (
+          keys.length !== metricKeys.length ||
+          keys.some((key, index) => key !== metricKeys[index])
+        ) {
           throw new QualificationError(
             `Mismatched metric keys for ${mode} ${side} row "${first.name}": ` +
               `"${keys.join(", ") || "(none)"}" vs "${metricKeys.join(", ") || "(none)"}"`,
@@ -727,7 +757,6 @@ async function main(): Promise<void> {
   console.log(`Reports written: ${cli.output}.base.json, ${cli.output}.head.json`);
 }
 
-// eslint-disable-next-line n/no-unsupported-features/node-builtins -- Bun benchmark entry point.
 if (import.meta.main) {
   try {
     if (process.argv[2] === "--pipeline-worker") {

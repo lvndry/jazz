@@ -607,7 +607,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
             : Effect.succeed(result),
         ),
       )
-      .pipe(Effect.map((r) => r.exit));
+      .pipe(Effect.map((result) => result.exit));
 
     yield* emitCommandExecuted(exit, Date.now() - commandStartedAt);
 

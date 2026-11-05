@@ -863,50 +863,6 @@
     "c20088e8c110d29e73882a5575df172684a212596fd73a802849456ede9b672a": 1,
     "e0f9534a7824a77053fba6963bf06cc042b3fc4087298d7e08f3e32e2a95f139": 1
   },
-  "packages/daemon/src/attention.test.ts": {
-    "c0c2078ac6a14532782ab2afb09ca5727635230a24e344bcaf141da5d08fc61f": 1,
-    "c44829ea4811ad2eeac206cd9c8221e430e3e640a410962a71d150c8b0fd6ad0": 1
-  },
-  "packages/daemon/src/peer-invite-flow.test.ts": {
-    "6fe9024d30e0d4757a348b83d246925b3f5aeaf2e79a0eff4bf12f3c9fb5826b": 1
-  },
-  "packages/daemon/src/remote-doors.test.ts": {
-    "cdd1639f84eeb3d52fbb4f008d36342b2cb911d97474eb2e966f1b5ef6b1d415": 1
-  },
-  "packages/daemon/src/server.test.ts": {
-    "0a2705203a7e468ed433e080d03e671672177b21997bfc5c517dc87dc8603995": 1,
-    "5361cc9d0d7c04764a57b7ef6bfea220979f14a24406daa57e1fe6cda20f4e74": 1,
-    "568390f048205cee7589935d32f41272919fdb8f767b437f856ba169bf6ec893": 1,
-    "5876a47d7aaee54ae832083965d61e6d3893a9849c48f6474102050161582f87": 1,
-    "64904238e6c3309895f4238b84bc868b5270cd3e4d3006aafd3e1526fd093c21": 1,
-    "8a5d399065c80a60817d4dbd47daad5db78ec6e848768c2d3abbabdba995ea9f": 1,
-    "9abd7e6a00fb3f97c9f8002ead3f8fcc2d78feba82dc556a0fbbfa3db6e9b84b": 1,
-    "9c0715c7aa85d196554cd34cc6f2d75ce62022ca3c5be44522053d90e1280e46": 1,
-    "ac428e4ea15cf2ec6f3adfc342496e5d3c2e84653dc99506daaa506d5483ec76": 1,
-    "afcac372c9bea08fc27ad79a1417bbc735293e3eb964e3fe576be5ea5ecbe71b": 1,
-    "b2cea8eaae83bbc65fc1201b60a8a3f250c21beeb8ebbd7b7242382593cac4a9": 1,
-    "e22a2995792065380e387d79892f73d7ebcf6bcdffcc1f8a97a0042bc43ee278": 1,
-    "e5fdbd219a794eb06619d262062aad57fca67a3c683c04b27a83c471b94c3752": 2
-  },
-  "packages/daemon/src/trigger-runner.test.ts": {
-    "3d2b7fceef73a64959acc4719a49171754a4f3ed0b94d1b7c6a8c6f7e4a9b337": 1
-  },
-  "packages/daemon/src/unattended-resume-execution.test.ts": {
-    "2bb11e94e1befc800f3958dccb0f20847b6640e86be34d1561ecf86d4d891053": 1,
-    "3085bb007d56b21b047a3ed1acb84025668e2f06580b7fd8402e99ef8c6b8e56": 1,
-    "42c243ed78694e54ead81740ced7037e10af94a0ae1de7bf6e311b69bbc6307d": 1,
-    "c20088e8c110d29e73882a5575df172684a212596fd73a802849456ede9b672a": 1
-  },
-  "packages/daemon/src/unattended-resume.test.ts": {
-    "36ab82c12bb1312d7344c7773e7c5451f3e349637698a8f6114f0bee071d3f9b": 1,
-    "9d71d345842624802200b42aae03e9cb0bbb55b68cba7bd86a4fcf0dce9a32d1": 1
-  },
-  "packages/daemon/src/webhook-authorization.test.ts": {
-    "0c04c487db4a1a132023ce3bbba04f02f9151603cc8b13f17872269ab8fb1671": 1,
-    "100e8cb014ba7bc572a94d49073738cb36f0f5aff73e89e5920b23ad4a9e81de": 1,
-    "1029edea82b887516749726532d730d638101b429ba94b7ad5e45916515d2ebb": 1,
-    "64f523c1dbcdd93aa8ae2d83897ccd6a59b7f26a5c6b5248ba87b5c48d353729": 1
-  },
   "packages/imessage-bot/src/bridge.test.ts": {
     "af25c32fdb7d86a3ed47c2755649f2f217ea53191d2a6b91194d6631d09a2a3e": 1
   },

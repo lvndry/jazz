@@ -33,6 +33,7 @@ import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
 import { Context, Effect, Layer } from "effect";
+import { partialFake } from "./partial-fake.fixture";
 import {
   EVENT_POLL_MS,
   makeA2AHandler,
@@ -115,7 +116,7 @@ function runnerProviding<S>(tag: Context.Service<S, S>, service: S) {
 
 /** Only `listAgents` is reachable from the route under test. */
 function runnerForAgents(agents: readonly Agent[]) {
-  const service = { listAgents: () => Effect.succeed(agents) } as unknown as AgentService;
+  const service = partialFake<AgentService>({ listAgents: () => Effect.succeed(agents) });
   return <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
     Effect.runPromise(
       effect.pipe(Effect.provideService(AgentServiceTag, service)) as Effect.Effect<
@@ -218,9 +219,9 @@ describe("the daemon's routes", () => {
 
   it("starts a loop, then applies a control only against the version the client read", async () => {
     const loops = new InMemoryLoopStore();
-    const agents = {
+    const agents = partialFake<AgentService>({
       getAgent: () => Effect.succeed(agentFixture()),
-    } as unknown as AgentService;
+    });
     const handle = makeHandler(OPERATED, (effect) =>
       Effect.runPromise(
         effect.pipe(
@@ -807,7 +808,7 @@ describe("choosing which progress events to receive", () => {
  */
 function runnerForWritableAgents(seed: readonly Agent[] = []) {
   const agents = new Map(seed.map((agent) => [agent.id, agent]));
-  const storage = {
+  const storage = partialFake<StorageService>({
     listAgents: () => Effect.succeed([...agents.values()]),
     getAgent: (id: string) => {
       const found = agents.get(id);
@@ -823,7 +824,7 @@ function runnerForWritableAgents(seed: readonly Agent[] = []) {
       agents.delete(id);
       return Effect.void;
     },
-  } as unknown as StorageService;
+  });
 
   const service = new AgentServiceImpl(storage);
   const run = <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
@@ -1244,7 +1245,7 @@ describe("the menus an agent editor is built from", () => {
         updatedAt: new Date("2026-09-01T00:00:00Z"),
       },
     ];
-    const service = { listPersonas: () => Effect.succeed(personas) } as unknown as PersonaService;
+    const service = partialFake<PersonaService>({ listPersonas: () => Effect.succeed(personas) });
     const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
 
     const response = await handle(request("GET", "/personas"));
@@ -1261,7 +1262,7 @@ describe("the menus an agent editor is built from", () => {
 
   it("writes a persona and answers with the whole thing, prompt included", async () => {
     const written: unknown[] = [];
-    const service = {
+    const service = partialFake<PersonaService>({
       createPersona: (input: unknown) => {
         written.push(input);
         return Effect.succeed({
@@ -1274,7 +1275,7 @@ describe("the menus an agent editor is built from", () => {
           updatedAt: new Date("2026-09-06T00:00:00Z"),
         });
       },
-    } as unknown as PersonaService;
+    });
     const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
 
     const response = await handle(
@@ -1297,9 +1298,9 @@ describe("the menus an agent editor is built from", () => {
   });
 
   it("names the field when the service refuses a persona, so a form can mark it", async () => {
-    const service = {
+    const service = partialFake<PersonaService>({
       createPersona: () => Effect.fail(new PersonaAlreadyExistsError({ personaName: "default" })),
-    } as unknown as PersonaService;
+    });
     const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
 
     const response = await handle(
@@ -1311,7 +1312,7 @@ describe("the menus an agent editor is built from", () => {
 
   it("takes a persona's name where the CLI would, not only its id", async () => {
     const asked: string[] = [];
-    const service = {
+    const service = partialFake<PersonaService>({
       getPersona: (id: string) => {
         asked.push(id);
         return Effect.fail(new PersonaNotFoundError({ personaId: id }));
@@ -1334,7 +1335,7 @@ describe("the menus an agent editor is built from", () => {
           createdAt: new Date("2026-09-06T00:00:00Z"),
           updatedAt: new Date("2026-09-06T00:00:00Z"),
         }),
-    } as unknown as PersonaService;
+    });
     const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
 
     const response = await handle(
@@ -1350,7 +1351,7 @@ describe("the menus an agent editor is built from", () => {
   // rest — the difference between editing a prompt and quietly dropping the tone with it.
   it("leaves out of a patch the fields the patch left out", async () => {
     let sent: Record<string, unknown> | undefined;
-    const service = {
+    const service = partialFake<PersonaService>({
       getPersona: () =>
         Effect.succeed({
           id: "psn_sceptic",
@@ -1373,7 +1374,7 @@ describe("the menus an agent editor is built from", () => {
           updatedAt: new Date("2026-09-06T00:00:00Z"),
         });
       },
-    } as unknown as PersonaService;
+    });
     const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
 
     await handle(writeRequest("PATCH", "/personas/psn_sceptic", { systemPrompt: "new" }));
@@ -1382,7 +1383,7 @@ describe("the menus an agent editor is built from", () => {
 
   it("deletes a persona and says which one went", async () => {
     const removed: string[] = [];
-    const service = {
+    const service = partialFake<PersonaService>({
       getPersona: (id: string) =>
         Effect.succeed({
           id,
@@ -1396,7 +1397,7 @@ describe("the menus an agent editor is built from", () => {
         removed.push(id);
         return Effect.succeed(undefined);
       },
-    } as unknown as PersonaService;
+    });
     const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
 
     const response = await handle(request("DELETE", "/personas/psn_sceptic"));
@@ -1406,7 +1407,7 @@ describe("the menus an agent editor is built from", () => {
   });
 
   it("lists pickable tools with their categories, and leaves hidden ones out", async () => {
-    const registry = {
+    const registry = partialFake<ToolRegistry>({
       // `listAllTools` is the one that includes hidden tools; using it here would offer a
       // caller something deliberately not offered, so the route must not reach for it.
       listTools: () => Effect.succeed(["read_file", "web_search"]),
@@ -1416,7 +1417,7 @@ describe("the menus an agent editor is built from", () => {
       // dedupe. `web_search` is deliberately in no category here: it stands for a tool an
       // agent only has because its own config asked for one.
       getToolsInCategory: () => Effect.succeed(["read_file"]),
-    } as unknown as ToolRegistry;
+    });
     const handle = makeHandler(LOOPBACK, runnerProviding(ToolRegistryTag, registry));
 
     const response = await handle(request("GET", "/tools"));
@@ -1622,10 +1623,13 @@ describe("the daemon's attention routes", () => {
         Layer.succeed(RunStoreTag, runs),
         Layer.succeed(GoalStoreTag, new InMemoryGoalStore()),
         Layer.succeed(LoopStoreTag, new InMemoryLoopStore()),
-        Layer.succeed(AgentConfigServiceTag, {
-          reloadIfChanged: () => Effect.succeed(false),
-          appConfig: Effect.succeed({ notifications: { enabled: false } }),
-        } as unknown as AgentConfigService),
+        Layer.succeed(
+          AgentConfigServiceTag,
+          partialFake<AgentConfigService>({
+            reloadIfChanged: () => Effect.succeed(false),
+            appConfig: Effect.succeed({ notifications: { enabled: false } }),
+          }),
+        ),
       );
       const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, (effect) =>
         Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<never, never, never>),
@@ -1676,10 +1680,13 @@ describe("the daemon's attention routes", () => {
         Layer.succeed(RunStoreTag, runs),
         Layer.succeed(GoalStoreTag, new InMemoryGoalStore()),
         Layer.succeed(LoopStoreTag, new InMemoryLoopStore()),
-        Layer.succeed(AgentConfigServiceTag, {
-          reloadIfChanged: () => Effect.succeed(false),
-          appConfig: Effect.succeed({}),
-        } as unknown as AgentConfigService),
+        Layer.succeed(
+          AgentConfigServiceTag,
+          partialFake<AgentConfigService>({
+            reloadIfChanged: () => Effect.succeed(false),
+            appConfig: Effect.succeed({}),
+          }),
+        ),
       );
       const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, (effect) =>
         Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<never, never, never>),
@@ -1705,7 +1712,7 @@ describe("the daemon's attention routes", () => {
       };
 
       await until("event: snapshot");
-      const parked = {
+      const parked = partialFake<RunRecord>({
         ...createRunRecord({
           runId: "run-1",
           agentId: "a",
@@ -1723,7 +1730,7 @@ describe("the daemon's attention routes", () => {
           snapshot: { messages: [], iteration: 1 },
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
         },
-      } as unknown as RunRecord;
+      });
       await Effect.runPromise(runs.save(parked));
       await until("event: waiting");
       expect(seen).toContain("Which folder?");
@@ -1746,10 +1753,13 @@ describe("the daemon's attention routes", () => {
       Layer.succeed(RunStoreTag, new InMemoryRunStore()),
       Layer.succeed(GoalStoreTag, new InMemoryGoalStore()),
       Layer.succeed(LoopStoreTag, new InMemoryLoopStore()),
-      Layer.succeed(AgentConfigServiceTag, {
-        reloadIfChanged: () => Effect.succeed(false),
-        appConfig: Effect.succeed({}),
-      } as unknown as AgentConfigService),
+      Layer.succeed(
+        AgentConfigServiceTag,
+        partialFake<AgentConfigService>({
+          reloadIfChanged: () => Effect.succeed(false),
+          appConfig: Effect.succeed({}),
+        }),
+      ),
     );
     let snapshotsRead = 0;
     let releaseFirstSnapshot: () => void = () => {};

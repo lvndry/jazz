@@ -124,11 +124,6 @@
       "count": 2
     }
   },
-  "packages/bot-shared/src/turn.test.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
   "packages/cli/src/catch-up-prompt.ts": {
     "id-length": {
       "count": 4
@@ -686,41 +681,6 @@
   },
   "packages/core/src/workflows/workflow-utils.ts": {
     "id-length": {
-      "count": 1
-    }
-  },
-  "packages/daemon/src/attention.ts": {
-    "id-length": {
-      "count": 2
-    }
-  },
-  "packages/runtime/src/app-layer.ts": {
-    "id-length": {
-      "count": 1
-    }
-  },
-  "plugins/lsp/src/workspace-edit.ts": {
-    "id-length": {
-      "count": 6
-    }
-  },
-  "scripts/bundle-size.ts": {
-    "id-length": {
-      "count": 2
-    }
-  },
-  "scripts/gen-design-docs.ts": {
-    "id-length": {
-      "count": 4
-    }
-  },
-  "scripts/pre-release-review.ts": {
-    "id-length": {
-      "count": 3
-    }
-  },
-  "scripts/verify-no-unknown-casts.ts": {
-    "n/no-unsupported-features/node-builtins": {
       "count": 1
     }
   }

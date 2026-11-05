@@ -70,8 +70,8 @@ function fakeConfigLayer() {
     has: () => Effect.succeed(false),
     set: <A>(key: string, value: A) =>
       Effect.sync(() => {
-        if (key === "peers") {
-          peers = value as unknown as readonly PeerConfig[];
+        if (key === "peers" && Array.isArray(value)) {
+          peers = value;
         }
         revision += 1;
       }),

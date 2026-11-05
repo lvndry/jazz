@@ -41,8 +41,9 @@ export interface Pipeline {
 /** Validated limits prevent accidental empty samples and unbounded CI runs. */
 export function positiveLimit(name: string, fallback: number): number {
   const value = Number(process.env[name] ?? fallback);
-  if (!Number.isSafeInteger(value) || value < 1)
+  if (!Number.isSafeInteger(value) || value < 1) {
     throw new Error(`${name} must be a positive integer`);
+  }
   return value;
 }
 
@@ -154,8 +155,9 @@ export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
       const mountedAt = performance.now();
       while (!stripAnsiCodes(output.text).includes("bench-local")) {
         await paint();
-        if (performance.now() - mountedAt > 5_000)
+        if (performance.now() - mountedAt > 5_000) {
           throw new Error("OpenTUI native terminal writer never painted the model footer");
+        }
         await Bun.sleep(2);
       }
     } catch (error) {
@@ -170,8 +172,9 @@ export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
         output.columns = width;
         output.rows = height;
         updateForTest(() => renderer.resize(width, height));
-        if (renderer.width !== width || renderer.height !== height)
+        if (renderer.width !== width || renderer.height !== height) {
           throw new Error(`OpenTUI resize failed: ${renderer.width}x${renderer.height}`);
+        }
         return paint();
       },
       outputBytes: () => output.bytes,
@@ -240,10 +243,16 @@ export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
       instance.cleanup();
       input.destroy();
       output.destroy();
-      if (savedColumns) Object.defineProperty(process.stdout, "columns", savedColumns);
-      else delete (process.stdout as Partial<NodeJS.WriteStream>).columns;
-      if (savedRows) Object.defineProperty(process.stdout, "rows", savedRows);
-      else delete (process.stdout as Partial<NodeJS.WriteStream>).rows;
+      if (savedColumns) {
+        Object.defineProperty(process.stdout, "columns", savedColumns);
+      } else {
+        delete (process.stdout as Partial<NodeJS.WriteStream>).columns;
+      }
+      if (savedRows) {
+        Object.defineProperty(process.stdout, "rows", savedRows);
+      } else {
+        delete (process.stdout as Partial<NodeJS.WriteStream>).rows;
+      }
       resetPipelineStore();
     },
   };
@@ -258,8 +267,12 @@ export async function awaitPaint(
   const start = performance.now();
   for (;;) {
     const frame = await pipeline.paint();
-    if (frame.includes(marker)) return frame;
-    if (performance.now() - start > deadlineMs) throw new Error(`Terminal never painted ${marker}`);
+    if (frame.includes(marker)) {
+      return frame;
+    }
+    if (performance.now() - start > deadlineMs) {
+      throw new Error(`Terminal never painted ${marker}`);
+    }
     await Bun.sleep(2);
   }
 }

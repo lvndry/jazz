@@ -103,7 +103,7 @@ function applyEdits(before: string, edits: readonly TextEdit[]): string {
       }
       return { start, end, replacement: edit.newText };
     })
-    .sort((a, b) => b.start - a.start || b.end - a.end);
+    .sort((left, right) => right.start - left.start || right.end - left.end);
   let result = before;
   let earliest = before.length + 1;
   for (const edit of ranges) {
@@ -177,7 +177,7 @@ export async function prepareWorkspaceEdit(
   if (files.length === 0) {
     throw new Error("Language server proposed no effective text changes");
   }
-  files.sort((a, b) => a.path.localeCompare(b.path));
+  files.sort((left, right) => left.path.localeCompare(right.path));
   const previewDiff = files
     .map(({ path, before, after }) => createPatch(path, before, after))
     .join("\n");
@@ -193,7 +193,7 @@ export async function applyWorkspaceEdit(value: unknown): Promise<string> {
   const releases: Array<() => Promise<void>> = [];
   const staged: { path: string; temp: string }[] = [];
   try {
-    for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
+    for (const file of [...files].sort((left, right) => left.path.localeCompare(right.path))) {
       releases.push(await lock(file.path));
     }
     for (const file of files) {

@@ -133,8 +133,8 @@ describe("turn runner", () => {
       finish: (envelope = DONE) => settle(envelope),
       cancelled: () => killed,
     };
-    (fake as { setHandlers?: unknown }).setHandlers = (h: typeof handlers) => {
-      handlers = h;
+    (fake as { setHandlers?: unknown }).setHandlers = (registeredHandlers: typeof handlers) => {
+      handlers = registeredHandlers;
     };
     return fake;
   };
