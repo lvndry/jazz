@@ -2,7 +2,9 @@
 
 Benchmarks for Jazz's CPU, terminal, memory, disk and startup paths. Suites run
 separately from `bun test`. The Performance budgets workflow does not run on
-pull requests: a full paired run takes over 15 minutes. Start it from the
+pull requests: a full paired run takes over 15 minutes. A separate fast lane
+(`performance-pr.yml`, `bun run bench:pr`) does run on pull requests; see
+[PR lane](#pr-lane). Start the paired run from the
 Actions tab (`gh workflow run performance.yml -f base=<ref>`) for changes on a
 hot path; it builds the actual release binary and compares base and head on
 the same runner.
@@ -58,6 +60,29 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 | conversation-memory      | isolated renderer children, retained heap, post-clear heap, RSS and sampled transient cells      | long conversations          |
 | filesystem-config-models | real 100/1k/10k capped approval scans; configuration read/validate; model catalog decode/resolve | approval / startup          |
 | startup                  | source and compiled --version; fresh/warm compiled PTY home to accepted draft                    | per invocation              |
+
+## PR lane
+
+`bun run bench:pr` builds the release binary, runs `startup`, `stream-processor`
+and `transcript-rows` (5 fresh-process samples each, median) and checks the
+binary and gzip size, in about a minute locally. The `Performance (PR lane)`
+workflow runs `bun run bench:pr --ci` on every pull request touching code,
+benchmarks or scripts. There is no base run: every row has an absolute p95
+ceiling.
+
+- Budgets are constants in [pr-perf-budgets.ts](../scripts/pr-perf-budgets.ts). No environment
+  variable loosens them; the script also discards `BENCH_*` and
+  `JAZZ_BENCH_BINARY` so iteration counts cannot change.
+- Each latency budget is the worst p95 seen on the reference machine times
+  `PR_BUDGET_HEADROOM`. `--ci` multiplies every budget by `CI_TIME_SCALE`
+  (GitHub runners against the reference laptop); without it the reference
+  values apply.
+- Size budgets are per platform (`SIZE_BUDGETS`): the measured artifact times
+  `PR_SIZE_HEADROOM`. A Bun upgrade or a new native dependency moves them.
+- A failure prints each exceeded budget, the excess in ms and percent, and the
+  command to reproduce. Intentional slowdowns or growth change the budget in
+  the same pull request. The lane catches large regressions; the paired
+  workflow remains the tool for 30% regressions on hot paths.
 
 ## Conventions
 

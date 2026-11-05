@@ -91,6 +91,7 @@ const PINNED_ORDER: Record<string, string[]> = {
   security: [
     "security/approvals",
     "security/unattended-runs",
+    "security/write-confinement",
     "security/secrets-and-egress",
     "security/privacy",
     "security/surface-access",
