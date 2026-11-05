@@ -89,6 +89,24 @@ async function gitFailed(
   }
 }
 
+/** A failed `gh` invocation; the detail is the first line gh printed, kept apart from the wrapper's prefix. */
+class GhCommandError extends Error {
+  constructor(
+    summary: string,
+    readonly detail: string,
+    cause: unknown,
+  ) {
+    super(summary, { cause });
+  }
+}
+
+/**
+ * gh's auth failures: its own sign-in guidance, or the API's `HTTP 401` status line, anchored to
+ * the start of the line gh printed so a digit run or a repo name containing "401" never matches.
+ */
+const GH_AUTH_FAILURE_LINE =
+  /^(?:HTTP 401\b|gh: .*not logged in|You are not logged into any GitHub hosts|To get started with GitHub CLI|authentication failed|Bad credentials)/i;
+
 /** Run `gh` through the injected composer, trimming stdout. */
 async function runGh(
   args: readonly string[],
@@ -98,7 +116,8 @@ async function runGh(
   try {
     return (await compose("gh", args, options)).stdout.trim();
   } catch (error) {
-    throw new Error(`gh ${args[0]} ${args[1] ?? ""}: ${firstLine(error)}`, { cause: error });
+    const detail = firstLine(error);
+    throw new GhCommandError(`gh ${args[0]} ${args[1] ?? ""}: ${detail}`, detail, error);
   }
 }
 
@@ -322,10 +341,7 @@ export async function publishComposition(
     return { success: true, result: await runPublish(input, cwd, compose, fs, fetchImpl) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (
-      message.startsWith("gh ") &&
-      /not logged in|401|authentication failed|bad credentials/i.test(message)
-    ) {
+    if (error instanceof GhCommandError && GH_AUTH_FAILURE_LINE.test(error.detail)) {
       return { success: false, result: null, error: PUBLISH_AUTH_ERROR };
     }
     const prefixed = message.startsWith("publish_composition:")
