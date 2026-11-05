@@ -14,6 +14,6 @@
     "@jazz/adapters": "workspace:*",
     "@jazz/bot-shared": "workspace:*",
     "@jazz/core": "workspace:*",
-    "spectrum-ts": "^12.8.0"
+    "spectrum-ts": "^12.14.0"
   }
 }
