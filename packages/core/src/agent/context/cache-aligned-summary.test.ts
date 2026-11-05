@@ -133,11 +133,10 @@ let harnessCounter = 0;
  * Plays the agent loop: sends a request through the cache observer, appends what the loop would
  * have appended, then compacts with the alignment the loop passes.
  */
-async function makeHarness(): Promise<Harness> {
+async function makeHarness(tools = makeTools()): Promise<Harness> {
   harnessCounter += 1;
   const conversationId = `aligned-conv-${String(harnessCounter)}`;
   const agent = makeAgent();
-  const tools = makeTools();
   const previousMessages = makeConversation();
   const metrics = createAgentRunMetrics({
     agent,
@@ -241,6 +240,7 @@ describe("cache-aligned compaction summary", () => {
     expect(harness.requests).toHaveLength(1);
     const [request] = harness.requests;
     expect(request?.toolChoice).toBe("none");
+    expect(request?.messages.at(-1)?.kind).toBe("ephemeral");
 
     const previous = fingerprintRequest({
       provider: PROVIDER,
@@ -297,6 +297,19 @@ describe("cache-aligned compaction summary", () => {
     });
 
     expect(harness.metrics.sideCostUnknown).toBe(true);
+  });
+
+  it("keeps an oversized tool schema out of the aligned request", async () => {
+    const tools = makeTools();
+    const tool = tools[0];
+    if (tool === undefined) {
+      throw new Error("missing tool fixture");
+    }
+    tool.function.description = "long schema description ".repeat(20_000);
+    const harness = await makeHarness(tools);
+    await harness.compact({});
+    expect(harness.requests).toHaveLength(0);
+    expect(harness.runnerInputs).toHaveLength(1);
   });
 
   it("uses the stand-alone summarizer when the summarizer model differs", async () => {
@@ -373,7 +386,10 @@ describe("cache-aligned compaction summary", () => {
     const harness = await makeHarness();
 
     const outcome = await harness.compact({
-      respond: () => Effect.fail(new LLMRequestError({ provider: PROVIDER, message: "boom" })),
+      respond: () =>
+        Effect.fail(
+          new LLMRequestError({ provider: PROVIDER, message: "boom", unreadableResponse: true }),
+        ),
     });
 
     expect(harness.runnerInputs).toHaveLength(1);
@@ -382,10 +398,10 @@ describe("cache-aligned compaction summary", () => {
     );
   });
 
-  it("still rejects a truncated summary instead of replacing history with half a checkpoint", async () => {
+  it("falls back when an aligned summary is truncated", async () => {
     const harness = await makeHarness();
 
-    const attempt = harness.compact({
+    const outcome = await harness.compact({
       respond: () =>
         Effect.succeed({
           id: "summary",
@@ -395,7 +411,19 @@ describe("cache-aligned compaction summary", () => {
         }),
     });
 
-    await expect(attempt).rejects.toThrow();
-    expect(harness.runnerInputs).toHaveLength(0);
+    expect(harness.runnerInputs).toHaveLength(1);
+    expect(outcome?.messages.some((message) => message.content === "stand-alone summary")).toBe(
+      true,
+    );
+  });
+  it("falls back when the aligned model returns an empty checkpoint", async () => {
+    const harness = await makeHarness();
+    const outcome = await harness.compact({
+      respond: () => Effect.succeed({ id: "empty", model: MODEL, content: "" }),
+    });
+    expect(harness.runnerInputs).toHaveLength(1);
+    expect(outcome?.messages.some((message) => message.content === "stand-alone summary")).toBe(
+      true,
+    );
   });
 });

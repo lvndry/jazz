@@ -115,7 +115,10 @@ export function requestAlignedSummary(
     const llmService = yield* LLMServiceTag;
     const { alignment, agent, history, instruction } = request;
     const { cacheScope, tools, pricing } = alignment;
-    const messages: ChatMessage[] = [...history, { role: "user", content: instruction }];
+    const messages: ChatMessage[] = [
+      ...history,
+      { role: "user", content: instruction, kind: "ephemeral" },
+    ];
 
     const change = peekCacheChange(
       cacheScope.conversationKey,
@@ -135,7 +138,8 @@ export function requestAlignedSummary(
       return { kind: "fallback", reason: `prefix-${change.reason}` } as const;
     }
 
-    yield* observePromptCache({ ...cacheScope, emit: undefined }, tools, messages);
+    const summaryCacheScope: PromptCacheScope = { ...cacheScope, emit: undefined };
+    yield* observePromptCache(summaryCacheScope, tools, messages);
     const startedAt = Date.now();
     const attempt = yield* llmService
       .createChatCompletion(
@@ -167,7 +171,7 @@ export function requestAlignedSummary(
     });
     if (completion.usage !== undefined) {
       recordLLMUsage(summaryMetrics, completion.usage);
-      yield* recordPromptCacheUsage(cacheScope, completion.usage);
+      yield* recordPromptCacheUsage(summaryCacheScope, completion.usage);
     } else {
       summaryMetrics.usageMissing = true;
     }

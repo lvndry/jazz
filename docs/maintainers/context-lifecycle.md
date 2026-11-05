@@ -248,12 +248,14 @@ the warn rung. The newest message is always kept, even when it alone exceeds the
 **The summarize call reuses the conversation's prefix when it can.** The summarizer sub-agent
 is the fallback. For automatic compaction, when the summarizer model equals the run's model,
 the provider is not `claude_code`, models.dev lists a cache-read price, and the whole history
-plus the checkpoint fits the window (`ALIGNED_SUMMARY_OUTPUT_RESERVE_RATIO`),
+plus the tool schemas and checkpoint fit the window (`ALIGNED_SUMMARY_OUTPUT_RESERVE_RATIO`),
 `requestAlignedSummary` (`cache-aligned-summary.ts`) sends the run's own request options
 (`buildCompletionOptions`) with `toolChoice: "none"` over the unchanged history plus one final
-instruction message. The ledger's `peekCacheChange` must classify it `none` against the previous
+instruction message marked ephemeral so it preserves the current turn's reasoning during
+adapter conversion. The ledger's `peekCacheChange` must classify it `none` against the previous
 request, otherwise nothing would hit the cache and the stand-alone path (which chunks oversized
-transcripts) runs. A returned tool call is discarded and falls back. The summary's spend is side
+transcripts) runs. A returned tool call, empty checkpoint or truncated checkpoint is discarded
+and falls back to the stand-alone summarizer. The summary's spend is side
 spend and its hit rate goes through `recordPromptCacheUsage`. `/compact`, `summarize_context`,
 overflow recovery and memory extraction have no previous request to share and always use the
 stand-alone path.

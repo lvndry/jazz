@@ -44,6 +44,7 @@ import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 import { toolResultsProtectFromIndex } from "./tool-result-clearing";
 import { appendJournalEntry, pruneJournal } from "./work-journal";
 import { messageCarriesEgressTaint } from "../execution/egress-taint";
+import { toolFingerprintInput } from "../metrics/prompt-cache";
 import { listUnlockedToolNames } from "../tools/unlocked-tools";
 import type { AgentResponse } from "../types";
 import { formatWorkState, readWorkState } from "./work-state";
@@ -1121,7 +1122,9 @@ export const Summarizer = {
 
       if (cacheAligned !== undefined) {
         const hint = modelHintFromAgent(agent);
+        const toolSchemas = cacheAligned.alignment.tools.map(toolFingerprintInput);
         const requestTokens =
+          DEFAULT_TOKEN_COUNTER.countText(JSON.stringify(toolSchemas), hint) +
           DEFAULT_TOKEN_COUNTER.countMessages(cacheAligned.history, hint) +
           DEFAULT_TOKEN_COUNTER.overheadFor(hint);
         const instruction = alignedSummaryInstruction({
@@ -1129,13 +1132,15 @@ export const Summarizer = {
           keptVerbatimCount: cacheAligned.keptVerbatimCount,
           recordedState,
         });
-        const blocker = alignedSummaryBlocker({
-          summarizerModel: summarizerModelConfig,
-          agent,
-          pricing: cacheAligned.alignment.pricing,
-          requestTokens: requestTokens + DEFAULT_TOKEN_COUNTER.countText(instruction, hint),
-          contextWindowTokens: cacheAligned.contextWindowTokens,
-        });
+        const blocker = toolSchemas.some((tool) => tool.schema === null)
+          ? "tool-schema-unavailable"
+          : alignedSummaryBlocker({
+              summarizerModel: summarizerModelConfig,
+              agent,
+              pricing: cacheAligned.alignment.pricing,
+              requestTokens: requestTokens + DEFAULT_TOKEN_COUNTER.countText(instruction, hint),
+              contextWindowTokens: cacheAligned.contextWindowTokens,
+            });
         if (blocker !== undefined) {
           yield* logger.debug("Compaction summary uses the stand-alone summarizer", {
             conversationId,
@@ -1149,15 +1154,23 @@ export const Summarizer = {
             instruction,
           });
           if (aligned.kind === "summary") {
-            yield* logger.info("Compaction summary reused the conversation's request prefix", {
+            const accepted = yield* acceptSummary(aligned).pipe(Effect.result);
+            if (accepted._tag === "Success") {
+              yield* logger.info("Compaction summary reused the conversation's request prefix", {
+                conversationId,
+              });
+              return accepted.success;
+            }
+            yield* logger.info("Cache-aligned compaction summary fell back to the summarizer", {
               conversationId,
+              reason: `summary-${accepted.failure.reason}`,
             });
-            return yield* acceptSummary(aligned);
+          } else {
+            yield* logger.info("Cache-aligned compaction summary fell back to the summarizer", {
+              conversationId,
+              reason: aligned.reason,
+            });
           }
-          yield* logger.info("Cache-aligned compaction summary fell back to the summarizer", {
-            conversationId,
-            reason: aligned.reason,
-          });
         }
       }
 
