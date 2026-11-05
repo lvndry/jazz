@@ -467,12 +467,6 @@ export function toCoreMessages(
         ).providerOptions = {
           anthropic: { cacheControl: { type: "ephemeral" } },
         };
-      } else if (normalized === "openai") {
-        (
-          msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }
-        ).providerOptions = {
-          openai: { promptCacheKey: "system-prompt" },
-        };
       } else if (normalized === "openrouter") {
         // OpenRouter supports Anthropic-style prompt caching via its own providerOptions.
         // When routing to Anthropic models (e.g., anthropic/claude-*), this enables cache hits
@@ -1444,6 +1438,16 @@ function toProviderEffort(
       : selection;
 }
 
+/**
+ * Providers route cached prompt prefixes by this request-level key, so it is the conversation id:
+ * each conversation owns its prefix, and an absent id sends no key.
+ */
+function promptCacheKeyOptions(
+  conversationId: string | undefined,
+): { promptCacheKey: string } | Record<string, never> {
+  return conversationId ? { promptCacheKey: conversationId } : {};
+}
+
 /** A portable effort has a deterministic token budget when a template exposes one. */
 function reasoningBudget(
   selection: Exclude<ReasoningSelection, "disable">,
@@ -1469,6 +1473,7 @@ function buildResolvedReasoningOptions(
   providerName: ProviderName,
   selection: ReasoningSelection | undefined,
   control: ReasoningControlSurface | { readonly kind: "unknown" } | undefined,
+  conversationId?: string,
 ): ProviderOptions | undefined {
   if (!selection || !control || control.kind === "unknown" || control.kind === "unsupported") {
     return undefined;
@@ -1480,8 +1485,8 @@ function buildResolvedReasoningOptions(
       // so it gets neither `systemMessageMode` nor a choice about `store`.
       const base: OpenAIResponsesProviderOptions =
         providerName === "chatgpt"
-          ? { promptCacheKey: "conversation", store: false }
-          : { promptCacheKey: "conversation" };
+          ? { ...promptCacheKeyOptions(conversationId), store: false }
+          : promptCacheKeyOptions(conversationId);
       if (selection === "disable") {
         return { openai: { ...base, reasoningEffort: "none" } };
       }
@@ -1563,6 +1568,7 @@ export function buildProviderOptions(
     providerName,
     clampReasoningSelection(options.reasoning, control),
     control,
+    options.conversationId,
   );
   if (resolved !== undefined) return resolved;
   if (control && control.kind !== "unknown") {
@@ -1573,9 +1579,9 @@ export function buildProviderOptions(
 
   switch (normalizedProvider) {
     case "openai": {
-      const openaiOptions: OpenAIResponsesProviderOptions = {
-        promptCacheKey: "conversation",
-      };
+      const openaiOptions: OpenAIResponsesProviderOptions = promptCacheKeyOptions(
+        options.conversationId,
+      );
       if (reasoningEffort && reasoningEffort !== "disable") {
         return {
           openai: {
@@ -1594,7 +1600,7 @@ export function buildProviderOptions(
       // The Codex backend stores nothing server-side, so reasoning carries across turns only
       // as encrypted content.
       const chatgptOptions: OpenAIResponsesProviderOptions = {
-        promptCacheKey: "conversation",
+        ...promptCacheKeyOptions(options.conversationId),
         store: false,
       };
       if (reasoningEffort && reasoningEffort !== "disable") {
@@ -1636,11 +1642,11 @@ export function buildProviderOptions(
       break;
     }
     case "xai": {
-      if (reasoningEffort && reasoningEffort !== "disable") {
-        const xaiOptions: XaiResponsesProviderOptions = { reasoningEffort };
-        return { xai: xaiOptions };
-      }
-      break;
+      const xaiOptions: XaiResponsesProviderOptions = {
+        ...promptCacheKeyOptions(options.conversationId),
+        ...(reasoningEffort && reasoningEffort !== "disable" ? { reasoningEffort } : {}),
+      };
+      return Object.keys(xaiOptions).length > 0 ? { xai: xaiOptions } : undefined;
     }
     case "ollama": {
       // Ollama defaults thinking ON when no flag is sent, which empties content and
@@ -1678,6 +1684,7 @@ export function buildProviderOptions(
       break;
     }
     case "moonshotai": {
+      const cacheOptions = promptCacheKeyOptions(options.conversationId);
       if (reasoningEffort && reasoningEffort !== "disable") {
         // Moonshot thinking models (kimi-k2-thinking) support budgeted reasoning
         const budgetMap: Record<string, number> = {
@@ -1687,12 +1694,13 @@ export function buildProviderOptions(
         };
         return {
           moonshotai: {
+            ...cacheOptions,
             thinking: { type: "enabled", budgetTokens: budgetMap[reasoningEffort] ?? 4096 },
             reasoningHistory: "interleaved",
           } satisfies MoonshotAILanguageModelOptions,
         };
       }
-      break;
+      return "promptCacheKey" in cacheOptions ? { moonshotai: cacheOptions } : undefined;
     }
     case "alibaba": {
       if (reasoningEffort && reasoningEffort !== "disable") {

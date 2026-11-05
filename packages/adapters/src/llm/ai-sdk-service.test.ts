@@ -2286,11 +2286,13 @@ describe("makeOllamaAuthorizedFetch", () => {
 describe("buildProviderOptions - openai reasoning round-trip", () => {
   const openaiOptions = (
     reasoningEffort: "disable" | "low" | "medium" | "high" | undefined,
+    conversationId?: string,
   ): ChatCompletionOptions =>
     ({
       model: "gpt-5",
       messages: [{ role: "user", content: "hi" }],
       ...(reasoningEffort ? { reasoning: reasoningEffort } : {}),
+      ...(conversationId ? { conversationId } : {}),
     }) as ChatCompletionOptions;
 
   it("enables stateless encrypted reasoning when reasoning is on", () => {
@@ -2303,16 +2305,70 @@ describe("buildProviderOptions - openai reasoning round-trip", () => {
     });
   });
 
-  it("still sets a conversation cache key when reasoning is disabled", () => {
-    expect(buildProviderOptions("openai", openaiOptions("disable"))).toEqual({
-      openai: { promptCacheKey: "conversation" },
+  it("keys the prompt cache by conversation id when reasoning is disabled", () => {
+    expect(buildProviderOptions("openai", openaiOptions("disable", "conv-1"))).toEqual({
+      openai: { promptCacheKey: "conv-1" },
     });
+  });
+
+  it("gives different conversations different cache keys", () => {
+    const keyFor = (conversationId: string) =>
+      (
+        buildProviderOptions("openai", openaiOptions("high", conversationId))?.["openai"] as {
+          promptCacheKey?: string;
+        }
+      ).promptCacheKey;
+
+    expect(keyFor("conv-a")).toBe("conv-a");
+    expect(keyFor("conv-b")).toBe("conv-b");
+  });
+
+  it("sends no cache key without a conversation id", () => {
+    expect(buildProviderOptions("openai", openaiOptions("disable"))).toEqual({ openai: {} });
+    expect(buildProviderOptions("chatgpt", openaiOptions("disable"))).toEqual({
+      openai: { store: false },
+    });
+  });
+
+  it("keys the prompt cache for ChatGPT, xAI and Moonshot by conversation id", () => {
+    expect(buildProviderOptions("chatgpt", openaiOptions(undefined, "conv-1"))).toEqual({
+      openai: { promptCacheKey: "conv-1", store: false },
+    });
+    expect(buildProviderOptions("xai", openaiOptions(undefined, "conv-1"))).toEqual({
+      xai: { promptCacheKey: "conv-1" },
+    });
+    expect(buildProviderOptions("xai", openaiOptions("high", "conv-1"))).toEqual({
+      xai: { promptCacheKey: "conv-1", reasoningEffort: "high" },
+    });
+    expect(buildProviderOptions("moonshotai", openaiOptions(undefined, "conv-1"))).toEqual({
+      moonshotai: { promptCacheKey: "conv-1" },
+    });
+    expect(
+      buildProviderOptions("moonshotai", openaiOptions("low", "conv-1"))?.["moonshotai"],
+    ).toMatchObject({ promptCacheKey: "conv-1", reasoningHistory: "interleaved" });
+  });
+
+  it("puts no cache key on the system message", () => {
+    const result = toCoreMessages(
+      [
+        { role: "system", content: "rules" },
+        { role: "user", content: "hi" },
+      ],
+      "openai",
+    );
+
+    expect(result[0]).toEqual({ role: "system", content: "rules" });
   });
 });
 
 describe("buildProviderOptions - efforts above high", () => {
   const request = (model: string, reasoning: ReasoningSelection): ChatCompletionOptions =>
-    ({ model, messages: [{ role: "user", content: "hi" }], reasoning }) as ChatCompletionOptions;
+    ({
+      model,
+      messages: [{ role: "user", content: "hi" }],
+      reasoning,
+      conversationId: "conv-1",
+    }) as ChatCompletionOptions;
   const ladder = {
     kind: "effort",
     transport: "openai.responses.reasoning-effort",
@@ -2339,7 +2395,7 @@ describe("buildProviderOptions - efforts above high", () => {
 
   it("turns reasoning off with none when the profile allows it", () => {
     expect(buildProviderOptions("openai", request("gpt-6-luna", "disable"), ladder)).toEqual({
-      openai: { promptCacheKey: "conversation", reasoningEffort: "none" },
+      openai: { promptCacheKey: "conv-1", reasoningEffort: "none" },
     });
   });
 
@@ -2347,7 +2403,7 @@ describe("buildProviderOptions - efforts above high", () => {
     expect(
       buildProviderOptions("chatgpt", request("gpt-6-luna", "max"), ladder)?.["openai"],
     ).toEqual({
-      promptCacheKey: "conversation",
+      promptCacheKey: "conv-1",
       store: false,
       reasoningEffort: "max",
       reasoningSummary: "auto",
@@ -2358,7 +2414,7 @@ describe("buildProviderOptions - efforts above high", () => {
   it("sends no effort to a model whose listing says it does not reason", () => {
     expect(
       buildProviderOptions("chatgpt", request("gpt-none-only", "max"), { kind: "unsupported" }),
-    ).toEqual({ openai: { promptCacheKey: "conversation", store: false } });
+    ).toEqual({ openai: { promptCacheKey: "conv-1", store: false } });
   });
 
   it("caps a model with no profile at high", () => {
