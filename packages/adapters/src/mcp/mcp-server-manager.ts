@@ -132,6 +132,8 @@ interface Connection {
   readonly capabilities: MCPServerCapabilities | undefined;
   /** Which protocol era the connection negotiated: "modern" is 2026-07-28. */
   readonly protocolEra: string | undefined;
+  /** What the server returned as `instructions` at initialize. */
+  readonly instructions: string | undefined;
 }
 
 /**
@@ -398,6 +400,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
         transportType,
         capabilities,
         protocolEra,
+        instructions: client.getInstructions(),
       });
 
       yield* manager.logger.info("MCP server connected", { transportType });
@@ -950,6 +953,10 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
   getProtocolEra(serverName: string): Effect.Effect<string | undefined, never> {
     return Effect.sync(() => this.connections.get(serverName)?.protocolEra);
+  }
+
+  getInstructions(serverName: string): Effect.Effect<string | undefined, never> {
+    return Effect.sync(() => this.connections.get(serverName)?.instructions);
   }
 
   getCapabilities(serverName: string): Effect.Effect<MCPServerCapabilities | undefined, never> {

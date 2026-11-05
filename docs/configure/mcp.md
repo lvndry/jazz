@@ -148,6 +148,24 @@ When a server advertises MCP resources, Jazz exposes bounded resource-list and r
 
 MCP prompts are server-provided templates, not trusted system instructions. Treat their contents and every tool result as external input.
 
+## Server instructions
+
+An MCP server can return an `instructions` string when it connects, usually a hint about which
+tool to call first or what its tools need. Jazz adds that text to the system prompt for each
+server the run is connected to, so the model reads it before its first tool call.
+
+- The text is the server author's, so it appears in the untrusted-content envelope, attributed to
+  the server by name, below a heading that says so. It is a hint about that server's tools; it
+  cannot widen what the agent may do, and an untrusted server's tools stay high-risk.
+- Control, zero-width and bidirectional characters are removed. Each server keeps its first 2,000
+  characters and all servers together keep 6,000. A cut ends with a visible marker.
+- Only servers that connected in the run contribute. A server that failed to connect, dropped, or
+  sent no instructions adds nothing.
+- Servers appear in name order, and the text is read from the connection, so it is the same on
+  every turn of a conversation. Connecting a new server, losing one, or a server changing its
+  instructions changes the prompt once; the provider's prompt cache then rebuilds from the
+  changed section on the next request and is stable again afterward.
+
 ## Failure behavior
 
 - A server that is not selected by the active agent is never connected.

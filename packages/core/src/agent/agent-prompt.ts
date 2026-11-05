@@ -20,6 +20,7 @@ import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment"
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import { BoundedLruCache } from "@/core/utils/bounded-lru-cache";
 import { systemInfo } from "@/core/utils/system-info";
+import { renderMcpServerInstructions, type McpServerInstructions } from "./mcp-server-instructions";
 import {
   MANAGE_MEMORY_TOOL_NAME,
   PROPOSE_LESSON_TOOL_NAME,
@@ -140,6 +141,12 @@ export interface AgentPromptOptions {
    * model without the user restating them every session.
    */
   readonly projectInstructions?: readonly ProjectInstructionFile[];
+  /**
+   * `instructions` strings of the MCP servers this run is connected to. Server-controlled, so
+   * they render inside the untrusted envelope, bounded and stripped of control characters. They
+   * change only when the set of connected servers or a server's text changes.
+   */
+  readonly mcpServerInstructions?: readonly McpServerInstructions[];
   /**
    * Directory that relative attachment paths in `userInput` resolve against.
    *
@@ -288,6 +295,9 @@ export class AgentPromptBuilder {
       for (const file of options.projectInstructions) {
         hash.update(`agentsmd:${file.path}:${file.content}`);
       }
+    }
+    if (options.mcpServerInstructions && options.mcpServerInstructions.length > 0) {
+      hash.update(`mcpServerInstructions:${JSON.stringify(options.mcpServerInstructions)}`);
     }
     hash.update(`canGenerateMedia:${options.canGenerateMedia ?? true}`);
     // Invalidate daily since prompts include current date
@@ -452,6 +462,11 @@ export class AgentPromptBuilder {
               id: "project-instructions",
               content: renderProjectInstructions(options.projectInstructions),
             });
+          }
+
+          const mcpInstructions = renderMcpServerInstructions(options.mcpServerInstructions ?? []);
+          if (mcpInstructions !== undefined) {
+            scope.push({ id: "mcp-server-instructions", content: mcpInstructions });
           }
 
           if (options.activePreferences && options.activePreferences.length > 0) {
