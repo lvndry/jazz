@@ -21,10 +21,11 @@ import type { ToolHost } from "@/core/types/chat";
 import { LLMRateLimitError } from "@/core/types/errors";
 import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/model-capabilities";
 import type { DisplayConfig } from "@/core/types/output";
+import { isRetryableLLMError } from "@/core/utils/llm-error";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
 import type { RecursiveRunner } from "../context/summarizer";
-import { emitLLMRetry, recordLLMRetry } from "../metrics/agent-run-metrics";
+import { emitLLMRetry, recordFailedAttempt } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 /**
@@ -133,14 +134,41 @@ export function executeWithoutStreaming(
             withLongRunningLlmNotice(
               agent.name,
               showSlowModelNotice,
-              llmService.createChatCompletion(provider, llmOptions).pipe(
-                Effect.tapError((error) =>
-                  Effect.gen(function* () {
-                    recordLLMRetry(runMetrics, error);
-                    yield* emitLLMRetry(runMetrics, error);
-                  }),
-                ),
-              ),
+              Effect.suspend(() => {
+                const startedAt = Date.now();
+                return llmService.createChatCompletion(provider, llmOptions).pipe(
+                  Effect.tapError((error) =>
+                    Effect.gen(function* () {
+                      const willRetry = isRetryableLLMError(error);
+                      const record = recordFailedAttempt(
+                        runMetrics,
+                        {
+                          error,
+                          mode: "non_streaming",
+                          provider,
+                          model: agent.config.llm.model,
+                          durationMs: Date.now() - startedAt,
+                          streamedChars: 0,
+                          toolCallStarted: false,
+                        },
+                        willRetry,
+                      );
+                      yield* emitLLMRetry(runMetrics, error, record);
+                      yield* logger.debug("Model attempt failed", {
+                        attempt: record.index,
+                        reason: record.reason,
+                        mode: record.mode,
+                        provider,
+                        model: record.model,
+                        durationMs: record.durationMs,
+                        willRetry,
+                        agentId: agent.id,
+                        conversationId: runMetrics.conversationId,
+                      });
+                    }),
+                  ),
+                );
+              }),
             ),
             batchRetrySchedule,
           ).pipe(

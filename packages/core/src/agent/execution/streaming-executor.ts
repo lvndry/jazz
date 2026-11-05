@@ -35,14 +35,16 @@ import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/co
 import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/model-capabilities";
 import type { DisplayConfig } from "@/core/types/output";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
+import type { UsageCostTokens } from "@/core/utils/usage-cost";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
 import type { RecursiveRunner } from "../context/summarizer";
 import {
   emitLLMRetry,
+  recordFailedAttempt,
   recordFirstTokenLatency,
-  recordLLMRetry,
 } from "../metrics/agent-run-metrics";
+import { isSubstantialOutput, type AttemptMode } from "../metrics/failed-attempts";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 const DEFERRED_RESPONSE_TIMEOUT = Duration.seconds(15);
@@ -180,8 +182,22 @@ export function executeWithStreaming(
           );
 
           const outputStartedRef = yield* Ref.make(false);
+          const attemptStartedAtRef = yield* Ref.make(Date.now());
+          const streamedCharsRef = yield* Ref.make(0);
+          const toolCallStartedRef = yield* Ref.make(false);
+          const attemptUsageRef = yield* Ref.make<UsageCostTokens | undefined>(undefined);
+          const usageRenderedRef = yield* Ref.make(false);
+
+          const beginAttempt = Effect.gen(function* () {
+            yield* Ref.set(attemptStartedAtRef, Date.now());
+            yield* Ref.set(streamedCharsRef, 0);
+            yield* Ref.set(toolCallStartedRef, false);
+            yield* Ref.set(attemptUsageRef, undefined);
+            yield* Ref.set(usageRenderedRef, false);
+          });
 
           const streamingAttempt = Effect.gen(function* () {
+            yield* beginAttempt;
             yield* Ref.set(outputStartedRef, false);
             yield* Ref.set(completionRef, undefined);
             yield* Ref.set(textAccumulatorRef, "");
@@ -201,8 +217,22 @@ export function executeWithStreaming(
                   );
                   if (event.type === "text_chunk") {
                     yield* Ref.set(textAccumulatorRef, event.accumulated);
+                    yield* Ref.update(streamedCharsRef, (chars) => chars + event.delta.length);
+                  }
+                  if (event.type === "thinking_chunk") {
+                    yield* Ref.update(streamedCharsRef, (chars) => chars + event.content.length);
+                  }
+                  if (event.type === "tool_call") {
+                    yield* Ref.set(toolCallStartedRef, true);
+                  }
+                  if (event.type === "usage_update") {
+                    yield* Ref.set(attemptUsageRef, event.usage);
                   }
                   if (event.type === "complete") {
+                    if (event.response.usage) {
+                      yield* Ref.set(attemptUsageRef, event.response.usage);
+                      yield* Ref.set(usageRenderedRef, true);
+                    }
                     yield* Ref.set(completionRef, event.response);
                     if (event.metrics?.firstTokenLatencyMs) {
                       recordFirstTokenLatency(runMetrics, event.metrics.firstTokenLatencyMs);
@@ -257,8 +287,6 @@ export function executeWithStreaming(
           }).pipe(
             Effect.tapError((error) =>
               Effect.gen(function* () {
-                recordLLMRetry(runMetrics, error);
-                yield* emitLLMRetry(runMetrics, error);
                 if (isRetryableLLMError(error)) {
                   yield* renderer.reset();
                 }
@@ -291,6 +319,9 @@ export function executeWithStreaming(
               if (!isRetryableEmptyCompletion(result.completion)) {
                 return result;
               }
+              if (result.completion.usage) {
+                yield* Ref.set(attemptUsageRef, result.completion.usage);
+              }
               yield* logger.warn("Model returned an empty response, retrying", {
                 reason: "empty_response",
                 provider,
@@ -311,17 +342,84 @@ export function executeWithStreaming(
             });
 
           const nonStreamingAttempt = Effect.suspend(() =>
-            llmService.createChatCompletion(provider, llmOptions),
+            beginAttempt.pipe(
+              Effect.andThen(llmService.createChatCompletion(provider, llmOptions)),
+            ),
           ).pipe(
             Effect.map((completion) => ({ completion, interrupted: false })),
             Effect.flatMap(rejectEmptyCompletion),
-            Effect.tapError((error) =>
-              Effect.gen(function* () {
-                recordLLMRetry(runMetrics, error);
-                yield* emitLLMRetry(runMetrics, error);
-              }),
-            ),
           );
+
+          /**
+           * Leaves the failed attempt's record: what it streamed and used, never what it said.
+           * The usage a renderer already received in a `complete` event is not passed on again,
+           * so a receipt adding it does not count that spend twice. A failure that interrupts
+           * the step (Esc, the step's wall-clock limit) never reaches here.
+           */
+          const recordAttemptFailure = (error: unknown, mode: AttemptMode) =>
+            Effect.gen(function* () {
+              const startedAt = yield* Ref.get(attemptStartedAtRef);
+              const streamedChars = yield* Ref.get(streamedCharsRef);
+              const toolCallStarted = yield* Ref.get(toolCallStartedRef);
+              const usage = yield* Ref.get(attemptUsageRef);
+              const usageRendered = yield* Ref.get(usageRenderedRef);
+              const willRetry = isRetryableLLMError(error);
+              const record = recordFailedAttempt(
+                runMetrics,
+                {
+                  error,
+                  mode,
+                  provider,
+                  model: agent.config.llm.model,
+                  durationMs: Date.now() - startedAt,
+                  streamedChars,
+                  toolCallStarted,
+                  usage,
+                },
+                willRetry,
+              );
+              yield* emitLLMRetry(runMetrics, error, record);
+              yield* logger.debug("Model attempt failed", {
+                attempt: record.index,
+                reason: record.reason,
+                mode,
+                provider,
+                model: record.model,
+                durationMs: record.durationMs,
+                streamedChars,
+                toolCallStarted,
+                usageReported: usage !== undefined,
+                willRetry,
+                agentId: agent.id,
+                conversationId: actualConversationId,
+              });
+              if (willRetry && isSubstantialOutput(streamedChars, toolCallStarted)) {
+                yield* logger.debug("Retry after substantial streamed output", {
+                  count: runMetrics.retryWaste.retriesAfterSubstantialOutput,
+                  reason: record.reason,
+                  mode,
+                  provider,
+                  model: record.model,
+                  streamedChars,
+                  toolCallStarted,
+                  usageReported: usage !== undefined,
+                  agentId: agent.id,
+                  conversationId: actualConversationId,
+                });
+              }
+              if (willRetry) {
+                yield* renderer.handleEvent({
+                  type: "llm_attempt_failed",
+                  ...(usage !== undefined && !usageRendered ? { usage } : {}),
+                  usageUnknown:
+                    usage === undefined &&
+                    (streamedChars > 0 ||
+                      toolCallStarted ||
+                      record.reason === "stream_stalled" ||
+                      record.reason === "unreadable_response"),
+                });
+              }
+            });
 
           /**
            * One attempt of the shared retry loop. After STREAMING_FAILURES_BEFORE_FALLBACK
@@ -337,7 +435,9 @@ export function executeWithStreaming(
           const attempt = Effect.gen(function* () {
             const streamingFailures = yield* Ref.get(streamingFailuresRef);
             if (streamingFailures >= STREAMING_FAILURES_BEFORE_FALLBACK) {
-              return yield* nonStreamingAttempt;
+              return yield* nonStreamingAttempt.pipe(
+                Effect.tapError((error) => recordAttemptFailure(error, "non_streaming")),
+              );
             }
             return yield* streamingAttempt.pipe(
               Effect.flatMap(rejectEmptyCompletion),
@@ -364,6 +464,7 @@ export function executeWithStreaming(
                     )
                   : Effect.void,
               ),
+              Effect.tapError((error) => recordAttemptFailure(error, "streaming")),
             );
           });
 

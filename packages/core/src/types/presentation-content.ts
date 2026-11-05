@@ -36,6 +36,12 @@ export interface PresentationStepStats {
   readonly totalTokens?: number;
   readonly cacheReadTokens?: number;
   readonly costUSD?: number;
+  /** Failed attempts retried before this step's model call succeeded. */
+  readonly retries?: number;
+  /** What those attempts wasted, priced from the usage the provider reported for them. */
+  readonly wastedUSD?: number;
+  /** True when the real waste may be higher than `wastedUSD`. */
+  readonly wasteLowerBound?: boolean;
   readonly tokensPerSecond?: number;
   /** First generated token through stream end, excluding prefill and tool time. */
   readonly generationDurationMs?: number;

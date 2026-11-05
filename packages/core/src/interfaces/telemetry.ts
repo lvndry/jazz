@@ -319,6 +319,17 @@ export interface TelemetryService {
     readonly model: string;
     readonly error: TelemetryErrorCategory;
     readonly attempt: number;
+    /** The failure's reason class, finer than `error` (empty response, stalled stream). */
+    readonly reason?: string;
+    readonly mode?: "streaming" | "non_streaming";
+    readonly durationMs?: number;
+    /** Characters of text and thinking streamed before the failure; never the content. */
+    readonly streamedChars?: number;
+    readonly toolCallStarted?: boolean;
+    /** True when the failed attempt had streamed enough output that re-generating it is a visible cost. */
+    readonly afterSubstantialOutput?: boolean;
+    /** Usage the provider reported for the failed attempt, when it reported any. */
+    readonly usage?: TokenUsage;
     readonly agentId?: string;
     readonly conversationId?: string;
     /** Groups this retry under its agent run when exported as a trace. */

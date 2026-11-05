@@ -105,6 +105,7 @@ import {
   recordLLMUsage,
   recordToolDefinitionTokens,
   recordSideSpend,
+  runRetryWaste,
   recordToolResultTokens,
   runSpendReport,
   type RunCost,
@@ -703,6 +704,7 @@ function finalizeRun(
     // (bridge daily caps, the per-run maxCostUSD guard) treat costIncomplete as
     // unpriced spend and refuse to enforce a cap they cannot verify.
     const { costUSD, costIncomplete } = computeRunCost(runMetrics, modelMetadata);
+    const retryWaste = runRetryWaste(runMetrics, modelMetadata);
 
     return {
       ...response,
@@ -718,6 +720,15 @@ function finalizeRun(
       },
       ...(costUSD !== undefined ? { costUSD } : {}),
       ...(costIncomplete ? { costIncomplete: true } : {}),
+      ...(retryWaste.retries > 0
+        ? {
+            retryWaste: {
+              retries: retryWaste.retries,
+              ...(retryWaste.wastedUSD !== undefined ? { wastedUSD: retryWaste.wastedUSD } : {}),
+              lowerBound: retryWaste.lowerBound,
+            },
+          }
+        : {}),
       ...(costCapped ? { costCapped: true } : {}),
       ...(tokenCapped ? { tokenCapped: true } : {}),
       ...(durationCapped ? { durationCapped: true } : {}),

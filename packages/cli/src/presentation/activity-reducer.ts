@@ -491,6 +491,7 @@ export function reduceEvent(acc: ReducerAccumulator, event: StreamEvent): Reduce
 
     case "usage_update":
     case "run_spend":
+    case "llm_attempt_failed":
     case "approval_required":
     case "subagent_start":
     case "subagent_complete":

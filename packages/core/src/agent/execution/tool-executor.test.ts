@@ -41,6 +41,7 @@ import type { ToolExecutionContext } from "../../types/tools";
 import type { ApprovalRequest, ToolCall, ToolExecutionResult } from "../../types/tools";
 import { AgentRunner } from "../agent-runner";
 import type { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+import { createRetryWasteTally } from "../metrics/failed-attempts";
 import { createPerceptionTools } from "../tools/perception";
 import type { DetachedToolResult } from "../types";
 
@@ -154,6 +155,7 @@ function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
     sideCostUSD: 0,
     sideCostUnknown: false,
     usageMissing: false,
+    retryWaste: createRetryWasteTally(),
     llmRetryCount: 0,
     toolCalls: 0,
     toolErrors: 0,

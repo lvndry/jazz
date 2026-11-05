@@ -24,6 +24,17 @@ import {
   isUsageCostIncomplete,
   type UsageCostPricing,
 } from "@/core/utils/usage-cost";
+import {
+  addFailedAttempt,
+  computeRetryWaste,
+  createRetryWasteTally,
+  isSubstantialOutput,
+  type FailedAttemptObservation,
+  type FailedAttemptReason,
+  type FailedAttemptRecord,
+  type RetryWaste,
+  type RetryWasteTally,
+} from "./failed-attempts";
 import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 
 export interface AgentRunMetricsContext {
@@ -92,6 +103,8 @@ export interface AgentRunMetrics {
    */
   usageMissing: boolean;
   llmRetryCount: number;
+  /** Failed model attempts: bounded records plus unbounded totals. Priced into `costUSD` as retry waste. */
+  retryWaste: RetryWasteTally;
   lastError?: TelemetryErrorCategory;
   toolCalls: number;
   toolErrors: number;
@@ -170,6 +183,7 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     sideCostUnknown: false,
     usageMissing: false,
     llmRetryCount: 0,
+    retryWaste: createRetryWasteTally(),
     toolCalls: 0,
     toolErrors: 0,
     toolsUsed: new Set<string>(),
@@ -247,6 +261,7 @@ export function computeRunCost(
     | "sideCostUSD"
     | "sideCostUnknown"
     | "usageMissing"
+    | "retryWaste"
     | "decisionCostUSD"
     | "decisionCostUnknown"
     | "provider"
@@ -265,9 +280,14 @@ export function computeRunCost(
   // model name under another provider.
   const pricedOwnCostUSD = computeUsageCostUSD(ownTokens, pricing) ?? undefined;
   const ownCostUSD = isFreeLocalModel && pricedOwnCostUSD !== undefined ? 0 : pricedOwnCostUSD;
-  const otherCostUSD = metrics.childCostUSD + metrics.sideCostUSD + (metrics.decisionCostUSD ?? 0);
+  const retryWaste = computeRetryWaste(metrics.retryWaste, pricing, isFreeLocalModel);
+  const otherCostUSD =
+    metrics.childCostUSD +
+    metrics.sideCostUSD +
+    (metrics.decisionCostUSD ?? 0) +
+    (retryWaste.wastedUSD ?? 0);
 
-  // Report the run's own cost plus sub-agent, side-call and decision spend. Emit a figure
+  // Report the run's own cost plus sub-agent, side-call, decision and failed-attempt spend. Emit a figure
   // whenever any of it is known: a run with unpriced own tokens but priced sub-agents still
   // surfaces the sub-agent spend.
   const costUSD =
@@ -287,6 +307,7 @@ export function computeRunCost(
       (!isFreeLocalModel && isUsageCostIncomplete(ownTokens, pricing)) ||
       metrics.childCostUnknown ||
       metrics.sideCostUnknown ||
+      retryWaste.unpriced ||
       metrics.decisionCostUnknown === true,
   };
 }
@@ -388,6 +409,58 @@ export function calibrateTokenCounter(args: {
 export function recordLLMRetry(metrics: AgentRunMetrics, error: unknown): void {
   metrics.llmRetryCount += 1;
   metrics.lastError = pushError(metrics, error);
+}
+
+/** The reason class of a failed attempt: the shared error category, refined by the retry flags. */
+export function classifyFailedAttempt(error: unknown): FailedAttemptReason {
+  if (error !== null && typeof error === "object") {
+    const flags = error as {
+      readonly emptyResponse?: unknown;
+      readonly streamStalled?: unknown;
+      readonly unreadableResponse?: unknown;
+    };
+    if (flags.emptyResponse === true) {
+      return "empty_response";
+    }
+    if (flags.streamStalled === true) {
+      return "stream_stalled";
+    }
+    if (flags.unreadableResponse === true) {
+      return "unreadable_response";
+    }
+  }
+  return telemetryErrorCategory(error);
+}
+
+/**
+ * Record a failed model attempt: the retry counter and error history as before, plus a
+ * compact record and the attempt's reported usage. The usage never reached
+ * {@link recordLLMUsage}, which only sees the completion a step accepted, so folding it into
+ * `costUSD` through the tally cannot count it twice.
+ */
+export function recordFailedAttempt(
+  metrics: AgentRunMetrics,
+  observation: Omit<FailedAttemptObservation, "reason">,
+  willRetry: boolean,
+): FailedAttemptRecord {
+  recordLLMRetry(metrics, observation.error);
+  return addFailedAttempt(
+    metrics.retryWaste,
+    { ...observation, reason: classifyFailedAttempt(observation.error) },
+    willRetry,
+  );
+}
+
+/** A run's failed attempts, priced the way its `costUSD` prices them. */
+export function runRetryWaste(
+  metrics: Pick<AgentRunMetrics, "retryWaste" | "provider" | "model">,
+  pricing: UsageCostPricing | undefined,
+): RetryWaste {
+  return computeRetryWaste(
+    metrics.retryWaste,
+    pricing,
+    isZeroCostLocalModel(metrics.provider ?? "", metrics.model ?? ""),
+  );
 }
 
 export function beginIteration(metrics: AgentRunMetrics, iterationNumber: number): void {
@@ -860,14 +933,43 @@ export function emitLLMUsage(
   );
 }
 
-/** Emit `llm_retry`. Best-effort. Call after `recordLLMRetry` bumps the count. */
-export function emitLLMRetry(metrics: AgentRunMetrics, error: unknown): Effect.Effect<void> {
+/**
+ * Emit `llm_retry`. Best-effort. Call after `recordLLMRetry` bumps the count; pass the
+ * attempt's record to log what the failed attempt streamed and used.
+ */
+export function emitLLMRetry(
+  metrics: AgentRunMetrics,
+  error: unknown,
+  record?: FailedAttemptRecord,
+): Effect.Effect<void> {
   return emitTelemetry((telemetry) =>
     telemetry.recordLLMRetry({
       provider: metrics.provider ?? "unknown",
       model: metrics.model ?? "unknown",
       error: telemetryErrorCategory(error),
       attempt: metrics.llmRetryCount,
+      ...(record
+        ? {
+            reason: record.reason,
+            mode: record.mode,
+            durationMs: record.durationMs,
+            streamedChars: record.streamedChars,
+            toolCallStarted: record.toolCallStarted,
+            afterSubstantialOutput: isSubstantialOutput(
+              record.streamedChars,
+              record.toolCallStarted,
+            ),
+            ...(record.usage
+              ? {
+                  usage: {
+                    promptTokens: record.usage.promptTokens,
+                    completionTokens: record.usage.completionTokens,
+                    totalTokens: record.usage.promptTokens + record.usage.completionTokens,
+                  },
+                }
+              : {}),
+          }
+        : {}),
       agentId: metrics.agentId,
       conversationId: metrics.conversationId,
       runId: metrics.runId,

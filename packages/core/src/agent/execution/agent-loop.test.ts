@@ -57,6 +57,7 @@ import { DEFAULT_TOKEN_COUNTER, ensureGptEncoders } from "../context/token-count
 import { PROTECTED_TOOL_CYCLES } from "../context/tool-result-clearing";
 import { readOffloadedToolResult } from "../context/tool-result-offload";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+import { createRetryWasteTally } from "../metrics/failed-attempts";
 import { createSubagentSupervisor } from "../subagents/supervisor";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
@@ -241,6 +242,7 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
       sideCostUSD: 0,
       sideCostUnknown: false,
       usageMissing: false,
+      retryWaste: createRetryWasteTally(),
       iterationSummaries: [],
       errors: [],
       metrics: {
