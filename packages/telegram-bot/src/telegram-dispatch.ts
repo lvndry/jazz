@@ -37,7 +37,9 @@ interface TelegramErrorBody {
 
 /** Telegram's own body says whether the request was received and rejected, not lost. */
 export function isRenderingRejection(response: unknown): boolean {
-  if (typeof response !== "object" || response === null) return false;
+  if (typeof response !== "object" || response === null) {
+    return false;
+  }
   const body = response as TelegramErrorBody;
   return body.ok === false && body.error_code !== 429;
 }
@@ -58,7 +60,9 @@ async function attempt(request: TelegramDispatchRequest): Promise<unknown> {
   for (let attemptNumber = 1; attemptNumber <= RATE_LIMIT_MAX_ATTEMPTS; attemptNumber++) {
     const cooldownMs = botCooldownUntil - Date.now();
     if (cooldownMs > 0) {
-      if (request.bestEffort) return undefined;
+      if (request.bestEffort) {
+        return undefined;
+      }
       await sleep(cooldownMs);
     }
 
@@ -101,7 +105,9 @@ async function attempt(request: TelegramDispatchRequest): Promise<unknown> {
 
 /** Runs `request`, after any earlier request queued for the same chat has settled. */
 export function dispatchTelegramRequest(request: TelegramDispatchRequest): Promise<unknown> {
-  if (request.chatId === undefined) return attempt(request);
+  if (request.chatId === undefined) {
+    return attempt(request);
+  }
 
   const chatId = request.chatId;
   const previous = chatQueues.get(chatId) ?? Promise.resolve();
@@ -112,7 +118,9 @@ export function dispatchTelegramRequest(request: TelegramDispatchRequest): Promi
   );
   chatQueues.set(chatId, marker);
   void marker.finally(() => {
-    if (chatQueues.get(chatId) === marker) chatQueues.delete(chatId);
+    if (chatQueues.get(chatId) === marker) {
+      chatQueues.delete(chatId);
+    }
   });
   return settled;
 }

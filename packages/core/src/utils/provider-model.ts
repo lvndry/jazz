@@ -86,7 +86,9 @@ export function agentModelString(llm: {
  */
 export function formatProviderDisplayName(provider: string): string {
   const known = PROVIDER_DISPLAY_NAMES[provider];
-  if (known) return known;
+  if (known) {
+    return known;
+  }
   return provider.replace(/_/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 

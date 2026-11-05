@@ -39,13 +39,19 @@ const COMMAND_PREVIEW_CHARS = 100;
 
 function truncateCommandPreview(text: string): string {
   const normalized = stripAnsiCodes(text).replace(/\r\n/g, "\n").trim();
-  if (normalized.length <= COMMAND_PREVIEW_CHARS) return normalized;
+  if (normalized.length <= COMMAND_PREVIEW_CHARS) {
+    return normalized;
+  }
   return `${normalized.slice(0, COMMAND_PREVIEW_CHARS - 1).trimEnd()}…`;
 }
 
 function stringValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
   return "";
 }
 
@@ -72,9 +78,13 @@ export function commandResultText(result: string): string | undefined {
   }
 
   const lines: string[] = [];
-  if (stdout) lines.push(stdout);
+  if (stdout) {
+    lines.push(stdout);
+  }
   if (stderr) {
-    if (stdout) lines.push("");
+    if (stdout) {
+      lines.push("");
+    }
     lines.push("stderr:");
     lines.push(stderr);
   }
@@ -99,9 +109,13 @@ export function commandOutputPreview(result: string): string | undefined {
   }
   const record = parsed as Record<string, unknown>;
   const stdout = stringValue(record["stdout"]);
-  if (stdout.trim().length > 0) return truncateCommandPreview(stdout.split("\n")[0] ?? stdout);
+  if (stdout.trim().length > 0) {
+    return truncateCommandPreview(stdout.split("\n")[0] ?? stdout);
+  }
   const stderr = stringValue(record["stderr"]);
-  if (stderr.trim().length > 0) return truncateCommandPreview(stderr.split("\n")[0] ?? stderr);
+  if (stderr.trim().length > 0) {
+    return truncateCommandPreview(stderr.split("\n")[0] ?? stderr);
+  }
   const fallback = truncateCommandPreview(result);
   return fallback.length > 0 ? fallback : undefined;
 }

@@ -5,9 +5,11 @@
  * package rather than in Jazz.
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
+import type { ProviderName } from "@jazz/core/constants/models";
 import { generateText, jsonSchema, tool, type ModelMessage, type ToolSet } from "ai";
 import { describe, expect, it } from "bun:test";
 import { applyToolsCacheBreakpoint, toCoreMessages } from "./ai-sdk-service";
+import { fakeFetch, partialFake } from "../test-support/fakes";
 import fixture from "./fixtures/system-prompt-requests.json";
 
 const MAX_ANTHROPIC_CACHE_BREAKPOINTS = 4;
@@ -42,7 +44,7 @@ async function sendToAnthropic(coreMessages: ModelMessage[], tools: ToolSet): Pr
   let captured: WireBody | undefined;
   const provider = createAnthropic({
     apiKey: "test-key",
-    fetch: (async (_input: unknown, init?: { body?: unknown }) => {
+    fetch: fakeFetch(async (_input: unknown, init?: { body?: unknown }) => {
       captured = JSON.parse(String(init?.body)) as WireBody;
       return new Response(
         JSON.stringify({
@@ -57,7 +59,7 @@ async function sendToAnthropic(coreMessages: ModelMessage[], tools: ToolSet): Pr
         }),
         { headers: { "content-type": "application/json" } },
       );
-    }) as unknown as typeof fetch,
+    }),
   });
   await generateText({
     model: provider("claude-sonnet-4-5"),
@@ -148,7 +150,11 @@ describe("Anthropic request shape", () => {
   it("leaves a provider-defined tool last without a breakpoint on it", () => {
     const tools: ToolSet = {
       ...buildTools(),
-      web_search: { type: "provider", id: "anthropic.web_search_20250305", args: {} } as never,
+      web_search: partialFake<ToolSet[string]>({
+        type: "provider",
+        id: "anthropic.web_search_20250305",
+        args: {},
+      }),
     };
     const result = applyToolsCacheBreakpoint(tools, "anthropic");
 
@@ -189,11 +195,11 @@ describe("providers other than Anthropic", () => {
         index === 0 ? { ...message, stablePrefixLength: 18 } : message,
       );
 
-      expect(JSON.parse(JSON.stringify(toCoreMessages(withPrefix, provider as never)))).toEqual(
-        expected,
-      );
       expect(
-        JSON.parse(JSON.stringify(toCoreMessages(recordedMessages, provider as never))),
+        JSON.parse(JSON.stringify(toCoreMessages(withPrefix, provider as ProviderName))),
+      ).toEqual(expected);
+      expect(
+        JSON.parse(JSON.stringify(toCoreMessages(recordedMessages, provider as ProviderName))),
       ).toEqual(expected);
     },
   );
@@ -211,7 +217,7 @@ describe("providers other than Anthropic", () => {
     for (const provider of ["openrouter", "ai_gateway", "openai", "ollama", "claude_code"]) {
       const converted = toCoreMessages(
         [systemMessage(LIVE_TEXT), { role: "user", content: "hello" }],
-        provider as never,
+        provider as ProviderName,
       );
       const systemMessages = converted.filter((message) => message.role === "system");
 

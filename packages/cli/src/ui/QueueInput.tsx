@@ -8,6 +8,8 @@ import {
   useInputService,
   useTextInput,
 } from "./hooks/use-input-service";
+import type { QueueEntry } from "./message-queue";
+import { queueFollowUp } from "./queue-follow-up";
 import { forceSendQueue } from "./queue-force-send";
 import { composeRecalledBuffer, isCursorOnFirstLine } from "./queue-recall";
 import { store, useSessionSlice } from "./store";
@@ -28,7 +30,9 @@ function truncateEntry(entry: string): string {
   // Collapse newlines inside a single queued entry so each entry occupies one
   // line in the preview. Multi-line entries are rare (paste) but possible.
   const oneLine = entry.replace(/\n+/g, " ↵ ");
-  if (oneLine.length <= ENTRY_PREVIEW_MAX_CHARS) return oneLine;
+  if (oneLine.length <= ENTRY_PREVIEW_MAX_CHARS) {
+    return oneLine;
+  }
   return `${oneLine.slice(0, ENTRY_PREVIEW_MAX_CHARS)}…`;
 }
 
@@ -39,7 +43,8 @@ function truncateEntry(entry: string): string {
  * preview shows entries stacked one per line; on agent completion the chat
  * loop drains the queue (joining with `\n`) and sends it as a single
  * combined turn; a queued slash command runs alone through the command path.
- * `↑` recalls the whole queue into the input for editing
+ * `Tab` queues the draft as a follow-up instead: it stays out of the running turn and is sent
+ * as its own turn once that turn ends. `↑` recalls the whole queue into the input for editing
  * (any typed draft is kept below the recalled text). `Ctrl-X` clears the
  * queue when the input buffer is empty. `Ctrl+Enter` queues the draft and
  * interrupts the run so the queue is sent now, on terminals that report it.
@@ -48,11 +53,13 @@ export function QueueInput({
   queue,
   workingDirectory,
 }: {
-  queue: readonly string[];
+  queue: readonly QueueEntry[];
   workingDirectory: string | null;
 }): React.ReactElement {
   const handleSubmit = useCallback((val: string): void => {
-    if (val.length === 0) return;
+    if (val.length === 0) {
+      return;
+    }
     if (store.runCommandImmediately(val)) {
       return;
     }
@@ -75,10 +82,32 @@ export function QueueInput({
     id: "queue-force-send",
     priority: QUEUE_INPUT_PRIORITY,
     onInput: (action, key) => {
-      if (action.type !== "submit" || !key.ctrl) return InputResults.ignored();
+      if (action.type !== "submit" || !key.ctrl) {
+        return InputResults.ignored();
+      }
       const draft = inputService.getTextInputState("text-input").value;
-      if (forceSendQueue(draft, interruptHandler) === "no-run") return InputResults.ignored();
-      if (draft.length > 0) setValue("", 0);
+      if (forceSendQueue(draft, interruptHandler) === "no-run") {
+        return InputResults.ignored();
+      }
+      if (draft.length > 0) {
+        setValue("", 0);
+      }
+      return InputResults.consumed();
+    },
+  });
+
+  useInputHandler({
+    id: "queue-follow-up",
+    priority: QUEUE_INPUT_PRIORITY,
+    onInput: (action) => {
+      if (action.type !== "tab") {
+        return InputResults.ignored();
+      }
+      const draft = inputService.getTextInputState("text-input").value;
+      if (queueFollowUp(draft) === "empty") {
+        return InputResults.ignored();
+      }
+      setValue("", 0);
       return InputResults.consumed();
     },
   });
@@ -88,13 +117,17 @@ export function QueueInput({
     priority: QUEUE_INPUT_PRIORITY,
     isActive: queue.length > 0,
     onInput: (action) => {
-      if (action.type !== "up") return InputResults.ignored();
+      if (action.type !== "up") {
+        return InputResults.ignored();
+      }
       const current = inputService.getTextInputState("text-input");
       if (!isCursorOnFirstLine(current.value, current.cursor)) {
         return InputResults.ignored();
       }
       const queueText = store.takeQueue();
-      if (queueText.length === 0) return InputResults.ignored();
+      if (queueText.length === 0) {
+        return InputResults.ignored();
+      }
       const recalled = composeRecalledBuffer(queueText, current.value);
       setValue(recalled.value, recalled.cursor);
       return InputResults.consumed();
@@ -130,7 +163,9 @@ export function QueueInput({
           marginTop={1}
           flexDirection="column"
         >
-          <Text dimColor>Queued ({queue.length}) · ↑ edit · Ctrl-X clear</Text>
+          <Text dimColor>
+            Queued ({queue.length}) · Tab to send after this turn ·↑ edit · Ctrl-X clear
+          </Text>
           {overflowCount > 0 && <Text dimColor> …and {overflowCount} earlier</Text>}
           {visibleEntries.map((entry, index) => (
             <Text
@@ -138,7 +173,8 @@ export function QueueInput({
               dimColor
             >
               {`  ${getGlyphs().bullet} `}
-              {truncateEntry(entry)}
+              {truncateEntry(entry.text)}
+              {entry.lane === "followup" ? " (after this turn)" : ""}
             </Text>
           ))}
         </Box>

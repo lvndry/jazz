@@ -32,7 +32,9 @@ export class FileTelemetrySink implements TelemetrySink, TelemetryEventReader {
   }
 
   async write(events: readonly TelemetryEvent[]): Promise<void> {
-    if (events.length === 0) return;
+    if (events.length === 0) {
+      return;
+    }
 
     if (!this.directoryCreated) {
       await mkdir(this.eventsDirectory, { recursive: true, mode: stateDirectoryMode() });
@@ -73,7 +75,9 @@ export class FileTelemetrySink implements TelemetrySink, TelemetryEventReader {
     for (const file of files.filter((name) => name.endsWith(".ndjson")).sort()) {
       const content = await readFile(path.join(this.eventsDirectory, file), { encoding: "utf8" });
       for (const line of content.split("\n")) {
-        if (line.trim().length === 0) continue;
+        if (line.trim().length === 0) {
+          continue;
+        }
         try {
           events.push(JSON.parse(line) as TelemetryEvent);
         } catch {
@@ -99,7 +103,9 @@ export class FileTelemetrySink implements TelemetrySink, TelemetryEventReader {
 
     let pruned = 0;
     for (const file of files) {
-      if (!file.endsWith(".ndjson")) continue;
+      if (!file.endsWith(".ndjson")) {
+        continue;
+      }
       if (file.replace(".ndjson", "") < cutoffPartition) {
         await unlink(path.join(this.eventsDirectory, file));
         pruned += 1;

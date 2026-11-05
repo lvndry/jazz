@@ -73,7 +73,9 @@ export function subagentBlocks(run: SubagentRun, now: number): Block[] {
         return;
       case "response": {
         const markdown = stripAnsiCodes(terminalHyperlinksToMarkdown(entry.text));
-        if (markdown.trim().length === 0) return;
+        if (markdown.trim().length === 0) {
+          return;
+        }
         blocks.push({
           id,
           seq: seq++,

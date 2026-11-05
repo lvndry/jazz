@@ -27,6 +27,7 @@ import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { readStateFile, writeStateFile } from "@jazz/core/utils/state-file";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
+import { partialFake } from "./partial-fake.fixture";
 import { runUnattendedTurn } from "./unattended-resume";
 
 const agent: Agent = {
@@ -36,12 +37,12 @@ const agent: Agent = {
   createdAt: new Date(0),
   updatedAt: new Date(0),
 };
-const logger = {
+const logger = partialFake<LoggerService>({
   debug: () => Effect.void,
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
-} as unknown as LoggerService;
+});
 
 describe("unattended answer delivery", () => {
   let previousHome: string | undefined;
@@ -97,12 +98,18 @@ describe("unattended answer delivery", () => {
     const services = Layer.mergeAll(
       NodeFileSystem.layer,
       Layer.succeed(LoggerServiceTag, logger),
-      Layer.succeed(AgentConfigServiceTag, {
-        appConfig: Effect.succeed({}),
-      } as unknown as AgentConfigService),
-      Layer.succeed(AgentServiceTag, {
-        getAgent: () => Effect.succeed(agent),
-      } as unknown as AgentService),
+      Layer.succeed(
+        AgentConfigServiceTag,
+        partialFake<AgentConfigService>({
+          appConfig: Effect.succeed({}),
+        }),
+      ),
+      Layer.succeed(
+        AgentServiceTag,
+        partialFake<AgentService>({
+          getAgent: () => Effect.succeed(agent),
+        }),
+      ),
     );
     const execution = runUnattendedTurn({
       agentId: agent.id,
@@ -111,7 +118,7 @@ describe("unattended answer delivery", () => {
       fallbackTitle: "Build",
       source: "wake trigger",
       sourceId: "wake",
-    }).pipe(Effect.provide(services)) as unknown as Effect.Effect<DeliveryOutcome>;
+    }).pipe(Effect.provide(services)) as Effect.Effect<DeliveryOutcome>;
     const outcome = await Effect.runPromise(execution);
     await Effect.runPromise(settleWakeTrigger(directory, agent.id, "wake", outcome));
     return {

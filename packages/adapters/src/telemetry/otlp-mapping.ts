@@ -264,7 +264,9 @@ function attributeFromPrimitive(
   value: string | number | boolean,
   maxChars: number,
 ): OtlpKeyValue {
-  if (typeof value === "boolean") return { key, value: { boolValue: value } };
+  if (typeof value === "boolean") {
+    return { key, value: { boolValue: value } };
+  }
   if (typeof value === "number") {
     return Number.isInteger(value)
       ? intAttribute(key, value)
@@ -301,7 +303,9 @@ function appendSafeRecord(
   attributes: OtlpKeyValue[],
 ): void {
   const value = data[field];
-  if (!isRecord(value)) return;
+  if (!isRecord(value)) {
+    return;
+  }
   appendSafeScalars(value, fields, prefix, attributes);
 }
 
@@ -315,9 +319,12 @@ export function eventToAttributes(event: TelemetryEvent): OtlpKeyValue[] {
     stringAttribute("jazz.event.id", event.id),
   ];
 
-  if (event.agentId) attributes.push(stringAttribute("jazz.agent.id", event.agentId));
-  if (event.conversationId)
+  if (event.agentId) {
+    attributes.push(stringAttribute("jazz.agent.id", event.agentId));
+  }
+  if (event.conversationId) {
     attributes.push(stringAttribute("jazz.conversation.id", event.conversationId));
+  }
 
   const data = event.data;
   const telemetryParent = data["telemetryParent"];
@@ -468,7 +475,9 @@ export function buildResourceAttributes(options: ResourceOptions): OtlpKeyValue[
     stringAttribute("telemetry.sdk.language", "nodejs"),
   ];
   for (const [key, value] of Object.entries(options.resourceAttributes ?? {})) {
-    if (reserved.has(key)) continue;
+    if (reserved.has(key)) {
+      continue;
+    }
     attributes.push(stringAttribute(key, value));
   }
   return attributes;

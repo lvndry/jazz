@@ -47,7 +47,9 @@ import {
 
 function parseHex(hex: string): [number, number, number] {
   const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-  if (match === null) throw new Error(`not a 6-digit hex colour: ${hex}`);
+  if (match === null) {
+    throw new Error(`not a 6-digit hex colour: ${hex}`);
+  }
   return [
     Number.parseInt(match[1] as string, 16),
     Number.parseInt(match[2] as string, 16),

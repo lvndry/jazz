@@ -63,7 +63,9 @@ export function decideFullscreen(
   const height = stdout.rows ?? 0;
   const base = { width, height };
 
-  if (options.requestPlain === true) return { ...base, fullscreen: false, reason: "requested" };
+  if (options.requestPlain === true) {
+    return { ...base, fullscreen: false, reason: "requested" };
+  }
   if (stdout.isTTY !== true || stdin.isTTY !== true) {
     return { ...base, fullscreen: false, reason: "not-a-tty" };
   }

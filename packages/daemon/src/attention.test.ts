@@ -36,6 +36,7 @@ import {
   pauseDaemon,
   resumeDaemon,
 } from "@/daemon/attention";
+import { partialFake } from "./partial-fake.fixture";
 
 interface Harness {
   readonly runs: InMemoryRunStore;
@@ -53,13 +54,16 @@ function harness(config: AppConfig = {} as AppConfig): Harness {
     Layer.succeed(GoalStoreTag, goals),
     Layer.succeed(LoopStoreTag, loops),
     Layer.succeed(LoggerServiceTag, silentLogger),
-    Layer.succeed(AgentConfigServiceTag, {
-      reloadIfChanged: () => Effect.succeed(false),
-      appConfig: Effect.succeed({
-        notifications: { enabled: false },
-        ...config,
+    Layer.succeed(
+      AgentConfigServiceTag,
+      partialFake<AgentConfigService>({
+        reloadIfChanged: () => Effect.succeed(false),
+        appConfig: Effect.succeed({
+          notifications: { enabled: false },
+          ...config,
+        }),
       }),
-    } as unknown as AgentConfigService),
+    ),
   ) as Layer.Layer<never>;
   return {
     runs,
@@ -229,12 +233,15 @@ describe("daemonGate", () => {
       Layer.succeed(GoalStoreTag, new InMemoryGoalStore()),
       Layer.succeed(LoopStoreTag, new InMemoryLoopStore()),
       Layer.succeed(LoggerServiceTag, silentLogger),
-      Layer.succeed(AgentConfigServiceTag, {
-        reloadIfChanged: () => Effect.succeed(true),
-        get appConfig() {
-          return Effect.sync(() => current);
-        },
-      } as unknown as AgentConfigService),
+      Layer.succeed(
+        AgentConfigServiceTag,
+        partialFake<AgentConfigService>({
+          reloadIfChanged: () => Effect.succeed(true),
+          get appConfig() {
+            return Effect.sync(() => current);
+          },
+        }),
+      ),
     ) as Layer.Layer<never>;
     const run = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
       Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, unknown>);

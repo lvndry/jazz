@@ -115,14 +115,18 @@ export function Questionnaire({
         const isTyping = state.cursor === customOptionIndex && effectiveAllowCustom;
         if (!isTyping && binary !== undefined && (action.char === "y" || action.char === "n")) {
           const answer = suggestions[action.char === "y" ? binary.yes : binary.no];
-          if (answer !== undefined) onSubmit(answer.value);
+          if (answer !== undefined) {
+            onSubmit(answer.value);
+          }
           return InputResults.consumed();
         }
         if (!isTyping && action.char >= "1" && action.char <= "9") {
           const index = parseInt(action.char, 10) - 1;
           if (index < Math.min(suggestions.length, MAX_QUICK_PICK)) {
             dispatch({ kind: "quickPick", index });
-            if (!allowMultiple) dispatch({ kind: "submit" });
+            if (!allowMultiple) {
+              dispatch({ kind: "submit" });
+            }
             return InputResults.consumed();
           }
         }
@@ -156,8 +160,8 @@ export function Questionnaire({
   return (
     <Box flexDirection="column">
       {positionLabel === undefined ? null : <Text dimColor>{positionLabel}</Text>}
-      {view.rows.map((row, i) => {
-        const isFocused = i === view.cursor;
+      {view.rows.map((row, index) => {
+        const isFocused = index === view.cursor;
         return (
           <Box
             key={row.originalIndex}
@@ -165,7 +169,7 @@ export function Questionnaire({
           >
             <Box>
               {renderIndicator(row)}
-              <Text color={isFocused ? THEME.selected : THEME.primary}> {i + 1}.</Text>
+              <Text color={isFocused ? THEME.selected : THEME.primary}> {index + 1}.</Text>
               <Text
                 color={isFocused ? THEME.selected : THEME.secondary}
                 bold={isFocused}
@@ -196,7 +200,9 @@ export function Questionnaire({
               <TextInput
                 inputId="questionnaire-inline-custom"
                 onSubmit={(value) => {
-                  if (value.trim()) onSubmit(value.trim());
+                  if (value.trim()) {
+                    onSubmit(value.trim());
+                  }
                 }}
               />
             ) : (

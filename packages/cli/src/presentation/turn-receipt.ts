@@ -6,6 +6,12 @@
  * rather than a line after every request.
  */
 
+import {
+  describeCacheReason,
+  formatCacheSummary,
+  normalizeCacheUsage,
+  type CacheMissReason,
+} from "@jazz/core/agent/metrics/prompt-cache";
 import { formatCompactCount } from "@jazz/core/utils/string";
 import { formatClockTime, formatCost, formatPreciseDuration } from "../ui/text/format";
 
@@ -37,6 +43,100 @@ function sum(
   return total;
 }
 
+/**
+ * The cache fields of a step, from one request's usage. Empty when the provider reported no
+ * cache fields: that is unknown, so it never shows as 0%.
+ */
+export function cacheStepFields(
+  usage: {
+    readonly promptTokens: number;
+    readonly cacheReadTokens?: number;
+    readonly cacheWriteTokens?: number;
+  },
+  reason: CacheMissReason | undefined,
+): Pick<StepStats, "cacheReadTokens" | "cacheInputTokens" | "cacheMissReason"> {
+  const normalized = normalizeCacheUsage(usage);
+  if (normalized === undefined) {
+    return {};
+  }
+  return {
+    cacheReadTokens: normalized.cacheReadTokens,
+    cacheInputTokens: normalized.totalInputTokens,
+    ...(reason !== undefined && { cacheMissReason: reason }),
+  };
+}
+
+/**
+ * A step's cache reads and the input they are a share of. Receipts saved before steps carried
+ * `cacheInputTokens` recorded 0 for a provider that reported nothing, so there a 0 is unknown
+ * and a positive count is read against the prompt (the subset convention they were made under).
+ */
+function stepCacheShare(
+  step: StepStats,
+): { readonly read: number; readonly input: number } | undefined {
+  if (step.cacheReadTokens === undefined) {
+    return undefined;
+  }
+  if (step.cacheInputTokens === undefined) {
+    return step.cacheReadTokens > 0 && (step.promptTokens ?? 0) > 0
+      ? { read: step.cacheReadTokens, input: step.promptTokens ?? 0 }
+      : undefined;
+  }
+  return step.cacheInputTokens > 0
+    ? { read: step.cacheReadTokens, input: step.cacheInputTokens }
+    : undefined;
+}
+
+/** One request's cache figure for a plain-text summary, or undefined when unreported. */
+export function formatRequestCache(
+  usage: {
+    readonly promptTokens: number;
+    readonly cacheReadTokens?: number;
+    readonly cacheWriteTokens?: number;
+  },
+  reason: CacheMissReason | undefined,
+): string | undefined {
+  const normalized = normalizeCacheUsage(usage);
+  if (normalized === undefined || normalized.totalInputTokens <= 0) {
+    return undefined;
+  }
+  return formatCacheSummary(normalized.cacheReadTokens / normalized.totalInputTokens, reason);
+}
+
+function stepHitRate(step: StepStats): number | undefined {
+  const share = stepCacheShare(step);
+  return share === undefined ? undefined : share.read / share.input;
+}
+
+/**
+ * The turn's cache figure, weighted by input tokens across the steps that reported cache
+ * fields, with the reason of its worst step when the turn missed. Undefined when no step
+ * reported cache fields.
+ */
+function cachePart(steps: readonly StepStats[]): string | undefined {
+  let inputTokens = 0;
+  let readTokens = 0;
+  let unreportedSteps = 0;
+  let worst: { rate: number; reason: CacheMissReason | undefined } | undefined;
+  for (const step of steps) {
+    const share = stepCacheShare(step);
+    if (share === undefined) {
+      if ((step.promptTokens ?? 0) > 0) unreportedSteps += 1;
+      continue;
+    }
+    const rate = share.read / share.input;
+    inputTokens += share.input;
+    readTokens += share.read;
+    if (worst === undefined || rate < worst.rate) {
+      worst = { rate, reason: step.cacheMissReason };
+    }
+  }
+  if (worst === undefined || inputTokens <= 0) {
+    return undefined;
+  }
+  return formatCacheSummary(readTokens / inputTokens, worst.reason, unreportedSteps > 0);
+}
+
 function tokenPart(
   promptTokens: number | undefined,
   completionTokens: number | undefined,
@@ -53,8 +153,12 @@ export function turnTokensPerSecond(turn: TurnTotals): number | undefined {
   let durationMs = 0;
   for (const step of turn.steps) {
     const count = step.completionTokens;
-    if (count === undefined || !Number.isFinite(count) || count < 0) return undefined;
-    if (count === 0) continue;
+    if (count === undefined || !Number.isFinite(count) || count < 0) {
+      return undefined;
+    }
+    if (count === 0) {
+      continue;
+    }
     const measured =
       step.generationDurationMs ??
       (step.tokensPerSecond !== undefined &&
@@ -62,7 +166,9 @@ export function turnTokensPerSecond(turn: TurnTotals): number | undefined {
       step.tokensPerSecond > 0
         ? (count / step.tokensPerSecond) * 1000
         : undefined);
-    if (measured === undefined || !Number.isFinite(measured) || measured <= 0) return undefined;
+    if (measured === undefined || !Number.isFinite(measured) || measured <= 0) {
+      return undefined;
+    }
     tokens += count;
     durationMs += measured;
   }
@@ -95,8 +201,12 @@ export function formatTurnReceipt(turn: TurnTotals): string | undefined {
       parts.push(`${formatCompactCount(totalTokens)} tok`);
     }
   }
+  const cache = cachePart(steps);
+  if (cache !== undefined) parts.push(cache);
   const throughput = turnTokensPerSecond(turn);
-  if (throughput !== undefined) parts.push(`${throughput.toFixed(1)} tok/s`);
+  if (throughput !== undefined) {
+    parts.push(`${throughput.toFixed(1)} tok/s`);
+  }
   const cost = sum(steps, (step) => step.costUSD);
   if (cost !== undefined) {
     parts.push(formatCost(cost));
@@ -114,12 +224,15 @@ export function formatStepBreakdown(turn: TurnTotals): string {
       const parts = [`step ${String(index + 1)}`, formatPreciseDuration(step.durationMs)];
       const tokens = tokenPart(step.promptTokens, step.completionTokens);
       if (tokens !== undefined) {
+        const rate = stepHitRate(step);
         const cached =
-          step.promptTokens !== undefined &&
-          step.promptTokens > 0 &&
-          (step.cacheReadTokens ?? 0) > 0
-            ? ` (${String(Math.round(((step.cacheReadTokens ?? 0) / step.promptTokens) * 100))}% cached)`
-            : "";
+          rate === undefined
+            ? ""
+            : ` (${String(Math.round(rate * 100))}% cached${
+                step.cacheMissReason === undefined
+                  ? ""
+                  : `, ${describeCacheReason(step.cacheMissReason)}`
+              })`;
         parts.push(`${tokens}${cached}`);
       }
       if (step.tokensPerSecond !== undefined && Number.isFinite(step.tokensPerSecond)) {

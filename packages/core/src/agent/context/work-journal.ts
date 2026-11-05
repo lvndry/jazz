@@ -89,7 +89,9 @@ export function readJournal(
       const entries: JournalEntry[] = [];
       for (const line of contents.split("\n")) {
         const trimmed = line.trim();
-        if (trimmed.length === 0) continue;
+        if (trimmed.length === 0) {
+          continue;
+        }
         try {
           entries.push(JSON.parse(trimmed) as JournalEntry);
         } catch {
@@ -138,7 +140,9 @@ export function workStateSizeBytes(
       let total = 0;
       for (const name of names) {
         const stats = await nodeFs.stat(path.join(directory, name));
-        if (stats.isFile()) total += stats.size;
+        if (stats.isFile()) {
+          total += stats.size;
+        }
       }
       return total;
     },
@@ -160,7 +164,9 @@ export function pruneJournal(
 ): Effect.Effect<number, never, never> {
   return workStateSizeBytes(agentId, conversationId).pipe(
     Effect.flatMap((size) => {
-      if (size <= maxBytes) return Effect.succeed(0);
+      if (size <= maxBytes) {
+        return Effect.succeed(0);
+      }
       return Effect.tryPromise({
         try: () =>
           withJournalLock(agentId, conversationId, async () => {

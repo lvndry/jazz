@@ -51,7 +51,7 @@ jobs:
         run: |
           bun head/scripts/performance-check.ts --absolute head-report.json
           bun head/scripts/performance-check.ts base-report.json head-report.json
-          bun head/scripts/performance-check.ts --binary base/deploy/binaries/jazz-linux-x64 head/deploy/binaries/jazz-linux-x64
+          bun head/scripts/performance-check.ts --binary --target linux-x64 base/deploy/binaries/jazz-linux-x64 head/deploy/binaries/jazz-linux-x64
       - name: Keep reports for diagnosis
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

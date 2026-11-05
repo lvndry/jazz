@@ -42,10 +42,18 @@ function generatedFilesDirectory(): string {
  */
 export function artifactKindForMediaType(mediaType: string): ArtifactKind | null {
   const topLevel = mediaType.split("/")[0]?.toLowerCase();
-  if (topLevel === "image") return "image";
-  if (topLevel === "audio") return "audio";
-  if (topLevel === "video") return "video";
-  if (mediaType.toLowerCase() === "application/pdf") return "pdf";
+  if (topLevel === "image") {
+    return "image";
+  }
+  if (topLevel === "audio") {
+    return "audio";
+  }
+  if (topLevel === "video") {
+    return "video";
+  }
+  if (mediaType.toLowerCase() === "application/pdf") {
+    return "pdf";
+  }
   return null;
 }
 
@@ -54,8 +62,12 @@ export function extensionForMediaType(mediaType: string): string {
   const subtype = mediaType.split("/")[1]?.toLowerCase() ?? "";
   // Strip parameters and vendor prefixes: "image/svg+xml; charset=utf-8" → "svg".
   const cleaned = subtype.split(";")[0]?.split("+")[0]?.trim() ?? "";
-  if (cleaned === "jpeg") return "jpg";
-  if (cleaned === "mpeg") return "mp3";
+  if (cleaned === "jpeg") {
+    return "jpg";
+  }
+  if (cleaned === "mpeg") {
+    return "mp3";
+  }
   return cleaned.length > 0 && /^[a-z0-9]{1,6}$/.test(cleaned) ? cleaned : "bin";
 }
 
@@ -70,7 +82,9 @@ export async function saveModelGeneratedFiles(
   files: readonly ModelGeneratedFile[],
   modelId: string,
 ): Promise<GeneratedArtifact[]> {
-  if (files.length === 0) return [];
+  if (files.length === 0) {
+    return [];
+  }
 
   const directory = generatedFilesDirectory();
   try {
@@ -82,7 +96,9 @@ export async function saveModelGeneratedFiles(
   const artifacts: GeneratedArtifact[] = [];
   for (const file of files) {
     const kind = artifactKindForMediaType(file.mediaType);
-    if (kind === null) continue;
+    if (kind === null) {
+      continue;
+    }
 
     const path = join(
       directory,

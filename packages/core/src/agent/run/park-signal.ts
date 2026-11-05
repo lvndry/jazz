@@ -102,7 +102,9 @@ export function withTranscript(
   messages: readonly ChatMessage[],
   iteration: number,
 ): RunParkRequested {
-  if (signal.messages !== undefined) return signal;
+  if (signal.messages !== undefined) {
+    return signal;
+  }
   return new RunParkRequested({
     pending: signal.pending,
     ...(signal.pendingTurnAnswers !== undefined

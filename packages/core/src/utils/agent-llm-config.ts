@@ -30,12 +30,16 @@ export function withAgentProviderOverrides(
     ["base_url", overrides.baseUrls],
     ["api_key", overrides.apiKeys],
   ] as const;
-  if (fields.every(([, byProvider]) => byProvider === undefined)) return llmConfig;
+  if (fields.every(([, byProvider]) => byProvider === undefined)) {
+    return llmConfig;
+  }
 
   const merged: Record<string, unknown> = { ...(llmConfig ?? {}) };
   for (const [field, byProvider] of fields) {
     for (const [provider, value] of Object.entries(byProvider ?? {})) {
-      if (typeof value !== "string" || value.length === 0) continue;
+      if (typeof value !== "string" || value.length === 0) {
+        continue;
+      }
       const existing = merged[provider];
       merged[provider] = {
         ...(existing && typeof existing === "object" ? existing : {}),

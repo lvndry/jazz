@@ -20,6 +20,7 @@
 import type { TerminalReport } from "@jazz/core/interfaces/terminal";
 import type { TodoSnapshotItem } from "../activity-state";
 import type { CommandPanel } from "../command-panel";
+import type { QueueEntry } from "../message-queue";
 import type { ApprovalCommand, ApprovalDiff } from "../models/approval";
 import type { ToolReceipt } from "../models/receipt";
 import type { RetryBand } from "../models/retry";
@@ -322,7 +323,7 @@ export interface InputModel {
   readonly anchor?: number;
   readonly placeholder: string;
   /** Messages waiting for the current turn to finish. Empty when idle. */
-  readonly queued: readonly string[];
+  readonly queued: readonly QueueEntry[];
   /** Busy chat turns queue Enter instead of resolving the active prompt. */
   readonly queueing?: boolean;
   /** Suppressed while a modal overlay owns the keyboard. */

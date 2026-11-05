@@ -18,7 +18,8 @@ export function daemonStatePath(home: string = getJazzHomeDirectory()): string {
 /** The stored state, or the empty one for a missing or unreadable file. */
 export async function readDaemonStateFile(file: string): Promise<DaemonState> {
   try {
-    return parseDaemonState(JSON.parse(await nodeFs.readFile(file, "utf-8")) as unknown);
+    const parsedState: unknown = JSON.parse(await nodeFs.readFile(file, "utf-8"));
+    return parseDaemonState(parsedState);
   } catch {
     return EMPTY_DAEMON_STATE;
   }

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, setSystemTime } from "bun:test";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
+import { partialFake } from "@/core/test-support/fakes";
 import type { Persona } from "@/core/types/persona";
 import { AgentPromptBuilder, type AgentPromptOptions } from "./agent-prompt";
 
@@ -20,9 +21,9 @@ function personaServiceReturning(systemPrompt: string): PersonaService {
     createdAt: new Date(0),
     updatedAt: new Date(0),
   };
-  return {
+  return partialFake<PersonaService>({
     getPersonaByIdentifier: () => Effect.succeed(persona),
-  } as unknown as PersonaService;
+  });
 }
 
 const BASE_OPTIONS: AgentPromptOptions = {

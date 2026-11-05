@@ -51,9 +51,9 @@ describe("announcing what waits", () => {
 
   it("announces each item once and forgets items no longer waiting", () => {
     const notified = { "run:a:1": TODAY, "run:gone:1": TODAY };
-    expect(newlyWaiting([item("run:a:1"), item("run:b:1")], notified).map((i) => i.key)).toEqual([
-      "run:b:1",
-    ]);
+    expect(
+      newlyWaiting([item("run:a:1"), item("run:b:1")], notified).map((waiting) => waiting.key),
+    ).toEqual(["run:b:1"]);
     expect(keepNotified(notified, [item("run:a:1")])).toEqual({ "run:a:1": TODAY });
   });
 });

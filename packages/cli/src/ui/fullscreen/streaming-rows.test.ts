@@ -118,8 +118,9 @@ describe("a streaming answer renders incrementally", () => {
         [{ id: "answer", seq: 0, kind: "agent", markdown, streaming: false }],
         VIEWPORT,
       );
-      if (withoutStreamingMarks(streamed) !== withoutStreamingMarks(settled))
+      if (withoutStreamingMarks(streamed) !== withoutStreamingMarks(settled)) {
         mismatches.push(length);
+      }
     }
     expect(mismatches).toEqual([]);
   });
@@ -144,8 +145,9 @@ describe("a streaming answer renders incrementally", () => {
         [{ id: "answer", seq: 0, kind: "agent", markdown, streaming: false }],
         VIEWPORT,
       );
-      if (withoutStreamingMarks(streamed) !== withoutStreamingMarks(settled))
+      if (withoutStreamingMarks(streamed) !== withoutStreamingMarks(settled)) {
         mismatches.push(length);
+      }
     }
     expect(mismatches).toEqual([]);
   });
