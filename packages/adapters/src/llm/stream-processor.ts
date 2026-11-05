@@ -202,6 +202,8 @@ interface StreamProcessorConfig {
    * where reasoning arrives inline rather than as structured events.
    */
   readonly reasoningParser?: ReasoningParser;
+  /** Called with every `fullStream` part before it is handled; used to record golden fixtures. */
+  readonly observePart?: (part: unknown) => void;
 }
 
 /**
@@ -388,6 +390,7 @@ export class StreamProcessor {
         if (this.state.finishEventReceived) {
           break;
         }
+        this.config.observePart?.(part);
 
         switch (part.type) {
           case "text-delta": {

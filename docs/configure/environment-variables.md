@@ -51,12 +51,14 @@ Boolean switches marked `1` accept only `1`; anything else leaves them off.
 
 ## Runs, scheduling and the daemon
 
-| Variable                      | Effect                                                                                                                                |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `JAZZ_STREAM_IDLE_TIMEOUT_MS` | How long a model stream may stay silent before Jazz abandons it, in milliseconds. `llm.streamIdleTimeoutMs` wins. Defaults to 120000. |
-| `JAZZ_SCHEDULER`              | `in-process` leaves scheduled work to `jazz daemon` instead of launchd or cron, like `scheduler.mode`.                                |
-| `JAZZ_DAEMON_TICK_MS`         | How often the daemon checks for due work, in milliseconds. Defaults to 5000.                                                          |
-| `JAZZ_DISABLE_CATCH_UP`       | `1` skips the prompt to run workflows missed while the machine was off, and the failed-runs notice.                                   |
+| Variable                      | Effect                                                                                                                                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JAZZ_GOLDEN_RECORD`          | Path of a golden session fixture to write. When set, each streamed model call is scrubbed and recorded there. Maintainers only; see [golden sessions](../maintainers/golden-sessions.md). |
+| `JAZZ_GOLDEN_SCENARIO`        | Scenario name stored in the recorded fixture. Defaults to the fixture file name.                                                                                                          |
+| `JAZZ_STREAM_IDLE_TIMEOUT_MS` | How long a model stream may stay silent before Jazz abandons it, in milliseconds. `llm.streamIdleTimeoutMs` wins. Defaults to 120000.                                                     |
+| `JAZZ_SCHEDULER`              | `in-process` leaves scheduled work to `jazz daemon` instead of launchd or cron, like `scheduler.mode`.                                                                                    |
+| `JAZZ_DAEMON_TICK_MS`         | How often the daemon checks for due work, in milliseconds. Defaults to 5000.                                                                                                              |
+| `JAZZ_DISABLE_CATCH_UP`       | `1` skips the prompt to run workflows missed while the machine was off, and the failed-runs notice.                                                                                       |
 
 `JAZZ_NOTIFY_<NAME>_<FIELD>` supplies a notify target secret, taking precedence over the
 keyring: for example, `JAZZ_NOTIFY_PHONE_BOT_TOKEN`, `JAZZ_NOTIFY_TEAM_WEBHOOK_URL`, or

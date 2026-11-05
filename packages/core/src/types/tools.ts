@@ -5,6 +5,7 @@
  */
 import type { Effect } from "effect";
 import type { z } from "zod";
+import type { AutoDetachPolicy } from "@/core/agent/detach/auto-detach";
 import type { ToolActivityTracker } from "@/core/agent/run/tool-activity";
 import type { Blackboard } from "@/core/agent/subagents/blackboard";
 import type { SubagentSupervisor } from "@/core/agent/subagents/supervisor";
@@ -226,6 +227,11 @@ export interface ToolExecutionResult {
    * result in the untrusted envelope, and `external` provenance marks the run's `EgressTaint`.
    */
   readonly untrusted?: UntrustedProvenance;
+  /**
+   * Set on a successful result that ends the turn's tool use: the rest of the turn is a
+   * text-only reply describing the result, and the model gets no further tool step.
+   */
+  readonly concludesTurn?: boolean;
   /**
    * Deferred-tier tools this call made callable. The agent loop records them on the result's
    * message so every later run of the conversation declares them again.
@@ -697,6 +703,12 @@ export interface ToolExecutionContext {
    * which is what a one-shot tool call outside an agent run gets.
    */
   readonly shellConfinement?: WriteConfinementMode;
+  /**
+   * Set for an attended run that can receive a late result: a foreground `execute_command`
+   * still running at its threshold moves to the background. Absent means a slow command stays
+   * in the foreground until it finishes or hits its cap.
+   */
+  readonly autoDetach?: AutoDetachPolicy;
   readonly [key: string]: unknown;
 }
 

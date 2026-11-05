@@ -56,6 +56,14 @@ export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
   /**
+   * For role === "system": length of the leading span of `content` that is identical on every
+   * turn of a conversation. A provider with prefix caching puts a cache breakpoint after it so
+   * the live remainder (date, preferences, AGENTS.md, skills index) can change without
+   * invalidating it. `content` always holds the whole prompt; providers without prefix caching
+   * ignore this field.
+   */
+  stablePrefixLength?: number;
+  /**
    * This message's id in its conversation log, set by the log when it is read or saved. Lets a
    * save append only what the log does not hold yet. Storage bookkeeping: never sent to a model.
    */

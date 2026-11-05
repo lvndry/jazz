@@ -3,10 +3,16 @@
  * to one result shape. Treg tries TinyFish free before a capped paid route.
  */
 
-import { Effect, Schedule } from "effect";
+import { Effect, Option, Schedule } from "effect";
 import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { LLMServiceTag } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import type {
+  ToolReadiness,
+  ToolReadinessContext,
+  ToolReadinessRequirements,
+} from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import type { WebSearchProviderName } from "@/core/types/config";
 import { toError } from "@/core/utils/errors";
@@ -108,6 +114,80 @@ const webSearchSchema = z
   })
   .strict() as z.ZodType<WebSearchArgs>;
 
+/**
+ * The provider a call will use and its stored key: the agent's own selection first, then the
+ * global one. The handler and `ready()` both read this, so what is offered and what runs agree.
+ */
+export function resolveWebSearchCredential(
+  config: AgentConfigService,
+  agentProvider: WebSearchProviderName | undefined,
+): Effect.Effect<
+  { readonly provider: WebSearchProviderName | undefined; readonly apiKey: string },
+  never
+> {
+  return Effect.gen(function* () {
+    const appConfig = yield* config.appConfig;
+    const provider = agentProvider ?? appConfig.web_search?.provider;
+    if (!provider) {
+      return { provider: undefined, apiKey: "" };
+    }
+    const apiKey = yield* config.getOrElse(`web_search.${provider}.api_key`, "");
+    return { provider, apiKey };
+  });
+}
+
+/**
+ * Ready when the configured provider has a key, or when no global provider is selected and the
+ * model's own provider hosts web search (the LLM layer then swaps in that native tool).
+ */
+export function webSearchReadiness(
+  context: ToolReadinessContext,
+): Effect.Effect<ToolReadiness, never, ToolReadinessRequirements> {
+  return Effect.gen(function* () {
+    const config = yield* AgentConfigServiceTag;
+    const llm = yield* LLMServiceTag;
+    const logger = yield* Effect.serviceOption(LoggerServiceTag);
+    const appConfig = yield* config.appConfig;
+    const credential = yield* resolveWebSearchCredential(
+      config,
+      context.agent.config.webSearchProvider,
+    );
+
+    if (credential.provider !== undefined && credential.apiKey !== "") {
+      return { ready: true } as const;
+    }
+
+    if (appConfig.web_search?.provider === undefined) {
+      const hostsNativeSearch = yield* llm
+        .supportsNativeWebSearch(context.agent.config.llm.provider)
+        .pipe(Effect.catch(() => Effect.succeed(false)));
+      if (hostsNativeSearch) {
+        return { ready: true } as const;
+      }
+    }
+
+    if (Option.isSome(logger)) {
+      yield* logger.value.debug("Web search readiness: no usable route", {
+        provider: credential.provider ?? "none",
+        llmProvider: context.agent.config.llm.provider,
+      });
+    }
+
+    if (credential.provider === undefined) {
+      return {
+        ready: false,
+        reason: "not_configured",
+        remedy: "Run `jazz config set web_search.provider <provider>` and save its API key.",
+      } as const;
+    }
+    return {
+      ready: false,
+      reason: "missing_credential",
+      remedy: `Run \`jazz config set web_search.${credential.provider}.api_key\` or set the provider's environment variable.`,
+    } as const;
+  });
+}
+
 export function createWebSearchTool(): ReturnType<
   typeof defineTool<AgentConfigService | LoggerService, WebSearchArgs>
 > {
@@ -122,6 +202,7 @@ export function createWebSearchTool(): ReturnType<
     tags: ["web", "search"],
     parameters: webSearchSchema,
     validate: makeZodValidator(webSearchSchema),
+    ready: webSearchReadiness,
     handler: function webSearchHandler(
       args: WebSearchArgs,
       context: ToolExecutionContext,
@@ -130,11 +211,10 @@ export function createWebSearchTool(): ReturnType<
         const config = yield* AgentConfigServiceTag;
         const logger = yield* LoggerServiceTag;
 
-        // Resolve provider: per-agent setting takes priority over global config.
-        const agentProvider = context.parentAgent?.config.webSearchProvider;
-        const appConfig = yield* config.appConfig;
-        const selectedProvider: WebSearchProviderName | undefined =
-          agentProvider ?? appConfig.web_search?.provider;
+        const { provider: selectedProvider, apiKey } = yield* resolveWebSearchCredential(
+          config,
+          context.parentAgent?.config.webSearchProvider,
+        );
 
         if (!selectedProvider) {
           return {
@@ -144,7 +224,6 @@ export function createWebSearchTool(): ReturnType<
           };
         }
 
-        const apiKey = yield* config.getOrElse(`web_search.${selectedProvider}.api_key`, "");
         if (!apiKey) {
           return {
             success: false,

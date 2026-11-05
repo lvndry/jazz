@@ -65,6 +65,12 @@ never reached, and the summarizer never ran. The run degraded into exactly the s
 window this design exists to avoid, and, because trimming rewrites the start of the
 message list, it also invalidated the provider's cacheable prefix on every single turn.
 
+What invalidates the provider's cache on Anthropic: a change to the tool set rewrites the
+tools and everything after; a change to the persona or harness rules rewrites the first
+system block; a new day, a preference, `AGENTS.md` or the skills index rewrites only the
+second system block and the messages after it; rewriting an earlier message rewrites from
+that message on. See [design decisions](design-decisions.md) for the breakpoints.
+
 Trimming keeps the working set tidy. Compaction is what saves a run that genuinely has more
 history than fits.
 
