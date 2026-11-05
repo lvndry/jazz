@@ -117,7 +117,7 @@ describe("provider-facing tool schemas", () => {
     );
 
     const visibleNames = tools.filter((tool) => tool.hidden !== true).map((tool) => tool.name);
-    expect(visibleNames.toSorted()).toEqual(GUARDED_TOOL_NAMES.toSorted());
+    expect([...visibleNames].sort()).toEqual([...GUARDED_TOOL_NAMES].sort());
 
     for (const tool of tools) {
       const functionDefinition = {
