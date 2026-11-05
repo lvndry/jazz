@@ -13,6 +13,7 @@ on:
       - ".prettierrc*"
       - "eslint.config.*"
       - "eslint-suppressions.json"
+      - ".githooks/**"
       - ".jscpd.json"
       - ".eslintrc*"
       - ".github/workflows/ci.yml"
@@ -31,6 +32,7 @@ on:
       - ".prettierrc*"
       - "eslint.config.*"
       - "eslint-suppressions.json"
+      - ".githooks/**"
       - ".jscpd.json"
       - ".eslintrc*"
       - ".github/workflows/ci.yml"
@@ -123,6 +125,15 @@ jobs:
 
       - name: Check no new as-unknown assertions
         run: bun run verify:unknown-casts
+
+      # The baselines may only shrink: compare them with the pull request's base branch.
+      - name: Check baselines only shrank
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          bun run verify:baselines-shrink --base-ref "origin/${BASE_REF}"
 
       # Report-only: lists duplicated blocks as file/line pairs without failing the job.
       - name: Report duplicated code
