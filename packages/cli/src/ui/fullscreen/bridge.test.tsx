@@ -1602,7 +1602,7 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
 
     expect(typed).toContain("x");
-    expect(typed).toContain("enter to send");
+    expect(typed).toContain("up for history");
   });
 
   it("accepts typing into the composer while a chat prompt is live", async () => {
@@ -2430,7 +2430,7 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
     rendered.mockInput.pressKey("ESCAPE");
     await settleKeypress(rendered.flush);
-    expect(rendered.captureCharFrame()).toContain("type to input");
+    expect(rendered.captureCharFrame()).not.toContain("up for history");
 
     rendered.mockInput.pressKey("a");
     await settleKeypress(rendered.flush);
@@ -2438,14 +2438,14 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
     store.setPrompt(null);
     expect(typed).toContain("a");
-    expect(typed).toContain("enter to send");
+    expect(typed).toContain("up for history");
   });
 
   it("pastes into the composer while the transcript has focus", async () => {
     const rendered = await liveComposer();
     rendered.mockInput.pressKey("ESCAPE");
     await settleKeypress(rendered.flush);
-    expect(rendered.captureCharFrame()).toContain("type to input");
+    expect(rendered.captureCharFrame()).not.toContain("up for history");
 
     await rendered.mockInput.pasteBracketedText("pasted-while-scrolled");
     await settleKeypress(rendered.flush);
@@ -2453,7 +2453,7 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
     store.setPrompt(null);
     expect(pasted).toContain("pasted-while-scrolled");
-    expect(pasted).toContain("enter to send");
+    expect(pasted).toContain("up for history");
   });
 
   it("drains buffered stdin so a pending Enter cannot land on a new card", () => {
