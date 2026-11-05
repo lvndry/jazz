@@ -51,3 +51,46 @@ export function createEscalationLedger(maxOpenOffers: number = MAX_OPEN_OFFERS):
 
 /** The process-wide ledger `execute_command` uses. */
 export const shellEscalationLedger: EscalationLedger = createEscalationLedger();
+
+/** One open escalation offer as it is stored with a parked run. */
+export interface EscalationGrant {
+  readonly command: string;
+  readonly deniedPath: string;
+}
+
+/** Most grants stored on one run; past it the oldest is dropped, which closes that offer. */
+export const MAX_STORED_GRANTS = 16;
+
+function sameCommand(grant: EscalationGrant, command: string): boolean {
+  return grant.command.trim() === command.trim();
+}
+
+export function addGrant(
+  grants: readonly EscalationGrant[] | undefined,
+  grant: EscalationGrant,
+): readonly EscalationGrant[] {
+  const kept = (grants ?? []).filter((existing) => !sameCommand(existing, grant.command));
+  return [...kept, grant].slice(-MAX_STORED_GRANTS);
+}
+
+export function removeGrant(
+  grants: readonly EscalationGrant[] | undefined,
+  command: string,
+): readonly EscalationGrant[] {
+  return (grants ?? []).filter((existing) => !sameCommand(existing, command));
+}
+
+/**
+ * Reopens a resumed run's stored offers in this process's ledger, bound to the run id and the
+ * exact command each was made for. A resumed process starts with an empty ledger, so without
+ * this the retry a person approved yesterday would be refused as never denied.
+ */
+export function seedLedgerFromGrants(
+  ledger: EscalationLedger,
+  runId: string,
+  grants: readonly EscalationGrant[] | undefined,
+): void {
+  for (const grant of grants ?? []) {
+    ledger.offer(runId, grant.command, grant.deniedPath);
+  }
+}

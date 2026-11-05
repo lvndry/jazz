@@ -13,6 +13,7 @@ import { type ConfinementStatus, getConfinementStatus } from "@/core/sandbox/bac
 import { planLaunch, refusalMessage } from "@/core/sandbox/confine";
 import { classifyWriteDenial } from "@/core/sandbox/denial";
 import { shellEscalationLedger } from "@/core/sandbox/escalation";
+import { clearGrant, storeGrant } from "@/core/sandbox/escalation-store";
 import { writePolicyFor } from "@/core/sandbox/runtime-policy";
 import type { WritePolicy } from "@/core/sandbox/write-policy";
 import type { KnownSecret } from "@/core/secrets/redaction";
@@ -815,6 +816,7 @@ function describeDenial(
       };
     }
     shellEscalationLedger.offer(context.runId ?? "", command, deniedPath);
+    yield* storeGrant(context.runId ?? "", { command, deniedPath });
     return {
       guidance: `Write confinement denied a write to ${deniedPath}. Writable roots are ${sessionCwd}, temp directories and developer tool caches. To write there, retry this exact command once with \`escalate\` set to why it must; the person approves that retry first.`,
       escalationOffered: true,
@@ -985,6 +987,9 @@ Reason given: ${args.escalate}`,
               result: null,
               error: ESCALATE_WITHOUT_DENIAL_MESSAGE,
             };
+          }
+          if (escalated) {
+            yield* clearGrant(context.runId ?? "", command);
           }
           if (writePolicy !== undefined) {
             const confinementStatus = getConfinementStatus();
