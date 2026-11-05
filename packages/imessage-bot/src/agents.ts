@@ -24,7 +24,9 @@ export function isChatAgentId(agentId: string): boolean {
 
 /** Reverse of `agentIdForChat`, for anything holding an agent id and needing the chat. */
 export function chatIdFromAgentId(agentId: string): number | undefined {
-  if (!isChatAgentId(agentId)) return undefined;
+  if (!isChatAgentId(agentId)) {
+    return undefined;
+  }
   const chatId = Number.parseInt(agentId.slice("im_".length), 10);
   return Number.isFinite(chatId) ? chatId : undefined;
 }

@@ -99,9 +99,13 @@ describe("persistConversationIfNeeded", () => {
     first.finalizeStream();
     const input = makeInput({ uiTranscript: first.getDocumentSnapshot().entries });
     const firstRevision = await runEffect(persistConversationIfNeeded(input, tmpDir));
-    if (firstRevision === null) throw new Error("Initial conversation was not saved");
+    if (firstRevision === null) {
+      throw new Error("Initial conversation was not saved");
+    }
     const saved = await runEffect(loadConversation(input.agentId, input.conversationId, tmpDir));
-    if (saved?.uiTranscript === undefined) throw new Error("Initial document was not saved");
+    if (saved?.uiTranscript === undefined) {
+      throw new Error("Initial document was not saved");
+    }
     const resumed = new UIStore();
     resumed.replaceDocument("conv-1:main", saved.uiTranscript);
     resumed.printContent({ kind: "user", text: "follow-up" });
@@ -199,7 +203,9 @@ describe("persistConversationIfNeeded", () => {
   test("later turns upsert the same conversationId with the latest transcript", async () => {
     const firstTurn = makeInput();
     const firstRevision = await runEffect(persistConversationIfNeeded(firstTurn, tmpDir));
-    if (firstRevision === null) throw new Error("First turn was not saved");
+    if (firstRevision === null) {
+      throw new Error("First turn was not saved");
+    }
 
     const laterHistory: ChatMessage[] = [
       ...firstTurn.conversationHistory,

@@ -36,9 +36,11 @@ function git(args: readonly string[], cwd: string): Promise<string> {
       (error, stdout) => {
         // The rejection is swallowed by `readGitInfo`'s catch; the message only matters
         // for a future reader, so no need to stringify an `unknown`.
-        if (error !== null)
+        if (error !== null) {
           reject(error instanceof Error ? error : new Error("git command failed"));
-        else resolve(stdout);
+        } else {
+          resolve(stdout);
+        }
       },
     );
   });
@@ -57,7 +59,9 @@ export async function readGitInfo(directory: string): Promise<GitInfo | undefine
     // First line only: the answer is one line, and anything after it is noise.
     const branch = branchRaw.split("\n", 1)[0]?.trim() ?? "";
     let commonDir = commonRaw.split("\n", 1)[0]?.trim() ?? "";
-    if (!path.isAbsolute(commonDir)) commonDir = path.resolve(directory, commonDir);
+    if (!path.isAbsolute(commonDir)) {
+      commonDir = path.resolve(directory, commonDir);
+    }
     // Normalize: git answers against the resolved cwd, and some systems (macOS, /var ->
     // /private/var) hand the same repo back through two different-looking paths, so the
     // worktree comparison only holds if both sides are the physical path.
@@ -66,7 +70,9 @@ export async function readGitInfo(directory: string): Promise<GitInfo | undefine
     } catch {
       // The repo is mid-teardown or the path vanished; compare unresolved.
     }
-    if (branch.length === 0 || commonDir.length === 0) return undefined;
+    if (branch.length === 0 || commonDir.length === 0) {
+      return undefined;
+    }
     return { branch, commonDir };
   } catch {
     return undefined;

@@ -132,7 +132,9 @@ function onBand(row: InputRow, surface: string, width: number): InputRow {
   const segments: InputSegment[] = fitted.map((segment) =>
     segment.bg === undefined ? { ...segment, bg: surface } : segment,
   );
-  if (gap > 0) segments.push({ text: " ".repeat(gap), fg: THEME.muted, bg: surface });
+  if (gap > 0) {
+    segments.push({ text: " ".repeat(gap), fg: THEME.muted, bg: surface });
+  }
   return { key: row.key, segments, surface };
 }
 
@@ -143,7 +145,9 @@ function alignRow(
   width: number,
 ): InputRow {
   const rightWidth = terminalSegmentsWidth(right);
-  if (rightWidth + 1 > width) return { key, segments: [] };
+  if (rightWidth + 1 > width) {
+    return { key, segments: [] };
+  }
   const budget = width - rightWidth - 1;
   const kept = fitTerminalSegments(left, budget);
   const gap = Math.max(0, width - terminalSegmentsWidth(kept) - rightWidth);
@@ -162,7 +166,9 @@ export function commandSuggestRows(
   glyphs: GlyphSet,
   size: number = MAX_VISIBLE_COMMANDS,
 ): InputRow[] {
-  if (size <= 0) return [];
+  if (size <= 0) {
+    return [];
+  }
   const visible = pickerWindow(commands.items, commands.selected, size);
   const prefix = commands.prefix ?? "/";
   const label = (command: (typeof visible)[number]): string =>
@@ -310,7 +316,9 @@ function wrapCellsWithOffsets(
       local += [...text].length;
     }
     offset += [...paragraph].length;
-    if (paragraphIndex < paragraphs.length - 1) offset += 1;
+    if (paragraphIndex < paragraphs.length - 1) {
+      offset += 1;
+    }
   });
   return lines;
 }
@@ -386,7 +394,9 @@ export function inputRows(
   let caretLine = 0;
   for (let index = 0; index < wrapped.length; index += 1) {
     const entry = wrapped[index];
-    if (entry === undefined || entry.start > caretAt) break;
+    if (entry === undefined || entry.start > caretAt) {
+      break;
+    }
     caretLine = index;
   }
   const caretLineEntry = wrapped[caretLine];
@@ -488,9 +498,13 @@ export function inputRows(
       let codePoint = line.start;
       graphemes.forEach((grapheme, column) => {
         const highlighted = codePoint >= selStart && codePoint < selEnd;
-        if (onCaretLine && column === caretIndex) pushSegment(body, caret(grapheme));
-        else if (highlighted) pushSegment(body, selected(grapheme, fg));
-        else pushSegment(body, { text: grapheme, fg });
+        if (onCaretLine && column === caretIndex) {
+          pushSegment(body, caret(grapheme));
+        } else if (highlighted) {
+          pushSegment(body, selected(grapheme, fg));
+        } else {
+          pushSegment(body, { text: grapheme, fg });
+        }
         codePoint += [...grapheme].length;
       });
       if (onCaretLine && caretIndex >= graphemes.length) {
@@ -532,7 +546,9 @@ export function inputRows(
 
   // The list is laid on top last so it can be sized against what the text
   // actually took, then it goes above the composer where it belongs.
-  if (!wantsCommands || model.commands === undefined) return composer;
+  if (!wantsCommands || model.commands === undefined) {
+    return composer;
+  }
   const listSize = Math.min(MAX_VISIBLE_COMMANDS, Math.max(0, budget - composer.length));
   const list = commandSuggestRows(model.commands, width, glyphs, listSize).map((row) =>
     onBand(row, THEME.surface, width),

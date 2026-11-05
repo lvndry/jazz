@@ -41,7 +41,9 @@ export function createHealthState(
       failure = reason;
     },
     status() {
-      if (failure !== undefined) return { healthy: false, detail: failure };
+      if (failure !== undefined) {
+        return { healthy: false, detail: failure };
+      }
       if (lastBeat === undefined) {
         const waiting = now() - startedAt;
         return waiting < startupGraceMs

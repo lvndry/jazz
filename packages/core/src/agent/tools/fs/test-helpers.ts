@@ -21,7 +21,9 @@ export function createFsTestLayer(cwd: string) {
     resolvePath: (_key, path, _options) =>
       Effect.gen(function* () {
         yield* FileSystem.FileSystem;
-        if (path.startsWith("/")) return path;
+        if (path.startsWith("/")) {
+          return path;
+        }
         if (path.startsWith("~")) {
           const home = process.env["HOME"] || "/tmp";
           return `${home}${path.slice(1)}`;
@@ -32,7 +34,9 @@ export function createFsTestLayer(cwd: string) {
     resolvePathForMkdir: (_key, path) =>
       Effect.gen(function* () {
         yield* FileSystem.FileSystem;
-        if (path.startsWith("/")) return path;
+        if (path.startsWith("/")) {
+          return path;
+        }
         return `${cwd}/${path}`;
       }),
     escapePath: (path) => path,

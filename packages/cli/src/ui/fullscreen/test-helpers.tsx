@@ -30,6 +30,7 @@
 
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
+import { viewAs } from "../../test-support/view-as";
 
 type TestSetup = Awaited<ReturnType<typeof testRender>>;
 type RendererOptions = Parameters<typeof testRender>[1];
@@ -73,7 +74,7 @@ async function inAsyncActScope<Result>(callback: () => Promise<Result>): Promise
 
 /** Turn any bytes the parser is still holding (a lone ESC) into key events now. */
 function flushPendingInput(renderer: TestSetup["renderer"]): void {
-  const internals = renderer as unknown as PendingInputRenderer;
+  const internals = viewAs<PendingInputRenderer>(renderer);
   internals.stdinParser?.tryForceFlush();
   internals.drainStdinParser();
 }

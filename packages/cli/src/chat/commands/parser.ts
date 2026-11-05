@@ -71,7 +71,9 @@ export function parseSpecialCommand(input: string): SpecialCommand {
     return { type: "rename", args: remainder.length > 0 ? [remainder] : [] };
   }
   const args = remainder.length > 0 ? remainder.split(/\s+/) : [];
-  if (builtin !== undefined) return { type: builtin.type, args };
+  if (builtin !== undefined) {
+    return { type: builtin.type, args };
+  }
 
   // A slash command that matches a registered skill runs that skill.
   // args[0] is the skill name (mirrors the "unknown" convention).

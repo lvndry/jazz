@@ -26,10 +26,14 @@ const WORD_FRAGMENT_CHARS = 40;
  */
 export function reasoningSnippet(reasoning: string): string {
   const normalized = reasoning.replace(/\s+/g, " ").trim();
-  if (normalized.length <= PROGRESS_REASONING_CHARS) return normalized;
+  if (normalized.length <= PROGRESS_REASONING_CHARS) {
+    return normalized;
+  }
   let tail = normalized.slice(-PROGRESS_REASONING_CHARS).trimStart();
   const firstSpace = tail.indexOf(" ");
-  if (firstSpace > 0 && firstSpace < WORD_FRAGMENT_CHARS) tail = tail.slice(firstSpace + 1);
+  if (firstSpace > 0 && firstSpace < WORD_FRAGMENT_CHARS) {
+    tail = tail.slice(firstSpace + 1);
+  }
   return `… ${tail}`;
 }
 
@@ -62,7 +66,9 @@ export interface ReasoningSplitOptions {
  */
 export function splitReasoning(reasoning: string, options: ReasoningSplitOptions): string[] {
   const tidied = tidyReasoning(reasoning);
-  if (tidied.length === 0) return [];
+  if (tidied.length === 0) {
+    return [];
+  }
 
   const parts: string[] = [];
   let remaining = tidied;
@@ -74,8 +80,11 @@ export function splitReasoning(reasoning: string, options: ReasoningSplitOptions
     // would emit a near-empty part and make no progress on the remainder.
     const halfway = options.budget * 0.5;
     let splitAt = window.length;
-    if (lastNewline > halfway) splitAt = lastNewline;
-    else if (lastSpace > halfway) splitAt = lastSpace;
+    if (lastNewline > halfway) {
+      splitAt = lastNewline;
+    } else if (lastSpace > halfway) {
+      splitAt = lastSpace;
+    }
     parts.push(window.slice(0, splitAt).trimEnd());
     remaining = remaining.slice(splitAt).trimStart();
 
@@ -83,14 +92,20 @@ export function splitReasoning(reasoning: string, options: ReasoningSplitOptions
       return withDroppedNote(parts, remaining.length);
     }
   }
-  if (remaining.length > 0) parts.push(remaining);
+  if (remaining.length > 0) {
+    parts.push(remaining);
+  }
   return parts;
 }
 
 function withDroppedNote(parts: string[], droppedChars: number): string[] {
-  if (droppedChars === 0) return parts;
+  if (droppedChars === 0) {
+    return parts;
+  }
   const note = `\n\n[… ${droppedChars.toLocaleString("en-US")} more characters of reasoning not shown]`;
   const last = parts[parts.length - 1];
-  if (last !== undefined) parts[parts.length - 1] = `${last}${note}`;
+  if (last !== undefined) {
+    parts[parts.length - 1] = `${last}${note}`;
+  }
   return parts;
 }

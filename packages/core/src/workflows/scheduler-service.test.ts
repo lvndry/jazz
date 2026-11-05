@@ -280,7 +280,7 @@ describe("SchedulerService", () => {
       expect(isScheduled).toBe(true);
 
       const listed = await Effect.runPromise(scheduler.listScheduled());
-      const entry = listed.find((s) => s.workflowName === testWorkflowName);
+      const entry = listed.find((schedule) => schedule.workflowName === testWorkflowName);
       expect(entry?.agent).toBe("test-agent-id");
       expect(entry?.schedule).toBe("0 8 * * *");
       expect(entry?.label).toBe("default");
@@ -295,9 +295,9 @@ describe("SchedulerService", () => {
       );
 
       const listed = (await Effect.runPromise(scheduler.listScheduled())).filter(
-        (s) => s.workflowName === testWorkflowName,
+        (schedule) => schedule.workflowName === testWorkflowName,
       );
-      expect(listed.map((s) => s.label).sort()).toEqual(["default", "monthly"]);
+      expect(listed.map((schedule) => schedule.label).sort()).toEqual(["default", "monthly"]);
 
       await Effect.runPromise(scheduler.unschedule(`${testWorkflowName}/monthly`));
       expect(await Effect.runPromise(scheduler.isScheduled(`${testWorkflowName}/monthly`))).toBe(
@@ -322,7 +322,7 @@ describe("SchedulerService", () => {
       );
 
       const listed = await Effect.runPromise(new InProcessScheduler().listScheduled());
-      const entry = listed.find((s) => s.workflowName === testWorkflowName);
+      const entry = listed.find((schedule) => schedule.workflowName === testWorkflowName);
 
       expect(entry?.label).toBe("default");
       expect(entry?.agent).toBe("legacy-agent");
@@ -374,7 +374,9 @@ describe("SchedulerService", () => {
     const id = `${testWorkflowName}/default`;
 
     it("should schedule tech-digest cron expression 0 8 * * * without error", async () => {
-      if (process.platform !== "darwin") return;
+      if (process.platform !== "darwin") {
+        return;
+      }
 
       const program = Effect.gen(function* () {
         const scheduler = yield* SchedulerServiceTag;
@@ -385,7 +387,7 @@ describe("SchedulerService", () => {
       const result = await Effect.runPromise(
         program.pipe(
           Effect.provide(SchedulerServiceLayer),
-          Effect.catch((e) => Effect.fail(e)),
+          Effect.catch((error) => Effect.fail(error)),
         ),
       );
 
@@ -395,9 +397,9 @@ describe("SchedulerService", () => {
       const scheduler = await Effect.runPromise(
         Effect.provide(
           Effect.gen(function* () {
-            const s = yield* SchedulerServiceTag;
-            yield* s.unschedule(id);
-            return s;
+            const scheduler = yield* SchedulerServiceTag;
+            yield* scheduler.unschedule(id);
+            return scheduler;
           }),
           SchedulerServiceLayer,
         ),
@@ -406,7 +408,9 @@ describe("SchedulerService", () => {
     });
 
     it("should schedule 6-field cron expression without error", async () => {
-      if (process.platform !== "darwin") return;
+      if (process.platform !== "darwin") {
+        return;
+      }
 
       const program = Effect.gen(function* () {
         const scheduler = yield* SchedulerServiceTag;
@@ -417,7 +421,7 @@ describe("SchedulerService", () => {
       const result = await Effect.runPromise(
         program.pipe(
           Effect.provide(SchedulerServiceLayer),
-          Effect.catch((e) => Effect.fail(e)),
+          Effect.catch((error) => Effect.fail(error)),
         ),
       );
 
@@ -427,8 +431,8 @@ describe("SchedulerService", () => {
       await Effect.runPromise(
         Effect.provide(
           Effect.gen(function* () {
-            const s = yield* SchedulerServiceTag;
-            yield* s.unschedule(id);
+            const scheduler = yield* SchedulerServiceTag;
+            yield* scheduler.unschedule(id);
           }),
           SchedulerServiceLayer,
         ),
@@ -436,7 +440,9 @@ describe("SchedulerService", () => {
     });
 
     it("should write plist with log paths in the jazz home, not cwd", async () => {
-      if (process.platform !== "darwin") return;
+      if (process.platform !== "darwin") {
+        return;
+      }
 
       const program = Effect.gen(function* () {
         const scheduler = yield* SchedulerServiceTag;
@@ -461,8 +467,8 @@ describe("SchedulerService", () => {
       await Effect.runPromise(
         Effect.provide(
           Effect.gen(function* () {
-            const s = yield* SchedulerServiceTag;
-            yield* s.unschedule(id);
+            const scheduler = yield* SchedulerServiceTag;
+            yield* scheduler.unschedule(id);
           }),
           SchedulerServiceLayer,
         ),
@@ -470,7 +476,9 @@ describe("SchedulerService", () => {
     });
 
     it("should accept schedule with leading/trailing whitespace (trim regression)", async () => {
-      if (process.platform !== "darwin") return;
+      if (process.platform !== "darwin") {
+        return;
+      }
 
       const program = Effect.gen(function* () {
         const scheduler = yield* SchedulerServiceTag;
@@ -481,7 +489,7 @@ describe("SchedulerService", () => {
       const result = await Effect.runPromise(
         program.pipe(
           Effect.provide(SchedulerServiceLayer),
-          Effect.catch((e) => Effect.fail(e)),
+          Effect.catch((error) => Effect.fail(error)),
         ),
       );
 
@@ -490,8 +498,8 @@ describe("SchedulerService", () => {
       await Effect.runPromise(
         Effect.provide(
           Effect.gen(function* () {
-            const s = yield* SchedulerServiceTag;
-            yield* s.unschedule(id);
+            const scheduler = yield* SchedulerServiceTag;
+            yield* scheduler.unschedule(id);
           }),
           SchedulerServiceLayer,
         ),

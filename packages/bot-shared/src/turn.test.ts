@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { JazzEnvelope, JazzEvent, JazzRun, SecretAnswer } from "./jazz-run";
+import type { JazzEnvelope, JazzEvent, JazzRun, JazzRunHandlers, SecretAnswer } from "./jazz-run";
 import {
   type ChatId,
   type MessageRef,
@@ -37,6 +37,8 @@ interface FakeRun {
   emit(event: JazzEvent): void;
   finish(envelope?: JazzEnvelope): void;
   cancelled(): boolean;
+  /** The handlers the runner registered when it started the run. */
+  setHandlers(registered: JazzRunHandlers): void;
 }
 
 const DONE: JazzEnvelope = { ok: true, answer: "done", costUSD: 0 };
@@ -78,12 +80,7 @@ describe("turn runner", () => {
     const result = new Promise<JazzEnvelope>((resolve) => {
       settle = resolve;
     });
-    let handlers: {
-      onEvent?: (e: JazzEvent) => void;
-      onApprovalRequired?: (e: JazzEvent) => void;
-      onUserInputRequired?: (e: JazzEvent) => void;
-      onUserSecretRequired?: (e: JazzEvent) => void;
-    } = {};
+    let handlers: JazzRunHandlers = {};
 
     const fake: FakeRun = {
       run: {
@@ -120,15 +117,21 @@ describe("turn runner", () => {
       emit: (event) => {
         lastSpend = runSpendFromEvent(event) ?? lastSpend;
         handlers.onEvent?.(event);
-        if (event.type === "approval_required") handlers.onApprovalRequired?.(event);
-        if (event.type === "user_input_required") handlers.onUserInputRequired?.(event);
-        if (event.type === "user_secret_required") handlers.onUserSecretRequired?.(event);
+        if (event.type === "approval_required") {
+          handlers.onApprovalRequired?.(event);
+        }
+        if (event.type === "user_input_required") {
+          handlers.onUserInputRequired?.(event);
+        }
+        if (event.type === "user_secret_required") {
+          handlers.onUserSecretRequired?.(event);
+        }
       },
       finish: (envelope = DONE) => settle(envelope),
       cancelled: () => killed,
-    };
-    (fake as { setHandlers?: unknown }).setHandlers = (h: typeof handlers) => {
-      handlers = h;
+      setHandlers: (registeredHandlers) => {
+        handlers = registeredHandlers;
+      },
     };
     return fake;
   };
@@ -197,7 +200,7 @@ describe("turn runner", () => {
       startRun: (options, handlers) => {
         runsStarted.push(options.prompt);
         const fake = makeFakeRun();
-        (fake as unknown as { setHandlers: (h: unknown) => void }).setHandlers(handlers);
+        fake.setHandlers(handlers ?? {});
         current = fake;
         return fake.run;
       },
@@ -218,8 +221,12 @@ describe("turn runner", () => {
    */
   const startTurn = async (prompt = "hello"): Promise<{ turn: Promise<void> }> => {
     const turn = runner.handle(message(prompt));
-    for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) await Bun.sleep(1);
-    if (current === undefined) throw new Error("the run never started");
+    for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) {
+      await Bun.sleep(1);
+    }
+    if (current === undefined) {
+      throw new Error("the run never started");
+    }
     return { turn };
   };
 
@@ -529,8 +536,9 @@ describe("turn runner", () => {
   test("two quick messages run one after the other", async () => {
     const first = runner.handle(message("first"));
     const second = runner.handle(message("second"));
-    for (let attempt = 0; runsStarted.length === 0 && attempt < 200; attempt += 1)
+    for (let attempt = 0; runsStarted.length === 0 && attempt < 200; attempt += 1) {
       await Bun.sleep(1);
+    }
     await Bun.sleep(10);
     expect(runsStarted).toEqual(["first"]);
 
@@ -541,8 +549,9 @@ describe("turn runner", () => {
     current = undefined;
     firstRun?.finish();
     const running = (): FakeRun | undefined => current;
-    for (let attempt = 0; running() === undefined && attempt < 200; attempt += 1)
+    for (let attempt = 0; running() === undefined && attempt < 200; attempt += 1) {
       await Bun.sleep(1);
+    }
     expect(runsStarted).toEqual(["first", "second"]);
     running()?.finish();
     await first;
@@ -551,10 +560,13 @@ describe("turn runner", () => {
   /** Wait for the next run to register after the one in `current` finished. */
   const nextRun = async (): Promise<FakeRun> => {
     const running = (): FakeRun | undefined => current;
-    for (let attempt = 0; running() === undefined && attempt < 200; attempt += 1)
+    for (let attempt = 0; running() === undefined && attempt < 200; attempt += 1) {
       await Bun.sleep(1);
+    }
     const run = running();
-    if (run === undefined) throw new Error("no next run started");
+    if (run === undefined) {
+      throw new Error("no next run started");
+    }
     return run;
   };
 
@@ -646,8 +658,9 @@ describe("turn runner", () => {
     // Wrapped, like `startTurn`: returning the turn itself would await the whole run.
     const turnAs = async (senderId: string): Promise<{ turn: Promise<void> }> => {
       const turn = runner.handle(message("list files", senderId));
-      for (let attempt = 0; current === undefined && attempt < 200; attempt += 1)
+      for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) {
         await Bun.sleep(1);
+      }
       return { turn };
     };
     const event = {
@@ -691,7 +704,9 @@ describe("turn runner", () => {
 
   test("a follow-up tap starts a new turn with that prompt", async () => {
     expect(await runner.deliverChoice(tap("followup", "shorter"))).toBe("answered");
-    for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) await Bun.sleep(1);
+    for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) {
+      await Bun.sleep(1);
+    }
     expect(runsStarted[0]).toContain("shorter version");
     current?.finish();
   });
@@ -722,7 +737,9 @@ describe("turn runner", () => {
 
   test("/remind runs a turn that asks the agent to add the reminder", async () => {
     const turn = runner.handle(message("/remind 30m take pizza out"));
-    for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) await Bun.sleep(1);
+    for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) {
+      await Bun.sleep(1);
+    }
     expect(runsStarted).toEqual(["Add a reminder: 30m take pizza out"]);
     current?.finish();
     await turn;
@@ -799,14 +816,17 @@ describe("turn runner", () => {
     const other = runner.handle(message("other chat", REQUESTER, "c2"));
     const toldBusy = (): boolean => sent.some((entry) => entry.text.includes("Busy with 1"));
     // A loaded CI runner can take longer than any fixed sleep to send the busy reply.
-    for (let attempt = 0; !toldBusy() && attempt < 1000; attempt += 1) await Bun.sleep(1);
+    for (let attempt = 0; !toldBusy() && attempt < 1000; attempt += 1) {
+      await Bun.sleep(1);
+    }
     expect(runsStarted).toEqual(["hello"]);
     expect(toldBusy()).toBe(true);
     firstRun?.finish();
     await turn;
     const running = (): FakeRun | undefined => current;
-    for (let attempt = 0; running() === undefined && attempt < 200; attempt += 1)
+    for (let attempt = 0; running() === undefined && attempt < 200; attempt += 1) {
       await Bun.sleep(1);
+    }
     expect(runsStarted).toEqual(["hello", "other chat"]);
     running()?.finish();
     await other;

@@ -3,7 +3,7 @@
  * discover, and execute tools.
  */
 import { Context, Effect, FileSystem } from "effect";
-import type z from "zod";
+import type { z } from "zod";
 import type { GoalStoreTag } from "@/core/interfaces/goal-store";
 import type { WorkspaceService } from "@/core/interfaces/workspace-service";
 import type { SkillService } from "@/core/skills/skill-service";

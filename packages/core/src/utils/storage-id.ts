@@ -33,8 +33,12 @@ function fingerprint(value: string, chars: number): string {
  */
 export function storageSafeSegment(value: string): string {
   const trimmed = value.trim();
-  if (trimmed.length === 0) return "unknown";
-  if (SAFE_ID_PATTERN.test(trimmed) && trimmed.length <= MAX_ID_SEGMENT_CHARS) return trimmed;
+  if (trimmed.length === 0) {
+    return "unknown";
+  }
+  if (SAFE_ID_PATTERN.test(trimmed) && trimmed.length <= MAX_ID_SEGMENT_CHARS) {
+    return trimmed;
+  }
   const readable = trimmed.replace(UNSAFE_ID_CHARACTERS, "-").slice(0, MAX_ID_SEGMENT_CHARS);
   return `${readable}-${fingerprint(trimmed, ID_FINGERPRINT_CHARS)}`;
 }

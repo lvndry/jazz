@@ -63,9 +63,12 @@ export function receiveTarget(
   targetLength: number,
   nowMs: number,
 ): RevealState {
-  if (targetLength === state.targetLength) return state;
-  if (targetLength < state.targetLength)
+  if (targetLength === state.targetLength) {
+    return state;
+  }
+  if (targetLength < state.targetLength) {
     return receiveTarget(initialReveal(nowMs), targetLength, nowMs);
+  }
   const idle = state.shown >= state.targetLength;
   return {
     ...state,

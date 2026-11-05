@@ -83,7 +83,11 @@ export function messageCarriesEgressTaint(message: ChatMessage): boolean {
 export function carryEgressTaint<Messages extends readonly ChatMessage[]>(
   dropped: readonly ChatMessage[],
   kept: Messages,
-): Messages {
+): Messages;
+export function carryEgressTaint(
+  dropped: readonly ChatMessage[],
+  kept: readonly ChatMessage[],
+): readonly ChatMessage[] {
   if (!dropped.some(messageCarriesEgressTaint) || kept.some(messageCarriesEgressTaint)) {
     return kept;
   }
@@ -93,7 +97,7 @@ export function carryEgressTaint<Messages extends readonly ChatMessage[]>(
   }
   const carried = [...kept];
   carried[carrierIndex] = { ...(kept[carrierIndex] as ChatMessage), egressTainted: true };
-  return carried as unknown as Messages;
+  return carried;
 }
 
 /**
@@ -105,7 +109,11 @@ export function carryEgressTaint<Messages extends readonly ChatMessage[]>(
 export function recordEgressTaint<Messages extends readonly ChatMessage[]>(
   messages: Messages,
   taint: EgressTaint | undefined,
-): Messages {
+): Messages;
+export function recordEgressTaint(
+  messages: readonly ChatMessage[],
+  taint: EgressTaint | undefined,
+): readonly ChatMessage[] {
   if (taint?.isTainted() !== true || messages.some(messageCarriesEgressTaint)) {
     return messages;
   }
@@ -118,7 +126,7 @@ export function recordEgressTaint<Messages extends readonly ChatMessage[]>(
   }
   const recorded = [...messages];
   recorded[carrierIndex] = { ...(messages[carrierIndex] as ChatMessage), egressTainted: true };
-  return recorded as unknown as Messages;
+  return recorded;
 }
 
 /**

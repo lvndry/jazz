@@ -97,7 +97,9 @@ export function filterCapableModels(
 ): CapableModel[] {
   const capable: (CapableModel & { readonly priced: boolean })[] = [];
   for (const model of models) {
-    if (!modelSupportsRole(model, role)) continue;
+    if (!modelSupportsRole(model, role)) {
+      continue;
+    }
     const priced =
       model.inputPricePerMillion !== undefined || model.outputPricePerMillion !== undefined;
     capable.push({
@@ -115,11 +117,15 @@ export function filterCapableModels(
   }
   return capable
     .sort((left, right) => {
-      if (left.priced !== right.priced) return left.priced ? -1 : 1;
+      if (left.priced !== right.priced) {
+        return left.priced ? -1 : 1;
+      }
       const byInputPrice =
         (left.inputPricePerMillion ?? Number.POSITIVE_INFINITY) -
         (right.inputPricePerMillion ?? Number.POSITIVE_INFINITY);
-      if (byInputPrice !== 0) return byInputPrice;
+      if (byInputPrice !== 0) {
+        return byInputPrice;
+      }
       return left.modelId.localeCompare(right.modelId);
     })
     .map(({ priced: _priced, ...capableModel }) => capableModel);

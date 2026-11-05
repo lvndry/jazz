@@ -29,7 +29,7 @@ export function writeAll(root: string, files: Record<string, string>): void {
 /** A file's parsed JSON, or undefined when it is missing or not JSON. */
 export function readJson(path: string): unknown {
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return JSON.parse(readFileSync(path, "utf8"));
   } catch {
     return undefined;
   }

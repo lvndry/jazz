@@ -43,10 +43,14 @@ export function createPhotonSurface(options: PhotonSurfaceOptions): Surface {
       // A space we have never seen cannot be addressed: Photon's free tier
       // refuses to open a conversation the other person did not start. Thrown, not
       // dropped, so a reminder for it stays queued instead of counting as sent.
-      if (space === undefined) throw new Error(`No Photon space for ${chatId} yet`);
+      if (space === undefined) {
+        throw new Error(`No Photon space for ${chatId} yet`);
+      }
 
       for (const chunk of splitForSurface(renderForIMessage(message), IMESSAGE_CHUNK_CHARS)) {
-        if (chunk.trim().length === 0) continue;
+        if (chunk.trim().length === 0) {
+          continue;
+        }
         await space.send(chunk);
       }
       return undefined;
@@ -54,12 +58,16 @@ export function createPhotonSurface(options: PhotonSurfaceOptions): Surface {
 
     async sendFile(chatId: ChatId, file: OutgoingFile, caption?: string): Promise<void> {
       const space = options.resolveSpace(chatId);
-      if (space === undefined) return;
+      if (space === undefined) {
+        return;
+      }
 
       // A path rather than bytes: `attachment` reads it, and everything that
       // reaches here is already a file the agent wrote or was handed.
       await space.send(attachment(file.path));
-      if (caption !== undefined && caption.trim().length > 0) await space.send(caption);
+      if (caption !== undefined && caption.trim().length > 0) {
+        await space.send(caption);
+      }
     },
   };
 }

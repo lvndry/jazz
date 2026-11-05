@@ -26,7 +26,9 @@ function flatSchema(propertyCount: number): Record<string, unknown> {
           : index % 4 === 1
             ? { type: "boolean", description: `flag ${String(index)}` }
             : { type: "string", description: `text ${String(index)}` };
-    if (index % 3 === 0) required.push(`field${String(index)}`);
+    if (index % 3 === 0) {
+      required.push(`field${String(index)}`);
+    }
   }
   return { type: "object", properties, required };
 }

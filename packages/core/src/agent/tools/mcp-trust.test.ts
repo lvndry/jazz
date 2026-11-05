@@ -10,6 +10,7 @@ import {
 } from "@/core/interfaces/mcp-server";
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import { partialFake, withoutServices } from "@/core/test-support/fakes";
 import type { MCPTool } from "@/core/types/mcp";
 import { isApprovalRequiredResult, type ToolExecutionResult } from "@/core/types/tools";
 import { registerMCPServerTools, resolveToolRiskLevel } from "./mcp";
@@ -103,16 +104,20 @@ describe("MCP tool registration", () => {
   test("names the declared annotations in the approval prompt", async () => {
     const tools = await build(false, tool("drop_table", { destructiveHint: true }));
     const approval = tools[0];
-    if (!approval) throw new Error("no approval tool");
+    if (!approval) {
+      throw new Error("no approval tool");
+    }
 
     const result = (await Effect.runPromise(
-      approval.execute(
-        { table: "users" },
-        {
-          agentId: "a",
-          conversationId: "c",
-        },
-      ) as unknown as Effect.Effect<{ result: { message: string } }, never>,
+      withoutServices(
+        approval.execute(
+          { table: "users" },
+          {
+            agentId: "a",
+            conversationId: "c",
+          },
+        ),
+      ),
     )) as { result: { message: string } };
 
     expect(result.result.message).toContain("drop_table");
@@ -131,11 +136,13 @@ describe("MCP tool output", () => {
 
   async function callWith(reply: { structuredContent?: unknown; content?: unknown }) {
     const [readTool] = await build(true, tool("read_notes", { readOnlyHint: true }));
-    if (readTool === undefined) throw new Error("expected a tool");
-    const manager = {
+    if (readTool === undefined) {
+      throw new Error("expected a tool");
+    }
+    const manager = partialFake<MCPServerManager>({
       isConnected: () => Effect.succeed(true),
       callTool: () => Effect.succeed(reply),
-    } as unknown as MCPServerManager;
+    });
     return Effect.runPromise(
       readTool
         .execute({}, { agentId: "a", conversationId: "c" })

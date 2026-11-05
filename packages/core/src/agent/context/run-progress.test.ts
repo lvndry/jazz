@@ -53,8 +53,8 @@ describe("extractRunProgress", () => {
 
   it("separates modified files from read ones and caps the list", () => {
     const messages: ChatMessage[] = [
-      ...Array.from({ length: 20 }, (_, i): ChatMessage =>
-        toolCall(`r${i}`, "read_file", { path: `/f/${i}.txt` }),
+      ...Array.from({ length: 20 }, (_, index): ChatMessage =>
+        toolCall(`r${index}`, "read_file", { path: `/f/${index}.txt` }),
       ),
       toolCall("w1", "edit_file", { path: "/f/0.txt" }),
       toolCall("w2", "mv", { source: "/a", destination: "/b" }),

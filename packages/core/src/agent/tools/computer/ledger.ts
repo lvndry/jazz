@@ -53,19 +53,20 @@ export async function appendLedgerEntry(entry: LedgerEntry): Promise<void> {
   await appendBoundedJsonlLine(ledgerPath(), JSON.stringify(entry), { maxBytes: LEDGER_MAX_BYTES });
 }
 
+function isLedgerEntry(value: unknown): value is LedgerEntry {
+  return (
+    isRecord(value) &&
+    typeof value["timestamp"] === "string" &&
+    typeof value["bundleId"] === "string" &&
+    typeof value["action"] === "string" &&
+    typeof value["outcome"] === "string"
+  );
+}
+
 function parseLedgerLine(line: string): LedgerEntry | undefined {
   try {
     const parsed: unknown = JSON.parse(line);
-    if (
-      !isRecord(parsed) ||
-      typeof parsed["timestamp"] !== "string" ||
-      typeof parsed["bundleId"] !== "string" ||
-      typeof parsed["action"] !== "string" ||
-      typeof parsed["outcome"] !== "string"
-    ) {
-      return undefined;
-    }
-    return parsed as unknown as LedgerEntry;
+    return isLedgerEntry(parsed) ? parsed : undefined;
   } catch {
     return undefined;
   }

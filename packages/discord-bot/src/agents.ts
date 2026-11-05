@@ -33,7 +33,9 @@ export function agentIdForChannel(channelId: string): string {
 }
 
 export function channelIdFromAgentId(agentId: string): string | null {
-  if (!agentId.startsWith("dc_")) return null;
+  if (!agentId.startsWith("dc_")) {
+    return null;
+  }
   const suffix = agentId.slice("dc_".length);
   return /^\d{17,20}$/.test(suffix) ? suffix : null;
 }

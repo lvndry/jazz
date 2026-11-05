@@ -84,10 +84,16 @@ function adoptTree(sandbox: ChatSandbox, path: string, setMode: SetMode): void {
   // A link an agent left in its workspace is handed over as a link and never
   // followed: walking into it would chmod whatever it points at, up to `/`.
   const stats = lstatSync(path);
-  if (stats.isSymbolicLink()) return;
+  if (stats.isSymbolicLink()) {
+    return;
+  }
   const mode = stats.mode & 0o7777;
-  if ((mode & 0o007) !== 0) setMode(path, mode & ~0o007);
-  if (!stats.isDirectory()) return;
+  if ((mode & 0o007) !== 0) {
+    setMode(path, mode & ~0o007);
+  }
+  if (!stats.isDirectory()) {
+    return;
+  }
   for (const entry of readdirSync(path)) {
     adoptTree(sandbox, join(path, entry), setMode);
   }
@@ -101,7 +107,9 @@ export function conversationsWithState(
   isConversationAgentId: (agentId: string) => boolean,
 ): string[] {
   const agentsDirectory = join(dataDir, "agents");
-  if (!existsSync(agentsDirectory)) return [];
+  if (!existsSync(agentsDirectory)) {
+    return [];
+  }
   return readdirSync(agentsDirectory)
     .filter((entry) => entry.endsWith(".json"))
     .map((entry) => entry.slice(0, -".json".length))
@@ -147,10 +155,14 @@ export function migrateToSandboxes(options: MigrationOptions): number {
           continue;
         }
         console.log(`  ${options.apply ? "replace" : "would replace"} empty ${move.to}`);
-        if (options.apply) rmdirSync(move.to);
+        if (options.apply) {
+          rmdirSync(move.to);
+        }
       }
       console.log(`  ${options.apply ? "move" : "would move"} ${move.from} → ${move.to}`);
-      if (!options.apply) continue;
+      if (!options.apply) {
+        continue;
+      }
       renameSync(move.from, move.to);
       adoptTree(sandbox, move.to, options.setMode);
       moved += 1;

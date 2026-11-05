@@ -13,6 +13,7 @@ import {
   DEFAULT_MAX_LIVE_SUBAGENTS,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
+import { partialFake } from "@/core/test-support/fakes";
 import {
   AgentRunner,
   createNestedRunExecutor,
@@ -89,7 +90,7 @@ describe("renderSkillRoutingAdvisory", () => {
 });
 
 // Mock services
-const mockLogger = {
+const mockLogger = partialFake<LoggerService>({
   debug: mock(() => Effect.void),
   info: mock(() => Effect.void),
   warn: mock(() => Effect.void),
@@ -100,11 +101,10 @@ const mockLogger = {
   clearLogGroup: mock(() => Effect.void),
   writeToFile: mock(() => Effect.void),
   logToolCall: mock(() => Effect.void),
-} as unknown as LoggerService;
+});
 
-const mockPresentationService = {
+const mockPresentationService = partialFake<PresentationService>({
   presentThinking: mock(() => Effect.void),
-  presentThinkingEnd: mock(() => Effect.void),
   createStreamingRenderer: mock(() =>
     Effect.succeed({
       renderEvent: mock(() => Effect.void),
@@ -128,16 +128,16 @@ const mockPresentationService = {
   formatToolResult: mock(() => "Tool result"),
   formatToolExecutionError: mock(() => Effect.succeed("Tool failed")),
   formatToolsDetected: mock(() => Effect.succeed("Tools detected")),
-} as unknown as PresentationService;
+});
 
-const mockTerminalService = {} as unknown as TerminalService;
-const mockFileSystem = {} as unknown as FileSystem.FileSystem;
-const mockFileSystemContext = {
+const mockTerminalService = partialFake<TerminalService>({});
+const mockFileSystem = partialFake<FileSystem.FileSystem>({});
+const mockFileSystemContext = partialFake<FileSystemContextService>({
   // AgentRunner reads the working directory to discover AGENTS.md files.
   // Point it at a directory with none so the host machine cannot influence
   // these assertions.
   getCwd: () => Effect.succeed(os.tmpdir()),
-} as unknown as FileSystemContextService;
+});
 
 const BUILTIN_TOOLS_BY_CATEGORY: Record<string, string[]> = {
   skills: ["load_skill", "load_skill_section"],
@@ -167,7 +167,7 @@ const MOCK_TOOL_DEFINITIONS = [
   },
 ];
 
-const mockToolRegistry = {
+const mockToolRegistry = partialFake<ToolRegistry>({
   registerTool: mock(() => Effect.succeed(undefined)),
   registerForCategory: mock(() => mock(() => Effect.succeed(undefined))),
   listTools: mock(() => Effect.succeed(["tool1", "tool2", "load_skill", "load_skill_section"])),
@@ -203,7 +203,9 @@ const mockToolRegistry = {
   ),
   getToolDefinitions: mock(() => Effect.succeed(MOCK_TOOL_DEFINITIONS)),
   getToolDefinitionsFor: mock((names: readonly string[]) =>
-    Effect.succeed(MOCK_TOOL_DEFINITIONS.filter((d) => names.includes(d.function.name))),
+    Effect.succeed(
+      MOCK_TOOL_DEFINITIONS.filter((definition) => names.includes(definition.function.name)),
+    ),
   ),
   getToolSummaries: mock(() => Effect.succeed([])),
   // No categories are registered on this mock, so every name is treated as eager — matching
@@ -211,16 +213,16 @@ const mockToolRegistry = {
   partitionByTier: mock((names: readonly string[]) =>
     Effect.succeed({ eager: names, deferred: [] }),
   ),
-} as unknown as ToolRegistry;
+});
 
-const mockSkillService = {
+const mockSkillService = partialFake<SkillService>({
   listSkills: mock(() =>
     Effect.succeed([
       { name: "skill1", description: "Skill 1" },
       { name: "skill2", description: "Skill 2" },
     ]),
   ),
-} as unknown as SkillService;
+});
 
 const mockAppConfig = {
   output: {
@@ -236,16 +238,16 @@ const mockAppConfig = {
   },
 };
 
-const mockAgentConfigService = {
+const mockAgentConfigService = partialFake<AgentConfigService>({
   appConfig: Effect.succeed(mockAppConfig),
   get: mock(() => Effect.succeed(undefined)),
   getOrElse: mock((_key: string, fallback: unknown) => Effect.succeed(fallback)),
   getOrFail: mock(() => Effect.succeed(undefined)),
   has: mock(() => Effect.succeed(false)),
   set: mock(() => Effect.void),
-} as unknown as AgentConfigService;
+});
 
-const mockLlmService = {
+const mockLlmService = partialFake<LLMService>({
   getProvider: mock(() =>
     Effect.succeed({
       name: "openai",
@@ -275,7 +277,7 @@ const mockLlmService = {
   }),
   supportsNativeWebSearch: mock(() => Effect.succeed(false)),
   resolveReasoningControl: mock(() => Effect.succeed({ kind: "unknown" as const })),
-} as unknown as LLMService;
+});
 
 describe("resolveDelegationLimits", () => {
   it("hands the tree the configured live limit", () => {
@@ -461,7 +463,7 @@ describe("resolveSglangServerModel", () => {
   });
 });
 
-const mockMcpServerManager = {
+const mockMcpServerManager = partialFake<MCPServerManager>({
   connectServer: mock(() => Effect.fail(new Error("Not implemented"))),
   disconnectServer: mock(() => Effect.void),
   getServerTools: mock(() => Effect.succeed([])),
@@ -469,12 +471,12 @@ const mockMcpServerManager = {
   listServers: mock(() => Effect.succeed([])),
   isConnected: mock(() => Effect.succeed(false)),
   disconnectAllServers: mock(() => Effect.void),
-} as unknown as MCPServerManager;
+});
 
 // AgentRunner resolves the agent's persona through PersonaService; there is no
 // built-in fallback prompt, so a persona that can't be resolved is a hard
 // error. Provide a minimal stub that returns a valid "default" persona.
-const mockPersonaService = {
+const mockPersonaService = partialFake<PersonaService>({
   getPersonaByIdentifier: mock((identifier: string) =>
     Effect.succeed({
       id: `builtin-${identifier}`,
@@ -485,7 +487,7 @@ const mockPersonaService = {
       updatedAt: new Date(),
     }),
   ),
-} as unknown as PersonaService;
+});
 
 describe("AgentRunner", () => {
   function createTestLayer(overrides?: {
@@ -654,7 +656,9 @@ describe("AgentRunner", () => {
       try {
         const program = Effect.gen(function* () {
           const registry = yield* ToolRegistryTag;
-          for (const tool of createSubagentTools()) yield* registry.registerTool(tool);
+          for (const tool of createSubagentTools()) {
+            yield* registry.registerTool(tool);
+          }
           return yield* AgentRunner.run({
             ...defaultOptions,
             agent: {
@@ -700,7 +704,7 @@ describe("AgentRunner", () => {
     it("uses the vLLM model currently served for this run", async () => {
       const requestedModels: string[] = [];
       const preferredModels: string[] = [];
-      const llm = {
+      const llm = partialFake<LLMService>({
         ...mockLlmService,
         resolveLocalProviderBaseUrl: () => "http://localhost:8000/v1",
         fetchVllmServerModel: (_baseUrl: string, preferredModelId: string) => {
@@ -715,7 +719,7 @@ describe("AgentRunner", () => {
             content: "Hello world",
           });
         },
-      } as unknown as LLMService;
+      });
       const agent: Agent = {
         ...mockAgent,
         config: {
@@ -735,7 +739,7 @@ describe("AgentRunner", () => {
 
     it("uses the SGLang model currently served for this run", async () => {
       const requestedModels: string[] = [];
-      const llm = {
+      const llm = partialFake<LLMService>({
         ...mockLlmService,
         resolveLocalProviderBaseUrl: () => "http://localhost:30000/v1",
         fetchSglangServerModel: () =>
@@ -748,7 +752,7 @@ describe("AgentRunner", () => {
             content: "Hello world",
           });
         },
-      } as unknown as LLMService;
+      });
       const agent: Agent = {
         ...mockAgent,
         config: { ...mockAgent.config, llm: { provider: "sglang", model: "stale-model" } },
@@ -766,7 +770,7 @@ describe("AgentRunner", () => {
         type: "function" as const,
         function: { name: "deferred_tool", description: "A deferred tool", parameters: {} },
       };
-      const toolRegistry = {
+      const toolRegistry = partialFake<ToolRegistry>({
         ...mockToolRegistry,
         listAllTools: () => Effect.succeed(["tool1", "tool2", "deferred_tool"]),
         partitionByTier: () =>
@@ -779,9 +783,9 @@ describe("AgentRunner", () => {
               names.includes(definition.function.name),
             ),
           ),
-      } as unknown as ToolRegistry;
+      });
       const declaredToolNames: string[][] = [];
-      const llm = {
+      const llm = partialFake<LLMService>({
         ...mockLlmService,
         createChatCompletion: (
           _provider: string,
@@ -790,7 +794,7 @@ describe("AgentRunner", () => {
           declaredToolNames.push((options.tools ?? []).map((tool) => tool.function.name));
           return Effect.succeed({ id: "test-completion", model: "gpt-4", content: "done" });
         },
-      } as unknown as LLMService;
+      });
       const unlockingTurn: ChatMessage[] = [
         { role: "user", content: "find it" },
         { role: "assistant", content: "found" },
@@ -847,7 +851,7 @@ describe("AgentRunner", () => {
         loadTier: "deferred" as const,
       };
       const requests: { toolNames: string[]; systemPrompt: string }[] = [];
-      const llm = {
+      const llm = partialFake<LLMService>({
         ...mockLlmService,
         createChatCompletion: (
           _provider: string,
@@ -881,7 +885,7 @@ describe("AgentRunner", () => {
               : {}),
           });
         },
-      } as unknown as LLMService;
+      });
       const agent: Agent = {
         ...mockAgent,
         config: { ...mockAgent.config, tools: ["search_tools", "linear_create_issue"] },
@@ -977,7 +981,7 @@ describe("AgentRunner", () => {
 
     it("keeps one plugin session alive through the full non-internal run", async () => {
       const events: string[] = [];
-      const session = {
+      const session = partialFake<PluginSession>({
         runHook: () =>
           Effect.sync(() => {
             events.push("route");
@@ -990,16 +994,16 @@ describe("AgentRunner", () => {
           Effect.sync(() => {
             events.push("close");
           }),
-      } as unknown as PluginSession;
-      const pluginRuntime = {
+      });
+      const pluginRuntime = partialFake<PluginRuntimeService>({
         openSession: () =>
           Effect.sync(() => {
             events.push("open");
             return session;
           }),
         listAgentTools: () => Effect.succeed([]),
-      } as unknown as PluginRuntimeService;
-      const llm = {
+      });
+      const llm = partialFake<LLMService>({
         ...mockLlmService,
         createChatCompletion: () =>
           Effect.sync(() => {
@@ -1007,7 +1011,7 @@ describe("AgentRunner", () => {
             events.push("llm");
             return { id: "test-completion", model: "gpt-4", content: "Hello world" };
           }),
-      } as unknown as LLMService;
+      });
 
       await runWithTestLayers(
         AgentRunner.run({ ...defaultOptions, stream: false, maxIterations: 1 }),
@@ -1019,7 +1023,7 @@ describe("AgentRunner", () => {
 
     it("closes the plugin session when the run fails", async () => {
       let closes = 0;
-      const session = {
+      const session = partialFake<PluginSession>({
         runHook: () => Effect.succeed({ status: "abstained", reason: "test" } as const),
         runPolicyHook: () => Effect.succeed({ status: "abstained", reason: "not called" } as const),
         runWorkspace: () => Effect.succeed(undefined),
@@ -1028,15 +1032,15 @@ describe("AgentRunner", () => {
           Effect.sync(() => {
             closes += 1;
           }),
-      } as unknown as PluginSession;
-      const pluginRuntime = {
+      });
+      const pluginRuntime = partialFake<PluginRuntimeService>({
         openSession: () => Effect.succeed(session),
         listAgentTools: () => Effect.succeed([]),
-      } as unknown as PluginRuntimeService;
-      const llm = {
+      });
+      const llm = partialFake<LLMService>({
         ...mockLlmService,
         createChatCompletion: () => Effect.fail(new Error("model unavailable")),
-      } as unknown as LLMService;
+      });
 
       await expect(
         runWithTestLayers(AgentRunner.run({ ...defaultOptions, stream: false, maxIterations: 1 }), {
@@ -1053,7 +1057,7 @@ describe("AgentRunner", () => {
         enterModel = resolve;
       });
       let closes = 0;
-      const session = {
+      const session = partialFake<PluginSession>({
         runHook: () => Effect.succeed({ status: "abstained", reason: "test" } as const),
         runPolicyHook: () => Effect.succeed({ status: "abstained", reason: "not called" } as const),
         runWorkspace: () => Effect.succeed(undefined),
@@ -1062,18 +1066,18 @@ describe("AgentRunner", () => {
           Effect.sync(() => {
             closes += 1;
           }),
-      } as unknown as PluginSession;
-      const pluginRuntime = {
+      });
+      const pluginRuntime = partialFake<PluginRuntimeService>({
         openSession: () => Effect.succeed(session),
         listAgentTools: () => Effect.succeed([]),
-      } as unknown as PluginRuntimeService;
-      const llm = {
+      });
+      const llm = partialFake<LLMService>({
         ...mockLlmService,
         createChatCompletion: () => {
           enterModel();
           return Effect.never;
         },
-      } as unknown as LLMService;
+      });
       const program = AgentRunner.run({ ...defaultOptions, stream: false, maxIterations: 1 }).pipe(
         Effect.provide(createTestLayer({ llm, pluginRuntime })),
       ) as Effect.Effect<unknown, unknown, never>;
@@ -1091,13 +1095,13 @@ describe("AgentRunner", () => {
      */
     it("answers tool calls a previous run left unanswered before sending the history", async () => {
       const sent: ChatMessage[][] = [];
-      const llm = {
+      const llm = partialFake<LLMService>({
         ...mockLlmService,
         createChatCompletion: (_provider: string, options: { messages: ChatMessage[] }) => {
           sent.push(options.messages);
           return Effect.succeed({ id: "test-completion", model: "gpt-4", content: "done" });
         },
-      } as unknown as LLMService;
+      });
       const parkedTail: ChatMessage[] = [
         { role: "user", content: "continue the goal" },
         {
@@ -1462,7 +1466,9 @@ describe("AgentRunner", () => {
             stream: false,
             maxIterations: 1,
             checkQueuedMessage: () => {
-              if (!waiting) return undefined;
+              if (!waiting) {
+                return undefined;
+              }
               waiting = false;
               return { content, ...(typed ? { typed: ownText } : {}) };
             },
@@ -1556,7 +1562,9 @@ describe("AgentRunner", () => {
     ).getMockImplementation();
     afterEach(() => {
       const getToolMock = mockToolRegistry.getTool as Mock<ToolRegistry["getTool"]>;
-      if (originalGetTool !== undefined) getToolMock.mockImplementation(originalGetTool);
+      if (originalGetTool !== undefined) {
+        getToolMock.mockImplementation(originalGetTool);
+      }
     });
 
     /** Gives `tool1` an alias and a gated execute half, as the real shell tool has. */
@@ -1623,7 +1631,9 @@ describe("AgentRunner", () => {
     ).getMockImplementation();
     afterEach(() => {
       const getToolMock = mockToolRegistry.getTool as Mock<ToolRegistry["getTool"]>;
-      if (originalGetTool !== undefined) getToolMock.mockImplementation(originalGetTool);
+      if (originalGetTool !== undefined) {
+        getToolMock.mockImplementation(originalGetTool);
+      }
     });
 
     /** Gives `tool1` companions, as `spawn_subagent` has `wait_subagents`. */
