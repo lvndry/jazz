@@ -36,7 +36,12 @@ import {
   workStateSizeBytes,
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
+import { formatRetryWaste } from "@jazz/core/agent/metrics/failed-attempts";
 import { lastCacheObservation, promptCacheKey } from "@jazz/core/agent/metrics/prompt-cache";
+import {
+  discoverProjectInstructions,
+  type InstructionFileReport,
+} from "@jazz/core/agent/project-instructions";
 import {
   resolveAgentToolCategoryIds,
   resolveAgentToolNames,
@@ -170,7 +175,13 @@ import {
   SESSION_LIMIT_FIELD,
   type SessionLimitMetric,
 } from "./session-limits";
-import type { CommandContext, CommandResult, SessionLimits, SpecialCommand } from "./types";
+import type {
+  CommandContext,
+  CommandResult,
+  SessionLimits,
+  SessionUsage,
+  SpecialCommand,
+} from "./types";
 import { handleWaitsCommand } from "./waits";
 import { reviewMemorySuggestions } from "../../memory-review";
 import { managePlugins } from "../../plugin-manager";
@@ -2563,6 +2574,22 @@ function handleSkillsCommand(
   });
 }
 
+function summarizeInstructionBudget(reports: readonly InstructionFileReport[]): string | undefined {
+  const trimmed = reports.filter(
+    (report) => report.status === "truncated" || report.status === "omitted",
+  );
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  return trimmed
+    .map((report) => {
+      const lost = report.originalBytes - report.includedBytes;
+      const verb = report.status === "omitted" ? "left out" : "cut";
+      return `${abbreviateHomePath(report.path)} ${verb} (${String(lost)} bytes over budget)`;
+    })
+    .join("; ");
+}
+
 /**
  * One `/info` row per tool a run withholds, e.g. `web search  not configured  (how to set it up)`.
  */
@@ -2635,6 +2662,10 @@ function handleInfoCommand(
         : { agentId: agent.id },
     );
 
+    const instructionsSummary = summarizeInstructionBudget(
+      discoverProjectInstructions(workingDirectory).reports,
+    );
+
     const toolCalls = context.conversationHistory.reduce(
       (count, message) => count + (message.tool_calls?.length ?? 0),
       0,
@@ -2692,6 +2723,16 @@ function handleInfoCommand(
         { kind: "field", key: "tools", value: `${String(totalTools)} on` },
         ...unreadyRows,
         { kind: "field", key: "folder", value: abbreviateHomePath(workingDirectory) },
+        ...(instructionsSummary === undefined
+          ? []
+          : [
+              {
+                kind: "field" as const,
+                key: "instructions",
+                value: instructionsSummary,
+                tone: "warning" as const,
+              },
+            ]),
         ...(writeConfinement === undefined
           ? []
           : [{ kind: "field" as const, key: "writes", value: writeConfinement }]),
@@ -3699,13 +3740,29 @@ function handleContextCommand(
   });
 }
 
+/** The `retries` row of /cost: shown only once an attempt was retried. */
+function retryRows(sessionUsage: SessionUsage): ReportRow[] {
+  const line = formatRetryWaste(
+    {
+      retries: sessionUsage.retries ?? 0,
+      wastedUSD: sessionUsage.wastedUSD,
+      lowerBound: sessionUsage.wasteLowerBound === true,
+      unpriced: false,
+    },
+    formatCost,
+  );
+  return line === undefined
+    ? []
+    : [{ kind: "gap" }, { kind: "field", key: "retries", value: line }];
+}
+
 /**
  * Handle /cost command - Show conversation token usage and estimated cost
  */
 function handleCostCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
-  sessionUsage: { promptTokens: number; completionTokens: number },
+  sessionUsage: SessionUsage,
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
     const { promptTokens, completionTokens } = sessionUsage;
@@ -3752,7 +3809,12 @@ function handleCostCommand(
     yield* terminal.log(
       report(
         "cost",
-        [{ kind: "field", key: "model", value: model }, { kind: "gap" }, ...tokenRows],
+        [
+          { kind: "field", key: "model", value: model },
+          { kind: "gap" },
+          ...tokenRows,
+          ...retryRows(sessionUsage),
+        ],
         priced
           ? `Priced at $${inputPricePerMillion.toFixed(2)} in and $${outputPricePerMillion.toFixed(2)} out per million tokens.`
           : "models.dev has no pricing for this model, so no cost is shown.",

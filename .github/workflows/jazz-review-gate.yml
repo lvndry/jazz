@@ -1,0 +1,77 @@
+# Jazz review gate
+#
+# Decides when the Jazz code review runs for a pull request, without secrets and outside
+# jazz.yml's credential queue:
+#   - waits out a debounce so a burst of pushes becomes one review of the newest commit
+#   - enforces the per-PR budget and the repository-wide hourly cap
+#   - cancels older automatic reviews of the PR that are still queued
+#   - dispatches jazz.yml's code-review job (workflow_dispatch from GITHUB_TOKEN does start runs)
+#   - on close or merge, cancels the PR's queued automatic reviews
+# Logic and limits: scripts/jazz-review-gate.ts. Guide: .github/jazz/README.md
+
+name: Jazz review gate
+
+# pull_request_target runs this file and the scripts from the default branch, never code from
+# the pull request, so the write-scoped token below is not handed to PR-controlled code.
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize, closed]
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  gate:
+    # Same-repository, non-bot pushes only: fork PRs are never reviewed, and a bot-authored
+    # push must not start reviews.
+    if: |
+      github.event.action != 'closed' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.sender.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      # A newer push cancels this run while it waits out the debounce. It holds no secret and
+      # no slot in jazz.yml's credential queue, so cancelling it is always safe.
+      group: jazz-review-gate-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout the default branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Debounce, enforce limits, supersede and dispatch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JAZZ_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: bun scripts/jazz-review-gate.ts gate
+
+  close:
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the default branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cancel queued automatic reviews of the closed pull request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun scripts/jazz-review-gate.ts close

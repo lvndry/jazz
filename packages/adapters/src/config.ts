@@ -65,6 +65,7 @@ import {
 } from "@jazz/core/utils/provider-migration";
 import { resolveStorageDirectory, withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect, FileSystem, Layer, Option } from "effect";
+import { type ConfigSource, type DroppedSetting } from "./config-provenance";
 import {
   describeKeyringBackend,
   detectKeyringBackend,
@@ -95,7 +96,7 @@ type AppConfigShape = { [Key in keyof AppConfig]: AppConfig[Key] };
  * View a typed config as the untyped document it was built from, aliasing the same object. Sound
  * because an `AppConfig` is a plain JSON-shaped object; the view only widens property types.
  */
-function documentOf(config: AppConfig): ConfigDocument {
+export function documentOf(config: AppConfig): ConfigDocument {
   const shape: AppConfigShape = config;
   return shape;
 }
@@ -609,7 +610,7 @@ function sanitizeEffectiveConfig(config: AppConfig): AppConfig {
   return configOf(sanitized);
 }
 
-function requireValidEffectiveConfig(
+export function requireValidEffectiveConfig(
   config: AppConfig,
 ): Effect.Effect<AppConfig, ConfigurationError> {
   const report = effectiveConfigReport(config);
@@ -650,6 +651,13 @@ function mergeMcpServers(
   return merged;
 }
 
+/** Receives the notice printed when a project config setting is not applied. */
+type NoticeSink = (message: string) => void;
+
+function writeStderrNotice(message: string): void {
+  process.stderr.write(message);
+}
+
 /**
  * The project config without the sections only the operator may set.
  *
@@ -659,16 +667,20 @@ function mergeMcpServers(
  *   companion's server, so a cloned repository must not be able to redefine where a trusted
  *   name points.
  */
-function withoutGlobalOnlySections(localPath: string, local: ConfigFile): ConfigFile {
+export function withoutGlobalOnlySections(
+  localPath: string,
+  local: ConfigFile,
+  notify: NoticeSink = writeStderrNotice,
+): ConfigFile {
   const { network, companions, ...rest } = local;
   if (network !== undefined) {
-    process.stderr.write(
+    notify(
       `jazz: ignoring network in ${localPath}. Only your global config controls HTTP approvals, private hosts, and the browser endpoint; ` +
         "edit network settings with jazz > Settings.\n",
     );
   }
   if (companions !== undefined) {
-    process.stderr.write(
+    notify(
       `jazz: ignoring companions in ${localPath}. Only your global config defines named companions, ` +
         "because binding one is consent to send media to its server.\n",
     );
@@ -683,12 +695,16 @@ function withoutGlobalOnlySections(localPath: string, local: ConfigFile): Config
  * setting it can only override a user's global `true` and route prompts to endpoints that keep
  * them.
  */
-export function withoutWeakenedOpenRouterZdr(localPath: string, local: ConfigFile): ConfigFile {
+export function withoutWeakenedOpenRouterZdr(
+  localPath: string,
+  local: ConfigFile,
+  notify: NoticeSink = writeStderrNotice,
+): ConfigFile {
   const openrouter = local.llm?.openrouter;
   if (openrouter?.zdr !== false) {
     return local;
   }
-  process.stderr.write(
+  notify(
     `jazz: ignoring llm.openrouter.zdr: false in ${localPath}. A project config can turn zero data ` +
       "retention on but not off; only your global config can disable it.\n",
   );
@@ -703,16 +719,86 @@ export function withoutWeakenedOpenRouterZdr(localPath: string, local: ConfigFil
  * and `off` would let it release the very constraint that exists to contain what it makes a
  * run do. Only the global config can set `off`.
  */
-export function withoutDisabledShellConfinement(localPath: string, local: ConfigFile): ConfigFile {
+export function withoutDisabledShellConfinement(
+  localPath: string,
+  local: ConfigFile,
+  notify: NoticeSink = writeStderrNotice,
+): ConfigFile {
   if (local.shell?.confinement !== "off") {
     return local;
   }
-  process.stderr.write(
+  notify(
     `jazz: ignoring shell.confinement: "off" in ${localPath}. A project config can turn write ` +
       "confinement on but not off; only your global config can disable it.\n",
   );
   const { confinement: _ignored, ...shellRest } = local.shell;
   return { ...local, shell: shellRest };
+}
+
+/**
+ * Every value the project config sets that the loader does not apply, with the reason: the
+ * counterpart of the `without...` rules above, read from the project file as checked.
+ */
+export function projectOverrideDrops(
+  localPath: string,
+  validatedLocal: ConfigFile,
+  ignoredStorage?: unknown,
+): DroppedSetting[] {
+  const source: ConfigSource = { kind: "project", path: localPath };
+  const drops: DroppedSetting[] = [];
+  if (ignoredStorage !== undefined) {
+    drops.push({
+      path: "storage",
+      value: ignoredStorage,
+      source,
+      reason: "a project config cannot move the Jazz home; agents always live there",
+    });
+  }
+  if (validatedLocal.network !== undefined) {
+    drops.push({
+      path: "network",
+      value: validatedLocal.network,
+      source,
+      reason:
+        "only the global config controls HTTP approvals, private hosts and the browser endpoint",
+    });
+  }
+  if (validatedLocal.companions !== undefined) {
+    drops.push({
+      path: "companions",
+      value: validatedLocal.companions,
+      source,
+      reason:
+        "only the global config defines companions; binding one consents to sending media to its server",
+    });
+  }
+  if (validatedLocal.llm?.openrouter?.zdr === false) {
+    drops.push({
+      path: "llm.openrouter.zdr",
+      value: false,
+      source,
+      reason: "a project config can turn zero data retention on but not off",
+    });
+  }
+  if (validatedLocal.shell?.confinement === "off") {
+    drops.push({
+      path: "shell.confinement",
+      value: "off",
+      source,
+      reason: "a project config can turn write confinement on but not off",
+    });
+  }
+  for (const [name, override] of Object.entries(validatedLocal.mcpServers ?? {})) {
+    if (override.trusted !== undefined) {
+      drops.push({
+        path: `mcpServers.${name}.trusted`,
+        value: override.trusted,
+        source,
+        reason: "only the global config sets MCP trust",
+      });
+    }
+  }
+  return drops;
 }
 
 /** Tell the user a project config tried to set MCP trust, which only the global config can. */
@@ -731,6 +817,73 @@ function noticeIgnoredProjectTrust(
   }
 }
 
+/** The `--debug` layer: the only setting a command-line flag writes into the merge. */
+const DEBUG_FLAG_LAYER = { logging: { level: "debug" } };
+
+/** What checking and merging the config files produces, before secrets and MCP definitions. */
+export interface ComposedConfig {
+  readonly files: ConfigFilesOnDisk;
+  /** The global file, checked against the schema. */
+  readonly checkedGlobal: ConfigFile;
+  /** The project file as checked, before the settings only the operator may set were removed. */
+  readonly validatedLocal: ConfigFile;
+  /** The project file with those settings removed: the one that is merged. */
+  readonly checkedLocal: ConfigFile;
+  readonly globalOverrides: Record<string, MCPServerOverride> | undefined;
+  readonly localOverrides: Record<string, MCPServerOverride> | undefined;
+  readonly mainConfig: AppConfig;
+}
+
+/**
+ * Check the config files and merge them over the defaults, project over global, with `--debug`
+ * on top. The runtime loader and `jazz config resolved` both call this, so they share one merge.
+ */
+export function composeConfigLayers(
+  files: ConfigFilesOnDisk,
+  debug: boolean | undefined,
+  notify: NoticeSink = writeStderrNotice,
+): Effect.Effect<ComposedConfig, ConfigurationError> {
+  return Effect.gen(function* () {
+    const checkedGlobal =
+      files.global === undefined
+        ? EMPTY_CONFIG_FILE
+        : yield* requireValidConfigFile(files.global.path, files.global.document);
+    const validatedLocal =
+      files.local === undefined
+        ? EMPTY_CONFIG_FILE
+        : yield* requireValidConfigFile(files.local.path, files.local.document);
+    const checkedLocal =
+      files.local === undefined
+        ? EMPTY_CONFIG_FILE
+        : withoutDisabledShellConfinement(
+            files.local.path,
+            withoutWeakenedOpenRouterZdr(
+              files.local.path,
+              withoutGlobalOnlySections(files.local.path, validatedLocal, notify),
+              notify,
+            ),
+            notify,
+          );
+    const { mcpServers: globalOverrides, ...globalSettings } = checkedGlobal;
+    const { mcpServers: localOverrides, ...localSettings } = checkedLocal;
+
+    const mainConfig = mergeConfigLayers(defaultConfig(), [
+      globalSettings,
+      localSettings,
+      ...(debug ? [DEBUG_FLAG_LAYER] : []),
+    ]);
+    return {
+      files,
+      checkedGlobal,
+      validatedLocal,
+      checkedLocal,
+      globalOverrides,
+      localOverrides,
+      mainConfig,
+    };
+  });
+}
+
 export function createConfigLayer(
   debug?: boolean,
   customConfigPath?: string,
@@ -745,31 +898,8 @@ export function createConfigLayer(
       const fs = yield* FileSystem.FileSystem;
       const files = yield* loadConfigFiles(fs, customConfigPath);
 
-      const checkedGlobal =
-        files.global === undefined
-          ? EMPTY_CONFIG_FILE
-          : yield* requireValidConfigFile(files.global.path, files.global.document);
-      const checkedLocal =
-        files.local === undefined
-          ? EMPTY_CONFIG_FILE
-          : withoutDisabledShellConfinement(
-              files.local.path,
-              withoutWeakenedOpenRouterZdr(
-                files.local.path,
-                withoutGlobalOnlySections(
-                  files.local.path,
-                  yield* requireValidConfigFile(files.local.path, files.local.document),
-                ),
-              ),
-            );
-      const { mcpServers: globalOverrides, ...globalSettings } = checkedGlobal;
-      const { mcpServers: localOverrides, ...localSettings } = checkedLocal;
-
-      const mainConfig = mergeConfigLayers(defaultConfig(), [
-        globalSettings,
-        localSettings,
-        ...(debug ? [{ logging: { level: "debug" } }] : []),
-      ]);
+      const { mainConfig, checkedLocal, globalOverrides, localOverrides } =
+        yield* composeConfigLayers(files, debug);
 
       if (files.local !== undefined && localOverrides !== undefined) {
         noticeIgnoredProjectTrust(files.local.path, localOverrides);
@@ -882,7 +1012,7 @@ export function requireConfigValue<T>(key: string): Effect.Effect<T, never, Agen
 // Internal helpers
 // -----------------
 
-function defaultConfig(): AppConfig {
+export function defaultConfig(): AppConfig {
   const storage: StorageConfig = { type: "file", path: getGlobalUserDataDirectory() };
   const logging: LoggingConfig = {
     level: "info",
@@ -908,7 +1038,7 @@ function baseConfigForRuntime(): AppConfig {
  * `webhooks` are keyed by name, and merging them element-wise would make removing one from a
  * project override impossible.
  */
-function mergeConfigLayers(base: AppConfig, layers: readonly object[]): AppConfig {
+export function mergeConfigLayers(base: AppConfig, layers: readonly object[]): AppConfig {
   let merged = documentOf(base);
   for (const layer of layers) {
     merged = mergeInto(merged, layer);
@@ -935,7 +1065,7 @@ function buildRuntimeConfig(sources: RuntimeConfigSources): AppConfig {
   const main = mergeConfigLayers(sources.defaults, [
     globalSettings,
     localSettings,
-    ...(sources.debug ? [{ logging: { level: "debug" } }] : []),
+    ...(sources.debug ? [DEBUG_FLAG_LAYER] : []),
   ]);
   const withMcp = mergeAgentsMcpIntoConfig(
     main,
@@ -1179,17 +1309,19 @@ function expandHome(rawPath: string): string {
 }
 
 /** One config file as read from disk. */
-interface ConfigFileOnDisk {
+export interface ConfigFileOnDisk {
   readonly path: string;
   readonly document: ConfigDocument;
+  /** A `storage` section the file held that was not read: a project file cannot move the Jazz home. */
+  readonly ignoredStorage?: unknown;
 }
 
-interface GlobalConfigFileOnDisk extends ConfigFileOnDisk {
+export interface GlobalConfigFileOnDisk extends ConfigFileOnDisk {
   /** Whether the provider-name migration rewrote the document, so the file needs saving. */
   readonly renamedProvider: boolean;
 }
 
-interface ConfigFilesOnDisk {
+export interface ConfigFilesOnDisk {
   /** Where writes go, whether or not a file exists there yet. */
   readonly configPath: string;
   readonly global?: GlobalConfigFileOnDisk;
@@ -1270,13 +1402,17 @@ function readLocalConfigFile(
       if (file === undefined) {
         return undefined;
       }
-      const { storage: _storage, ...document } = file.document;
-      return { path: file.path, document };
+      const { storage, ...document } = file.document;
+      return {
+        path: file.path,
+        document,
+        ...(storage !== undefined ? { ignoredStorage: storage } : {}),
+      };
     }),
   );
 }
 
-function loadConfigFiles(
+export function loadConfigFiles(
   fs: FileSystem.FileSystem,
   customConfigPath?: string,
 ): Effect.Effect<ConfigFilesOnDisk, ConfigurationError | ConfigurationNotFoundError> {
