@@ -1,5 +1,5 @@
 ---
-description: "Configure Brave, Exa, Linkup, Parallel, Perplexity, Tavily, or treg as the Jazz web-search provider and understand normalized search options and limits."
+description: "Configure Brave, Exa, Keenable, Linkup, Parallel, Perplexity, Tavily, or treg as the Jazz web-search provider and understand normalized search options and limits."
 ---
 
 # Configure web search
@@ -8,12 +8,13 @@ description: "Configure Brave, Exa, Linkup, Parallel, Perplexity, Tavily, or tre
 
 ## Choose a provider
 
-Jazz supports seven search backends:
+Jazz supports eight search backends:
 
 | Provider     | Identifier   | Environment variable |
 | ------------ | ------------ | -------------------- |
 | Brave Search | `brave`      | `BRAVE_API_KEY`      |
 | Exa          | `exa`        | `EXA_API_KEY`        |
+| Keenable     | `keenable`   | `KEENABLE_API_KEY`   |
 | Linkup       | `linkup`     | `LINKUP_API_KEY`     |
 | Parallel     | `parallel`   | `PARALLEL_API_KEY`   |
 | Perplexity   | `perplexity` | `PERPLEXITY_API_KEY` |

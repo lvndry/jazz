@@ -573,14 +573,14 @@ describe("transcript wheel and type-to-input", () => {
     await renderOnce();
     await mockInput.pressKey("ESCAPE");
     await settle(flush, 100);
-    expect(captureCharFrame()).toContain("type to input");
+    expect(captureCharFrame()).not.toContain("up for history");
 
     await mockInput.pressKey("a");
     await settle(flush);
     const typed = captureCharFrame();
     renderer.destroy();
     expect(typed).toContain("a");
-    expect(typed).toContain("enter to send");
+    expect(typed).toContain("up for history");
   });
 
   it("pastes into the composer while the transcript has focus", async () => {
@@ -591,14 +591,14 @@ describe("transcript wheel and type-to-input", () => {
     await renderOnce();
     await mockInput.pressKey("ESCAPE");
     await settle(flush, 100);
-    expect(captureCharFrame()).toContain("type to input");
+    expect(captureCharFrame()).not.toContain("up for history");
 
     await mockInput.pasteBracketedText("pasted-draft");
     await settle(flush);
     const pasted = captureCharFrame();
     renderer.destroy();
     expect(pasted).toContain("pasted-draft");
-    expect(pasted).toContain("enter to send");
+    expect(pasted).toContain("up for history");
   });
 });
 
@@ -793,7 +793,7 @@ describe("composer after a completed turn", () => {
     const idle = captureCharFrame();
     // The caret takes its own cell before the placeholder, so the hint reads whole.
     expect(idle).toContain(`${getGlyphs().bandBar}  Ask anything`);
-    expect(idle).toContain("enter to send");
+    expect(idle).toContain("up for history");
 
     await mockInput.pressKey("x");
     await settle(flush);
@@ -801,7 +801,7 @@ describe("composer after a completed turn", () => {
     renderer.destroy();
     expect(typed).toContain(`${getGlyphs().bandBar} x`);
     expect(typed).toContain("x");
-    expect(typed).toContain("enter to send");
+    expect(typed).toContain("up for history");
   });
 });
 
