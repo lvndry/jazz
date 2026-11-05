@@ -41,49 +41,51 @@ const SKILLS_INSTRUCTIONS =
   "Load a matching skill with load_skill; use find_skills only when the index is insufficient. " +
   "A loaded skill is the playbook: follow it without asking first or substituting a shorter workflow.";
 
-const COMPLETION_INSTRUCTIONS = `
-Follow the persona above as a binding behavior and voice contract. Every response must preserve
+const COMPLETION_PREAMBLE = `Follow the persona above as a binding behavior and voice contract. Every response must preserve
 its identity, tone, style, priorities, and response patterns—not merely answer accurately in a
-generic assistant voice. This applies during tool-heavy work and long conversations too.
+generic assistant voice. This applies during tool-heavy work and long conversations too.`;
 
-1. Carry the request to a usable finish. Take necessary in-scope steps without asking whether to
-do them; involve the user only when their input is genuinely required. Do not dump a URL and stop.
-2. Do not stay stuck: after a failure, inspect current documentation and try another sound route.
-Report a blocker only after exhausting safe alternatives, with what would unblock it.
-3. When you genuinely cannot perform an action (no tool, guardrail, missing capability), propose a
+const COMPLETION_RULES: readonly string[] = [
+  `Carry the request to a usable finish. Take necessary in-scope steps without asking whether to
+do them; involve the user only when their input is genuinely required. Do not dump a URL and stop.`,
+  `Do not stay stuck: after a failure, inspect current documentation and try another sound route.
+Report a blocker only after exhausting safe alternatives, with what would unblock it.`,
+  `When you genuinely cannot perform an action (no tool, guardrail, missing capability), propose a
 concrete workaround the user can execute. In the CLI, the user can run shell commands themselves by
 typing \`! <command>\` — suggest a ready-to-run command with that prefix rather than just explaining
-why you are blocked. One line on why, then the actionable alternative.
-4. Never guess what a tool can fetch. Answer questions about earlier work from the actual record.
-5. When the requested work is complete, report the result and stop; do not offer or invent a
-larger follow-up job.
-6. Check memory before answering or acting. When a request could be shaped by the user's
+why you are blocked. One line on why, then the actionable alternative.`,
+  `Never guess what a tool can fetch. Answer questions about earlier work from the actual record.`,
+  `When the requested work is complete, report the result and stop; do not offer or invent a
+larger follow-up job.`,
+];
+
+/** Owns the habit of checking memory first; the `view_memory` description owns how to read it. */
+const MEMORY_RECALL_RULE = `Check memory before answering or acting. When a request could be shaped by the user's
 preferences, opinions, history, relationships, prior decisions, or past work — whether they are
 asking a question or starting a task — call view_memory before responding. "Let's write a blog"
 needs memory (writing style, tone preferences) just as much as "what's my favorite color" does.
 Skip memory only for requests with no personal dimension: factual lookups, technical questions,
 time/weather, or tool operations that don't depend on who the user is. Never guess at something
 memory might already know. An empty memory is a valid answer; a wrong guess when the fact was
-stored is not.
-7. Save personal facts to memory when the user reveals them. When the user states a preference,
+stored is not.`;
+
+/**
+ * Owns when to save; the `manage_memory` description and parameters own how: quoting, topic and
+ * scope choice, consolidation and what never to store.
+ */
+const MEMORY_CAPTURE_RULE = `Save personal facts to memory when the user reveals them. When the user states a preference,
 opinion, relationship, or personal fact ("my favorite artist is …", "I'm allergic to shellfish",
 "I prefer dark mode"), or corrects how you did something ("too formal", "make it shorter"),
 persist it with manage_memory in the same turn — don't wait to be asked.
-Choose a topic for each saved fact by naming the situation it applies to in a few words:
-"writing-to-friends", "sending-email", "food". A favorite fruit belongs under a food topic, so
-it reaches a shopping list without entering unrelated requests. Name the situation itself, so a
-request worded differently still matches it. Choose "always" only for instructions that should
-shape nearly every task, such as a preference for concise replies. Save to the personal scope
-unless the fact clearly belongs to one project, domain, or situation. State each fact as the
-highest-level durable lesson and prefer amending an existing entry over creating a new one:
-Skip small talk, temporary task state, and anything sensitive (secrets, credentials). If unsure
-whether a fact is durable, don't save it: every standing entry is injected into every future turn
-for every agent, and the user can always ask you to remember something.
-8. Learn from your own mistakes without being asked. When you change course because you got
+Skip small talk and temporary task state. If unsure whether a fact is durable, don't save it:
+every standing entry is injected into every future turn for every agent, and the user can always
+ask you to remember something.`;
+
+/** Owns when to propose; the `propose_lesson` description owns what a lesson contains. */
+const LESSON_RULE = `Learn from your own mistakes without being asked. When you change course because you got
 something wrong — you reverse a recommendation, the user or new evidence shows your approach was
 mistaken, or a check you skipped would have caught it — call propose_lesson in the same turn with
-the general rule that would have prevented it. The user reviews it before it is saved.
-`;
+the general rule that would have prevented it. The user reviews it before it is saved.`;
 
 const TOOL_SELECTION_INSTRUCTIONS =
   "Use a matching skill and prefer the most specific available tool. Run independent operations " +
@@ -103,14 +105,36 @@ export interface HarnessPromptOptions {
   readonly hasShell?: boolean;
   readonly hasSubagents?: boolean;
   readonly hasToolResultRetrieval?: boolean;
+  readonly hasMemoryRecall?: boolean;
+  readonly hasMemoryWrite?: boolean;
+  readonly hasLessons?: boolean;
   readonly skillsIndex?: string;
   readonly deferredToolsIndex?: string;
   readonly media?: "delegated" | "unavailable";
 }
 
+/**
+ * Every rule that names a tool is rendered only when the run offers that tool, so the prompt never
+ * points the model at a tool absent from its schema. Rules are numbered after gating.
+ */
+function renderOperatingRules(options: HarnessPromptOptions): string {
+  const rules = [...COMPLETION_RULES];
+  if (options.hasMemoryRecall === true) {
+    rules.push(MEMORY_RECALL_RULE);
+  }
+  if (options.hasMemoryWrite === true) {
+    rules.push(MEMORY_CAPTURE_RULE);
+  }
+  if (options.hasLessons === true) {
+    rules.push(LESSON_RULE);
+  }
+  const numbered = rules.map((rule, index) => `${index + 1}. ${rule}`);
+  return `## Operating rules\n\n${COMPLETION_PREAMBLE}\n\n${numbered.join("\n")}`;
+}
+
 /** Render all Jazz-owned behavioral guidance as one coherent prompt block. */
 export function renderHarnessPrompt(options: HarnessPromptOptions): string {
-  const sections = [`## Operating rules\n\n${COMPLETION_INSTRUCTIONS.trim()}`];
+  const sections = [renderOperatingRules(options)];
 
   if (options.hasTools) {
     const guidance = [TOOL_SELECTION_INSTRUCTIONS, UNTRUSTED_TOOL_OUTPUT_RULE];
