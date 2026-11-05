@@ -21,13 +21,13 @@ let outside: string;
 beforeAll(() => {
   base = realpathSync(mkdtempSync(path.join(os.tmpdir(), "jazz-confinement-it-")));
   workspace = path.join(base, "workspace");
-  outside = path.join(base, "outside");
+  outside = mkdtempSync(path.join(process.cwd(), ".confinement-it-outside-"));
   mkdirSync(workspace);
-  mkdirSync(outside);
 });
 
 afterAll(() => {
   rmSync(base, { recursive: true, force: true });
+  rmSync(outside, { recursive: true, force: true });
 });
 
 function runConfined(script: string): { exitCode: number; stderr: string } {

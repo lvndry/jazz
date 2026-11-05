@@ -2,6 +2,7 @@ import * as path from "node:path";
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { denyWriteOutsideRoots } from "@/core/sandbox/runtime-policy";
 import { redactLines, type RedactedLines } from "@/core/secrets/redacted-lines";
 import {
   containsRedactionPlaceholder,
@@ -300,6 +301,10 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
+        const denied = yield* denyWriteOutsideRoots(context, [target]);
+        if (denied !== undefined) {
+          return { skipApproval: true, toolResult: denied };
+        }
         const canonicalTarget = yield* canonicalPathOf(fs, target);
         const current = yield* readExistingFile(fs, canonicalTarget);
         const { content, problem } = yield* planWrite(target, args.content, current);
@@ -360,6 +365,10 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
+        const denied = yield* denyWriteOutsideRoots(context, [target]);
+        if (denied !== undefined) {
+          return denied;
+        }
         const parentDir = target.substring(0, target.lastIndexOf("/"));
         if (parentDir && parentDir !== target) {
           const parentExists = yield* fs

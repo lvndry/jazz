@@ -81,7 +81,7 @@ executor holds until the same approval. Counts: [tool inventory](docs/tools/inde
 (`sudo`, `su`), filesystem destruction (`rm -rf /`), remote code execution (`curl … | sh`),
 power/runlevel changes (`shutdown`), and reads of `/etc/passwd`, `/etc/shadow`, `/etc/sudoers`.
 
-**Write confinement** fences `execute_command`, `rm`, `mv`, `cp` and `mkdir` to the working
+**Write confinement** fences `execute_command`, `write_file`, `edit_file`, `create_pdf`, `rm`, `mv`, `cp` and `mkdir` to the working
 directory, temp directories and tool caches with macOS Seatbelt or Linux bubblewrap. It is on by
 default wherever nobody is attending (bridges, peers, goals, loops, headless `jazz run`) and covers
 file writes only: reads and the network stay open. See [write confinement](docs/security/write-confinement.md).

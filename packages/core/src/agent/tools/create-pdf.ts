@@ -19,6 +19,7 @@ import { z } from "zod";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { denyWriteOutsideRoots } from "@/core/sandbox/runtime-policy";
 import type { KnownSecret } from "@/core/secrets/redaction";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
@@ -165,6 +166,10 @@ export function createPdfTool(
         // Chromium loads the source over file://, so the HTML has to exist on disk. It goes next
         // to the PDF rather than in a temp dir so a broken render leaves something inspectable.
         const [pdfPath, htmlPath] = createPdfOutputPaths(args, workingDirectory);
+        const denied = yield* denyWriteOutsideRoots(context, [pdfPath, htmlPath]);
+        if (denied !== undefined) {
+          return denied;
+        }
         yield* fs.writeFileString(htmlPath, args.html);
 
         const egressPolicy = yield* egressPolicyForContext(context);

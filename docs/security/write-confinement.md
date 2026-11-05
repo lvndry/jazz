@@ -4,8 +4,8 @@ description: "Write confinement fences model-run shell commands and file tools t
 
 # Write confinement
 
-Write confinement is an operating-system fence under `execute_command` and the `rm`, `mv`, `cp`
-and `mkdir` tools. With it on, a command can write only inside:
+Write confinement is an operating-system fence under `execute_command` and the `write_file`,
+`edit_file`, `create_pdf` and the `rm`, `mv`, `cp` and `mkdir` tools. With it on, a command can write only inside:
 
 - the session's working directory;
 - Jazz's scratch directory (`~/.jazz/workspace`);
@@ -75,9 +75,9 @@ The file tools do not escalate: a path outside the roots is refused with the roo
 ## Limits
 
 - The fence covers writes, not reads or the network.
+- `manage_scratchpad` writes only under Jazz's own scratch directory, which is a writable root, so it needs no separate check.
 - Commands the daemon runs from a `wait_for` job and the operator's `!` escape run unconfined.
 - `sandbox-exec` is deprecated by Apple but ships on every supported macOS.
 - Linux support needs `bwrap` and unprivileged user namespaces; hosts without them report `none`.
-- `edit_file` and `write_file` apply the same roots once their guard is wired.
 - Seatbelt and bwrap enforce at the kernel, so a command cannot lift the fence from inside; a
   process that is not a child of the command (a daemon you started earlier) is not fenced.

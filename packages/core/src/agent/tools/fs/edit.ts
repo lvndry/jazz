@@ -1,6 +1,7 @@
 import { Data, Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { denyWriteOutsideRoots } from "@/core/sandbox/runtime-policy";
 import { redactLines } from "@/core/secrets/redacted-lines";
 import { redactedWriteProblem, type KnownSecret } from "@/core/secrets/redaction";
 import type { ToolExecutionContext } from "@/core/types";
@@ -656,6 +657,10 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+        const denied = yield* denyWriteOutsideRoots(context, [target]);
+        if (denied !== undefined) {
+          return { skipApproval: true, toolResult: denied };
+        }
         const fs = yield* FileSystem.FileSystem;
         const fileExists = yield* fs.exists(target).pipe(Effect.catch(() => Effect.succeed(false)));
 
@@ -790,6 +795,10 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+        const denied = yield* denyWriteOutsideRoots(context, [target]);
+        if (denied !== undefined) {
+          return denied;
+        }
         const canonicalTargetResult = yield* fs.realPath(target).pipe(Effect.result);
         if (canonicalTargetResult._tag === "Failure") {
           const err = new FileNotFoundError({ path: target });

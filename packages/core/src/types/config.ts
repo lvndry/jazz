@@ -165,7 +165,7 @@ export interface NamedCompanionConfig {
 }
 
 /**
- * Write confinement for `execute_command`, `rm`, `mv`, `cp` and `mkdir`: with it `on`, a
+ * Write confinement for `execute_command`, `write_file`, `edit_file`, `create_pdf`, `rm`, `mv`, `cp` and `mkdir`: with it `on`, a
  * command can write only to the session's working directory, temp directories and well-known
  * tool caches; reads and the network stay open.
  *
