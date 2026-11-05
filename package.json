@@ -67,6 +67,8 @@
     "test:watch": "bun test --watch",
     "bench": "bun bench/run.ts",
     "docs:config-reference": "bun run scripts/gen-config-reference.ts",
+    "docs:tool-catalog": "bun run scripts/gen-tool-catalog.ts",
+    "docs:tool-catalog:check": "bun run scripts/gen-tool-catalog.ts --check",
     "docs:check-links": "bun run scripts/check-docs-links.ts",
     "docs:check-metadata": "bun run scripts/check-docs-metadata.ts",
     "docs:chat-commands": "bun run packages/cli/src/chat/commands/generate-reference.ts",

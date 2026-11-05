@@ -149,6 +149,7 @@ and computes the published SHA-256 itself. See [Plugins](docs/configure/plugins.
 - [ ] `bun run lint` passes
 - [ ] `bun run test:typecheck` passes (typechecks the test files, which `typecheck` skips)
 - [ ] Docs changes pass `bun run docs:lint`, `bun run docs:check-links` and `bun run docs:check-metadata`
+- [ ] Tool changes pass `bun run docs:tool-catalog:check`; run `bun run docs:tool-catalog` to regenerate the [tool catalog](docs/maintainers/tool-catalog.md)
 - [ ] Changes under `plugins/` pass `bun run plugin:catalog`
 - [ ] `bun test` passes
 - [ ] `bun run test:e2e` passes (`jazz run --json` against a scripted model server)

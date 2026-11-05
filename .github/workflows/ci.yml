@@ -126,6 +126,9 @@ jobs:
       - name: Typecheck evals
         run: bun run typecheck:evals
 
+      - name: Check the generated tool catalog
+        run: bun run docs:tool-catalog:check
+
       - name: Rebuild reviewed plugin catalog without credentials
         env:
           TYPESAFE_API_KEY: ""
