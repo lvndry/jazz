@@ -6,7 +6,6 @@
 import { Cause, Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { resolveCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
-import { buildKeyFromContext } from "@/core/agent/tools/context-utils";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -54,7 +53,7 @@ import { isCommandCoveredByAllowlist } from "@/core/utils/shell";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
 import { taintedEgressApprovalMessage, taintedEgressNeedsApproval } from "./egress-taint";
-import { earlierCallsOnSamePaths, mutatedPathArguments } from "./path-mutation-order";
+import { earlierCallsOnSamePaths, resolveMutatedPaths } from "./path-mutation-order";
 import {
   privateDestinationApprovalMessage,
   privateDestinationNeedsApproval,
@@ -1490,16 +1489,11 @@ export class ToolExecutor {
           if (!parsedArguments.ok) {
             return Effect.succeed<string[]>([]);
           }
-          return Effect.all(
-            mutatedPathArguments(toolCall.function.name, parsedArguments.args).map((rawPath) =>
-              Option.isSome(fileSystemContext)
-                ? fileSystemContext.value
-                    .resolvePath(buildKeyFromContext(context), rawPath, {
-                      skipExistenceCheck: true,
-                    })
-                    .pipe(Effect.catch(() => Effect.succeed(rawPath)))
-                : Effect.succeed(rawPath),
-            ),
+          return resolveMutatedPaths(
+            toolCall.function.name,
+            parsedArguments.args,
+            context,
+            Option.getOrUndefined(fileSystemContext),
           );
         }),
       );

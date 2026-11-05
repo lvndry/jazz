@@ -76,6 +76,8 @@ export function pdfFilenameFromTitle(title: string): string {
   return `${slug.length > 0 ? slug : "document"}.pdf`;
 }
 
+const PDF_SOURCE_HTML_SUFFIX = ".source.html";
+
 /** Absolute destination for the PDF, honouring an explicit path over the derived filename. */
 export function resolvePdfOutputPath(
   args: Pick<CreatePdfArgs, "path" | "title">,
@@ -83,6 +85,15 @@ export function resolvePdfOutputPath(
 ): string {
   const requested = args.path ?? pdfFilenameFromTitle(args.title);
   return isAbsolute(requested) ? requested : resolvePath(workingDirectory, requested);
+}
+
+/** The PDF path and the sibling HTML source file the tool writes beside it. */
+export function createPdfOutputPaths(
+  args: Pick<CreatePdfArgs, "path" | "title">,
+  workingDirectory: string,
+): [pdfPath: string, htmlPath: string] {
+  const pdfPath = resolvePdfOutputPath(args, workingDirectory);
+  return [pdfPath, `${pdfPath}${PDF_SOURCE_HTML_SUFFIX}`];
 }
 
 async function renderPdf(
@@ -151,11 +162,9 @@ export function createPdfTool(
         }
 
         const workingDirectory = yield* resolveWorkingDirectory(context);
-        const pdfPath = resolvePdfOutputPath(args, workingDirectory);
-
         // Chromium loads the source over file://, so the HTML has to exist on disk. It goes next
         // to the PDF rather than in a temp dir so a broken render leaves something inspectable.
-        const htmlPath = `${pdfPath}.source.html`;
+        const [pdfPath, htmlPath] = createPdfOutputPaths(args, workingDirectory);
         yield* fs.writeFileString(htmlPath, args.html);
 
         const egressPolicy = yield* egressPolicyForContext(context);
