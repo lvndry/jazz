@@ -13,7 +13,8 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import { beforeAll, afterAll, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { pluginEnableCommand, pluginTrustCommand } from "./plugin";
-const headlessTerminal = {
+import { partialFake } from "../test-support/partial-fake";
+const headlessTerminal = partialFake<TerminalService>({
   isInteractive: false,
   confirm: () => Effect.succeed(true),
   heading: () => Effect.void,
@@ -22,7 +23,7 @@ const headlessTerminal = {
   warn: () => Effect.void,
   error: () => Effect.void,
   success: () => Effect.void,
-} as unknown as TerminalService;
+});
 
 const layer = Layer.mergeAll(
   Layer.succeed(TerminalServiceTag, headlessTerminal),

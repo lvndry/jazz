@@ -10,6 +10,7 @@ import type { RegistrySkillDownload } from "@jazz/core/types/skill-registry";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
 import { filterSkillEntries, addSkillCommand, isValidSkillName } from "./skill-library";
+import { partialFake } from "../test-support/partial-fake";
 
 /** Command-level regressions for confirmation, path safety, and exact writes. */
 
@@ -43,7 +44,7 @@ let jazzHome: string;
 let originalJazzHome: string | undefined;
 
 function terminal(interactive: boolean): TerminalService {
-  return {
+  return partialFake<TerminalService>({
     isInteractive: interactive,
     heading: mock(() => Effect.void),
     info: mock(() => Effect.void),
@@ -61,7 +62,7 @@ function terminal(interactive: boolean): TerminalService {
     search: mock(() => Effect.succeed(undefined)),
     checkbox: mock(() => Effect.succeed([])),
     setTitle: mock(() => Effect.void),
-  } as unknown as TerminalService;
+  });
 }
 
 function registry(): SkillRegistryService {

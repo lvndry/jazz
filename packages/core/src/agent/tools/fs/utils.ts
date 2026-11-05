@@ -232,8 +232,8 @@ export function isUnsafeRegex(pattern: string): boolean {
   let inCharClass = false;
   let escaped = false;
 
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i];
+  for (let charIndex = 0; charIndex < pattern.length; charIndex++) {
+    const ch = pattern[charIndex];
 
     if (escaped) {
       escaped = false;
@@ -268,7 +268,7 @@ export function isUnsafeRegex(pattern: string): boolean {
       const isQuantifiedGroup = hasQuantifierInGroup;
       groupDepth--;
       // Check if the group itself is followed by a quantifier
-      const next = pattern[i + 1];
+      const next = pattern[charIndex + 1];
       if (next === "+" || next === "*" || next === "{") {
         // A quantified group that contains a quantifier → catastrophic backtracking
         if (isQuantifiedGroup) {
@@ -323,11 +323,11 @@ export function normalizeFilterPattern(pattern?: string): FilterPatternResult {
 
     try {
       return { type: "regex", regex: new RegExp(body) };
-    } catch (e) {
+    } catch (error) {
       return {
         type: "substring",
         value: body,
-        error: `Invalid regex "${body}": ${toError(e).message}`,
+        error: `Invalid regex "${body}": ${toError(error).message}`,
       };
     }
   }

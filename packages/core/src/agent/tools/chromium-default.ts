@@ -111,7 +111,7 @@ function handlerBundleId(plistXml: string, scheme: "http" | "https"): string | n
     }
     const roles = [
       ...part.matchAll(/<key>LSHandlerRoleAll<\/key>\s*<string>([^<]+)<\/string>/g),
-    ].map((m) => m[1]);
+    ].map((match) => match[1]);
     const role = roles[roles.length - 1];
     if (role !== undefined && role.length > 0) {
       return role;

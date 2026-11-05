@@ -698,7 +698,7 @@ function initializeAgentRun(
         : undefined;
 
     // Register skill tools with discovered skill names as enum constraint
-    yield* registerSkillSystemTools(relevantSkills.map((s) => s.name));
+    yield* registerSkillSystemTools(relevantSkills.map((skill) => skill.name));
 
     // Get agent's tool names
     const agentToolNames = normalizeToolConfig(agent.config.tools, {
@@ -1035,7 +1035,7 @@ function initializeAgentRun(
       // very next LLM request. Dedup by name: a repeat search_tools call for the same tool must
       // not send its schema twice.
       unlockDeferredTools: (definitions) => {
-        const alreadyPresent = new Set(tools.map((t) => t.function.name));
+        const alreadyPresent = new Set(tools.map((tool) => tool.function.name));
         for (const definition of definitions) {
           if (!alreadyPresent.has(definition.function.name)) {
             tools.push(definition);

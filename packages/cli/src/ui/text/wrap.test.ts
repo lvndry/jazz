@@ -6,7 +6,11 @@ import { wrapStyledSpans } from "./wrap";
 describe("wrapStyledSpans", () => {
   it("preserves a long Unicode token and its style even at a one-cell measure", () => {
     const text = "e\u0301👩‍💻界".repeat(100);
-    const rows = wrapStyledSpans([{ text, color: "blue" }], 1, (a, b) => a.color === b.color);
+    const rows = wrapStyledSpans(
+      [{ text, color: "blue" }],
+      1,
+      (left, right) => left.color === right.color,
+    );
     expect(
       rows
         .flat()

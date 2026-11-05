@@ -1175,9 +1175,9 @@ export class ToolExecutor {
       );
       const approvalToolNameSet = new Set<string>();
       const toolMetaByName = new Map<string, ToolGateMetadata>();
-      for (let i = 0; i < uniqueToolNames.length; i++) {
-        const uniqueToolName = uniqueToolNames[i];
-        const toolResult = toolResults[i];
+      for (let nameIndex = 0; nameIndex < uniqueToolNames.length; nameIndex++) {
+        const uniqueToolName = uniqueToolNames[nameIndex];
+        const toolResult = toolResults[nameIndex];
         if (uniqueToolName && toolResult && Result.isSuccess(toolResult)) {
           toolMetaByName.set(uniqueToolName, toolResult.success);
           if (toolResult.success.approvalExecuteToolName) {

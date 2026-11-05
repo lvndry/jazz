@@ -467,8 +467,8 @@ export const Summarizer = {
     let recentCount = 0;
 
     // Scan backwards to fill budget
-    for (let i = middleMessages.length - 1; i >= 0; i--) {
-      const msg = middleMessages[i];
+    for (let messageIndex = middleMessages.length - 1; messageIndex >= 0; messageIndex--) {
+      const msg = middleMessages[messageIndex];
       if (!msg) {
         continue;
       }

@@ -168,15 +168,15 @@ type BufferedStreamDelta =
       readonly channel?: SubagentChannel;
     };
 
-function sameBufferTarget(a: BufferedStreamDelta, b: BufferedStreamDelta): boolean {
-  if (a.target !== b.target) {
+function sameBufferTarget(left: BufferedStreamDelta, right: BufferedStreamDelta): boolean {
+  if (left.target !== right.target) {
     return false;
   }
-  if (a.target === "stream" && b.target === "stream") {
-    return a.kind === b.kind;
+  if (left.target === "stream" && right.target === "stream") {
+    return left.kind === right.kind;
   }
-  if (a.target === "ephemeral" && b.target === "ephemeral") {
-    return a.regionId === b.regionId && a.channel === b.channel;
+  if (left.target === "ephemeral" && right.target === "ephemeral") {
+    return left.regionId === right.regionId && left.channel === right.channel;
   }
   return false;
 }
@@ -1684,7 +1684,7 @@ export class InkPresentationService implements PresentationService {
               choice === "__decline__"
                 ? CHALK_THEME.error("No")
                 : CHALK_THEME.success(
-                    request.options?.find((o) => o.id === choice)?.label ?? choice,
+                    request.options?.find((option) => option.id === choice)?.label ?? choice,
                   )
             }`,
             timestamp: new Date(),

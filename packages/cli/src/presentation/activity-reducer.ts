@@ -51,8 +51,8 @@ export const AWAITING_LABELS: readonly string[] = [
 ];
 
 function pickAwaitingLabel(): string {
-  const i = Math.floor(Math.random() * AWAITING_LABELS.length);
-  return AWAITING_LABELS[i] ?? "is cooking";
+  const index = Math.floor(Math.random() * AWAITING_LABELS.length);
+  return AWAITING_LABELS[index] ?? "is cooking";
 }
 
 // ---------------------------------------------------------------------------

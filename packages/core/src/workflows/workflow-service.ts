@@ -126,7 +126,7 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
 
   // Parse skills array
   const skills = Array.isArray(data["skills"])
-    ? data["skills"].filter((s): s is string => typeof s === "string")
+    ? data["skills"].filter((skill): skill is string => typeof skill === "string")
     : undefined;
 
   const deliver = parseDeliver(data["deliver"]);
@@ -255,7 +255,9 @@ export class WorkflowsLive implements WorkflowService {
 
         // 3. Merge (Local > Global by name)
         const merged = mergeByName(globalWorkflows, localWorkflows);
-        const workflowMap = new Map<string, WorkflowMetadata>(merged.map((w) => [w.name, w]));
+        const workflowMap = new Map<string, WorkflowMetadata>(
+          merged.map((workflow) => [workflow.name, workflow]),
+        );
 
         // Update cache
         yield* Ref.set(this.workflowCache, workflowMap);
@@ -277,7 +279,9 @@ export class WorkflowsLive implements WorkflowService {
 
         // Find workflow path
         const allWorkflows = yield* this.listWorkflows();
-        const metadata = allWorkflows.find((w: WorkflowMetadata) => w.name === workflowName);
+        const metadata = allWorkflows.find(
+          (workflow: WorkflowMetadata) => workflow.name === workflowName,
+        );
         if (!metadata) {
           return yield* Effect.fail(new Error(`Workflow not found: ${workflowName}`));
         }
@@ -310,7 +314,9 @@ export class WorkflowsLive implements WorkflowService {
     return Effect.gen(
       function* (this: WorkflowsLive) {
         const allWorkflows = yield* this.listWorkflows();
-        const workflow = allWorkflows.find((w: WorkflowMetadata) => w.name === workflowName);
+        const workflow = allWorkflows.find(
+          (workflow: WorkflowMetadata) => workflow.name === workflowName,
+        );
         if (!workflow) {
           return yield* Effect.fail(new Error(`Workflow not found: ${workflowName}`));
         }

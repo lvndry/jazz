@@ -13,6 +13,7 @@ import type { AppConfig } from "@jazz/core/types/config";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { configureLLMProviders } from "./settings-wizard";
+import { partialFake } from "../test-support/partial-fake";
 
 let originalPath: string | undefined;
 
@@ -38,11 +39,11 @@ async function configureOpenRouter(script: Script, zdr?: boolean) {
   const writes: Array<{ key: string; value: unknown }> = [];
   const confirmPrompts: string[] = [];
   let selections = 0;
-  const config = {
+  const config = partialFake<AppConfig>({
     llm: { openrouter: { api_key: "sk-or-test", ...(zdr !== undefined ? { zdr } : {}) } },
-  } as unknown as AppConfig;
+  });
 
-  const terminal = {
+  const terminal = partialFake<TerminalService>({
     isInteractive: true,
     select: () => Effect.succeed(selections++ === 0 ? "openrouter" : "back"),
     ask: () => Effect.succeed(script.keyAction),
@@ -54,12 +55,12 @@ async function configureOpenRouter(script: Script, zdr?: boolean) {
     info: () => Effect.void,
     success: () => Effect.void,
     error: () => Effect.void,
-  } as unknown as TerminalService;
+  });
 
-  const configService = {
+  const configService = partialFake<AgentConfigService>({
     appConfig: Effect.succeed(config),
     set: (key: string, value: unknown) => Effect.sync(() => void writes.push({ key, value })),
-  } as unknown as AgentConfigService;
+  });
 
   await Effect.runPromise(
     configureLLMProviders().pipe(

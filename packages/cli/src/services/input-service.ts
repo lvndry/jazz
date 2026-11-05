@@ -170,7 +170,9 @@ export function createInputService(terminalCapabilities: TerminalCapabilities): 
    * Rebuild the sorted handlers list.
    */
   function rebuildSortedHandlers(): void {
-    sortedHandlers = Array.from(handlers.values()).sort((a, b) => a.priority - b.priority);
+    sortedHandlers = Array.from(handlers.values()).sort(
+      (left, right) => left.priority - right.priority,
+    );
     handlersDirty = false;
   }
 

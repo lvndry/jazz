@@ -669,7 +669,7 @@ export async function promptForAgentInfo(
         state.llmProvider = result;
 
         const providerDisplayName =
-          state.allProviders.find((p) => p.name === result)?.displayName ?? result;
+          state.allProviders.find((provider) => provider.name === result)?.displayName ?? result;
         if (isLocalServerProvider(result)) {
           const localProvider = await connectLocalProvider(
             result,
@@ -781,7 +781,8 @@ export async function promptForAgentInfo(
 
         if (state.llmProvider === "ollama" && isOllamaCloudModel(result)) {
           const providerDisplayName =
-            state.allProviders?.find((p) => p.name === "ollama")?.displayName ?? "Ollama";
+            state.allProviders?.find((provider) => provider.name === "ollama")?.displayName ??
+            "Ollama";
           const keyResult = await ensureProviderApiKey({
             configService,
             terminal,
@@ -798,7 +799,9 @@ export async function promptForAgentInfo(
         }
 
         // Check if reasoning model
-        const selectedModel = state.providerInfo!.supportedModels.find((m) => m.id === result);
+        const selectedModel = state.providerInfo!.supportedModels.find(
+          (model) => model.id === result,
+        );
         state.isReasoningModel = selectedModel?.isReasoningModel ?? false;
         state.supportsTools = selectedModel?.supportsTools ?? false;
         if (selectedModel?.contextWindow !== undefined) {
@@ -1119,7 +1122,9 @@ export async function promptForAgentInfo(
             }
 
             if (webSearchProvider === "builtin") {
-              resolvedTools = resolvedTools.filter((t) => t !== WEB_SEARCH_CATEGORY.displayName);
+              resolvedTools = resolvedTools.filter(
+                (toolName) => toolName !== WEB_SEARCH_CATEGORY.displayName,
+              );
             } else {
               state.webSearchProvider = webSearchProvider;
             }

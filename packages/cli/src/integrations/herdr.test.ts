@@ -50,7 +50,7 @@ async function waitForCall(substrate: string, timeoutMs = 3000): Promise<string>
     if (Date.now() - start > timeoutMs) {
       throw new Error(`No call matching ${substrate} yet: ${calls().join(" | ")}`);
     }
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
 
@@ -166,7 +166,7 @@ describe("herdrPaneAdapter", () => {
     clearCalls();
     adapter.onSnapshot(baseSnapshot());
     // Give a late report a chance to (incorrectly) appear.
-    await new Promise((r) => setTimeout(r, 150));
+    await new Promise((resolve) => setTimeout(resolve, 150));
     expect(calls().filter((line) => line.includes("report-agent"))).toHaveLength(0);
   });
 });
