@@ -458,7 +458,7 @@ describe("runDueGoals", () => {
     expect(settled.usage.totalTokens).toBe(1_200);
   });
 
-  it("continues a cycle whose worker died mid-run in a fresh run told to check the state", async () => {
+  it("pauses a cycle whose worker died mid-run until a person resumes the goal", async () => {
     const test = harness();
     await run(
       test,
@@ -487,9 +487,9 @@ describe("runDueGoals", () => {
     try {
       await tick(test);
       const settled = await current(test);
-      expect(settled.state.kind).toBe("active");
+      expect(settled.state.kind).toBe("paused");
       expect(settled.cycle).toBeUndefined();
-      expect(settled.interruptedCycles).toBe(1);
+      expect(settled.lastProgress).toContain("jazz goal resume");
       expect(test.prompts).toHaveLength(0);
       expect((await run(test, test.runs.get("run-dead")))?.state).toMatchObject({
         kind: "failed",
@@ -501,9 +501,8 @@ describe("runDueGoals", () => {
       runner.mockRestore();
     }
 
-    expect(test.prompts).toHaveLength(1);
-    expect(test.prompts[0]?.userInput).toContain("Check the current state before redoing anything");
-    expect((await current(test)).latestRunId).not.toBe("run-dead");
+    expect(test.prompts).toHaveLength(0);
+    expect((await current(test)).state.kind).toBe("paused");
   });
 
   async function workingCycle(
@@ -557,8 +556,7 @@ describe("runDueGoals", () => {
       runner.mockRestore();
     }
     const goal = await current(test);
-    expect(goal.state.kind).toBe("active");
-    expect(goal.interruptedCycles).toBe(1);
+    expect(goal.state.kind).toBe("paused");
     expect((await run(test, test.runs.get("run-elsewhere")))?.state).toMatchObject({
       kind: "failed",
       cause: "interrupted",
@@ -871,6 +869,31 @@ describe("a goal worked on in chat", () => {
     expect(goal?.state.kind).toBe("paused");
     expect(goal?.cycle).toBeUndefined();
     expect(goal?.usage.totalTokens).toBe(1_200);
+  });
+
+  it("pauses after a chat turn interrupted by something other than the user, and says how to resume", async () => {
+    const test = harness();
+    await run(test, test.goals.create(testGoal()));
+    const turn = await run(test, claimChatGoalTurn(GOAL_ID));
+    if (turn === undefined) {
+      throw new Error("no turn claimed");
+    }
+    await run(test, test.runs.save(record(turn.runId, { kind: "completed", content: "" })));
+    const goal = await run(
+      test,
+      settleChatGoalTurn(turn.goal, turn.runId, {
+        kind: "finished",
+        response: {
+          content: "",
+          conversationId: "chat",
+          messages: [],
+          interrupted: true,
+          cancelCause: "shutdown",
+        } as never,
+      }),
+    );
+    expect(goal?.state.kind).toBe("paused");
+    expect(goal?.lastProgress).toContain("jazz goal resume");
   });
 
   it("completes from the turn's report and leaves the chat's conversation to the chat", async () => {

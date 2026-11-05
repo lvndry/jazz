@@ -37,6 +37,7 @@ import type { ReduceToolResultsFn } from "./context/advised-tool-clearing";
 import type { MemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import type { createAgentRunMetrics, RunSpendReport } from "./metrics/agent-run-metrics";
 import type { CacheMissReason } from "./metrics/prompt-cache";
+import type { CancelCause } from "./run/cancel-cause";
 import type { Blackboard } from "./subagents/blackboard";
 import type { SubagentSupervisor } from "./subagents/supervisor";
 
@@ -545,8 +546,10 @@ export interface AgentResponse {
    * completion tokens: the provider answered, but with nothing.
    */
   readonly emptyCompletion?: boolean;
-  /** Set when the user stopped the run (Esc, Ctrl+C) before it finished. */
+  /** Set when the run was stopped (Esc, Ctrl+C) before it finished. */
   readonly interrupted?: boolean;
+  /** Why the run was stopped; set together with `interrupted`. */
+  readonly cancelCause?: CancelCause;
   /**
    * The full message list used for this turn, including system, user, assistant, and tool messages.
    * Pass this back on the next turn to retain context across approvals and multi-step tasks.
