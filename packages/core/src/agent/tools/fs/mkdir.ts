@@ -1,6 +1,7 @@
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import { denyWriteOutsideRoots } from "@/core/sandbox/runtime-policy";
 import type { ToolExecutionContext } from "@/core/types";
 import { toError } from "@/core/utils/errors";
 import {
@@ -69,6 +70,10 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePathForMkdir(buildKeyFromContext(context), args.path);
+        const denied = yield* denyWriteOutsideRoots(context, [target]);
+        if (denied !== undefined) {
+          return denied;
+        }
 
         const statResult = yield* fs.stat(target).pipe(Effect.catch(() => Effect.succeed(null)));
 

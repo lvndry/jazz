@@ -261,6 +261,8 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "`inherit` leaves your terminal's background showing; `painted` fills every cell with the theme's background. Defaults to `inherit`.",
   "chat.defaultCostLimitUSD":
     "Starting value of a new chat session's `/limit usd` cap, in dollars. `/limit` can still raise, lower or clear it for that session. Unset is unlimited.",
+  "shell.confinement":
+    "`on` fences model-run shell commands and the `rm`, `mv`, `cp` and `mkdir` tools to writing under the working directory, temp directories and well-known tool caches (reads and network stay open); `off` runs them unconfined. Unset is `off` in interactive chat and `on` for bots, peers, goals, loops and unattended `jazz run`. A project config can turn it on but not off. See [Write confinement](../security/write-confinement.md).",
   "companions.<name>.provider":
     'Protocol the named companion speaks, e.g. `vllm` for any vLLM server. Agents bind it by name: `"analyze:image": "<name>"`. Global config only; a project config\'s `companions` is ignored. See [Model companions](../concepts/media.md#named-companions).',
   "companions.<name>.model": "Model id the server serves, as its `/v1/models` lists it.",

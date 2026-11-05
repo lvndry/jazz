@@ -81,6 +81,11 @@ executor holds until the same approval. Counts: [tool inventory](docs/tools/inde
 (`sudo`, `su`), filesystem destruction (`rm -rf /`), remote code execution (`curl … | sh`),
 power/runlevel changes (`shutdown`), and reads of `/etc/passwd`, `/etc/shadow`, `/etc/sudoers`.
 
+**Write confinement** fences `execute_command`, `rm`, `mv`, `cp` and `mkdir` to the working
+directory, temp directories and tool caches with macOS Seatbelt or Linux bubblewrap. It is on by
+default wherever nobody is attending (bridges, peers, goals, loops, headless `jazz run`) and covers
+file writes only: reads and the network stay open. See [write confinement](docs/security/write-confinement.md).
+
 ### The command denylist is not a sandbox
 
 Quoting the implementation directly, because it matters:
@@ -90,7 +95,7 @@ Quoting the implementation directly, because it matters:
 > any string matcher.
 
 Its job is catching an _accident_ from a confused model. Do not treat it as a boundary against
-a hostile one. If you need a real boundary, use [container isolation](#harden-the-host).
+a hostile one. If you need a boundary against reads or the network, use [container isolation](#harden-the-host); [write confinement](docs/security/write-confinement.md) bounds file writes.
 Implementation and the documented set of known bypasses:
 [`shell.ts`](packages/core/src/agent/tools/shell.ts),
 [`shell.security.test.ts`](packages/core/src/agent/tools/shell.security.test.ts).

@@ -76,3 +76,17 @@ export function planLaunch(input: {
     backend: status.backend,
   };
 }
+
+/**
+ * One line for `/info`: how much of the write fence this machine provides. Shown only when
+ * confinement is on, so a person who never turned it on never reads about it.
+ */
+export function summarizeConfinement(status: ConfinementStatus): string {
+  if (status.level === "full") {
+    return `confined to the folder, temp and tool caches (${status.backend})`;
+  }
+  if (status.level === "partial") {
+    return `partly confined (${status.backend}): ${status.reason ?? "see docs"}`;
+  }
+  return `unavailable, commands are refused: ${status.reason ?? "no backend"}`;
+}

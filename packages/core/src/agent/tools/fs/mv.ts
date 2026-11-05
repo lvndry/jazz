@@ -1,6 +1,7 @@
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import { denyWriteOutsideRoots } from "@/core/sandbox/runtime-policy";
 import type { ToolExecutionContext } from "@/core/types";
 import { toError } from "@/core/utils/errors";
 import {
@@ -82,6 +83,10 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
           args.destination,
           { skipExistenceCheck: true },
         );
+        const denied = yield* denyWriteOutsideRoots(context, [source, destination]);
+        if (denied !== undefined) {
+          return denied;
+        }
 
         // Guard: destination must not be inside source (prevents moving dir into itself)
         const normalizedSource = source.endsWith("/") ? source : `${source}/`;

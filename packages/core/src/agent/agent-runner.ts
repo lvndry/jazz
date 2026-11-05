@@ -43,6 +43,7 @@ import {
 import type { ActivePreference, SituationalPreference } from "@/core/memory/preference-line";
 import { collectMemorySources } from "@/core/memory/source-trust";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
+import { resolveConfinementMode } from "@/core/sandbox/confine";
 import { closeUserSecretStore, openUserSecretStore } from "@/core/secrets/user-secrets";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import {
@@ -1018,6 +1019,7 @@ function initializeAgentRun(
       ...resolveDelegationLimits(appConfig, options.maxSubagentIterations, attended),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.offersShellEscape === true ? { offersShellEscape: true } : {}),
+      shellConfinement: resolveConfinementMode(appConfig.shell?.confinement, attended),
       onAutoApproveCommand:
         options.onAutoApproveCommand ??
         ((command: string) =>

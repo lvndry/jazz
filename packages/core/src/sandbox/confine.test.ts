@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ConfinementStatus } from "./backend";
-import { planLaunch, resolveConfinementMode } from "./confine";
+import { planLaunch, resolveConfinementMode, summarizeConfinement } from "./confine";
 
 const policy = { roots: ["/work/project"] };
 const argv = ["sh", "-c", "touch x"];
@@ -78,5 +78,21 @@ describe("planLaunch", () => {
       status: { level: "full", backend: "bwrap" },
     });
     expect(plan.kind).toBe("refused");
+  });
+});
+
+describe("summarizeConfinement", () => {
+  test("names the backend when full", () => {
+    expect(summarizeConfinement(seatbelt)).toContain("seatbelt");
+  });
+
+  test("states the gap when partial", () => {
+    expect(
+      summarizeConfinement({ level: "partial", backend: "bwrap", reason: "device nodes writable" }),
+    ).toContain("device nodes writable");
+  });
+
+  test("says commands are refused when unavailable", () => {
+    expect(summarizeConfinement(unavailable)).toContain("refused");
   });
 });
