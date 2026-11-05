@@ -33,6 +33,7 @@ import type { DisplayConfig } from "@/core/types/output";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
+import { rejectEmptyCompletion } from "./empty-completion";
 import type { RecursiveRunner } from "../context/summarizer";
 import {
   emitLLMRetry,
@@ -178,6 +179,15 @@ export function executeWithStreaming(
 
           const outputStartedRef = yield* Ref.make(false);
 
+          const emptyCompletionContext = {
+            provider,
+            model: agent.config.llm.model,
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            logger,
+            runMetrics,
+          };
+
           const streamingAttempt = Effect.gen(function* () {
             yield* Ref.set(outputStartedRef, false);
             yield* Ref.set(completionRef, undefined);
@@ -250,7 +260,10 @@ export function executeWithStreaming(
                     }),
               ),
             );
-            return { completion, interrupted: false };
+            return yield* rejectEmptyCompletion(
+              { completion, interrupted: false },
+              emptyCompletionContext,
+            );
           }).pipe(
             Effect.tapError((error) =>
               Effect.gen(function* () {
@@ -281,6 +294,7 @@ export function executeWithStreaming(
             llmService.createChatCompletion(provider, llmOptions),
           ).pipe(
             Effect.map((completion) => ({ completion, interrupted: false })),
+            Effect.flatMap((result) => rejectEmptyCompletion(result, emptyCompletionContext)),
             Effect.tapError((error) =>
               Effect.gen(function* () {
                 recordLLMRetry(runMetrics, error);
