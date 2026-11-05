@@ -1445,8 +1445,8 @@ export class ToolExecutor {
           ? Deferred.makeUnsafe<void>()
           : undefined,
       );
-      /** Calls already moved to the background at the threshold, by index in this batch. */
-      const autoDetachedOutcomes = new Map<number, ToolCallOutcome>();
+      /** Calls this batch transferred to the background tracker, by index. */
+      const detachedOutcomes = new Map<number, ToolCallOutcome>();
       const detachedCallIds = new Set<string>();
       /** Calls that crossed the threshold with the concurrency limit reached, by index. */
       const keptInForeground = new Map<number, number>();
@@ -1457,7 +1457,9 @@ export class ToolExecutor {
        * its own stop path ends it.
        */
       const interruptAttached = (toolFibers: ReadonlyArray<Fiber.Fiber<ToolCallOutcome, Error>>) =>
-        Fiber.interruptAll(toolFibers.filter((_fiber, index) => !autoDetachedOutcomes.has(index)));
+        Fiber.interruptAll(
+          toolFibers.filter((_fiber, index) => !detachedCallIds.has(toolCalls[index]?.id ?? "")),
+        );
 
       const settleToolBatch = (toolFibers: ReadonlyArray<Fiber.Fiber<ToolCallOutcome, Error>>) =>
         Effect.gen(function* () {
@@ -1521,7 +1523,7 @@ export class ToolExecutor {
                 onOwned: (outcome) => {
                   releaseReservation();
                   detachedCallIds.add(toolCall.id);
-                  autoDetachedOutcomes.set(index, outcome);
+                  detachedOutcomes.set(index, outcome);
                 },
               }).pipe(Effect.ensuring(Effect.sync(releaseReservation)));
             });
@@ -1567,7 +1569,7 @@ export class ToolExecutor {
                 if (fiber === undefined || toolCall === undefined || toolCall.type !== "function") {
                   continue;
                 }
-                if (autoDetachedOutcomes.has(index)) {
+                if (detachedOutcomes.has(index)) {
                   continue;
                 }
                 const poll = yield* Effect.sync(() => Option.fromUndefinedOr(fiber.pollUnsafe()));
@@ -1590,7 +1592,7 @@ export class ToolExecutor {
             yield* logger.debug("Interrupting the batch; auto-detached calls keep running", {
               agentId,
               conversationId,
-              keptRunning: autoDetachedOutcomes.size,
+              keptRunning: detachedOutcomes.size,
             });
             yield* interruptAttached(toolFibers);
             return yield* Effect.fail(
@@ -1605,7 +1607,7 @@ export class ToolExecutor {
               renderer,
               displayConfig,
               onDetachedToolComplete,
-              autoDetachedOutcomes,
+              detachedOutcomes,
               detachedCallIds,
               context.autoDetach?.tracker ?? processDetachedCalls,
               logger,
@@ -1780,7 +1782,7 @@ function detachInFlightToolCalls(
   renderer: StreamingRenderer | null,
   displayConfig: DisplayConfig,
   onDetachedToolComplete: ((result: DetachedToolResult) => void) | undefined,
-  alreadyDetached: ReadonlyMap<number, ToolCallOutcome>,
+  alreadyDetached: Map<number, ToolCallOutcome>,
   detachedCallIds: Set<string>,
   tracker: DetachedCallTracker,
   logger: LoggerService,
@@ -1821,7 +1823,10 @@ function detachInFlightToolCalls(
           onDetachedToolComplete,
           tracker,
           origin: "user",
-          onOwned: () => detachedCallIds.add(toolCall.id),
+          onOwned: (outcome) => {
+            detachedCallIds.add(toolCall.id);
+            alreadyDetached.set(index, outcome);
+          },
           logger,
           presentationService,
           agentId,
@@ -1860,6 +1865,10 @@ function detachToolCall(input: DetachToolCallInput): Effect.Effect<ToolCallOutco
   return Effect.uninterruptibleMask((restore) =>
     Effect.gen(function* () {
       const { fiber, toolCall, renderer, displayConfig, tracker, origin, logger } = input;
+      const settled = fiber.pollUnsafe();
+      if (settled !== undefined && Exit.isSuccess(settled)) {
+        return settled.value;
+      }
       const name = toolCall.type === "function" ? toolCall.function.name : "unknown";
       const parsedArguments = parseToolCallArguments(toolCall);
       const command =
@@ -1892,6 +1901,7 @@ function detachToolCall(input: DetachToolCallInput): Effect.Effect<ToolCallOutco
         stop: Fiber.interrupt(fiber).pipe(Effect.asVoid),
       });
 
+      input.onOwned?.(outcome);
       yield* Effect.forkDetach(
         Fiber.await(fiber).pipe(
           Effect.flatMap((exit) =>
@@ -1920,7 +1930,6 @@ function detachToolCall(input: DetachToolCallInput): Effect.Effect<ToolCallOutco
         ),
       );
 
-      input.onOwned?.(outcome);
       yield* restore(
         Effect.gen(function* () {
           if (renderer && displayConfig.showToolExecution) {
