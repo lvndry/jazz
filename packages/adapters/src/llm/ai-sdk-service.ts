@@ -131,6 +131,8 @@ import {
   resolveClaudeCodeBinary,
 } from "./claude-code";
 import { saveModelGeneratedFiles } from "./generated-files";
+import type { GoldenRecorder } from "./golden/fixture";
+import { goldenRecorderFromEnv, summarizeRequest } from "./golden/record-env";
 import { generateImageCompletion, isImageEndpointModel } from "./image-generation";
 import { llmFetch } from "./llm-fetch";
 import {
@@ -1938,6 +1940,8 @@ class AISDKService implements LLMService {
   private readonly modelCache = new Map<string, LanguageModel>();
   private readonly modelInfoCache = new Map<string, readonly ModelInfo[]>();
   private readonly reportedReasoningClamps = new Set<string>();
+  /** Writes a scrubbed golden fixture of every streamed model call when JAZZ_GOLDEN_RECORD is set. */
+  private goldenRecorder: GoldenRecorder | undefined;
 
   constructor(
     config: AISDKConfig,
@@ -2832,10 +2836,24 @@ class AISDKService implements LLMService {
 
                 const providerNativeToolNames = prepared?.providerNativeToolNames;
 
+                this.goldenRecorder ??= goldenRecorderFromEnv(
+                  providerName,
+                  options.model,
+                  [resolveProviderApiKey(providerName, this.config.llmConfig)].filter(
+                    (key): key is string => typeof key === "string",
+                  ),
+                );
+                const callRecording = this.goldenRecorder?.beginCall(
+                  summarizeRequest(options.messages, options.tools),
+                );
+
                 const processor = new StreamProcessor(
                   {
                     providerName,
                     modelName: options.model,
+                    ...(callRecording
+                      ? { observePart: (part: unknown) => callRecording.observePart(part) }
+                      : {}),
                     streamIdleTimeoutMs: this.config.llmConfig?.streamIdleTimeoutMs,
                     hasReasoningEnabled:
                       options.reasoning !== undefined && options.reasoning !== "disable",
@@ -2857,6 +2875,7 @@ class AISDKService implements LLMService {
 
                 // Process the stream and get final response
                 const finalResponse = await processor.process(result);
+                callRecording?.finish();
 
                 // `files` resolves once the stream finishes, so media a model emitted mid-answer
                 // is saved after the text has already been rendered. Awaited here rather than in
