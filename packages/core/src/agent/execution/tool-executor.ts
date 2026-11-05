@@ -1067,6 +1067,9 @@ export class ToolExecutor {
             ? { memoryExposure: result.memoryExposure }
             : {}),
           ...(result.untrusted !== undefined ? { untrusted: result.untrusted } : {}),
+          ...(result.success && result.unlockedToolNames !== undefined
+            ? { unlockedToolNames: result.unlockedToolNames }
+            : {}),
         };
       } catch (error) {
         const toolDuration = Date.now() - toolStartTime;
@@ -1603,6 +1606,8 @@ export interface ToolCallOutcome {
   readonly memoryExposure?: MemoryExposure;
   /** Carried from the tool's own result; the loop frames the result it appends. */
   readonly untrusted?: UntrustedProvenance;
+  /** Carried from the tool's own result; the loop records it on the message it appends. */
+  readonly unlockedToolNames?: readonly string[];
 }
 
 /**

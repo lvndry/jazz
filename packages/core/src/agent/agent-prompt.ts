@@ -20,7 +20,11 @@ import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment"
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import { BoundedLruCache } from "@/core/utils/bounded-lru-cache";
 import { systemInfo } from "@/core/utils/system-info";
-import { MANAGE_MEMORY_TOOL_NAME } from "./memory-recall-log";
+import {
+  MANAGE_MEMORY_TOOL_NAME,
+  PROPOSE_LESSON_TOOL_NAME,
+  VIEW_MEMORY_TOOL_NAME,
+} from "./memory-recall-log";
 import { renderProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import { renderPromptLayers, type PromptSection } from "./prompts/layers";
 import { ENVIRONMENT_TEMPLATE, renderHarnessPrompt } from "./prompts/shared";
@@ -261,8 +265,8 @@ export class AgentPromptBuilder {
       );
       hash.update(JSON.stringify(skillFingerprints.sort()));
     }
-    // The full tool set shapes the prompt: tool-gated instruction blocks
-    // (memory, task state, questions) and the per-tool notes both key off it.
+    // The full tool set shapes the prompt: each harness rule that names a tool is rendered
+    // only when that tool is offered, so a different tool set is a different prompt.
     if (options.toolNames && options.toolNames.length > 0) {
       hash.update(`tools:${[...options.toolNames].sort().join(",")}`);
     }
@@ -434,6 +438,9 @@ export class AgentPromptBuilder {
               hasShell: options.toolNames?.includes("execute_command") === true,
               hasSubagents: options.toolNames?.includes("spawn_subagent") === true,
               hasToolResultRetrieval: options.toolNames?.includes("retrieve_tool_result") === true,
+              hasMemoryRecall: options.toolNames?.includes(VIEW_MEMORY_TOOL_NAME) === true,
+              hasMemoryWrite: options.toolNames?.includes(MANAGE_MEMORY_TOOL_NAME) === true,
+              hasLessons: options.toolNames?.includes(PROPOSE_LESSON_TOOL_NAME) === true,
               ...(skillsIndex ? { skillsIndex } : {}),
               ...(deferredToolsIndex ? { deferredToolsIndex } : {}),
               ...(media ? { media } : {}),
