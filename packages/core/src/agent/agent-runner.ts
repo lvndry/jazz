@@ -83,6 +83,7 @@ import {
   type RecursiveRunner,
 } from "./context/summarizer";
 import { closeUnansweredToolCalls } from "./context/unanswered-tool-calls";
+import { autoDetachPolicyFor } from "./detach/auto-detach";
 import { assertConversationWritable } from "./detach/ownership";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createEgressTaint, recordEgressTaint } from "./execution/egress-taint";
@@ -542,6 +543,12 @@ function initializeAgentRun(
     const presentationService = yield* Effect.serviceOption(PresentationServiceTag);
     const attended =
       Option.isSome(presentationService) && presentationService.value.canContinueRun?.() === true;
+
+    const autoDetach = autoDetachPolicyFor({
+      attended,
+      receivesLateResults: options.onDetachedToolComplete !== undefined,
+      internal: options.internal === true,
+    });
 
     const actualConversationId = conversationId || generateConversationId();
     const history: ChatMessage[] =
@@ -1092,6 +1099,7 @@ function initializeAgentRun(
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.offersShellEscape === true ? { offersShellEscape: true } : {}),
       shellConfinement: resolveConfinementMode(appConfig.shell?.confinement, attended),
+      ...(autoDetach !== undefined ? { autoDetach } : {}),
       onAutoApproveCommand:
         options.onAutoApproveCommand ??
         ((command: string) =>
