@@ -108,6 +108,16 @@ describe("canonicalizePath", () => {
     expect(canonicalizePath(dangling)).toBe(path.join(outside, "not-yet"));
   });
 
+  test("resolves .. in a dangling link's target after following the symlink before it", () => {
+    const deep = path.join(outside, "deep");
+    mkdirSync(deep);
+    symlinkSync(deep, path.join(workspace, "nested-link"));
+    const dangling = path.join(workspace, "nested-dangling");
+    symlinkSync("nested-link/../newdir", dangling);
+    expect(canonicalizePath(dangling)).toBe(path.join(outside, "newdir"));
+    expect(isPathWritable(policyFor(), dangling, workspace)).toBe(false);
+  });
+
   test("terminates on a symlink loop", () => {
     const first = path.join(workspace, "loop-a");
     const second = path.join(workspace, "loop-b");

@@ -69,25 +69,13 @@ function followDanglingLink(candidate: string, hopsLeft: number): string | undef
     if (!lstatSync(candidate).isSymbolicLink()) {
       return undefined;
     }
-    const target = path.resolve(path.dirname(candidate), readlinkSync(candidate));
-    try {
-      return realpathSync(target);
-    } catch {
-      return followDanglingLink(target, hopsLeft - 1) ?? target;
-    }
+    return resolveSegments(readlinkSync(candidate), path.dirname(candidate), hopsLeft - 1);
   } catch {
     return undefined;
   }
 }
 
-/**
- * The absolute path a write to `input` would land on, with every symlink on the way resolved.
- * Segments that do not exist yet are kept as written, so a file about to be created under an
- * existing directory canonicalizes to its parent's real path plus its own name. `..` is applied
- * after the symlinks before it are followed, never lexically up front, because
- * `link/../x` names the parent of the link's target.
- */
-export function canonicalizePath(input: string, base: string = process.cwd()): string {
+function resolveSegments(input: string, base: string, hopsLeft: number): string {
   const absolute = path.isAbsolute(input) ? input : `${path.resolve(base)}${path.sep}${input}`;
   const segments = absolute.split(path.sep).filter((segment) => segment.length > 0);
   let current = path.parse(absolute).root;
@@ -103,10 +91,21 @@ export function canonicalizePath(input: string, base: string = process.cwd()): s
     try {
       current = realpathSync(candidate);
     } catch {
-      current = followDanglingLink(candidate, MAX_SYMLINK_HOPS) ?? candidate;
+      current = followDanglingLink(candidate, hopsLeft) ?? candidate;
     }
   }
   return current;
+}
+
+/**
+ * The absolute path a write to `input` would land on, with every symlink on the way resolved.
+ * Segments that do not exist yet are kept as written, so a file about to be created under an
+ * existing directory canonicalizes to its parent's real path plus its own name. `..` is applied
+ * after the symlinks before it are followed, never lexically up front, because
+ * `link/../x` names the parent of the link's target.
+ */
+export function canonicalizePath(input: string, base: string = process.cwd()): string {
+  return resolveSegments(input, base, MAX_SYMLINK_HOPS);
 }
 
 /** Whether `candidate` is `root` or lies beneath it; both must be canonical. */
