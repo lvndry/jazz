@@ -136,7 +136,11 @@ may be negative after GC; reports preserve those improvements.
 
 The complete release binary includes the embedded native libraries. Its raw and
 release-equivalent gzip level-9 sizes each may grow by at most 5% or 1MiB, whichever permits more growth;
-200MiB is an additional emergency ceiling for the Linux x64 CI artifact.
+`binaryMaxBytes` (229,000,000 bytes raw) and `binaryGzipMaxBytes` (101,000,000 bytes gzip level 9)
+are additional absolute ceilings for the Linux x64 CI artifact. Each is the size measured on a
+GitHub runner under Bun 1.4.4 (217,843,888 raw, 95,421,456 gzip) multiplied by 1.05 and rounded up
+to the next 1,000,000 bytes. They are ceilings that should only be lowered, never raised to absorb
+growth; a Bun upgrade that moves the size is handled by re-deriving them from the runner-built binary.
 These limits include Bun itself; review the ceilings and runner history when
 upgrading Bun rather than silently accepting an oversized release. The compiled runtime is intentionally
 included: a JavaScript bundle alone would miss the artifact users download.

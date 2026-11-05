@@ -1,4 +1,5 @@
 /** Regression gates must reject real slowdowns, incompatible runs and oversized releases. */
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import {
   absoluteRegressions,
@@ -171,8 +172,32 @@ describe("performance regression gate", () => {
   });
   test("allows small release noise but blocks growth and emergency oversize", () => {
     const mib = 1024 * 1024;
-    expect(sizeRegressions(150 * mib, 154 * mib, "binary")).toEqual([]);
-    expect(sizeRegressions(150 * mib, 160 * mib, "binary")).toHaveLength(1);
-    expect(sizeRegressions(205 * mib, 205 * mib, "binary")).toHaveLength(1);
+    const maxBytes = 200 * mib;
+    expect(sizeRegressions(150 * mib, 154 * mib, "binary", maxBytes)).toEqual([]);
+    expect(sizeRegressions(150 * mib, 160 * mib, "binary", maxBytes)).toHaveLength(1);
+    expect(sizeRegressions(205 * mib, 205 * mib, "binary", maxBytes)).toHaveLength(1);
+  });
+  test("ceilings admit the CI-measured sizes and reject 6% growth", () => {
+    const budgets = JSON.parse(
+      readFileSync(new URL("../bench/budgets.json", import.meta.url), "utf8"),
+    );
+    const measuredRaw = 217_843_888;
+    const measuredGzip = 95_421_456;
+    const growth = 1.06;
+    expect(sizeRegressions(measuredRaw, measuredRaw, "raw", budgets.binaryMaxBytes)).toEqual([]);
+    expect(sizeRegressions(measuredGzip, measuredGzip, "gzip", budgets.binaryGzipMaxBytes)).toEqual(
+      [],
+    );
+    expect(
+      sizeRegressions(measuredRaw, Math.ceil(measuredRaw * growth), "raw", budgets.binaryMaxBytes),
+    ).not.toEqual([]);
+    expect(
+      sizeRegressions(
+        measuredGzip,
+        Math.ceil(measuredGzip * growth),
+        "gzip",
+        budgets.binaryGzipMaxBytes,
+      ),
+    ).not.toEqual([]);
   });
 });

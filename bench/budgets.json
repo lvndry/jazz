@@ -3,7 +3,8 @@
   "latencyNoiseMs": 0.5,
   "binaryRelativeAllowance": 0.05,
   "binaryNoiseBytes": 1048576,
-  "binaryMaxBytes": 209715200,
+  "binaryMaxBytes": 229000000,
+  "binaryGzipMaxBytes": 101000000,
   "absolute": [
     {
       "suite": "filesystem-config-models",

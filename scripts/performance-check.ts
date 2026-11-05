@@ -20,6 +20,7 @@ const budgets = z
     binaryRelativeAllowance: z.number().nonnegative(),
     binaryNoiseBytes: z.number().nonnegative(),
     binaryMaxBytes: z.number().positive(),
+    binaryGzipMaxBytes: z.number().positive(),
     absolute: z.array(
       z.object({
         suite: z.string(),
@@ -131,15 +132,17 @@ export function absoluteRegressions(
   return failures;
 }
 
-/** Enforce complete artifact growth and a 200MiB emergency cap, including gzip downloads. */
+/** Enforce complete artifact growth and an absolute ceiling (`maxBytes`), for raw and gzip sizes. */
 export function sizeRegressions(
   baseBytes: number,
   headBytes: number,
   label: string,
+  maxBytes: number,
 ): readonly string[] {
   const failures: string[] = [];
-  if (headBytes > budgets.binaryMaxBytes)
-    failures.push(`${label} exceeds ${budgets.binaryMaxBytes} bytes: ${headBytes} bytes`);
+  if (headBytes > maxBytes) {
+    failures.push(`${label} exceeds ${maxBytes} bytes: ${headBytes} bytes`);
+  }
   if (
     headBytes > baseBytes * (1 + budgets.binaryRelativeAllowance) &&
     headBytes > baseBytes + budgets.binaryNoiseBytes
@@ -168,11 +171,17 @@ if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
       throw new Error("Expected base and head paths");
     const failures = binary
       ? [
-          ...sizeRegressions(statSync(basePath).size, statSync(headPath).size, "release binary"),
+          ...sizeRegressions(
+            statSync(basePath).size,
+            statSync(headPath).size,
+            "release binary",
+            budgets.binaryMaxBytes,
+          ),
           ...sizeRegressions(
             gzipSync(readFileSync(basePath), { level: 9 }).length,
             gzipSync(readFileSync(headPath), { level: 9 }).length,
             "gzip download",
+            budgets.binaryGzipMaxBytes,
           ),
         ]
       : regressions(
