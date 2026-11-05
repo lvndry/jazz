@@ -22,8 +22,10 @@ import { LLMRateLimitError } from "@/core/types/errors";
 import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/model-capabilities";
 import type { DisplayConfig } from "@/core/types/output";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
+import type { UsageCostTokens } from "@/core/utils/usage-cost";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
+import { rejectEmptyCompletion } from "./empty-completion";
 import type { RecursiveRunner } from "../context/summarizer";
 import { emitLLMRetry, recordFailedAttempt } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
@@ -136,7 +138,24 @@ export function executeWithoutStreaming(
               showSlowModelNotice,
               Effect.suspend(() => {
                 const startedAt = Date.now();
+                let rejectedUsage: UsageCostTokens | undefined;
                 return llmService.createChatCompletion(provider, llmOptions).pipe(
+                  Effect.flatMap((result) =>
+                    rejectEmptyCompletion(
+                      { completion: result },
+                      {
+                        provider,
+                        model: agent.config.llm.model,
+                        agentId: agent.id,
+                        conversationId: runMetrics.conversationId,
+                        logger,
+                        onRejected: (rejected) =>
+                          Effect.sync(() => {
+                            rejectedUsage = rejected.usage;
+                          }),
+                      },
+                    ).pipe(Effect.map((checked) => checked.completion)),
+                  ),
                   Effect.tapError((error) =>
                     Effect.gen(function* () {
                       const willRetry = isRetryableLLMError(error);
@@ -150,6 +169,7 @@ export function executeWithoutStreaming(
                           durationMs: Date.now() - startedAt,
                           streamedChars: 0,
                           toolCallStarted: false,
+                          usage: rejectedUsage,
                         },
                         willRetry,
                       );
@@ -161,6 +181,7 @@ export function executeWithoutStreaming(
                         provider,
                         model: record.model,
                         durationMs: record.durationMs,
+                        usageReported: rejectedUsage !== undefined,
                         willRetry,
                         agentId: agent.id,
                         conversationId: runMetrics.conversationId,

@@ -1046,28 +1046,43 @@ function handOffTranscript(
 }
 
 /**
- * Checkpoint taken before a batch holding a call that may change something runs. Every call
- * is closed as interrupted: if the process dies mid-batch, this is the transcript a resumed
- * conversation loads, and it must not claim a call that may have run changed nothing. The
- * checkpoint after the batch replaces it with the real results.
+ * Checkpoint taken before a batch holding a call that may change something runs. Each call the
+ * batch will dispatch is closed as interrupted: if the process dies mid-batch, this is the
+ * transcript a resumed conversation loads, and it must not claim a call that may have run
+ * changed nothing. A call the batch already answered without dispatching keeps its real
+ * answer. The checkpoint after the batch replaces this one with the real results.
+ *
+ * Fails when the save fails: a batch that may change state does not start without a durable
+ * record that it was about to.
  */
 function reportPreExecutionCheckpoint(
   state: LoopState,
+  batch: ActiveToolBatch,
   options: LoopDeps["options"],
   egressTaint: EgressTaint | undefined,
-): Effect.Effect<void> {
+): Effect.Effect<void, Error> {
   const onCheckpoint = options.onCheckpoint;
   if (onCheckpoint === undefined || options.internal === true) {
     return Effect.void;
   }
+  const answerWithheld = stoppedCallAnswer(
+    batch,
+    "the process ended while this batch was executing",
+  );
   return Effect.suspend(() => {
     const transcript: Pick<LoopState, "currentMessages"> = {
       currentMessages: [...state.currentMessages],
     };
-    closeDanglingToolCalls(transcript, () =>
-      stoppedToolCallResult("interrupted", "the process ended while this batch was executing"),
+    closeDanglingToolCalls(transcript, (toolCall) => {
+      const canonicalId = batch.aliases.get(toolCall.id) ?? toolCall.id;
+      return batch.ledger.statusOf(canonicalId) === "completed"
+        ? answerWithheld(toolCall)
+        : stoppedToolCallResult("interrupted", "the process ended while this batch was executing");
+    });
+    return onCheckpoint(
+      recordEgressTaint(transcript.currentMessages, egressTaint),
+      "pre-execution",
     );
-    return onCheckpoint(recordEgressTaint(transcript.currentMessages, egressTaint));
   });
 }
 
@@ -1107,8 +1122,8 @@ function reportCheckpoint(
     return Effect.void;
   }
   return Effect.suspend(() =>
-    onCheckpoint(handOffTranscript(state, egressTaint, "the run stopped")),
-  );
+    onCheckpoint(handOffTranscript(state, egressTaint, "the run stopped"), "iteration"),
+  ).pipe(Effect.ignore);
 }
 
 /**
@@ -1381,12 +1396,40 @@ function handleToolPhase(
           }))
       : [];
 
+    const ledger = new ToolBatchLedger(toolCalls);
+    for (const outcome of withheld) {
+      ledger.markFinished(outcome);
+    }
+    const keepCutResult = cutResultKeeper(agent.id, actualConversationId, deps.tools);
+    state.activeToolBatch = { ledger, aliases, reported: false, keepCutResult };
+
     const mayChangeState = dispatched.filter(
       (toolCall) => !dedupableNames.has(toolCall.function.name),
     );
     if (mayChangeState.length > 0) {
       const startedAt = Date.now();
-      yield* reportPreExecutionCheckpoint(state, options, deps.context.egressTaint);
+      yield* reportPreExecutionCheckpoint(
+        state,
+        state.activeToolBatch,
+        options,
+        deps.context.egressTaint,
+      ).pipe(
+        Effect.tapError((error) =>
+          logger.error("Pre-execution checkpoint failed; tool batch not started", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            iteration: iterationIndex + 1,
+            mutatingCalls: mayChangeState.length,
+            error: error.message,
+          }),
+        ),
+        Effect.mapError(
+          (error) =>
+            new Error(
+              `Could not save a checkpoint before running tools that change state, so they were not run: ${error.message}`,
+            ),
+        ),
+      );
       yield* logger.debug("Saved pre-execution checkpoint for tool batch", {
         agentId: agent.id,
         conversationId: actualConversationId,
@@ -1396,13 +1439,6 @@ function handleToolPhase(
         durationMs: Date.now() - startedAt,
       });
     }
-
-    const ledger = new ToolBatchLedger(toolCalls);
-    for (const outcome of withheld) {
-      ledger.markFinished(outcome);
-    }
-    const keepCutResult = cutResultKeeper(agent.id, actualConversationId, deps.tools);
-    state.activeToolBatch = { ledger, aliases, reported: false, keepCutResult };
 
     const executedResults = yield* ToolExecutor.executeToolCalls(
       dispatched,

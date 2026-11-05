@@ -1194,7 +1194,11 @@ describe("executeWithStreaming retries", () => {
         llmService: scriptedLLMService(() => {
           attempts += 1;
           return completedStream(
-            attempts === 1 ? emptyCompletion() : emptyCompletion({ content: "answer" }),
+            attempts === 1
+              ? emptyCompletion({
+                  usage: { promptTokens: 700, completionTokens: 0, totalTokens: 700 },
+                })
+              : emptyCompletion({ content: "answer" }),
           );
         }),
       });
@@ -1203,6 +1207,11 @@ describe("executeWithStreaming retries", () => {
 
       expect(result.content).toBe("answer");
       expect(attempts).toBe(2);
+      expect(harness.runMetrics.llmRetryCount).toBe(1);
+      expect(harness.runMetrics.retryWaste.records).toHaveLength(1);
+      expect(harness.runMetrics.retryWaste.promptTokens).toBe(700);
+      expect(harness.runMetrics.totalPromptTokens).toBe(10);
+      expect(harness.runMetrics.totalRequests).toBe(1);
     });
 
     it("fails clearly once the retry budget is spent on empty finishes", async () => {
@@ -1417,4 +1426,52 @@ describe("executeWithStreaming failed attempt records", () => {
 
     expect(harness.runMetrics.retryWaste.retriesAfterSubstantialOutput).toBe(1);
   });
+  it("records an empty finish after the fall back to a plain request exactly once", async () => {
+    let plainCalls = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 6,
+      llmService: scriptedLLMService(
+        () =>
+          Effect.succeed({
+            stream: Stream.fail(
+              new LLMRequestError({ provider: "openai", message: "reset", statusCode: 502 }),
+            ),
+            response: Effect.never,
+            cancel: Effect.void,
+          }),
+        () => {
+          plainCalls += 1;
+          return Effect.succeed({
+            id: "plain",
+            model: "gpt-4",
+            content: plainCalls === 1 ? "" : "answer",
+            finishReason: "stop" as const,
+            usage: {
+              promptTokens: plainCalls === 1 ? 300 : 5,
+              completionTokens: 0,
+              totalTokens: 305,
+            },
+          });
+        },
+      ),
+    });
+
+    const result = await harness.run();
+
+    const tally = harness.runMetrics.retryWaste;
+    expect(result.content).toBe("answer");
+    expect(tally.records.map((record) => record.mode)).toEqual([
+      "streaming",
+      "streaming",
+      "streaming",
+      "non_streaming",
+    ]);
+    expect(tally.records[3]).toMatchObject({
+      reason: "empty_response",
+      usage: { promptTokens: 300 },
+    });
+    expect(tally.promptTokens).toBe(300);
+    expect(harness.runMetrics.totalPromptTokens).toBe(5);
+    expect(harness.runMetrics.totalRequests).toBe(1);
+  }, 30_000);
 });

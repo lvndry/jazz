@@ -89,6 +89,9 @@ export interface DetachedToolResult {
   readonly summary: string;
 }
 
+/** When a checkpoint is taken: before a state-changing tool batch, or at an iteration boundary. */
+export type CheckpointPhase = "pre-execution" | "iteration";
+
 export interface AgentRunnerOptions {
   /**
    * The agent to execute.
@@ -424,8 +427,15 @@ export interface AgentRunnerOptions {
    * Called with this turn's transcript before the first model call and after every iteration
    * that continues, so the caller can save work a long turn has done before the turn ends.
    * Dangling tool calls are closed. Not called for internal (sub-agent) runs.
+   *
+   * A `"pre-execution"` checkpoint is also taken before a tool batch holding a call that may
+   * change state; failing it stops that batch from starting. A failure at any other phase is
+   * ignored.
    */
-  readonly onCheckpoint?: (messages: ConversationMessages) => Effect.Effect<void>;
+  readonly onCheckpoint?: (
+    messages: ConversationMessages,
+    phase: CheckpointPhase,
+  ) => Effect.Effect<void, Error>;
   /**
    * IANA timezone (e.g. "Europe/Paris") for this run, copied into the tool
    * execution context so tools like add_reminder can resolve "now" in the
