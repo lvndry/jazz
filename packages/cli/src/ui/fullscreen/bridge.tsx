@@ -114,6 +114,7 @@ import {
 } from "../prompt-core/choice-removal";
 import { initialChoiceIndex } from "../prompt-core/picker-adapter";
 import { readPromptStep } from "../prompt-core/stepper";
+import { queueFollowUp } from "../queue-follow-up";
 import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
 import { filterSkills, skillDetailRows } from "../skill-browser";
 import { skillDetailBodyRows, skillListRows } from "../skill-browser";
@@ -2624,6 +2625,20 @@ export function FullscreenBridge(): React.ReactNode {
 
       if (isComposerNewline({ name, shift, option, meta })) {
         insertAtCaret("\n");
+        return true;
+      }
+      if (
+        name === "tab" &&
+        !shift &&
+        busyRef.current &&
+        inspectedIdRef.current === null &&
+        inspectedWaitIdRef.current === null &&
+        composerRef.current.text.length > 0
+      ) {
+        historyIndex.current = null;
+        if (queueFollowUp(composerRef.current.text) !== "empty") {
+          commitComposer(EMPTY_COMPOSER);
+        }
         return true;
       }
       if (name === "return" || name === "enter") {
