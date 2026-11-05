@@ -1282,10 +1282,10 @@ describe("executeWithStreaming failed attempt records", () => {
   const streamThenFail = (error: LLMRequestError) =>
     Effect.succeed({
       stream: Stream.concat(
-        Stream.make<StreamEvent>(
+        Stream.fromIterable<StreamEvent>([
           { type: "text_start" },
           { type: "text_chunk", delta: SECRET_TEXT, accumulated: SECRET_TEXT, sequence: 1 },
-        ),
+        ]),
         Stream.fail(error),
       ),
       response: Effect.never,
@@ -1411,12 +1411,14 @@ describe("executeWithStreaming failed attempt records", () => {
         return attempts === 1
           ? Effect.succeed({
               stream: Stream.concat(
-                Stream.make<StreamEvent>({
-                  type: "text_chunk",
-                  delta: longText,
-                  accumulated: longText,
-                  sequence: 1,
-                }),
+                Stream.fromIterable<StreamEvent>([
+                  {
+                    type: "text_chunk",
+                    delta: longText,
+                    accumulated: longText,
+                    sequence: 1,
+                  },
+                ]),
                 Stream.fail(
                   new LLMRequestError({ provider: "openai", message: "reset", statusCode: 502 }),
                 ),
