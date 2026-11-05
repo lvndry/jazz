@@ -208,6 +208,8 @@ export interface ToolExecutionResult {
   readonly success: boolean;
   readonly result: unknown;
   readonly error?: string;
+  /** Why a question to a person went unanswered, so callers branch on data instead of prose. */
+  readonly outcome?: "declined" | "unavailable";
   /**
    * Files this call produced, for the runner to surface to whoever is watching.
    *
