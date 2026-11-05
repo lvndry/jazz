@@ -1106,29 +1106,30 @@ Enter and queues the message.
 
 <!-- keys-classic:start -->
 
-| Keys                             | Action                                                             |
-| -------------------------------- | ------------------------------------------------------------------ |
-| Enter                            | Send the message                                                   |
-| Shift+Enter                      | Insert a newline for a multi-line message                          |
-| Tab                              | Complete the highlighted slash command or @ path                   |
-| Up/Down (empty input)            | Recall previously sent messages                                    |
-| Ctrl+A / Ctrl+E                  | Move to the start or end of the line                               |
-| Ctrl+U                           | Delete from the caret to the start of the line                     |
-| Ctrl+K                           | Delete from the caret to the end of the line                       |
-| Ctrl+W                           | Delete the word before the caret                                   |
-| Esc                              | Clear the current draft                                            |
-| Esc Esc (agent busy)             | Interrupt the current generation or tool, and drop queued messages |
-| Ctrl+C (agent busy)              | Interrupt the current generation or tool                           |
-| Ctrl+C Ctrl+C                    | Leave the conversation                                             |
-| Shift+Tab                        | Toggle safe/yolo approval mode                                     |
-| Ctrl+R                           | Expand collapsed reasoning (repeat for earlier blocks)             |
-| Ctrl+E (empty input)             | Expand the last write/edit diff in place                           |
-| Ctrl+O                           | Expand the last truncated tool output                              |
-| Tab (agent busy, draft typed)    | Queue the draft as its own turn after the current one              |
-| Up (agent busy)                  | Recall queued messages for editing                                 |
-| Ctrl+Enter (agent busy)          | Interrupt and send the draft and queue now                         |
-| Ctrl+X (agent busy, empty input) | Clear the message queue                                            |
-| Ctrl+B (tool running)            | Move the running tool call to the background                       |
+| Keys                                  | Action                                                 |
+| ------------------------------------- | ------------------------------------------------------ |
+| Enter                                 | Send the message                                       |
+| Shift+Enter                           | Insert a newline for a multi-line message              |
+| Tab                                   | Complete the highlighted slash command or @ path       |
+| Up/Down (empty input)                 | Recall previously sent messages                        |
+| Ctrl+A / Ctrl+E                       | Move to the start or end of the line                   |
+| Ctrl+U                                | Delete from the caret to the start of the line         |
+| Ctrl+K                                | Delete from the caret to the end of the line           |
+| Ctrl+W                                | Delete the word before the caret                       |
+| Esc                                   | Clear the current draft                                |
+| Esc Esc (agent busy)                  | Interrupt the current generation or tool               |
+| Esc Esc (agent busy, messages queued) | Interrupt and send the queued messages now             |
+| Ctrl+C (agent busy)                   | Interrupt the current generation or tool               |
+| Ctrl+C Ctrl+C                         | Leave the conversation                                 |
+| Shift+Tab                             | Toggle safe/yolo approval mode                         |
+| Ctrl+R                                | Expand collapsed reasoning (repeat for earlier blocks) |
+| Ctrl+E (empty input)                  | Expand the last write/edit diff in place               |
+| Ctrl+O                                | Expand the last truncated tool output                  |
+| Tab (agent busy, draft typed)         | Queue the draft as its own turn after the current one  |
+| Up (agent busy)                       | Recall queued messages for editing                     |
+| Ctrl+Enter (agent busy)               | Interrupt and send the draft and queue now             |
+| Ctrl+X (agent busy, empty input)      | Clear the message queue                                |
+| Ctrl+B (tool running)                 | Move the running tool call to the background           |
 
 <!-- keys-classic:end -->
 

@@ -60,8 +60,13 @@ export const CLASSIC_KEYMAP: readonly KeyBinding[] = [
   { keys: "Esc", action: "Clear the current draft" },
   {
     keys: "Esc Esc",
-    action: "Interrupt the current generation or tool, and drop queued messages",
+    action: "Interrupt the current generation or tool",
     when: "agent busy",
+  },
+  {
+    keys: "Esc Esc",
+    action: "Interrupt and send the queued messages now",
+    when: "agent busy, messages queued",
   },
   ...RUN_BINDINGS,
 ];

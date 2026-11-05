@@ -95,7 +95,7 @@ import {
   hydrateTranscriptFromUiEntries,
 } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
-import { followUpCount } from "@/cli/ui/message-queue";
+import { followUpCount, sendsQueueUnprompted } from "@/cli/ui/message-queue";
 import { backgroundItems } from "@/cli/ui/models/background-work";
 import { store } from "@/cli/ui/store";
 import { announcePendingSuggestions } from "./chat/announce-pending-suggestions";
@@ -766,7 +766,9 @@ export class ChatServiceImpl implements ChatService {
           }
           yield* announceGoalTurn(goalTurn.goal);
           userMessage = goalTurn.prompt;
-        } else if (queued.length > 0 && (!lastTurnErrored || flushRequested)) {
+        } else if (
+          sendsQueueUnprompted({ queueLength: queued.length, lastTurnErrored, flushRequested })
+        ) {
           // Clean prior turn → drain the next queued turn without re-prompting.
           // A command at the head runs alone through the command path below;
           // prose entries are combined. Anything left is picked up next loop.
