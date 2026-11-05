@@ -156,7 +156,10 @@ export function collectMcpServerInstructions(
     const collected: McpServerInstructions[] = [];
     for (const serverName of connectedServerNames) {
       const instructions = yield* manager.getInstructions(serverName);
-      if (instructions === undefined || instructions.trim().length === 0) {
+      if (
+        instructions === undefined ||
+        instructions.slice(0, MCP_SERVER_INSTRUCTIONS_MAX_CHARS * 8).trim().length === 0
+      ) {
         yield* logger.debug("MCP server sent no instructions");
         continue;
       }
