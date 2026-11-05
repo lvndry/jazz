@@ -100,7 +100,7 @@
   },
   "packages/adapters/src/llm/ai-sdk-service.ts": {
     "curly": {
-      "count": 21
+      "count": 20
     },
     "id-length": {
       "count": 3
