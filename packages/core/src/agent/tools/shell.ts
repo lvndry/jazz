@@ -62,7 +62,9 @@ function collectMktempVars(command: string): Set<string> {
   const vars = new Set<string>();
   for (const match of command.matchAll(MKTEMP_ASSIGNMENT)) {
     const name = match[1];
-    if (name) vars.add(name);
+    if (name) {
+      vars.add(name);
+    }
   }
   return vars;
 }
@@ -74,11 +76,15 @@ function collectMktempVars(command: string): Set<string> {
  * `/subpath`) whose value was assigned from `mktemp` earlier in the command?
  */
 function isTempPathToken(token: string, mktempVars: Set<string>): boolean {
-  if (token === MKTEMP_SENTINEL) return true; // inline $(mktemp …) / `mktemp …`
+  if (token === MKTEMP_SENTINEL) {
+    return true;
+  } // inline $(mktemp …) / `mktemp …`
   if (token.split("/").includes("..")) {
     return false; // `$TMPDIR/../..` climbs out of the temp dir
   }
-  if (/^\$\{?TMPDIR\}?(?:\/.*)?$/.test(token)) return true; // $TMPDIR or ${TMPDIR}[/…]
+  if (/^\$\{?TMPDIR\}?(?:\/.*)?$/.test(token)) {
+    return true;
+  } // $TMPDIR or ${TMPDIR}[/…]
   const varName = token.match(/^\$\{?(\w+)\}?(?:\/.*)?$/)?.[1]; // $var / ${var}[/…]
   return varName !== undefined && mktempVars.has(varName);
 }
@@ -95,7 +101,9 @@ function isTempPathToken(token: string, mktempVars: Set<string>): boolean {
 function isTempCleanupRm(command: string): boolean {
   const mktempVars = collectMktempVars(command);
   const rmInvocations = command.match(/\brm\b[^\n;&|]*/g);
-  if (!rmInvocations || rmInvocations.length === 0) return false;
+  if (!rmInvocations || rmInvocations.length === 0) {
+    return false;
+  }
   return rmInvocations.every((invocation) => {
     const targets = invocation
       .slice(2) // drop the leading "rm"
@@ -468,8 +476,12 @@ export const FORBIDDEN_COMMANDS: readonly ForbiddenRule[] = [
 export function matchForbiddenCommand(command: string): ForbiddenRule | null {
   const matchable = blankQuotedOperators(command);
   for (const rule of FORBIDDEN_COMMANDS) {
-    if (!rule.pattern.test(matchable)) continue;
-    if (rule.exemptions?.some((exemption) => exemption.matches(command))) continue;
+    if (!rule.pattern.test(matchable)) {
+      continue;
+    }
+    if (rule.exemptions?.some((exemption) => exemption.matches(command))) {
+      continue;
+    }
     return rule;
   }
   return null;
@@ -564,14 +576,23 @@ export type ShellCommandOutput = {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number;
+  /**
+   * The time limit ended the command. Reported apart from `exitCode`, since a command can exit
+   * 124 on its own and a killed command's exit code says nothing about why it was killed.
+   */
+  readonly timedOut: boolean;
 };
 
 type InteractiveShellKind = "zsh" | "bash";
 
 function interactiveShellKind(shellPath: string): InteractiveShellKind | undefined {
   const name = shellPath.split("/").pop();
-  if (name === "zsh") return "zsh";
-  if (name === "bash") return "bash";
+  if (name === "zsh") {
+    return "zsh";
+  }
+  if (name === "bash") {
+    return "bash";
+  }
   return undefined;
 }
 
@@ -651,11 +672,14 @@ export function runShellCommand(input: {
 }): Effect.Effect<ShellCommandOutput, Error> {
   return Effect.callback((resume) => {
     let settled = false;
+    let timedOut = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let child: ChildProcess | undefined;
 
     const finish = (effect: Effect.Effect<ShellCommandOutput, Error>): void => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       if (timeoutId) {
         clearTimeout(timeoutId);
@@ -724,19 +748,26 @@ export function runShellCommand(input: {
     // `snapshot()` threw that away, so a job that logged for fourteen minutes and then hit
     // the cap reported nothing at all. 124 is the exit code `timeout(1)` uses.
     timeoutId = setTimeout(() => {
-      if (child !== undefined) {
-        void terminateProcessGroup(child);
+      timedOut = true;
+      const timedOutChild = child;
+      const reportTimeout = (): void => {
+        const collected = snapshot();
+        const note = `Command timed out after ${input.timeoutMs}ms and was killed; any output above is what it printed first.`;
+        const stderr = formatStream(collected.stderr, "stderr");
+        finish(
+          Effect.succeed({
+            stdout: formatStream(collected.stdout, "stdout"),
+            stderr: stderr.length > 0 ? `${stderr}\n${note}` : note,
+            exitCode: TIMEOUT_EXIT_CODE,
+            timedOut: true,
+          }),
+        );
+      };
+      if (timedOutChild === undefined) {
+        reportTimeout();
+        return;
       }
-      const collected = snapshot();
-      const note = `Command timed out after ${input.timeoutMs}ms and was killed; any output above is what it printed first.`;
-      const stderr = formatStream(collected.stderr, "stderr");
-      finish(
-        Effect.succeed({
-          stdout: formatStream(collected.stdout, "stdout"),
-          stderr: stderr.length > 0 ? `${stderr}\n${note}` : note,
-          exitCode: TIMEOUT_EXIT_CODE,
-        }),
-      );
+      void terminateProcessGroup(timedOutChild).then(reportTimeout);
     }, input.timeoutMs);
 
     child.on("error", (error) => {
@@ -744,6 +775,9 @@ export function runShellCommand(input: {
     });
 
     const finishWithExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      if (timedOut) {
+        return;
+      }
       if (pipeGraceId) {
         clearTimeout(pipeGraceId);
         pipeGraceId = null;
@@ -755,6 +789,7 @@ export function runShellCommand(input: {
           stderr: formatStream(collected.stderr, "stderr"),
           // A signal death reports a null code, and calling that 0 reads as success.
           exitCode: code ?? (signal !== null ? SIGNAL_EXIT_CODE : 0),
+          timedOut: false,
         }),
       );
     };
@@ -782,7 +817,9 @@ export function runShellCommand(input: {
         clearTimeout(pipeGraceId);
         pipeGraceId = null;
       }
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       if (timeoutId) {
         clearTimeout(timeoutId);
@@ -1045,12 +1082,13 @@ Reason given: ${args.escalate}`,
 
           yield* logger.info("Command executed", {
             exitCode: result.exitCode,
+            timedOut: result.timedOut,
             stdoutChars: result.stdout.length,
             stderrChars: result.stderr.length,
           });
 
           const denial =
-            writePolicy === undefined
+            writePolicy === undefined || result.timedOut
               ? undefined
               : classifyWriteDenial({
                   exitCode: result.exitCode,
@@ -1076,9 +1114,10 @@ Reason given: ${args.escalate}`,
               command: args.command,
               workingDirectory: workingDir,
               exitCode: result.exitCode,
+              timedOut: result.timedOut,
               stdout: result.stdout,
               stderr: result.stderr,
-              success: result.exitCode === 0,
+              success: result.exitCode === 0 && !result.timedOut,
               ...(denial !== undefined && confinementNote !== undefined
                 ? {
                     confinement: {

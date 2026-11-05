@@ -76,7 +76,9 @@ export async function resolveBrowserExecutablePath(
 
   for (const channel of CHROME_RELEASE_CHANNELS) {
     const systemChrome = await lookup.findSystemChrome(channel);
-    if (systemChrome !== null) return systemChrome;
+    if (systemChrome !== null) {
+      return systemChrome;
+    }
   }
 
   return null;
@@ -164,7 +166,9 @@ function resolveHtmlSource(
       ),
     );
   }
-  if (hasHtml) return Effect.succeed(args.html as string);
+  if (hasHtml) {
+    return Effect.succeed(args.html as string);
+  }
   const rawPath = args.htmlPath as string;
   return Effect.gen(function* () {
     const fileSystemContext = yield* Effect.serviceOption(FileSystemContextServiceTag);
@@ -229,14 +233,18 @@ function hasFaviconLink(html: string): boolean {
  * htmlPath input.
  */
 export function withFavicon(html: string): string {
-  if (hasFaviconLink(html)) return html;
+  if (hasFaviconLink(html)) {
+    return html;
+  }
   const headMatch = html.match(/<head[^>]*>/i);
   if (headMatch && headMatch.index !== undefined) {
     const insertAt = headMatch.index + headMatch[0].length;
     return html.slice(0, insertAt) + "\n" + FAVICON_LINK_TAG + html.slice(insertAt);
   }
   const closeHtml = html.toLowerCase().lastIndexOf("</html>");
-  if (closeHtml !== -1) return html.slice(0, closeHtml) + FAVICON_LINK_TAG + html.slice(closeHtml);
+  if (closeHtml !== -1) {
+    return html.slice(0, closeHtml) + FAVICON_LINK_TAG + html.slice(closeHtml);
+  }
   return html + FAVICON_LINK_TAG;
 }
 
@@ -263,7 +271,9 @@ function nextCompositionPath(fs: FileSystem.FileSystem, directory: string, title
   return Effect.gen(function* () {
     for (let version = 1; ; version += 1) {
       const candidate = `${directory}/${stem}${version === 1 ? "" : `-${version}`}${extension}`;
-      if (!(yield* fs.exists(candidate))) return candidate;
+      if (!(yield* fs.exists(candidate))) {
+        return candidate;
+      }
     }
   });
 }
@@ -424,7 +434,9 @@ export function createCompositionTool(
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { mode: string; title: string };
       return `Created ${data.mode} composition: ${data.title}`;
     },

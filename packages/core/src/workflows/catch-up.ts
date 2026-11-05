@@ -70,7 +70,9 @@ function getLastRunSnapshot(
   for (const record of history) {
     const timestamp = record.completedAt ?? record.startedAt;
     const parsed = new Date(timestamp);
-    if (Number.isNaN(parsed.getTime())) continue;
+    if (Number.isNaN(parsed.getTime())) {
+      continue;
+    }
 
     const key = `${record.workflowName}/${runScheduleLabel(record)}`;
     const existing = map.get(key);
@@ -174,7 +176,9 @@ export function getCatchUpCandidates() {
         .getWorkflow(entry.workflowName)
         .pipe(Effect.catch(() => Effect.succeed(undefined)));
 
-      if (!workflow) continue;
+      if (!workflow) {
+        continue;
+      }
 
       const snapshot = lastRunMap.get(scheduleId(entry));
       const decision = decideCatchUp(

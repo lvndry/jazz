@@ -35,11 +35,17 @@ interface HerdrEnv {
 }
 
 function readHerdrEnv(env: NodeJS.ProcessEnv = process.env): HerdrEnv | undefined {
-  if (env["HERDR_ENV"] !== "1") return undefined;
+  if (env["HERDR_ENV"] !== "1") {
+    return undefined;
+  }
   const paneId = env["HERDR_PANE_ID"];
   const binPath = env["HERDR_BIN_PATH"];
-  if (paneId === undefined || paneId.length === 0) return undefined;
-  if (binPath === undefined || binPath.length === 0) return undefined;
+  if (paneId === undefined || paneId.length === 0) {
+    return undefined;
+  }
+  if (binPath === undefined || binPath.length === 0) {
+    return undefined;
+  }
   return { paneId, binPath };
 }
 
@@ -123,7 +129,9 @@ class HerdrPaneAdapter implements PaneStateAdapter {
   }
 
   onSnapshot(snapshot: PaneStateSnapshot): void {
-    if (this.released) return;
+    if (this.released) {
+      return;
+    }
     const conversation = snapshot.currentConversation;
     if (conversation !== null) {
       this.currentAgent = conversation.agentId;
@@ -159,7 +167,9 @@ class HerdrPaneAdapter implements PaneStateAdapter {
   }
 
   release(): void {
-    if (this.released) return;
+    if (this.released) {
+      return;
+    }
     this.released = true;
     runHerdr(this.env.binPath, [
       "pane",
@@ -187,7 +197,9 @@ class HerdrPaneAdapter implements PaneStateAdapter {
  */
 export function herdrPaneAdapter(): PaneStateAdapter {
   const env = readHerdrEnv();
-  if (env === undefined) return createInactivePaneAdapter("herdr");
+  if (env === undefined) {
+    return createInactivePaneAdapter("herdr");
+  }
   return new HerdrPaneAdapter(env);
 }
 

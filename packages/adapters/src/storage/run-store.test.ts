@@ -85,9 +85,13 @@ function suite(name: string, makeStore: () => Promise<RunStore>, cleanup?: () =>
 
       const loaded = await Effect.runPromise(store.get(RUN_ID));
       expect(loaded?.state.kind).toBe("input-required");
-      if (loaded?.state.kind !== "input-required") throw new Error("expected a parked run");
+      if (loaded?.state.kind !== "input-required") {
+        throw new Error("expected a parked run");
+      }
       expect(loaded.state.pending.kind).toBe("tool-approval");
-      if (loaded.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+      if (loaded.state.pending.kind !== "tool-approval") {
+        throw new Error("expected an approval");
+      }
       expect(loaded.state.pending.request.toolCallId).toBe("call_1");
       expect(loaded.state.snapshot.iteration).toBe(2);
     });
@@ -214,7 +218,9 @@ function suite(name: string, makeStore: () => Promise<RunStore>, cleanup?: () =>
 
       const recovered = await Effect.runPromise(store.get(RUN_ID));
       expect(recovered?.state.kind).toBe("input-required");
-      if (recovered?.state.kind !== "input-required") throw new Error("expected a parked run");
+      if (recovered?.state.kind !== "input-required") {
+        throw new Error("expected a parked run");
+      }
       expect(recovered.state.snapshot.iteration).toBe(2);
     });
 

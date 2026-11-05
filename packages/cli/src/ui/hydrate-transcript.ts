@@ -25,8 +25,9 @@ export function presentationEntriesFromHistory(
       (message.role !== "user" && message.role !== "assistant") ||
       message.kind === "continuation" ||
       message.content.trim().length === 0
-    )
+    ) {
       continue;
+    }
     entries.push({
       id: `${documentId}:message:${index}`,
       timestamp: new Date(0).toISOString(),
@@ -64,8 +65,12 @@ export function hydrateInputHistoryFromMessages(
 ): void {
   target.clearInputHistory();
   for (const message of messages) {
-    if (message.role !== "user" || message.kind === "continuation") continue;
-    if (message.content.trim().length === 0) continue;
+    if (message.role !== "user" || message.kind === "continuation") {
+      continue;
+    }
+    if (message.content.trim().length === 0) {
+      continue;
+    }
     target.pushInputHistory(typedText(message));
   }
 }

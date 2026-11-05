@@ -41,7 +41,7 @@ function cwdLayer(cwd: string) {
     resolvePath: () => Effect.succeed(cwd),
     findDirectory: () => Effect.succeed({ results: [] }),
     resolvePathForMkdir: () => Effect.succeed(cwd),
-    escapePath: (p) => p,
+    escapePath: (filePath) => filePath,
   });
 }
 
@@ -61,7 +61,9 @@ describe("who_is_here", () => {
   it("reports nobody when the registry is empty", async () => {
     const result = await runTool([]);
     expect(result.success).toBe(true);
-    if (result.success) expect(result.result).toContain("nobody is working here");
+    if (result.success) {
+      expect(result.result).toContain("nobody is working here");
+    }
   });
 
   it("bands a fresh mutating occupant as WRITING with tool and path", async () => {
@@ -93,24 +95,32 @@ describe("who_is_here", () => {
 
   it("bands an occupant with no mutating call as reads only", async () => {
     const result = await runTool([entry({ runId: "c".repeat(8), lastReadAt: ago(1_000) })]);
-    if (result.success) expect(result.result).toContain("present, reads only");
+    if (result.success) {
+      expect(result.result).toContain("present, reads only");
+    }
   });
 
   it("drops an occupant whose heartbeat went stale", async () => {
     const result = await runTool([entry({ runId: "d".repeat(8), updatedAt: ago(10 * 60_000) })]);
-    if (result.success) expect(result.result).toContain("nobody is working here");
+    if (result.success) {
+      expect(result.result).toContain("nobody is working here");
+    }
   });
 
   it("drops an occupant whose process died", async () => {
     const result = await runTool([entry({ runId: "e".repeat(8), pid: 999_999 })]);
-    if (result.success) expect(result.result).toContain("nobody is working here");
+    if (result.success) {
+      expect(result.result).toContain("nobody is working here");
+    }
   });
 
   it("drops a finished run: its final entry is terminal even though it is fresh", async () => {
     const result = await runTool([
       entry({ runId: "j".repeat(8), state: "completed", updatedAt: ago(500) }),
     ]);
-    if (result.success) expect(result.result).toContain("nobody is working here");
+    if (result.success) {
+      expect(result.result).toContain("nobody is working here");
+    }
   });
 
   it("hides only the caller's own run: a sibling run in the same process stays visible", async () => {
@@ -132,7 +142,9 @@ describe("who_is_here", () => {
     const result = await runTool([
       entry({ runId: "f".repeat(8), pid: process.pid, host: hostname() }),
     ]);
-    if (result.success) expect(result.result).toContain("nobody is working here");
+    if (result.success) {
+      expect(result.result).toContain("nobody is working here");
+    }
   });
 
   it("lists an occupant in a subdirectory of the queried directory", async () => {
@@ -157,6 +169,8 @@ describe("who_is_here", () => {
 
   it("states a waiting-on-approval occupant explicitly", async () => {
     const result = await runTool([entry({ runId: "i".repeat(8), state: "input-required" })]);
-    if (result.success) expect(result.result).toContain("waiting on approval");
+    if (result.success) {
+      expect(result.result).toContain("waiting on approval");
+    }
   });
 });

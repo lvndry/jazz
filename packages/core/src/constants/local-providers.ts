@@ -96,6 +96,8 @@ export function localServerAddress(baseUrl: string): string {
  * provider name, so they are excluded.
  */
 export function isZeroCostLocalModel(provider: string, modelId: string): boolean {
-  if (!isLocalServerProvider(provider)) return false;
+  if (!isLocalServerProvider(provider)) {
+    return false;
+  }
   return provider !== "ollama" || !isOllamaCloudModel(modelId);
 }

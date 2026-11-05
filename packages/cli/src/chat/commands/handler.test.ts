@@ -14,7 +14,7 @@ import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { silentLogger } from "@jazz/core/agent/test-logger";
 import { matchForbiddenCommand } from "@jazz/core/agent/tools/shell";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
-import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
+import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import {
   FileSystemContextServiceTag,
   type FileSystemContextService,
@@ -40,6 +40,7 @@ import {
 import { ReminderServiceTag } from "@jazz/core/interfaces/reminder-service";
 import {
   isTerminalReport,
+  type PromptChoice,
   TerminalServiceTag,
   type TerminalService,
 } from "@jazz/core/interfaces/terminal";
@@ -52,7 +53,7 @@ import {
   type SkillsBySource,
 } from "@jazz/core/skills/skill-service";
 import type { Agent } from "@jazz/core/types/agent";
-import type { ChatMessage } from "@jazz/core/types/message";
+import type { ChatMessage, ConversationMessages } from "@jazz/core/types/message";
 import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
 import { describe, test, expect, afterAll, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { Effect, type FileSystem, Layer } from "effect";
@@ -68,6 +69,7 @@ import * as commandHandlers from "./handler";
 import { handleSpecialCommand } from "./handler";
 import * as chatLoop from "./loop";
 import type { CommandContext, CommandResult } from "./types";
+import { partialFake, type PartialMembers } from "../../test-support/partial-fake";
 
 let tmpDir = "";
 
@@ -129,11 +131,14 @@ function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
 
 /** Minimal presentation layer: /compact drives a live region, so the handler needs one. */
 function mockPresentationLayer(): Layer.Layer<PresentationService> {
-  return Layer.succeed(PresentationServiceTag, {
-    openEphemeralRegion: () => Effect.succeed("region-test"),
-    appendEphemeralRegion: () => Effect.void,
-    collapseEphemeralRegion: () => Effect.void,
-  } as unknown as PresentationService);
+  return Layer.succeed(
+    PresentationServiceTag,
+    partialFake<PresentationService>({
+      openEphemeralRegion: () => Effect.succeed("region-test"),
+      appendEphemeralRegion: () => Effect.void,
+      collapseEphemeralRegion: () => Effect.void,
+    }),
+  );
 }
 
 beforeEach(() => {
@@ -228,14 +233,17 @@ describe("handleSpecialCommand /skills", () => {
   test("prints the complete inventory for a non-interactive terminal", async () => {
     const lines: string[] = [];
     const layer = Layer.merge(
-      Layer.succeed(TerminalServiceTag, {
-        isInteractive: false,
-        log: (message: string) =>
-          Effect.sync(() => {
-            lines.push(outputText(message));
-            return undefined;
-          }),
-      } as unknown as TerminalService),
+      Layer.succeed(
+        TerminalServiceTag,
+        partialFake<TerminalService>({
+          isInteractive: false,
+          log: (message: string) =>
+            Effect.sync(() => {
+              lines.push(outputText(message));
+              return undefined;
+            }),
+        }),
+      ),
       Layer.succeed(SkillServiceTag, skillService),
     );
     await Effect.runPromise(
@@ -280,7 +288,9 @@ describe("agent creation and fresh conversations", () => {
     const terminal = terminalFixture({
       log: (message) =>
         Effect.sync(() => {
-          if (isTerminalReport(message)) reportLabels.push(message.label);
+          if (isTerminalReport(message)) {
+            reportLabels.push(message.label);
+          }
           return undefined;
         }),
     });
@@ -540,7 +550,7 @@ describe("handleSpecialCommand resume", () => {
   test("switches the chat to the resumed conversation instead of copying it into the current one", async () => {
     await runEffect(saveConversation(testRecord, tmpDir));
 
-    const mockTerminal: Partial<TerminalService> = {
+    const mockTerminal: PartialMembers<TerminalService> = {
       search: mock(() => Effect.succeed("conv-to-resume")) as TerminalService["search"],
       success: mock(() => Effect.void),
       log: mock(() => Effect.succeed(undefined)),
@@ -549,13 +559,16 @@ describe("handleSpecialCommand resume", () => {
 
     const terminalLayer = Layer.succeed(
       TerminalServiceTag,
-      mockTerminal as unknown as TerminalService,
+      partialFake<TerminalService>(mockTerminal),
     );
-    const jazzStateLayer = Layer.succeed(JazzStateServiceTag, {
-      get: () => Effect.succeed(undefined),
-      set: () => Effect.void,
-      load: () => Effect.succeed({}),
-    } as unknown as JazzStateService);
+    const jazzStateLayer = Layer.succeed(
+      JazzStateServiceTag,
+      partialFake<JazzStateService>({
+        get: () => Effect.succeed(undefined),
+        set: () => Effect.void,
+        load: () => Effect.succeed({}),
+      }),
+    );
     const testLayer = Layer.mergeAll(terminalLayer, jazzStateLayer, NodeFileSystem.layer);
 
     const context: CommandContext = {
@@ -590,10 +603,13 @@ describe("handleSpecialCommand resume", () => {
 
   /** The regression: `/retry` resent the model-facing content, source tag and all. */
   test("/retry resends what was typed, without the memory-source tag", async () => {
-    const terminalLayer = Layer.succeed(TerminalServiceTag, {
-      warn: mock(() => Effect.void),
-      log: mock(() => Effect.void),
-    } as unknown as TerminalService);
+    const terminalLayer = Layer.succeed(
+      TerminalServiceTag,
+      partialFake<TerminalService>({
+        warn: mock(() => Effect.void),
+        log: mock(() => Effect.void),
+      }),
+    );
     const context: CommandContext = {
       agent: testAgent,
       conversationHistory: [
@@ -622,20 +638,23 @@ describe("handleSpecialCommand resume", () => {
 
   test("does not replace history when this agent has no past conversations", async () => {
     const info = mock(() => Effect.void);
-    const mockTerminal: Partial<TerminalService> = {
+    const mockTerminal: PartialMembers<TerminalService> = {
       info,
       log: mock(() => Effect.succeed(undefined)),
     };
 
     const terminalLayer = Layer.succeed(
       TerminalServiceTag,
-      mockTerminal as unknown as TerminalService,
+      partialFake<TerminalService>(mockTerminal),
     );
-    const jazzStateLayer = Layer.succeed(JazzStateServiceTag, {
-      get: () => Effect.succeed(undefined),
-      set: () => Effect.void,
-      load: () => Effect.succeed({}),
-    } as unknown as JazzStateService);
+    const jazzStateLayer = Layer.succeed(
+      JazzStateServiceTag,
+      partialFake<JazzStateService>({
+        get: () => Effect.succeed(undefined),
+        set: () => Effect.void,
+        load: () => Effect.succeed({}),
+      }),
+    );
     const testLayer = Layer.mergeAll(terminalLayer, jazzStateLayer, NodeFileSystem.layer);
 
     const context: CommandContext = {
@@ -665,13 +684,13 @@ describe("handleSpecialCommand resume", () => {
 describe("handleSpecialCommand /detach", () => {
   test("refuses a handoff while later messages are still queued", async () => {
     const warnings: string[] = [];
-    const terminal = {
+    const terminal = partialFake<TerminalService>({
       isInteractive: true,
       warn: (message: string) => {
         warnings.push(message);
         return Effect.void;
       },
-    } as unknown as TerminalService;
+    });
     const context: CommandContext = {
       agent: testAgent,
       conversationId: "test-session",
@@ -698,7 +717,7 @@ describe("handleSpecialCommand /detach", () => {
 describe("handleSpecialCommand shell escape", () => {
   test("executes the command and returns its bounded result as agent context", async () => {
     const output: string[] = [];
-    const mockTerminal: Partial<TerminalService> = {
+    const mockTerminal: PartialMembers<TerminalService> = {
       log: mock((message: string) => {
         output.push(message);
         return Effect.succeed(undefined);
@@ -740,7 +759,7 @@ describe("handleSpecialCommand shell escape", () => {
 
   test("shows the operator the output and gives the agent its redacted form", async () => {
     const output: string[] = [];
-    const mockTerminal: Partial<TerminalService> = {
+    const mockTerminal: PartialMembers<TerminalService> = {
       log: mock((message: string) => {
         output.push(message);
         return Effect.succeed(undefined);
@@ -780,7 +799,7 @@ describe("handleSpecialCommand shell escape", () => {
 
   test("runs the operator's command even when the agent denylist would block it", async () => {
     const output: string[] = [];
-    const mockTerminal: Partial<TerminalService> = {
+    const mockTerminal: PartialMembers<TerminalService> = {
       log: mock((message: string) => {
         output.push(message);
         return Effect.succeed(undefined);
@@ -843,7 +862,7 @@ describe("handleSpecialCommand /reasoning", () => {
     canDisableReasoning: true,
   } as const;
 
-  function reasoningTerminal(overrides: Partial<TerminalService> = {}) {
+  function reasoningTerminal(overrides: PartialMembers<TerminalService> = {}) {
     return {
       isInteractive: false,
       select: mock(() => Effect.succeed(undefined)) as TerminalService["select"],
@@ -853,20 +872,20 @@ describe("handleSpecialCommand /reasoning", () => {
       info: mock(() => Effect.void),
       warn: mock(() => Effect.void),
       ...overrides,
-    } satisfies Partial<TerminalService>;
+    } satisfies PartialMembers<TerminalService>;
   }
 
   function runReasoning(
     args: string[],
-    terminal: Partial<TerminalService>,
+    terminal: PartialMembers<TerminalService>,
     control: Parameters<typeof reasoningChoicesFor>[0] = { kind: "unknown" },
   ): Promise<CommandResult> {
-    const llmService: Partial<LLMService> = {
+    const llmService: PartialMembers<LLMService> = {
       resolveReasoningControl: () => Effect.succeed(control ?? { kind: "unknown" }),
     };
     const layers = Layer.mergeAll(
-      Layer.succeed(TerminalServiceTag, terminal as unknown as TerminalService),
-      Layer.succeed(LLMServiceTag, llmService as unknown as LLMService),
+      Layer.succeed(TerminalServiceTag, partialFake<TerminalService>(terminal)),
+      Layer.succeed(LLMServiceTag, partialFake<LLMService>(llmService)),
     );
     return Effect.runPromise(
       handleSpecialCommand({ type: "reasoning", args }, baseContext).pipe(
@@ -898,7 +917,7 @@ describe("handleSpecialCommand /reasoning", () => {
   test("opens the picker in interactive mode and applies the chosen level", async () => {
     const terminal = reasoningTerminal({
       isInteractive: true,
-      select: mock(() => Effect.succeed("medium")) as unknown as TerminalService["select"],
+      select: mock(() => Effect.succeed("medium")),
     });
 
     const result = await runReasoning([], terminal);
@@ -907,18 +926,18 @@ describe("handleSpecialCommand /reasoning", () => {
   });
 
   test("offers only the levels the model accepts", async () => {
-    const select = mock(() => Effect.succeed("high"));
+    const select = mock(
+      (_message: string, _options: { choices: readonly PromptChoice<string>[] }) =>
+        Effect.succeed("high"),
+    );
     const terminal = reasoningTerminal({
       isInteractive: true,
-      select: select as unknown as TerminalService["select"],
+      select: select,
     });
 
     await runReasoning([], terminal, lowToHigh);
 
-    const [, options] = select.mock.calls[0] as unknown as [
-      string,
-      { choices: { value: string }[] },
-    ];
+    const [, options] = select.mock.calls[0]!;
     expect(options.choices.map((choice) => choice.value)).toEqual([
       "low",
       "medium",
@@ -969,8 +988,8 @@ describe("handleSpecialCommand /compact", () => {
     sessionStartedAt: new Date(),
   };
 
-  function runCompact(terminal: Partial<TerminalService> = {}): Promise<CommandResult> {
-    const mockTerminal: Partial<TerminalService> = {
+  function runCompact(terminal: PartialMembers<TerminalService> = {}): Promise<CommandResult> {
+    const mockTerminal: PartialMembers<TerminalService> = {
       info: mock(() => Effect.void),
       success: mock(() => Effect.void),
       warn: mock(() => Effect.void),
@@ -980,7 +999,7 @@ describe("handleSpecialCommand /compact", () => {
     };
     const terminalLayer = Layer.succeed(
       TerminalServiceTag,
-      mockTerminal as unknown as TerminalService,
+      partialFake<TerminalService>(mockTerminal),
     );
     return Effect.runPromise(
       handleSpecialCommand({ type: "compact", args: [] }, context).pipe(
@@ -990,7 +1009,7 @@ describe("handleSpecialCommand /compact", () => {
   }
 
   test("replaces the history with the compacted one, recent messages included", async () => {
-    const compacted: ChatMessage[] = [
+    const compacted: ConversationMessages = [
       { role: "system", content: "system" },
       { role: "assistant", content: "summary of the first exchange", kind: "summary" },
       { role: "user", content: "Continue the task.", kind: "continuation" },
@@ -1005,7 +1024,7 @@ describe("handleSpecialCommand /compact", () => {
           messages: compacted,
           tokensBefore: 900,
           tokensAfter: 400,
-        }) as unknown as ReturnType<typeof AgentRunner.compactHistory>;
+        });
       },
     );
 
@@ -1025,11 +1044,8 @@ describe("handleSpecialCommand /compact", () => {
     const gate = new Promise<void>((resolve) => {
       releaseCompaction = resolve;
     });
-    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
-      () =>
-        Effect.promise(() => gate).pipe(Effect.as(undefined)) as unknown as ReturnType<
-          typeof AgentRunner.compactHistory
-        >,
+    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(() =>
+      Effect.promise(() => gate).pipe(Effect.as(undefined)),
     );
     store.setChatBusy(false);
     store.consumeFlushQueue();
@@ -1051,8 +1067,8 @@ describe("handleSpecialCommand /compact", () => {
   });
 
   test("leaves the history alone when nothing is old enough to compact", async () => {
-    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
-      () => Effect.succeed(undefined) as unknown as ReturnType<typeof AgentRunner.compactHistory>,
+    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(() =>
+      Effect.succeed(undefined),
     );
 
     try {
@@ -1065,11 +1081,8 @@ describe("handleSpecialCommand /compact", () => {
 
   test("reports a failed compaction and keeps the history", async () => {
     const error = mock(() => Effect.void);
-    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
-      () =>
-        Effect.fail(new Error("provider down")) as unknown as ReturnType<
-          typeof AgentRunner.compactHistory
-        >,
+    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(() =>
+      Effect.fail(new Error("provider down")),
     );
 
     try {
@@ -1092,20 +1105,18 @@ describe("handleSpecialCommand /compact", () => {
     const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
       (_messages, _agent, _conversationId, contextWindowTokens) => {
         receivedContextWindow = contextWindowTokens;
-        return Effect.succeed(undefined) as unknown as ReturnType<
-          typeof AgentRunner.compactHistory
-        >;
+        return Effect.succeed(undefined);
       },
     );
 
-    const mockLLMService: Partial<LLMService> = {
+    const mockLLMService: PartialMembers<LLMService> = {
       resolveLocalProviderBaseUrl: () => "http://localhost:8080",
       fetchLlamaCppServerModel: () => Effect.succeed({ contextWindow: 8000 }),
     };
-    const mockAgentConfigService: Partial<AgentConfigService> = {
+    const mockAgentConfigService: PartialMembers<AgentConfigService> = {
       appConfig: Effect.succeed({}) as AgentConfigService["appConfig"],
     };
-    const mockTerminal: Partial<TerminalService> = {
+    const mockTerminal: PartialMembers<TerminalService> = {
       info: mock(() => Effect.void),
       success: mock(() => Effect.void),
       warn: mock(() => Effect.void),
@@ -1113,9 +1124,9 @@ describe("handleSpecialCommand /compact", () => {
       log: mock(() => Effect.succeed(undefined)),
     };
     const layers = Layer.mergeAll(
-      Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
-      Layer.succeed(LLMServiceTag, mockLLMService as unknown as LLMService),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService as unknown as AgentConfigService),
+      Layer.succeed(TerminalServiceTag, partialFake<TerminalService>(mockTerminal)),
+      Layer.succeed(LLMServiceTag, partialFake<LLMService>(mockLLMService)),
+      Layer.succeed(AgentConfigServiceTag, partialFake<AgentConfigService>(mockAgentConfigService)),
       mockPresentationLayer(),
     );
 
@@ -1141,27 +1152,31 @@ describe("handleSpecialCommand /compact", () => {
     const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
       (_messages, _agent, _conversationId, contextWindowTokens) => {
         receivedContextWindow = contextWindowTokens;
-        return Effect.succeed(undefined) as unknown as ReturnType<
-          typeof AgentRunner.compactHistory
-        >;
+        return Effect.succeed(undefined);
       },
     );
-    const mockLLMService: Partial<LLMService> = {
+    const mockLLMService: PartialMembers<LLMService> = {
       resolveLocalProviderBaseUrl: () => "http://localhost:8000/v1",
       fetchVllmServerModel: () => Effect.succeed({ modelId: "org/live", contextWindow: 32768 }),
     };
     const layers = Layer.mergeAll(
-      Layer.succeed(TerminalServiceTag, {
-        info: () => Effect.void,
-        success: () => Effect.void,
-        warn: () => Effect.void,
-        error: () => Effect.void,
-        log: () => Effect.succeed(undefined),
-      } as unknown as TerminalService),
+      Layer.succeed(
+        TerminalServiceTag,
+        partialFake<TerminalService>({
+          info: () => Effect.void,
+          success: () => Effect.void,
+          warn: () => Effect.void,
+          error: () => Effect.void,
+          log: () => Effect.succeed(undefined),
+        }),
+      ),
       Layer.succeed(LLMServiceTag, mockLLMService as LLMService),
-      Layer.succeed(AgentConfigServiceTag, {
-        appConfig: Effect.succeed({}),
-      } as unknown as AgentConfigService),
+      Layer.succeed(
+        AgentConfigServiceTag,
+        partialFake<AgentConfigService>({
+          appConfig: Effect.succeed({}),
+        }),
+      ),
       mockPresentationLayer(),
     );
 
@@ -1181,7 +1196,7 @@ describe("handleSpecialCommand /compact", () => {
 describe("handleSpecialCommand /tools", () => {
   test("includes builtin categories not present in the agent's own config.tools", async () => {
     const logged: string[] = [];
-    const mockTerminal: Partial<TerminalService> = {
+    const mockTerminal: PartialMembers<TerminalService> = {
       log: mock((message: string) => {
         logged.push(outputText(message));
         return Effect.succeed(undefined);
@@ -1211,19 +1226,19 @@ describe("handleSpecialCommand /tools", () => {
         ),
     };
 
-    const mockAgentConfigService: Partial<AgentConfigService> = {
+    const mockAgentConfigService: PartialMembers<AgentConfigService> = {
       appConfig: Effect.succeed({}) as AgentConfigService["appConfig"],
     };
-    const mockLLMService: Partial<LLMService> = {
+    const mockLLMService: PartialMembers<LLMService> = {
       supportsNativeWebSearch: () => Effect.succeed(false),
       resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
     };
 
     const layers = Layer.mergeAll(
-      Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
-      Layer.succeed(ToolRegistryTag, mockToolRegistry as unknown as ToolRegistry),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService as unknown as AgentConfigService),
-      Layer.succeed(LLMServiceTag, mockLLMService as unknown as LLMService),
+      Layer.succeed(TerminalServiceTag, partialFake<TerminalService>(mockTerminal)),
+      Layer.succeed(ToolRegistryTag, partialFake<ToolRegistry>(mockToolRegistry)),
+      Layer.succeed(AgentConfigServiceTag, partialFake<AgentConfigService>(mockAgentConfigService)),
+      Layer.succeed(LLMServiceTag, partialFake<LLMService>(mockLLMService)),
       // PersonaServiceTag deliberately not provided: Effect.serviceOption resolves to
       // None, matching a persona/agent with no explicit toolProfile.
     );
@@ -1256,16 +1271,16 @@ describe("handleSpecialCommand /tools", () => {
 
 describe("handleSpecialCommand /agents", () => {
   test("delegates to the /switch picker in interactive mode", async () => {
-    const mockTerminal: Partial<TerminalService> = {
+    const mockTerminal: PartialMembers<TerminalService> = {
       isInteractive: true,
-      search: mock(() => Effect.succeed("other-agent-id")) as unknown as TerminalService["search"],
+      search: mock(() => Effect.succeed("other-agent-id")),
       success: mock(() => Effect.void),
       log: mock(() => Effect.succeed(undefined)),
       error: mock(() => Effect.void),
       info: mock(() => Effect.void),
       warn: mock(() => Effect.void),
     };
-    const agentService = {
+    const agentService = partialFake<AgentService>({
       listAgents: () =>
         Effect.succeed([
           testAgent,
@@ -1283,10 +1298,10 @@ describe("handleSpecialCommand /agents", () => {
           name: "Other",
           config: { ...testAgent.config, reasoning: { mode: "disabled" } },
         }),
-    } as unknown as import("@jazz/core/interfaces/agent-service").AgentService;
+    });
     const agentServiceTag = (await import("@jazz/core/interfaces/agent-service")).AgentServiceTag;
     const layers = Layer.mergeAll(
-      Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
+      Layer.succeed(TerminalServiceTag, partialFake<TerminalService>(mockTerminal)),
       Layer.succeed(agentServiceTag, agentService),
     );
 
@@ -1315,7 +1330,7 @@ describe("handleSpecialCommand /agents", () => {
 describe("handleSpecialCommand /peers", () => {
   test("lists configured peers with what they may learn and whether they can be asked", async () => {
     const logged: string[] = [];
-    const mockTerminal: Partial<TerminalService> = {
+    const mockTerminal: PartialMembers<TerminalService> = {
       log: mock((message: string) => {
         logged.push(outputText(message));
         return Effect.succeed(undefined);
@@ -1324,19 +1339,19 @@ describe("handleSpecialCommand /peers", () => {
       info: mock(() => Effect.void),
     };
 
-    const mockAgentConfigService: Partial<AgentConfigService> = {
+    const mockAgentConfigService: PartialMembers<AgentConfigService> = {
       appConfig: Effect.succeed({
         peers: [
           { name: "bob", url: "http://100.101.102.103:4747/peer/ask", disclosure: "internal" },
           { name: "alice", disclosure: "public" },
           { name: "carol", url: "http://100.101.102.104:4747/peer/ask" },
         ],
-      }) as unknown as AgentConfigService["appConfig"],
+      }),
     };
 
     const layers = Layer.mergeAll(
-      Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService as unknown as AgentConfigService),
+      Layer.succeed(TerminalServiceTag, partialFake<TerminalService>(mockTerminal)),
+      Layer.succeed(AgentConfigServiceTag, partialFake<AgentConfigService>(mockAgentConfigService)),
     );
 
     const context: CommandContext = {
@@ -1368,7 +1383,7 @@ describe("handleSpecialCommand /peers", () => {
 
   test("tells you how to add one when none are configured", async () => {
     const infoMessages: string[] = [];
-    const mockTerminal: Partial<TerminalService> = {
+    const mockTerminal: PartialMembers<TerminalService> = {
       log: mock((message: unknown) => {
         infoMessages.push(outputText(message));
         return Effect.succeed(undefined);
@@ -1377,13 +1392,13 @@ describe("handleSpecialCommand /peers", () => {
       info: mock(() => Effect.void),
     };
 
-    const mockAgentConfigService: Partial<AgentConfigService> = {
+    const mockAgentConfigService: PartialMembers<AgentConfigService> = {
       appConfig: Effect.succeed({}) as AgentConfigService["appConfig"],
     };
 
     const layers = Layer.mergeAll(
-      Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService as unknown as AgentConfigService),
+      Layer.succeed(TerminalServiceTag, partialFake<TerminalService>(mockTerminal)),
+      Layer.succeed(AgentConfigServiceTag, partialFake<AgentConfigService>(mockAgentConfigService)),
     );
 
     const context: CommandContext = {
@@ -1419,13 +1434,16 @@ describe("handleSpecialCommand /runPluginCommand", () => {
     sessionStartedAt: new Date(),
   };
 
-  const terminalLayer = Layer.succeed(TerminalServiceTag, {
-    info: () => Effect.void,
-    success: () => Effect.void,
-    warn: () => Effect.void,
-    error: () => Effect.void,
-    log: () => Effect.succeed(undefined),
-  } as unknown as TerminalService);
+  const terminalLayer = Layer.succeed(
+    TerminalServiceTag,
+    partialFake<TerminalService>({
+      info: () => Effect.void,
+      success: () => Effect.void,
+      warn: () => Effect.void,
+      error: () => Effect.void,
+      log: () => Effect.succeed(undefined),
+    }),
+  );
 
   function runtimeLayer(
     runAgentCommand: PluginRuntimeService["runAgentCommand"],
@@ -1499,11 +1517,14 @@ describe("handleSpecialCommand /mode", () => {
     sessionStartedAt: new Date(),
     autoApprovePolicy: true,
   };
-  const quietTerminal = Layer.succeed(TerminalServiceTag, {
-    isInteractive: false,
-    success: () => Effect.void,
-    log: () => Effect.void,
-  } as unknown as TerminalService);
+  const quietTerminal = Layer.succeed(
+    TerminalServiceTag,
+    partialFake<TerminalService>({
+      isInteractive: false,
+      success: () => Effect.void,
+      log: () => Effect.void,
+    }),
+  );
   const run = (args: string[]) =>
     Effect.runPromise(
       handleSpecialCommand({ type: "mode", args }, context).pipe(

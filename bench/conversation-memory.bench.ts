@@ -110,7 +110,9 @@ async function worker(
     fullGC();
     const postClear = heapStats();
     const snapshotPath = process.env["BENCH_MEMORY_HEAP_SNAPSHOT"];
-    if (snapshotPath) await Bun.write(snapshotPath, Bun.generateHeapSnapshot("v8", "arraybuffer"));
+    if (snapshotPath) {
+      await Bun.write(snapshotPath, Bun.generateHeapSnapshot("v8", "arraybuffer"));
+    }
     const rendererOutputBytes = pipeline.outputBytes();
     await pipeline.close();
     closed = true;
@@ -130,17 +132,25 @@ async function worker(
       turns,
     };
   } finally {
-    if (!closed) await pipeline.close();
+    if (!closed) {
+      await pipeline.close();
+    }
   }
 }
 
 if (process.argv[2] === "--worker") {
   const kind = process.argv[3];
-  if (kind !== "ink" && kind !== "opentui") throw new Error("Unknown renderer");
+  if (kind !== "ink" && kind !== "opentui") {
+    throw new Error("Unknown renderer");
+  }
   const turns = Number(process.argv[4]);
   const shape = process.argv[5];
-  if (shape !== "prose" && shape !== "short-paragraphs") throw new Error("Unknown paragraph shape");
-  if (!Number.isSafeInteger(turns) || turns < 1) throw new Error("Invalid turn count");
+  if (shape !== "prose" && shape !== "short-paragraphs") {
+    throw new Error("Unknown paragraph shape");
+  }
+  if (!Number.isSafeInteger(turns) || turns < 1) {
+    throw new Error("Invalid turn count");
+  }
   console.log(JSON.stringify(await worker(kind, turns, shape)));
 } else {
   const counts = (
@@ -149,8 +159,9 @@ if (process.argv[2] === "--worker") {
   )
     .split(",")
     .map(Number);
-  if (counts.some((count) => !Number.isSafeInteger(count) || count < 1))
+  if (counts.some((count) => !Number.isSafeInteger(count) || count < 1)) {
     throw new Error("BENCH_MEMORY_TURNS must list positive integers");
+  }
   const results: BenchResult[] = [];
   for (const kind of ["opentui", "ink"] satisfies RendererKind[]) {
     for (const shape of ["prose", "short-paragraphs"] satisfies ParagraphShape[]) {
@@ -189,16 +200,22 @@ if (process.argv[2] === "--worker") {
                 new Response(child.stderr).text(),
                 child.exited,
               ]);
-              if (code !== 0) throw new Error(`Memory child exited ${code}: ${stderr}`);
+              if (code !== 0) {
+                throw new Error(`Memory child exited ${code}: ${stderr}`);
+              }
               observation = memoryObservation.parse(JSON.parse(stdout.trim()));
-              if (observation.turns !== turns) throw new Error("Invalid memory observation");
+              if (observation.turns !== turns) {
+                throw new Error("Invalid memory observation");
+              }
               console.error(
                 `${kind} ${shape} ${turns} turns: peak RSS ${observation.peakRssBytes}, growth ${observation.peakRssGrowthBytes}, post-clear heap ${observation.postClearHeapBytes} bytes`,
               );
             },
             { iterations: 1, warmupIterations: 0 },
           );
-          if (!observation) throw new Error("No memory observation returned");
+          if (!observation) {
+            throw new Error("No memory observation returned");
+          }
           results.push({ ...result, metrics: { ...observation } });
         } finally {
           await rm(home, { recursive: true, force: true });

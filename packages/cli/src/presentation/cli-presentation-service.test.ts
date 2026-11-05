@@ -4,15 +4,16 @@ import { type TerminalService } from "@jazz/core/interfaces/terminal";
 import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import { CLIPresentationService } from "./cli-presentation-service";
+import { partialFake } from "../test-support/partial-fake";
 
 // Mock dependencies
-const mockTerminal = {
+const mockTerminal = partialFake<TerminalService>({
   confirm: mock((message: string, defaultValue?: boolean) => {
     console.log(`confirm called with: ${message}, default: ${defaultValue}`);
     return Effect.succeed(true);
   }),
   ask: mock(() => Effect.succeed("")),
-} as unknown as TerminalService;
+});
 
 describe("CLIPresentationService", () => {
   const mockPresentationService = new CLIPresentationService(

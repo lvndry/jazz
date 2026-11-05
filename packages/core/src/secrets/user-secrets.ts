@@ -77,7 +77,9 @@ export function heldUserSecrets(): KnownSecret[] {
   }
   const byValue = new Map<string, KnownSecret>();
   for (const secret of runtimeSecretsForRedaction()) {
-    if (!byValue.has(secret.value)) byValue.set(secret.value, secret);
+    if (!byValue.has(secret.value)) {
+      byValue.set(secret.value, secret);
+    }
   }
   for (const store of openStores) {
     for (const secret of store.knownSecrets()) {

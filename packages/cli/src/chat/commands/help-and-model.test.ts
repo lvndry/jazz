@@ -15,6 +15,7 @@ import { reportPlainText } from "@/cli/ui/report-layout";
 import { setSkillCommands } from "./constants";
 import { handleSpecialCommand } from "./handler";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
+import { partialFake, type PartialMembers } from "../../test-support/partial-fake";
 
 const agent: Agent = {
   id: "help-model-agent",
@@ -40,7 +41,7 @@ const MODELS = [
   { id: "gpt-5", displayName: "GPT-5", isReasoningModel: true },
 ] as ModelInfo[];
 
-function recordingTerminal(overrides: Partial<TerminalService> = {}) {
+function recordingTerminal(overrides: PartialMembers<TerminalService> = {}) {
   const lines: string[] = [];
   const record = (message: unknown) => {
     lines.push(
@@ -50,7 +51,7 @@ function recordingTerminal(overrides: Partial<TerminalService> = {}) {
     );
     return Effect.succeed(undefined);
   };
-  const terminal = {
+  const terminal = partialFake<PartialMembers<TerminalService>>({
     isInteractive: false,
     log: mock(record),
     info: mock(record),
@@ -58,16 +59,16 @@ function recordingTerminal(overrides: Partial<TerminalService> = {}) {
     error: mock(record),
     success: mock(record),
     ...overrides,
-  } as unknown as Partial<TerminalService>;
+  });
   return { terminal, lines };
 }
 
 function run(
   command: SpecialCommand,
-  terminal: Partial<TerminalService>,
+  terminal: PartialMembers<TerminalService>,
   models: readonly ModelInfo[] = MODELS,
 ): Promise<CommandResult> {
-  const llmService: Partial<LLMService> = {
+  const llmService: PartialMembers<LLMService> = {
     getProvider: () =>
       Effect.succeed({
         name: "openai",
@@ -77,8 +78,8 @@ function run(
       }),
   };
   const layers = Layer.mergeAll(
-    Layer.succeed(TerminalServiceTag, terminal as unknown as TerminalService),
-    Layer.succeed(LLMServiceTag, llmService as unknown as LLMService),
+    Layer.succeed(TerminalServiceTag, partialFake<TerminalService>(terminal)),
+    Layer.succeed(LLMServiceTag, partialFake<LLMService>(llmService)),
   );
   return Effect.runPromise(
     handleSpecialCommand(command, context).pipe(Effect.provide(layers)) as Effect.Effect<
@@ -213,7 +214,7 @@ describe("/model", () => {
     const search = mock(() => Effect.succeed("gpt-5"));
     const { terminal } = recordingTerminal({
       isInteractive: true,
-      search: search as unknown as TerminalService["search"],
+      search: search,
     });
 
     const result = await run({ type: "model", args: [] }, terminal);

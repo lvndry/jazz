@@ -84,11 +84,12 @@ export function truncateRequestBodyValues(
   if (messageKey === undefined) {
     return undefined;
   }
+  const rawMessages = bodyValues[messageKey];
+  if (!Array.isArray(rawMessages)) {
+    return undefined;
+  }
 
-  const truncatedMessages = truncateContentsArray(
-    bodyValues[messageKey] as unknown[],
-    keepLastMessages,
-  );
+  const truncatedMessages = truncateContentsArray(rawMessages, keepLastMessages);
 
   if (!truncatedMessages) {
     return undefined;
@@ -313,8 +314,12 @@ export function isInsufficientBalanceError(error: unknown): boolean {
 }
 
 function isProviderAuthFailure(statusCode: number | undefined, message: string): boolean {
-  if (statusCode === 401) return true;
-  if (statusCode !== 403) return false;
+  if (statusCode === 401) {
+    return true;
+  }
+  if (statusCode !== 403) {
+    return false;
+  }
   return !isBillingOrPlanError(message);
 }
 
@@ -339,8 +344,12 @@ function isCredentialFailure(
   statusCode: number | undefined,
   message: string,
 ): boolean {
-  if (statusCode !== undefined && statusCode !== 400) return false;
-  if (error instanceof Error && AUTH_ERROR_NAME.test(error.name)) return true;
+  if (statusCode !== undefined && statusCode !== 400) {
+    return false;
+  }
+  if (error instanceof Error && AUTH_ERROR_NAME.test(error.name)) {
+    return true;
+  }
   return AUTH_FAILURE_WORDING.test(message);
 }
 
@@ -385,7 +394,9 @@ export function localServerUnreachableMessage(
 
 /** Whether the attempted URL points at a host the provider serves from remotely. */
 function isRemoteProviderHost(remoteHosts: readonly string[] | undefined, url: string): boolean {
-  if (!remoteHosts) return false;
+  if (!remoteHosts) {
+    return false;
+  }
   try {
     const host = new URL(url).hostname.toLowerCase();
     return remoteHosts.some((remote) => host === remote || host.endsWith(`.${remote}`));
@@ -481,7 +492,9 @@ export function retryAfterMsOf(error: unknown): number | undefined {
  * kept as it is; anything else about a key is restated plainly with the one way to set it.
  */
 function authFailureMessage(providerName: ProviderName, cleanMessage: string): string {
-  if (/\brun\b|`jazz /i.test(cleanMessage)) return cleanMessage;
+  if (/\brun\b|`jazz /i.test(cleanMessage)) {
+    return cleanMessage;
+  }
   const providerDisplayName = formatProviderDisplayName(providerName);
   return `${providerDisplayName} API key is missing or invalid. ${apiKeyHint(providerName)}`;
 }
@@ -660,11 +673,13 @@ export function convertToLLMError(
   let httpStatus: number | undefined;
 
   if (error instanceof Error) {
-    const e = error as Error & { status?: number; statusCode?: number };
-    httpStatus = e.status || e.statusCode;
+    const statusError = error as Error & { status?: number; statusCode?: number };
+    httpStatus = statusError.status || statusError.statusCode;
     if (!httpStatus) {
-      const m = cleanMessage.match(/(\d{3})\s/);
-      if (m && m[1]) httpStatus = parseInt(m[1], 10);
+      const statusMatch = cleanMessage.match(/(\d{3})\s/);
+      if (statusMatch && statusMatch[1]) {
+        httpStatus = parseInt(statusMatch[1], 10);
+      }
     }
   }
 
@@ -733,10 +748,14 @@ export function convertToLLMError(
  * - Out-of-credits / quota-exhausted 429s (backoff cannot fix a billing problem)
  */
 export function isRetryableLLMError(error: unknown): boolean {
-  if (error instanceof LLMRateLimitError) return error.permanent !== true;
+  if (error instanceof LLMRateLimitError) {
+    return error.permanent !== true;
+  }
   if (error instanceof LLMRequestError) {
     // Rejected locally: the same request will be rejected the same way next time.
-    if (error.permanent === true) return false;
+    if (error.permanent === true) {
+      return false;
+    }
     // No status code means the request never got a response (connection / DNS / timeout).
     // 5xx means the server had a transient failure.
     // Both are worth retrying.
@@ -750,11 +769,15 @@ export function isRetryableLLMError(error: unknown): boolean {
  * (rate limit / server error / network issue), for surfacing in retry notices.
  */
 export function describeRetryableLLMError(error: unknown): string {
-  if (error instanceof LLMRateLimitError) return "rate limit";
+  if (error instanceof LLMRateLimitError) {
+    return "rate limit";
+  }
   if (error instanceof LLMRequestError) {
     // A locally-rejected request is not a network issue, and calling it one sent users looking
     // for a connectivity problem that did not exist.
-    if (error.permanent === true) return "rejected request";
+    if (error.permanent === true) {
+      return "rejected request";
+    }
     if (error.unreadableResponse === true) {
       return "unreadable response";
     }
@@ -764,7 +787,9 @@ export function describeRetryableLLMError(error: unknown): string {
     if (error.malformedToolCall === true) {
       return "malformed tool call";
     }
-    if (error.statusCode === undefined) return "network issue";
+    if (error.statusCode === undefined) {
+      return "network issue";
+    }
     return `server error (${error.statusCode})`;
   }
   return "unknown issue";

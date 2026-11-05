@@ -81,3 +81,6 @@ bench/results/
 
 # local agent state from a run with no JAZZ_HOME set
 undefined/
+
+# jscpd report output
+reports/jscpd/

@@ -103,12 +103,24 @@ export interface SearchOptions {
 /** Short relative time: "1m ago", "5m ago", "2d ago", "1w ago". */
 export function formatRelativeWhen(instantMs: number, nowMs: number): string {
   const elapsed = Math.max(0, nowMs - instantMs);
-  if (elapsed < MINUTE_MS) return "1m ago";
-  if (elapsed < HOUR_MS) return `${String(Math.floor(elapsed / MINUTE_MS))}m ago`;
-  if (elapsed < DAY_MS) return `${String(Math.floor(elapsed / HOUR_MS))}h ago`;
-  if (elapsed < WEEK_MS) return `${String(Math.floor(elapsed / DAY_MS))}d ago`;
-  if (elapsed < MONTH_MS) return `${String(Math.floor(elapsed / WEEK_MS))}w ago`;
-  if (elapsed < YEAR_MS) return `${String(Math.floor(elapsed / MONTH_MS))}mo ago`;
+  if (elapsed < MINUTE_MS) {
+    return "1m ago";
+  }
+  if (elapsed < HOUR_MS) {
+    return `${String(Math.floor(elapsed / MINUTE_MS))}m ago`;
+  }
+  if (elapsed < DAY_MS) {
+    return `${String(Math.floor(elapsed / HOUR_MS))}h ago`;
+  }
+  if (elapsed < WEEK_MS) {
+    return `${String(Math.floor(elapsed / DAY_MS))}d ago`;
+  }
+  if (elapsed < MONTH_MS) {
+    return `${String(Math.floor(elapsed / WEEK_MS))}w ago`;
+  }
+  if (elapsed < YEAR_MS) {
+    return `${String(Math.floor(elapsed / MONTH_MS))}mo ago`;
+  }
   return `${String(Math.floor(elapsed / YEAR_MS))}y ago`;
 }
 
@@ -122,7 +134,9 @@ function normalizeLine(text: string): string {
  * original text even where lowercasing changes a character's length.
  */
 function findCodePointMatch(haystack: readonly string[], needle: readonly string[]): number {
-  if (needle.length === 0 || haystack.length < needle.length) return -1;
+  if (needle.length === 0 || haystack.length < needle.length) {
+    return -1;
+  }
   const lastStart = haystack.length - needle.length;
   for (let start = 0; start <= lastStart; start++) {
     let matched = true;
@@ -132,7 +146,9 @@ function findCodePointMatch(haystack: readonly string[], needle: readonly string
         break;
       }
     }
-    if (matched) return start;
+    if (matched) {
+      return start;
+    }
   }
   return -1;
 }
@@ -199,17 +215,23 @@ async function listCandidates(
     const directory = path.join(root, agentDirectory);
     let names: string[];
     try {
-      if (!(await fsp.stat(directory)).isDirectory()) continue;
+      if (!(await fsp.stat(directory)).isDirectory()) {
+        continue;
+      }
       names = await fsp.readdir(directory);
     } catch {
       continue;
     }
     for (const name of names) {
-      if (!name.endsWith(CONVERSATION_LOG_EXTENSION)) continue;
+      if (!name.endsWith(CONVERSATION_LOG_EXTENSION)) {
+        continue;
+      }
       const filePath = path.join(directory, name);
       try {
         const info = await fsp.stat(filePath);
-        if (!info.isFile()) continue;
+        if (!info.isFile()) {
+          continue;
+        }
         conversations.push({ filePath, modifiedAtMs: info.mtimeMs, sizeBytes: info.size });
       } catch {
         continue;
@@ -223,7 +245,9 @@ async function listCandidates(
   );
   if (currentIndex > 0) {
     const [current] = conversations.splice(currentIndex, 1);
-    if (current) conversations.unshift(current);
+    if (current) {
+      conversations.unshift(current);
+    }
   }
   return conversations.slice(0, MAX_SESSIONS_SCANNED);
 }
@@ -231,7 +255,9 @@ async function listCandidates(
 async function statConversation(filePath: string): Promise<ScannedConversation | null> {
   try {
     const info = await fsp.stat(filePath);
-    if (!info.isFile()) return null;
+    if (!info.isFile()) {
+      return null;
+    }
     return { filePath, modifiedAtMs: info.mtimeMs, sizeBytes: info.size };
   } catch {
     return null;
@@ -261,7 +287,9 @@ async function readCappedLog(filePath: string): Promise<string> {
   }
 
   const handle = await fsp.open(filePath, "r").catch(() => null);
-  if (!handle) return "";
+  if (!handle) {
+    return "";
+  }
   try {
     const head = Buffer.alloc(HEAD_BYTES);
     await handle.read(head, 0, HEAD_BYTES, 0);
@@ -288,7 +316,9 @@ function readConversationContent(content: string): ConversationContent | null {
   const events: ConversationLogEvent[] = [];
   for (const line of content.split("\n")) {
     const event = parseConversationLogLine(line);
-    if (event) events.push(event);
+    if (event) {
+      events.push(event);
+    }
   }
 
   let header: { agentId: string; conversationId: string } | undefined;
@@ -305,7 +335,9 @@ function readConversationContent(content: string): ConversationContent | null {
 
   // A log whose header did not survive the read cap cannot be attributed to a conversation,
   // and a hit nobody can open is worse than no hit.
-  if (!header) return null;
+  if (!header) {
+    return null;
+  }
   return {
     agentId: header.agentId,
     conversationId: header.conversationId,
@@ -359,10 +391,14 @@ function prepareConversation(content: ConversationContent): PreparedConversation
   const lines: string[] = [];
   for (let index = content.texts.length - 1; index >= 0; index--) {
     const text = content.texts[index];
-    if (text === undefined) continue;
+    if (text === undefined) {
+      continue;
+    }
     for (const rawLine of text.split("\n")) {
       const line = normalizeLine(rawLine);
-      if (line.length === 0) continue;
+      if (line.length === 0) {
+        continue;
+      }
       lines.push(line);
     }
   }
@@ -398,7 +434,9 @@ async function preparedFor(
   if (preparedCache.size > MAX_SESSIONS_SCANNED) {
     for (const key of preparedCache.keys()) {
       preparedCache.delete(key);
-      if (preparedCache.size <= MAX_SESSIONS_SCANNED) break;
+      if (preparedCache.size <= MAX_SESSIONS_SCANNED) {
+        break;
+      }
     }
   }
 
@@ -418,13 +456,19 @@ function collectHits(
 
   // Already newest-turn-first and normalized; all that is left is the query.
   for (const line of prepared.lines) {
-    if (hits.length >= options.budget) return hits;
+    if (hits.length >= options.budget) {
+      return hits;
+    }
     // Cheap reject before the per-code-point walk.
-    if (!line.toLowerCase().includes(lowercaseQuery)) continue;
+    if (!line.toLowerCase().includes(lowercaseQuery)) {
+      continue;
+    }
 
     const chars = [...line];
     const matchStart = findCodePointMatch(chars, needle);
-    if (matchStart < 0) continue;
+    if (matchStart < 0) {
+      continue;
+    }
 
     const renderable = toRenderableLine(chars, matchStart, needle.length);
     hits.push({
@@ -449,10 +493,14 @@ function collectHits(
  */
 export async function search(query: string, options: SearchOptions): Promise<SearchHit[]> {
   const trimmedQuery = query.trim();
-  if (trimmedQuery.length === 0) return [];
+  if (trimmedQuery.length === 0) {
+    return [];
+  }
 
   const limit = Math.max(0, options.limit ?? DEFAULT_LIMIT);
-  if (limit === 0) return [];
+  if (limit === 0) {
+    return [];
+  }
 
   const historyDirectory = options.dir ?? getHistoryDirectory();
   const root = getConversationLogsDirectory(historyDirectory);
@@ -482,9 +530,13 @@ export async function search(query: string, options: SearchOptions): Promise<Sea
 
   const hits: SearchHit[] = [];
   for (const conversation of candidates) {
-    if (hits.length >= limit) break;
+    if (hits.length >= limit) {
+      break;
+    }
     const prepared = await preparedFor(conversation);
-    if (!prepared) continue;
+    if (!prepared) {
+      continue;
+    }
     hits.push(
       ...collectHits(conversation, prepared, needle, lowercaseQuery, {
         nowMs,

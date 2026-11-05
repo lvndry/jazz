@@ -32,7 +32,9 @@ export function ActivityIndicator({
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    if (!animate) return;
+    if (!animate) {
+      return;
+    }
     const timer = setInterval(() => {
       setTick((value) => value + 1);
     }, intervalMs);

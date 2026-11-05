@@ -18,12 +18,13 @@ import {
   resolveStreamIdleTimeoutMs,
 } from "../packages/adapters/src/llm/stream-processor";
 import type { LoggerService } from "../packages/core/src/interfaces/logger";
+import { partialFake, viewAs } from "../packages/daemon/src/partial-fake.fixture";
 
 const DELTAS = Number(process.env["BENCH_DELTAS"] ?? 2_000);
 
 // Silent, allocation-free: the processor logs timing lines on the hot path, so
 // a logger that formatted or wrote anything would be measuring the logger.
-const silentLogger = {
+const silentLogger = partialFake<LoggerService>({
   debug: () => Effect.void,
   info: () => Effect.void,
   warn: () => Effect.void,
@@ -32,7 +33,7 @@ const silentLogger = {
   logToolCall: () => Effect.void,
   setLogGroup: () => Effect.void,
   clearLogGroup: () => Effect.void,
-} as unknown as LoggerService;
+});
 
 type StreamPart = Record<string, unknown>;
 
@@ -84,7 +85,7 @@ const response = Promise.resolve({ messages: [] });
  * pre-resolved so `buildFinalResponse` never waits on its 50ms races.
  */
 function fakeResult(parts: readonly StreamPart[]): Parameters<StreamProcessor["process"]>[0] {
-  return {
+  return viewAs<Parameters<StreamProcessor["process"]>[0]>({
     get fullStream() {
       return (async function* () {
         for (const part of parts) {
@@ -94,7 +95,7 @@ function fakeResult(parts: readonly StreamPart[]): Parameters<StreamProcessor["p
     },
     usage,
     response,
-  } as unknown as Parameters<StreamProcessor["process"]>[0];
+  });
 }
 
 function processor(reasoningParser?: TagPairParser): StreamProcessor {

@@ -187,11 +187,19 @@ export function persistLargeToolResults(
   return Effect.gen(function* () {
     const retrievable = new Set<string>();
     for (const message of messages) {
-      if (message.role !== "tool") continue;
-      if (message.cleared) continue;
+      if (message.role !== "tool") {
+        continue;
+      }
+      if (message.cleared) {
+        continue;
+      }
       const toolCallId = message.tool_call_id;
-      if (!toolCallId || !isSafeToolCallId(toolCallId)) continue;
-      if (counter.countMessage(message, options.modelHint) < minTokens) continue;
+      if (!toolCallId || !isSafeToolCallId(toolCallId)) {
+        continue;
+      }
+      if (counter.countMessage(message, options.modelHint) < minTokens) {
+        continue;
+      }
 
       const wrote = yield* persistToolResult(
         options.agentId,
@@ -199,7 +207,9 @@ export function persistLargeToolResults(
         toolCallId,
         message.content,
       );
-      if (wrote) retrievable.add(toolCallId);
+      if (wrote) {
+        retrievable.add(toolCallId);
+      }
     }
     return retrievable;
   });

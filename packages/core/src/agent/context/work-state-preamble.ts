@@ -45,7 +45,9 @@ export function buildWorkStatePreamble(
 ): Effect.Effect<ChatMessage | undefined, never, never> {
   return readJournal(agentId, conversationId).pipe(
     Effect.map((entries) => {
-      if (entries.length === 0) return undefined;
+      if (entries.length === 0) {
+        return undefined;
+      }
 
       const budget = options.tokenBudget ?? WORK_STATE_PREAMBLE_TOKEN_BUDGET;
 
@@ -55,10 +57,14 @@ export function buildWorkStatePreamble(
       let usedTokens = 0;
       for (let index = entries.length - 1; index >= 0; index--) {
         const entry = entries[index];
-        if (!entry) continue;
+        if (!entry) {
+          continue;
+        }
         const block = `### Session record ${index + 1} (${entry.recordedAt})\n\n${entry.summary}`;
         const tokens = DEFAULT_TOKEN_COUNTER.countText(block, options.modelHint);
-        if (kept.length > 0 && usedTokens + tokens > budget) break;
+        if (kept.length > 0 && usedTokens + tokens > budget) {
+          break;
+        }
         kept.unshift(block);
         usedTokens += tokens;
       }

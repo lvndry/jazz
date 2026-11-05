@@ -11,13 +11,14 @@ import {
   StreamProcessor,
   withIdleTimeout,
 } from "./stream-processor";
+import { partialFake } from "../test-support/fakes";
 
 describe("StreamProcessor", () => {
   const logged: string[] = [];
-  const mockLogger = {
+  const mockLogger = partialFake<LoggerService>({
     debug: mock((message: string) => Effect.sync(() => logged.push(`debug:${message}`))),
     warn: mock((message: string) => Effect.sync(() => logged.push(`warn:${message}`))),
-  } as unknown as LoggerService;
+  });
 
   it("should process text deltas and emit events", async () => {
     const events: any[] = [];
@@ -45,9 +46,11 @@ describe("StreamProcessor", () => {
     const finalResponse = await processor.process(mockResult);
 
     expect(finalResponse.content).toBe("Hello world");
-    expect(events.some((e) => e.type === "stream_start")).toBe(true);
-    expect(events.some((e) => e.type === "text_chunk" && e.delta === "Hello")).toBe(true);
-    expect(events.some((e) => e.type === "complete")).toBe(true);
+    expect(events.some((event) => event.type === "stream_start")).toBe(true);
+    expect(events.some((event) => event.type === "text_chunk" && event.delta === "Hello")).toBe(
+      true,
+    );
+    expect(events.some((event) => event.type === "complete")).toBe(true);
   });
 
   it("reports why the stream finished, and unknown when the provider gave no reason", async () => {
@@ -118,7 +121,7 @@ describe("StreamProcessor", () => {
 
     await processor.process(mockResult);
 
-    const complete = events.find((e) => e.type === "complete");
+    const complete = events.find((event) => event.type === "complete");
     const upperBound = (outputTokens / decodeMs) * 1000;
     expect(complete.metrics.tokensPerSecond).toBeLessThanOrEqual(upperBound);
     expect(complete.metrics.tokensPerSecond).toBeGreaterThan(upperBound / 3);
@@ -174,7 +177,7 @@ describe("StreamProcessor", () => {
 
     await processor.process(mockResult);
 
-    const complete = events.find((e) => e.type === "complete");
+    const complete = events.find((event) => event.type === "complete");
     expect(complete.metrics.tokensPerSecond).toBeUndefined();
   });
 
@@ -204,11 +207,11 @@ describe("StreamProcessor", () => {
 
     await processor.process(mockResult);
 
-    expect(events.some((e) => e.type === "thinking_start")).toBe(true);
-    expect(events.some((e) => e.type === "thinking_chunk" && e.content === "thinking...")).toBe(
-      true,
-    );
-    expect(events.some((e) => e.type === "thinking_complete")).toBe(true);
+    expect(events.some((event) => event.type === "thinking_start")).toBe(true);
+    expect(
+      events.some((event) => event.type === "thinking_chunk" && event.content === "thinking..."),
+    ).toBe(true);
+    expect(events.some((event) => event.type === "thinking_complete")).toBe(true);
   });
 
   it("surfaces reasoning even when reasoning was not user-enabled", async () => {
@@ -248,11 +251,13 @@ describe("StreamProcessor", () => {
 
     expect(finalResponse.content).toBe("");
     expect(finalResponse.reasoning).toBe("let me think... the answer is 42.");
-    expect(events.some((e) => e.type === "thinking_start")).toBe(true);
+    expect(events.some((event) => event.type === "thinking_start")).toBe(true);
     expect(
-      events.some((e) => e.type === "thinking_chunk" && e.content === "let me think... "),
+      events.some(
+        (event) => event.type === "thinking_chunk" && event.content === "let me think... ",
+      ),
     ).toBe(true);
-    expect(events.some((e) => e.type === "thinking_complete")).toBe(true);
+    expect(events.some((event) => event.type === "thinking_complete")).toBe(true);
   });
 
   it("populates response.reasoning alongside content when both are present", async () => {
@@ -314,7 +319,7 @@ describe("StreamProcessor", () => {
 
     const finalResponse = await processor.process(mockResult);
     expect(finalResponse.content).toBe("Hello <think> not parsed </think> world");
-    expect(events.some((e) => e.type === "thinking_start")).toBe(false);
+    expect(events.some((event) => event.type === "thinking_start")).toBe(false);
   });
 
   it("with reasoningParser, splits inline <think> content into thinking_* and text_chunk events", async () => {
@@ -350,15 +355,15 @@ describe("StreamProcessor", () => {
 
     expect(finalResponse.content).toBe("The answer is 4");
 
-    const thinkingStart = events.find((e) => e.type === "thinking_start");
-    const thinkingChunks = events.filter((e) => e.type === "thinking_chunk");
-    const thinkingComplete = events.find((e) => e.type === "thinking_complete");
-    const textChunks = events.filter((e) => e.type === "text_chunk");
+    const thinkingStart = events.find((event) => event.type === "thinking_start");
+    const thinkingChunks = events.filter((event) => event.type === "thinking_chunk");
+    const thinkingComplete = events.find((event) => event.type === "thinking_complete");
+    const textChunks = events.filter((event) => event.type === "text_chunk");
 
     expect(thinkingStart).toBeDefined();
-    expect(thinkingChunks.map((c) => c.content).join("")).toBe("let me think");
+    expect(thinkingChunks.map((chunk) => chunk.content).join("")).toBe("let me think");
     expect(thinkingComplete).toBeDefined();
-    expect(textChunks.map((c) => c.delta).join("")).toBe("The answer is 4");
+    expect(textChunks.map((chunk) => chunk.delta).join("")).toBe("The answer is 4");
   });
 
   it("with reasoningParser, suppresses thinking_start for whitespace-only blocks", async () => {
@@ -390,8 +395,8 @@ describe("StreamProcessor", () => {
     } as any;
 
     await processor.process(mockResult);
-    expect(events.some((e) => e.type === "thinking_start")).toBe(false);
-    expect(events.some((e) => e.type === "thinking_chunk")).toBe(false);
+    expect(events.some((event) => event.type === "thinking_start")).toBe(false);
+    expect(events.some((event) => event.type === "thinking_chunk")).toBe(false);
   });
 
   it("flushes the reasoningParser when the stream ends mid-thinking", async () => {
@@ -424,10 +429,10 @@ describe("StreamProcessor", () => {
 
     await processor.process(mockResult);
 
-    const thinkingChunks = events.filter((e) => e.type === "thinking_chunk");
-    const thinkingComplete = events.find((e) => e.type === "thinking_complete");
+    const thinkingChunks = events.filter((event) => event.type === "thinking_chunk");
+    const thinkingComplete = events.find((event) => event.type === "thinking_complete");
 
-    expect(thinkingChunks.map((c) => c.content).join("")).toBe("truncated thought");
+    expect(thinkingChunks.map((chunk) => chunk.content).join("")).toBe("truncated thought");
     expect(thinkingComplete).toBeDefined();
   });
 
@@ -455,8 +460,8 @@ describe("StreamProcessor", () => {
 
     await processor.process(mockResult);
 
-    const thinkingCompleteIdx = events.findIndex((e) => e.type === "thinking_complete");
-    const firstTextChunkIdx = events.findIndex((e) => e.type === "text_chunk");
+    const thinkingCompleteIdx = events.findIndex((event) => event.type === "thinking_complete");
+    const firstTextChunkIdx = events.findIndex((event) => event.type === "text_chunk");
     expect(thinkingCompleteIdx).toBeGreaterThanOrEqual(0);
     expect(firstTextChunkIdx).toBeGreaterThan(thinkingCompleteIdx);
   });
@@ -653,17 +658,19 @@ describe("StreamProcessor", () => {
         "actual answer",
       ]);
 
-      const thinkingChunks = events.filter((e) => e.type === "thinking_chunk");
-      const textChunks = events.filter((e) => e.type === "text_chunk");
+      const thinkingChunks = events.filter((event) => event.type === "thinking_chunk");
+      const textChunks = events.filter((event) => event.type === "text_chunk");
 
       // Reasoning content lands on the reasoning channel.
-      expect(thinkingChunks.map((c) => c.content).join("")).toContain("let me deliberate first");
+      expect(thinkingChunks.map((chunk) => chunk.content).join("")).toContain(
+        "let me deliberate first",
+      );
       // The visible response never contains the raw tags or the deliberation.
       expect(finalContent).toBe("actual answer");
-      expect(textChunks.every((c) => !String(c.delta).includes("<think>"))).toBe(true);
-      expect(textChunks.every((c) => !String(c.delta).includes("deliberate"))).toBe(true);
-      expect(events.some((e) => e.type === "thinking_start")).toBe(true);
-      expect(events.some((e) => e.type === "thinking_complete")).toBe(true);
+      expect(textChunks.every((chunk) => !String(chunk.delta).includes("<think>"))).toBe(true);
+      expect(textChunks.every((chunk) => !String(chunk.delta).includes("deliberate"))).toBe(true);
+      expect(events.some((event) => event.type === "thinking_start")).toBe(true);
+      expect(events.some((event) => event.type === "thinking_complete")).toBe(true);
     });
 
     it("passes through plain text untouched when the model emits no reasoning tags", async () => {
@@ -681,9 +688,9 @@ describe("StreamProcessor", () => {
       ]);
 
       expect(finalContent).toBe("Hello there, no reasoning here.");
-      expect(events.some((e) => e.type === "thinking_start")).toBe(false);
-      expect(events.some((e) => e.type === "thinking_chunk")).toBe(false);
-      expect(events.some((e) => e.type === "thinking_complete")).toBe(false);
+      expect(events.some((event) => event.type === "thinking_start")).toBe(false);
+      expect(events.some((event) => event.type === "thinking_chunk")).toBe(false);
+      expect(events.some((event) => event.type === "thinking_complete")).toBe(false);
     });
 
     it("does not wire a parser for Harmony format (would otherwise mangle delimiters)", async () => {
@@ -702,7 +709,7 @@ describe("StreamProcessor", () => {
         "<|channel|>analysis<|message|>raw deliberation text",
       ]);
 
-      expect(events.some((e) => e.type === "thinking_chunk")).toBe(false);
+      expect(events.some((event) => event.type === "thinking_chunk")).toBe(false);
       expect(finalContent).toContain("raw deliberation text");
     });
 
@@ -720,8 +727,8 @@ describe("StreamProcessor", () => {
         " thought</think>visible",
       ]);
 
-      const thinkingChunks = events.filter((e) => e.type === "thinking_chunk");
-      expect(thinkingChunks.map((c) => c.content).join("")).toContain("partial thought");
+      const thinkingChunks = events.filter((event) => event.type === "thinking_chunk");
+      expect(thinkingChunks.map((chunk) => chunk.content).join("")).toContain("partial thought");
       expect(finalContent).toBe("visible");
     });
 
@@ -737,7 +744,9 @@ describe("StreamProcessor", () => {
       ]);
 
       expect(finalContent).toBe("<think> opens a block; </think> closes it.");
-      const thinking = events.filter((e) => e.type === "thinking_chunk").map((c) => c.content);
+      const thinking = events
+        .filter((event) => event.type === "thinking_chunk")
+        .map((chunk) => chunk.content);
       expect(thinking.join("")).toBe("plan the answer");
     });
 
@@ -756,7 +765,9 @@ describe("StreamProcessor", () => {
       ]);
 
       expect(finalContent).toBe("\n\nthe answer");
-      const thinking = events.filter((e) => e.type === "thinking_chunk").map((c) => c.content);
+      const thinking = events
+        .filter((event) => event.type === "thinking_chunk")
+        .map((chunk) => chunk.content);
       expect(thinking.join("")).toBe("weigh the options");
     });
 
@@ -802,14 +813,18 @@ describe("withIdleTimeout", () => {
 
   it("passes a healthy stream through untouched", async () => {
     const seen: number[] = [];
-    for await (const value of withIdleTimeout(slowButAlive(), 1_000)) seen.push(value);
+    for await (const value of withIdleTimeout(slowButAlive(), 1_000)) {
+      seen.push(value);
+    }
     expect(seen).toEqual([1, 2, 3]);
   });
 
   it("does not fail a stream that is slow but still producing", async () => {
     // Each gap is under the budget even though the total exceeds it.
     const seen: number[] = [];
-    for await (const value of withIdleTimeout(slowButAlive(), 50)) seen.push(value);
+    for await (const value of withIdleTimeout(slowButAlive(), 50)) {
+      seen.push(value);
+    }
     expect(seen).toEqual([1, 2, 3]);
   });
 
@@ -848,7 +863,9 @@ describe("withIdleTimeout", () => {
   it("abandons a stream that stalls without closing", async () => {
     const seen: number[] = [];
     const drain = async (): Promise<void> => {
-      for await (const value of withIdleTimeout(never(), 60)) seen.push(value);
+      for await (const value of withIdleTimeout(never(), 60)) {
+        seen.push(value);
+      }
     };
     await expect(drain()).rejects.toThrow(StreamIdleTimeoutError);
     // The part that did arrive was still delivered.

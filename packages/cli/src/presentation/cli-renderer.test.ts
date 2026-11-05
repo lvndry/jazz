@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import chalk from "chalk";
 import { Effect } from "effect";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
+import { viewAs } from "../test-support/view-as";
 import { codeColor, THEME } from "../ui/theme";
 
 // The shared markdown parser's bullets, task marks and the horizontal rule read from the
@@ -183,20 +184,18 @@ describe("CLIRenderer", () => {
 
     it("shows a command output preview inline", () => {
       const stdout = "x".repeat(120);
-      const output = (
-        renderer as unknown as {
-          renderToolExecutionComplete(event: {
-            toolCallId: string;
-            toolName?: string;
-            result: string;
-            durationMs: number;
-            summary?: string;
-            success?: boolean;
-            error?: string;
-            classifiedRisk?: string;
-          }): string;
-        }
-      ).renderToolExecutionComplete({
+      const output = viewAs<{
+        renderToolExecutionComplete(event: {
+          toolCallId: string;
+          toolName?: string;
+          result: string;
+          durationMs: number;
+          summary?: string;
+          success?: boolean;
+          error?: string;
+          classifiedRisk?: string;
+        }): string;
+      }>(renderer).renderToolExecutionComplete({
         toolCallId: "call-preview",
         toolName: "execute_command",
         result: JSON.stringify({ stdout, stderr: "", exitCode: 0 }),

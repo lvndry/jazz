@@ -30,7 +30,9 @@ function truncateEntry(entry: string): string {
   // Collapse newlines inside a single queued entry so each entry occupies one
   // line in the preview. Multi-line entries are rare (paste) but possible.
   const oneLine = entry.replace(/\n+/g, " ↵ ");
-  if (oneLine.length <= ENTRY_PREVIEW_MAX_CHARS) return oneLine;
+  if (oneLine.length <= ENTRY_PREVIEW_MAX_CHARS) {
+    return oneLine;
+  }
   return `${oneLine.slice(0, ENTRY_PREVIEW_MAX_CHARS)}…`;
 }
 
@@ -55,7 +57,9 @@ export function QueueInput({
   workingDirectory: string | null;
 }): React.ReactElement {
   const handleSubmit = useCallback((val: string): void => {
-    if (val.length === 0) return;
+    if (val.length === 0) {
+      return;
+    }
     if (store.runCommandImmediately(val)) {
       return;
     }
@@ -78,10 +82,16 @@ export function QueueInput({
     id: "queue-force-send",
     priority: QUEUE_INPUT_PRIORITY,
     onInput: (action, key) => {
-      if (action.type !== "submit" || !key.ctrl) return InputResults.ignored();
+      if (action.type !== "submit" || !key.ctrl) {
+        return InputResults.ignored();
+      }
       const draft = inputService.getTextInputState("text-input").value;
-      if (forceSendQueue(draft, interruptHandler) === "no-run") return InputResults.ignored();
-      if (draft.length > 0) setValue("", 0);
+      if (forceSendQueue(draft, interruptHandler) === "no-run") {
+        return InputResults.ignored();
+      }
+      if (draft.length > 0) {
+        setValue("", 0);
+      }
       return InputResults.consumed();
     },
   });
@@ -107,13 +117,17 @@ export function QueueInput({
     priority: QUEUE_INPUT_PRIORITY,
     isActive: queue.length > 0,
     onInput: (action) => {
-      if (action.type !== "up") return InputResults.ignored();
+      if (action.type !== "up") {
+        return InputResults.ignored();
+      }
       const current = inputService.getTextInputState("text-input");
       if (!isCursorOnFirstLine(current.value, current.cursor)) {
         return InputResults.ignored();
       }
       const queueText = store.takeQueue();
-      if (queueText.length === 0) return InputResults.ignored();
+      if (queueText.length === 0) {
+        return InputResults.ignored();
+      }
       const recalled = composeRecalledBuffer(queueText, current.value);
       setValue(recalled.value, recalled.cursor);
       return InputResults.consumed();

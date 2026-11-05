@@ -1,5 +1,7 @@
 export function passAt1(samples: boolean[]): number {
-  if (samples.length === 0) return 0;
+  if (samples.length === 0) {
+    return 0;
+  }
   return samples.filter(Boolean).length / samples.length;
 }
 
@@ -30,16 +32,20 @@ export function bootstrapCI(
   rng: () => number,
   iters = 1000,
 ): { lo: number; hi: number; mean: number } {
-  const n = perTaskMeans.length;
-  const mean = n ? perTaskMeans.reduce((a, b) => a + b, 0) / n : 0;
-  if (n === 0) return { lo: 0, hi: 0, mean: 0 };
-  const resampleMeans: number[] = [];
-  for (let i = 0; i < iters; i++) {
-    let sum = 0;
-    for (let j = 0; j < n; j++) sum += perTaskMeans[Math.floor(rng() * n)]!;
-    resampleMeans.push(sum / n);
+  const taskCount = perTaskMeans.length;
+  const mean = taskCount ? perTaskMeans.reduce((sum, value) => sum + value, 0) / taskCount : 0;
+  if (taskCount === 0) {
+    return { lo: 0, hi: 0, mean: 0 };
   }
-  resampleMeans.sort((a, b) => a - b);
+  const resampleMeans: number[] = [];
+  for (let iteration = 0; iteration < iters; iteration++) {
+    let sum = 0;
+    for (let draw = 0; draw < taskCount; draw++) {
+      sum += perTaskMeans[Math.floor(rng() * taskCount)]!;
+    }
+    resampleMeans.push(sum / taskCount);
+  }
+  resampleMeans.sort((left, right) => left - right);
   return {
     mean,
     lo: resampleMeans[Math.floor(0.025 * iters)]!,

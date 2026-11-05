@@ -133,8 +133,12 @@ export function parseClassifierVerdict(content: string): ToolRiskLevel {
     .toLowerCase()
     .replace(/^["'`]+|["'`]+$/g, "")
     .replace(/[.!,]+$/g, "");
-  if (normalized === "read-only") return "read-only";
-  if (normalized === "low-risk") return "low-risk";
+  if (normalized === "read-only") {
+    return "read-only";
+  }
+  if (normalized === "low-risk") {
+    return "low-risk";
+  }
   return "high-risk";
 }
 
@@ -227,9 +231,13 @@ function collectClassifierTurns(messages: readonly ChatMessage[]): ClassifierTur
   const turns: ClassifierTurn[] = [];
 
   for (const message of messages) {
-    if (message.role !== "user") continue;
+    if (message.role !== "user") {
+      continue;
+    }
     const user = message.content.trim();
-    if (user.length === 0) continue;
+    if (user.length === 0) {
+      continue;
+    }
     turns.push({ user });
   }
 

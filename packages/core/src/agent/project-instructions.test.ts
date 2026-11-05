@@ -20,7 +20,9 @@ function makeTempTree(): string {
 afterEach(() => {
   while (createdRoots.length > 0) {
     const root = createdRoots.pop();
-    if (root) fs.rmSync(root, { recursive: true, force: true });
+    if (root) {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 

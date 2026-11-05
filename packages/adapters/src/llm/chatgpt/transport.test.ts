@@ -12,6 +12,7 @@ import {
   fetchChatGPTModels,
   rewriteCodexRequestBody,
 } from "./transport";
+import { fakeFetch } from "../../test-support/fakes";
 
 const credential: ChatGPTCredential = {
   access: "access-1",
@@ -329,7 +330,7 @@ describe("AI SDK through the ChatGPT fetch", () => {
 
 describe("fetchChatGPTModels", () => {
   it("lists visible models in the backend's order with their usable context window", async () => {
-    const catalogFetch = (async () =>
+    const catalogFetch = fakeFetch(async () =>
       Response.json({
         models: [
           {
@@ -352,7 +353,8 @@ describe("fetchChatGPTModels", () => {
             input_modalities: ["text"],
           },
         ],
-      })) as unknown as typeof fetch;
+      }),
+    );
 
     const models = await fetchChatGPTModels(catalogFetch);
 

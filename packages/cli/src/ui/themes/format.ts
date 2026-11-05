@@ -349,7 +349,9 @@ export function parseThemeFile(
       const variantErrors: string[] = [];
       const colors = resolveVariant(roles, resolverFor(variant), variantErrors);
       for (const error of variantErrors) {
-        if (!errors.includes(error)) errors.push(error);
+        if (!errors.includes(error)) {
+          errors.push(error);
+        }
       }
       if (colors !== null) {
         variants[variant] = colors;
@@ -414,7 +416,9 @@ export function legibilityWarnings(theme: ThemeDefinition): string[] {
   const warnings: string[] = [];
   for (const variant of VARIANTS) {
     const colors = theme.variants[variant];
-    if (colors === undefined || colors.background === TRANSPARENT) continue;
+    if (colors === undefined || colors.background === TRANSPARENT) {
+      continue;
+    }
     for (const [role, floor] of checks) {
       const ratio = contrastRatio(colors[role], colors.background);
       if (ratio < floor) {

@@ -1,16 +1,17 @@
 import { describe, expect, it, mock } from "bun:test";
 import { Effect } from "effect";
+import { partialFake } from "@/core/test-support/fakes";
 import { createAgent, getAgentById, getAgentByIdentifier, listAllAgents } from "./agent-service";
 import { AgentServiceTag, type AgentService } from "../interfaces/agent-service";
 import { StorageNotFoundError } from "../types/errors";
 import { type Agent } from "../types/index";
 
 // Mock Agent Service
-const mockAgentService = {
+const mockAgentService = partialFake<AgentService>({
   createAgent: mock(() => Effect.succeed({} as Agent)),
   getAgent: mock(() => Effect.succeed({} as Agent)),
   listAgents: mock(() => Effect.succeed([])),
-} as unknown as AgentService;
+});
 
 describe("Agent Convenience Functions", () => {
   const provideMockService = (program: Effect.Effect<any, any, AgentService>) =>

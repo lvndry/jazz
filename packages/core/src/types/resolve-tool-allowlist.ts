@@ -31,7 +31,9 @@ export function resolveToolAllowlist(
         // is left out rather than admitted unexamined.
         Effect.catch(() => Effect.succeed(undefined)),
       );
-      if (tool === undefined) continue;
+      if (tool === undefined) {
+        continue;
+      }
       described.push({
         name,
         riskLevel: tool.riskLevel,

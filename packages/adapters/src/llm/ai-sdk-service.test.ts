@@ -47,6 +47,7 @@ import {
   applyConversationCacheBreakpoint,
 } from "./ai-sdk-service";
 import { PROVIDER_MODELS } from "./models";
+import { fakeFetch, invalidInput, partialFake } from "../test-support/fakes";
 
 // Bun module mocks are process-global: snapshot the real exports so afterAll can
 // restore them for test files that run later in the same process.
@@ -201,7 +202,7 @@ describe("AI SDK Service - Unit Tests", () => {
       const result = await runWithTestLayers(testEffect, configLayer);
 
       // Should include all providers
-      const providerNames = result.map((p) => p.name);
+      const providerNames = result.map((provider) => provider.name);
       expect(providerNames).toContain("openai");
       expect(providerNames).toContain("openrouter");
       expect(providerNames).toContain("anthropic");
@@ -211,9 +212,9 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(providerNames).toContain("sglang");
 
       // Check configured status
-      const openaiProvider = result.find((p) => p.name === "openai");
-      const openrouterProvider = result.find((p) => p.name === "openrouter");
-      const anthropicProvider = result.find((p) => p.name === "anthropic");
+      const openaiProvider = result.find((provider) => provider.name === "openai");
+      const openrouterProvider = result.find((provider) => provider.name === "openrouter");
+      const anthropicProvider = result.find((provider) => provider.name === "anthropic");
 
       expect(openaiProvider?.configured).toBe(true);
       expect(openrouterProvider?.configured).toBe(true);
@@ -279,16 +280,18 @@ describe("AI SDK Service - Unit Tests", () => {
     it("lists a provider's models with a key entered after the service started", async () => {
       const authorizationHeaders: (string | null)[] = [];
       const originalFetch = global.fetch;
-      global.fetch = mock((_input: unknown, init?: { headers?: HeadersInit }) => {
-        authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              data: [{ id: "glm-5.3-abliterated", context_length: 1_048_576 }],
-            }),
-          ),
-        );
-      }) as unknown as typeof fetch;
+      global.fetch = fakeFetch(
+        mock((_input: unknown, init?: { headers?: HeadersInit }) => {
+          authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                data: [{ id: "glm-5.3-abliterated", context_length: 1_048_576 }],
+              }),
+            ),
+          );
+        }),
+      );
       try {
         const fileSystem = await Effect.runPromise(
           Effect.gen(function* () {
@@ -330,16 +333,18 @@ describe("AI SDK Service - Unit Tests", () => {
       const originalFetch = global.fetch;
       const savedKey = process.env["REFUSELESS_API_KEY"];
       process.env["REFUSELESS_API_KEY"] = "rk-from-env";
-      global.fetch = mock((_input: unknown, init?: { headers?: HeadersInit }) => {
-        authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              data: [{ id: "glm-5.3-abliterated", context_length: 1_048_576 }],
-            }),
-          ),
-        );
-      }) as unknown as typeof fetch;
+      global.fetch = fakeFetch(
+        mock((_input: unknown, init?: { headers?: HeadersInit }) => {
+          authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                data: [{ id: "glm-5.3-abliterated", context_length: 1_048_576 }],
+              }),
+            ),
+          );
+        }),
+      );
       try {
         const provider = await runWithTestLayers(
           Effect.gen(function* () {
@@ -577,11 +582,13 @@ describe("AI SDK Service - Unit Tests", () => {
       console.error = (...args: unknown[]) => {
         consoleErrors.push(args);
       };
-      globalThis.fetch = (async () =>
-        new Response(JSON.stringify({ error: { message: "stubbed stream failure" } }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        })) as unknown as typeof fetch;
+      globalThis.fetch = fakeFetch(
+        async () =>
+          new Response(JSON.stringify({ error: { message: "stubbed stream failure" } }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }),
+      );
       try {
         await Effect.runPromiseExit(
           (
@@ -667,7 +674,7 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const result = await runWithTestLayers(testEffect, configLayer);
 
-      const ollamaProvider = result.find((p) => p.name === "ollama");
+      const ollamaProvider = result.find((provider) => provider.name === "ollama");
       expect(ollamaProvider?.configured).toBe(true);
     });
 
@@ -681,7 +688,7 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const result = await runWithTestLayers(testEffect, configLayer);
 
-      const llamacpp = result.find((p) => p.name === "llamacpp");
+      const llamacpp = result.find((provider) => provider.name === "llamacpp");
       expect(llamacpp).toBeDefined();
       expect(llamacpp?.configured).toBe(true);
     });
@@ -714,9 +721,9 @@ describe("AI SDK Service - Unit Tests", () => {
 
         const result = await runWithTestLayers(testEffect, configLayer);
 
-        const configuredProviders = result.filter((p) => p.configured);
+        const configuredProviders = result.filter((provider) => provider.configured);
         expect(configuredProviders.length).toBe(4); // Local-server providers need no API key.
-        const configuredNames = configuredProviders.map((p) => p.name);
+        const configuredNames = configuredProviders.map((provider) => provider.name);
         expect(configuredNames).toContain("ollama");
         expect(configuredNames).toContain("llamacpp");
         expect(configuredNames).toContain("vllm");
@@ -809,8 +816,8 @@ describe("AI SDK Service - Unit Tests", () => {
       }
 
       // Also verify that all providers in AVAILABLE_PROVIDERS that are in LLMConfig are handled
-      const configurableProviders = AVAILABLE_PROVIDERS.filter((p) =>
-        llmConfigProviders.includes(p),
+      const configurableProviders = AVAILABLE_PROVIDERS.filter((provider) =>
+        llmConfigProviders.includes(provider),
       );
       expect(configurableProviders.length).toBe(llmConfigProviders.length);
     });
@@ -983,8 +990,11 @@ describe("AI SDK Service - Unit Tests", () => {
           }
         } finally {
           globalThis.fetch = actualFetch;
-          if (previousBaseUrl === undefined) delete process.env["VLLM_BASE_URL"];
-          else process.env["VLLM_BASE_URL"] = previousBaseUrl;
+          if (previousBaseUrl === undefined) {
+            delete process.env["VLLM_BASE_URL"];
+          } else {
+            process.env["VLLM_BASE_URL"] = previousBaseUrl;
+          }
         }
       },
     );
@@ -1029,8 +1039,11 @@ describe("AI SDK Service - Unit Tests", () => {
         }
       } finally {
         globalThis.fetch = actualFetch;
-        if (previousKey === undefined) delete process.env["OLLAMA_API_KEY"];
-        else process.env["OLLAMA_API_KEY"] = previousKey;
+        if (previousKey === undefined) {
+          delete process.env["OLLAMA_API_KEY"];
+        } else {
+          process.env["OLLAMA_API_KEY"] = previousKey;
+        }
       }
     });
   });
@@ -1331,7 +1344,7 @@ describe("AI SDK Service - Unit Tests", () => {
       const testEffect = Effect.gen(function* () {
         const llmService = yield* LLMServiceTag;
         const providers = yield* llmService.listProviders();
-        return providers.map((p) => p.name);
+        return providers.map((provider) => provider.name);
       });
 
       const configLayer = createTestConfigLayer({});
@@ -1359,13 +1372,13 @@ describe("AI SDK Service - Unit Tests", () => {
       const result = await runWithTestLayers(testEffect, configLayer);
 
       // Should find OpenAI regardless of case in config
-      const openaiProvider = result.find((p) => p.name === "openai");
+      const openaiProvider = result.find((provider) => provider.name === "openai");
       expect(openaiProvider?.configured).toBe(true);
     });
 
     it("uses configured base_url when fetching llamacpp models", async () => {
       let observedUrl = "";
-      global.fetch = ((url: string) => {
+      global.fetch = fakeFetch((url: string) => {
         observedUrl = String(url);
         if (observedUrl.endsWith("/models")) {
           return Promise.resolve({
@@ -1384,7 +1397,7 @@ describe("AI SDK Service - Unit Tests", () => {
           });
         }
         return Promise.reject(new Error("Unknown URL"));
-      }) as unknown as typeof fetch;
+      });
 
       const testEffect = Effect.gen(function* () {
         const llmService = yield* LLMServiceTag;
@@ -1576,7 +1589,7 @@ describe("AI SDK Service - Unit Tests", () => {
         message: "Simulated stream failure",
       });
 
-      const mockLLMService: LLMService = {
+      const mockLLMService: LLMService = partialFake<LLMService>({
         createStreamingChatCompletion: () =>
           Effect.succeed({
             stream: Stream.fail(expectedError) as Stream.Stream<StreamEvent, LLMError>,
@@ -1589,7 +1602,7 @@ describe("AI SDK Service - Unit Tests", () => {
           Effect.fail(new LLMConfigurationError({ provider: "test", message: "not implemented" })),
         supportsNativeWebSearch: () => Effect.succeed(false),
         resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
-      } as unknown as LLMService;
+      });
 
       // Verify that consuming the response gives a typed LLMError
       const testEffect = Effect.gen(function* () {
@@ -1625,7 +1638,7 @@ describe("AI SDK Service - Unit Tests", () => {
         message: "Simulated stream failure",
       });
 
-      const mockLLMService: LLMService = {
+      const mockLLMService: LLMService = partialFake<LLMService>({
         createStreamingChatCompletion: () =>
           Effect.succeed({
             stream: Stream.fail(expectedError) as Stream.Stream<StreamEvent, LLMError>,
@@ -1638,7 +1651,7 @@ describe("AI SDK Service - Unit Tests", () => {
           Effect.fail(new LLMConfigurationError({ provider: "test", message: "not implemented" })),
         supportsNativeWebSearch: () => Effect.succeed(false),
         resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
-      } as unknown as LLMService;
+      });
 
       // Verify that consuming the stream gives a typed LLMError
       const testEffect = Effect.gen(function* () {
@@ -1871,7 +1884,9 @@ describe("buildProviderOptions - llamacpp reasoning", () => {
     });
 
     const providerOptions = buildProviderOptions("llamacpp", llamacppOptions("low"));
-    if (!providerOptions) throw new Error("expected llamacpp provider options");
+    if (!providerOptions) {
+      throw new Error("expected llamacpp provider options");
+    }
     await generateText({
       model: provider("qwen3-8b"),
       prompt: "hi",
@@ -1916,7 +1931,9 @@ describe("buildProviderOptions - vLLM reasoning", () => {
     });
 
     const providerOptions = buildProviderOptions("vllm", { ...options, reasoning: "medium" });
-    if (!providerOptions) throw new Error("expected vLLM provider options");
+    if (!providerOptions) {
+      throw new Error("expected vLLM provider options");
+    }
     await generateText({
       model: provider(options.model),
       prompt: "hi",
@@ -1997,7 +2014,9 @@ describe("buildProviderOptions - SGLang reasoning", () => {
       }) as typeof fetch,
     });
     const providerOptions = buildProviderOptions("sglang", { ...options, reasoning: "medium" });
-    if (!providerOptions) throw new Error("expected SGLang provider options");
+    if (!providerOptions) {
+      throw new Error("expected SGLang provider options");
+    }
     await generateText({ model: provider(options.model), prompt: "hi", providerOptions });
     expect(requestBody?.["reasoning_effort"]).toBe("medium");
   });
@@ -2672,7 +2691,7 @@ describe("toCoreMessages - reasoning replay capability", () => {
       {
         role: "assistant" as const,
         content: "answer",
-        reasoning_parts: [{ text: 42 as unknown as string, provider: "deepseek" }],
+        reasoning_parts: [{ text: invalidInput<string>(42), provider: "deepseek" }],
       },
     ];
     const result = toCoreMessages(messages, "deepseek", undefined, {
@@ -2693,14 +2712,16 @@ describe("toCoreMessages - reasoning replay capability", () => {
       null,
       "not-an-object",
       { text: "d", provider: "deepseek", providerOptions: "oops" },
-    ] as unknown as Array<{ text: string; provider: string }>;
+    ];
+    const malformedReasoningParts =
+      invalidInput<Array<{ text: string; provider: string }>>(malformedParts);
     const messages = [
       { role: "user" as const, content: "hi" },
-      { role: "assistant" as const, content: "answer", reasoning_parts: malformedParts },
+      { role: "assistant" as const, content: "answer", reasoning_parts: malformedReasoningParts },
       {
         role: "assistant" as const,
         content: "answer",
-        reasoning_parts: "garbage" as unknown as typeof malformedParts,
+        reasoning_parts: invalidInput<typeof malformedReasoningParts>("garbage"),
       },
     ];
 
