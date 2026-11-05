@@ -9,7 +9,7 @@ let base: string;
 let home: string;
 
 beforeAll(() => {
-  base = realpathSync(mkdtempSync(path.join(os.tmpdir(), "jazz-repo-roots-")));
+  base = realpathSync(mkdtempSync(path.join(os.homedir(), ".jazz-repo-roots-test-")));
   home = path.join(base, "home");
   mkdirSync(home);
 });

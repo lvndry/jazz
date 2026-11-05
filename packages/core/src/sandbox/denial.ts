@@ -34,7 +34,8 @@ function candidatePaths(line: string): string[] {
   const parts = withoutEnding.split(": ");
   const segments = (parts.length > 1 ? parts.slice(1) : parts)
     .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0 && !/\s/.test(segment));
+    .flatMap((segment) => (/\s/.test(segment) ? [segment.split(/\s+/).pop() ?? ""] : [segment]))
+    .filter((segment) => segment.length > 0);
   return [...quoted, ...segments].filter((candidate) => candidate.length > 0);
 }
 

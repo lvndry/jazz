@@ -1,5 +1,4 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
@@ -16,7 +15,7 @@ let workspace: string;
 let outside: string;
 
 beforeAll(() => {
-  sandboxBase = realpathSync(mkdtempSync(path.join(os.tmpdir(), "jazz-write-policy-")));
+  sandboxBase = realpathSync(mkdtempSync(path.join(process.cwd(), ".write-policy-test-")));
   workspace = path.join(sandboxBase, "workspace");
   outside = path.join(sandboxBase, "outside");
   mkdirSync(workspace);

@@ -21,6 +21,12 @@ describe("classifyWriteDenial", () => {
     ).toBe("/nonexistent-root/x");
   });
 
+  test("reads dash's unquoted cannot-create form", () => {
+    expect(
+      classify("sh: 1: cannot create /nonexistent-root/x: Read-only file system")?.deniedPath,
+    ).toBe("/nonexistent-root/x");
+  });
+
   test("resolves a relative path against the command's directory", () => {
     expect(classify("sh: ../outside/y: Operation not permitted")?.deniedPath).toBe(
       "/work/outside/y",
