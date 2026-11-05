@@ -30,7 +30,9 @@ export function neutralizeBroadcastMentions(text: string): string {
 
 export function threadNameFromPrompt(prompt: string): string {
   const cleaned = prompt.replace(/\s+/g, " ").trim();
-  if (cleaned.length === 0) return "Jazz";
+  if (cleaned.length === 0) {
+    return "Jazz";
+  }
   return `Jazz · ${cleaned}`.slice(0, 100);
 }
 

@@ -36,13 +36,17 @@ const DEFAULT_METRIC_EXPORT_INTERVAL_MS = 30_000;
 const DEFAULT_SIGNALS: readonly OtlpSignal[] = ["traces"];
 
 function positiveIntegerEnv(value: string | undefined): number | undefined {
-  if (value === undefined) return undefined;
+  if (value === undefined) {
+    return undefined;
+  }
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function endpoint(value: string | undefined, source: string): string | undefined {
-  if (value === undefined) return undefined;
+  if (value === undefined) {
+    return undefined;
+  }
   try {
     const url = new URL(value);
     if (
@@ -50,8 +54,9 @@ function endpoint(value: string | undefined, source: string): string | undefined
       !(["http:", "https:"].includes(url.protocol) && url.hostname) ||
       url.username ||
       url.password
-    )
+    ) {
       throw new Error();
+    }
     return value;
   } catch {
     // The value can contain credentials. Name only its source in diagnostics.
@@ -86,15 +91,23 @@ function parseBaggagePairs(raw: string, validKey: RegExp): Record<string, string
   const pairs: Record<string, string> = {};
   for (const pair of raw.split(",")) {
     const separatorIndex = pair.indexOf("=");
-    if (separatorIndex <= 0) continue;
+    if (separatorIndex <= 0) {
+      continue;
+    }
     const key = pair.slice(0, separatorIndex).trim();
     const value = pair.slice(separatorIndex + 1).trim();
-    if (!validKey.test(key) || FORBIDDEN_KEYS.has(key)) continue;
+    if (!validKey.test(key) || FORBIDDEN_KEYS.has(key)) {
+      continue;
+    }
     try {
       const decoded = decodeURIComponent(value);
-      if (!/[\r\n]/.test(decoded)) pairs[key] = decoded;
+      if (!/[\r\n]/.test(decoded)) {
+        pairs[key] = decoded;
+      }
     } catch {
-      if (!/[\r\n]/.test(value)) pairs[key] = value;
+      if (!/[\r\n]/.test(value)) {
+        pairs[key] = value;
+      }
     }
   }
   return pairs;
@@ -173,8 +186,9 @@ export function resolveOtlpConfig(
   );
 
   if (tracesEndpoint === undefined && logsEndpoint === undefined && metricsEndpoint === undefined) {
-    if (config?.signals && config.signals.length > 0)
+    if (config?.signals && config.signals.length > 0) {
       throw new Error(`OTLP ${config.signals[0]} export is selected but has no endpoint`);
+    }
     return undefined;
   }
 
@@ -186,13 +200,15 @@ export function resolveOtlpConfig(
       : logsEndpoint !== undefined
         ? (["logs"] as const)
         : (["metrics"] as const));
-  if (requestedSignals.length === 0)
+  if (requestedSignals.length === 0) {
     throw new Error("OTLP signals must select at least one signal");
+  }
   for (const signal of requestedSignals) {
     const resolved =
       signal === "traces" ? tracesEndpoint : signal === "logs" ? logsEndpoint : metricsEndpoint;
-    if (resolved === undefined)
+    if (resolved === undefined) {
       throw new Error(`OTLP ${signal} export is selected but has no endpoint`);
+    }
   }
   const signals = requestedSignals;
 

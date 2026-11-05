@@ -983,11 +983,16 @@ export class ComputerSession {
         if (screenshot === undefined) {
           throw new Error("Observe the window with screenshot true before dragging by pixel.");
         }
-        for (const [name, x, y] of [
+        for (const [name, pointX, pointY] of [
           ["from", action.fromX, action.fromY],
           ["to", action.toX, action.toY],
         ] as const) {
-          if (x < 0 || y < 0 || x >= screenshot.width || y >= screenshot.height) {
+          if (
+            pointX < 0 ||
+            pointY < 0 ||
+            pointX >= screenshot.width ||
+            pointY >= screenshot.height
+          ) {
             throw new Error(
               `The ${name} point is outside the screenshot (${String(screenshot.width)}x${String(screenshot.height)} px).`,
             );

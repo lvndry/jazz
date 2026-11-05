@@ -111,10 +111,14 @@ export function patchWorkState(
 
 /** Render state for a prompt or a CLI view. Returns `undefined` when there is nothing to show. */
 export function formatWorkState(state: WorkState | undefined): string | undefined {
-  if (!state) return undefined;
+  if (!state) {
+    return undefined;
+  }
   const sections: string[] = [];
 
-  if (state.goal) sections.push(`**Goal:** ${state.goal}`);
+  if (state.goal) {
+    sections.push(`**Goal:** ${state.goal}`);
+  }
   if (state.constraints?.length) {
     sections.push(`**Constraints:**\n${state.constraints.map((item) => `- ${item}`).join("\n")}`);
   }
@@ -129,7 +133,9 @@ export function formatWorkState(state: WorkState | undefined): string | undefine
       `**Open questions:**\n${state.openQuestions.map((item) => `- ${item}`).join("\n")}`,
     );
   }
-  if (state.nextStep) sections.push(`**Next step:** ${state.nextStep}`);
+  if (state.nextStep) {
+    sections.push(`**Next step:** ${state.nextStep}`);
+  }
 
   return sections.length > 0 ? sections.join("\n\n") : undefined;
 }

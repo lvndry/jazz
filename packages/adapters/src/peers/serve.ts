@@ -94,7 +94,9 @@ export function extractClarificationQuestion(
   toolResults: Record<string, unknown> | undefined,
 ): string | undefined {
   const raw = toolResults?.["request_clarification"];
-  if (typeof raw !== "object" || raw === null) return undefined;
+  if (typeof raw !== "object" || raw === null) {
+    return undefined;
+  }
   const question = (raw as Record<string, unknown>)["question"];
   return typeof question === "string" && question.trim().length > 0 ? question.trim() : undefined;
 }

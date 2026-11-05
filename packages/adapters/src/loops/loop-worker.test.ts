@@ -29,6 +29,7 @@ import { loadConversation } from "@jazz/adapters/history/conversation-history-se
 import { InMemoryGoalStore } from "@jazz/adapters/storage/goal-store";
 import { InMemoryLoopStore } from "@jazz/adapters/storage/loop-store";
 import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
+import { partialFake } from "../test-support/fakes";
 
 const AGENT_ID = "agent-1";
 const NOT_RUNNING_PID = 999_999_999;
@@ -44,30 +45,36 @@ function harness(): Harness {
   const loops = new InMemoryLoopStore();
   const runs = new InMemoryRunStore();
   const placedIn: string[] = [];
-  const agents = {
+  const agents = partialFake<AgentService>({
     getAgent: () =>
       Effect.succeed({
         id: AGENT_ID,
         name: "agent",
         config: { llm: { provider: "ollama", model: "model" } },
       }),
-  } as unknown as AgentService;
+  });
   const layer = Layer.mergeAll(
     Layer.succeed(LoopStoreTag, loops),
     Layer.succeed(GoalStoreTag, new InMemoryGoalStore()),
     Layer.succeed(RunStoreTag, runs),
     Layer.succeed(AgentServiceTag, agents),
     Layer.succeed(LoggerServiceTag, silentLogger),
-    Layer.succeed(AgentConfigServiceTag, {
-      appConfig: Effect.succeed({}),
-    } as unknown as AgentConfigService),
-    Layer.succeed(FileSystemContextServiceTag, {
-      setCwd: (_key: unknown, directory: string) =>
-        Effect.sync(() => {
-          placedIn.push(directory);
-        }),
-      getCwd: () => Effect.succeed("/work/site"),
-    } as unknown as FileSystemContextService),
+    Layer.succeed(
+      AgentConfigServiceTag,
+      partialFake<AgentConfigService>({
+        appConfig: Effect.succeed({}),
+      }),
+    ),
+    Layer.succeed(
+      FileSystemContextServiceTag,
+      partialFake<FileSystemContextService>({
+        setCwd: (_key: unknown, directory: string) =>
+          Effect.sync(() => {
+            placedIn.push(directory);
+          }),
+        getCwd: () => Effect.succeed("/work/site"),
+      }),
+    ),
     NodeFileSystem.layer,
   ) as Layer.Layer<never>;
   return { loops, runs, layer, placedIn };
@@ -154,22 +161,25 @@ function endLoopCall(reason: string): ChatMessage[] {
 /** Stand in for AgentRunner.run: record the run the way the real recorder does, then answer. */
 function scriptRunner(test: Harness, answer: string, extra: ChatMessage[] = []) {
   const seen: AgentRunnerOptions[] = [];
-  const spy = spyOn(AgentRunner, "run").mockImplementation(((options: AgentRunnerOptions) =>
-    Effect.gen(function* () {
-      seen.push(options);
-      const runId = options.runId ?? "unknown";
-      yield* test.runs.save(record(runId, { kind: "completed", content: answer }));
-      return {
-        content: answer,
-        conversationId: options.conversationId ?? "loop-chat",
-        messages: [
-          ...(options.conversationHistory ?? []),
-          ...(options.userInput.length > 0 ? [{ role: "user", content: options.userInput }] : []),
-          ...extra,
-          { role: "assistant", content: answer },
-        ],
-      } as unknown as AgentResponse;
-    })) as unknown as typeof AgentRunner.run);
+  const spy = spyOn(AgentRunner, "run").mockImplementation(
+    partialFake<typeof AgentRunner.run>((options: AgentRunnerOptions) =>
+      Effect.gen(function* () {
+        seen.push(options);
+        const runId = options.runId ?? "unknown";
+        yield* test.runs.save(record(runId, { kind: "completed", content: answer }));
+        return partialFake<AgentResponse>({
+          content: answer,
+          conversationId: options.conversationId ?? "loop-chat",
+          messages: [
+            ...(options.conversationHistory ?? []),
+            ...(options.userInput.length > 0 ? [{ role: "user", content: options.userInput }] : []),
+            ...extra,
+            { role: "assistant", content: answer },
+          ],
+        });
+      }),
+    ),
+  );
   return { seen, restore: () => spy.mockRestore() };
 }
 
@@ -335,23 +345,24 @@ describe("runDueLoops", () => {
   it("holds the loop while its run waits for approval", async () => {
     const test = harness();
     const loop = await createLoop(test);
-    const parkRunner = spyOn(AgentRunner, "run").mockImplementation(((
-      options: AgentRunnerOptions,
-    ) =>
-      Effect.gen(function* () {
-        const runId = options.runId ?? "unknown";
-        yield* test.runs.save(
-          record(runId, {
-            kind: "input-required",
-            pending: APPROVAL,
-            snapshot: { messages: [], iteration: 1 } as never,
-            expiresAt: new Date(Date.now() + 60_000).toISOString(),
-          }),
-        );
-        return yield* Effect.fail(
-          new RunParkRequested({ pending: APPROVAL, runId, messages: [] } as never),
-        );
-      })) as unknown as typeof AgentRunner.run);
+    const parkRunner = spyOn(AgentRunner, "run").mockImplementation(
+      partialFake<typeof AgentRunner.run>((options: AgentRunnerOptions) =>
+        Effect.gen(function* () {
+          const runId = options.runId ?? "unknown";
+          yield* test.runs.save(
+            record(runId, {
+              kind: "input-required",
+              pending: APPROVAL,
+              snapshot: { messages: [], iteration: 1 } as never,
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            }),
+          );
+          return yield* Effect.fail(
+            new RunParkRequested({ pending: APPROVAL, runId, messages: [] } as never),
+          );
+        }),
+      ),
+    );
     try {
       await tick(test);
       await tick(test);

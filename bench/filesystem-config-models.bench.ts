@@ -24,8 +24,9 @@ const options = { iterations: 20, warmupIterations: 2 };
 const trees = [100, 1_000, 10_050].map((count) => {
   const directory = join(root, `tree-${count}`);
   mkdirSync(directory);
-  for (let file = 0; file < count; file += 1)
+  for (let file = 0; file < count; file += 1) {
     writeFileSync(join(directory, `file-${file}`), "fixture");
+  }
   return { directory, count };
 });
 const configPath = join(root, "config.json");
@@ -36,9 +37,9 @@ writeFileSync(
 const catalog = JSON.stringify({
   openrouter: {
     models: Object.fromEntries(
-      Array.from({ length: 1_000 }, (_, i) => [
-        `fixture-${i}`,
-        { name: `Fixture ${i}`, limit: { context: 128_000 }, tool_call: true },
+      Array.from({ length: 1_000 }, (_, index) => [
+        `fixture-${index}`,
+        { name: `Fixture ${index}`, limit: { context: 128_000 }, tool_call: true },
       ]),
     ),
   },
@@ -49,8 +50,12 @@ let providerBody = "";
 globalThis.fetch = Object.assign(
   async (input: string | URL | Request) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url === "https://models.dev/api.json") return new Response(catalog);
-    if (url === "https://fixture.invalid/models") return new Response(providerBody);
+    if (url === "https://models.dev/api.json") {
+      return new Response(catalog);
+    }
+    if (url === "https://fixture.invalid/models") {
+      return new Response(providerBody);
+    }
     throw new Error(`Unexpected benchmark network request: ${url}`);
   },
   { preconnect: previousFetch.preconnect },
@@ -66,8 +71,9 @@ try {
           const footprint = await Effect.runPromise(
             measureFootprint(directory).pipe(Effect.provide(NodeFileSystem.layer)),
           );
-          if (footprint === undefined || footprint.files !== Math.min(count, 10_000))
+          if (footprint === undefined || footprint.files !== Math.min(count, 10_000)) {
             throw new Error("Invalid footprint workload");
+          }
         },
         options,
       ),
@@ -87,7 +93,7 @@ try {
   const fetcher = createModelFetcher();
   for (const count of [100, 1_000]) {
     providerBody = JSON.stringify({
-      data: Array.from({ length: count }, (_, i) => ({ id: `fixture-${i}` })),
+      data: Array.from({ length: count }, (_, index) => ({ id: `fixture-${index}` })),
     });
     results.push(
       await benchAsync(
@@ -96,7 +102,9 @@ try {
           const models = await Effect.runPromise(
             fetcher.fetchModels("openrouter", "https://fixture.invalid", "/models", "fixture-key"),
           );
-          if (models.length !== count) throw new Error("Invalid catalog workload");
+          if (models.length !== count) {
+            throw new Error("Invalid catalog workload");
+          }
         },
         options,
       ),

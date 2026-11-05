@@ -164,15 +164,23 @@ export function syncAgentDisplayName(
   isScopedAgentId: (agentId: string) => boolean,
   ownership?: Ownership,
 ): void {
-  if (!existsSync(join(dataDir, AGENTS_DIRECTORY))) return;
+  if (!existsSync(join(dataDir, AGENTS_DIRECTORY))) {
+    return;
+  }
   withAgentsDirectory(dataDir, false, ownership, (agents) => {
     for (const entry of agents.list()) {
-      if (!entry.endsWith(".json")) continue;
+      if (!entry.endsWith(".json")) {
+        continue;
+      }
       const agentId = entry.slice(0, -".json".length);
-      if (agentId !== baseAgentId && !isScopedAgentId(agentId)) continue;
+      if (agentId !== baseAgentId && !isScopedAgentId(agentId)) {
+        continue;
+      }
       try {
         const agent = parseAgent(agents, agentId);
-        if (agent.name === displayName) continue;
+        if (agent.name === displayName) {
+          continue;
+        }
         agent.name = displayName;
         writeAgent(agents, agent, ownership);
       } catch (error) {
@@ -184,7 +192,9 @@ export function syncAgentDisplayName(
 
 /** Remove one agent file, without following a link at its name. */
 export function removeAgentFile(dataDir: string, agentId: string): void {
-  if (!existsSync(join(dataDir, AGENTS_DIRECTORY))) return;
+  if (!existsSync(join(dataDir, AGENTS_DIRECTORY))) {
+    return;
+  }
   withAgentsDirectory(dataDir, false, undefined, (agents) => agents.remove(agentFileName(agentId)));
 }
 

@@ -17,16 +17,19 @@ describe("resolveLocalProviderBaseUrl", () => {
   const saved: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    for (const v of ENV_VARS) {
-      saved[v] = process.env[v];
-      delete process.env[v];
+    for (const variableName of ENV_VARS) {
+      saved[variableName] = process.env[variableName];
+      delete process.env[variableName];
     }
   });
 
   afterEach(() => {
-    for (const v of ENV_VARS) {
-      if (saved[v] === undefined) delete process.env[v];
-      else process.env[v] = saved[v];
+    for (const variableName of ENV_VARS) {
+      if (saved[variableName] === undefined) {
+        delete process.env[variableName];
+      } else {
+        process.env[variableName] = saved[variableName];
+      }
     }
   });
 
@@ -113,16 +116,19 @@ describe("resolveOllamaRequestBaseUrl", () => {
   const saved: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    for (const v of ENV_VARS) {
-      saved[v] = process.env[v];
-      delete process.env[v];
+    for (const variableName of ENV_VARS) {
+      saved[variableName] = process.env[variableName];
+      delete process.env[variableName];
     }
   });
 
   afterEach(() => {
-    for (const v of ENV_VARS) {
-      if (saved[v] === undefined) delete process.env[v];
-      else process.env[v] = saved[v];
+    for (const variableName of ENV_VARS) {
+      if (saved[variableName] === undefined) {
+        delete process.env[variableName];
+      } else {
+        process.env[variableName] = saved[variableName];
+      }
     }
   });
 

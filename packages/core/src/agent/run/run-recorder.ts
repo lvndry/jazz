@@ -157,7 +157,9 @@ export function withRunRecording<E, R>(
     const heartbeatState: { state: OccupancyRunState } = { state: "working" };
 
     const writeOccupancy = (): Effect.Effect<void, never> => {
-      if (occupancyService === undefined) return Effect.void;
+      if (occupancyService === undefined) {
+        return Effect.void;
+      }
       const activity = input.toolActivity?.snapshot();
       const entry = {
         runId: input.runId,

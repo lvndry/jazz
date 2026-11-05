@@ -7,6 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
+import { partialFake } from "@/core/test-support/fakes";
 import type { Agent, AgentConfig, AppConfig } from "@/core/types";
 import {
   isAttendedRun,
@@ -40,9 +41,9 @@ function agentWith(config: Partial<AgentConfig>): Agent {
  * They stand for the bundle an agent gets without asking, which is the thing the denials
  * have to be able to reach — narrowing only `config.tools` would never touch them.
  */
-const registry = {
+const registry = partialFake<ToolRegistry>({
   getToolsInCategory: () => Effect.succeed(["read_file", "execute_command"]),
-} as unknown as ToolRegistry;
+});
 
 function resolve(agent: Agent): Promise<readonly string[]> {
   // PersonaService is deliberately not provided: `resolveAgentToolNames` reads it through

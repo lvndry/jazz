@@ -64,13 +64,20 @@ function handlerFor(options: {
   let repoPrivate = options.repoPrivate ?? false;
   const pages = options.pages ?? "create-ok";
   return (file: string, args: readonly string[]): { stdout: string; stderr: string } => {
-    if (file !== "gh" && file !== "git") throw new Error(`unexpected command: ${file}`);
+    if (file !== "gh" && file !== "git") {
+      throw new Error(`unexpected command: ${file}`);
+    }
     if (file === "gh") {
-      if (args[0] === "auth") return { stdout: "Logged in", stderr: "" };
-      if (args[0] === "api" && args[1] === "user")
+      if (args[0] === "auth") {
+        return { stdout: "Logged in", stderr: "" };
+      }
+      if (args[0] === "api" && args[1] === "user") {
         return { stdout: JSON.stringify({ login: owner }), stderr: "" };
+      }
       if (args[0] === "repo" && args[1] === "view") {
-        if (!repoExists) throw new Error("HTTP 404: Not found");
+        if (!repoExists) {
+          throw new Error("HTTP 404: Not found");
+        }
         return {
           stdout: JSON.stringify({
             nameWithOwner: args[2],
@@ -87,22 +94,29 @@ function handlerFor(options: {
       }
       if (args[0] === "api") {
         const endpoint = args[1] === "-X" ? args[3] : args[1];
-        if (!endpoint?.match(/^repos\/[^/]+\/[^/]+\/pages$/)) throw new Error("accepts 1 arg(s)");
+        if (!endpoint?.match(/^repos\/[^/]+\/[^/]+\/pages$/)) {
+          throw new Error("accepts 1 arg(s)");
+        }
         if (args[1] === "-X") {
-          if (pages === "plan-limit")
+          if (pages === "plan-limit") {
             throw new Error("HTTP 422: GitHub Pages is not available on the Free plan");
+          }
           return { stdout: "{}", stderr: "" };
         }
-        if (pages === "enabled") return { stdout: "{}", stderr: "" };
+        if (pages === "enabled") {
+          return { stdout: "{}", stderr: "" };
+        }
         throw new Error("HTTP 404: Not found");
       }
       throw new Error(`unexpected gh command: ${args.join(" ")}`);
     }
-    if (args[0] === "clone" && args[2]) options.cloneSeed?.(args[2]);
+    if (args[0] === "clone" && args[2]) {
+      options.cloneSeed?.(args[2]);
+    }
     if (args[0] === "diff" && args[1] === "--cached") {
-      const e = new Error("differences found") as Error & { code: number };
-      e.code = 1;
-      throw e;
+      const error = new Error("differences found") as Error & { code: number };
+      error.code = 1;
+      throw error;
     }
     return { stdout: "", stderr: "" };
   };
@@ -124,15 +138,28 @@ function mockCfFetch(requests: string[]): CloudflareFetch {
       json: async () => ({ success: true, result }),
     });
     const project = url.match(/pages\/projects\/([^/?]+)$/)?.[1];
-    if (project)
+    if (project) {
       return respond({ subdomain: `${project}.pages.dev`, production_branch: "main", domains: [] });
+    }
     const deployment = url.match(/pages\/projects\/([^/]+)\/deployments$/);
-    if (deployment) return respond({ url: `https://abcd1234.${deployment[1]}.pages.dev` });
-    if (url.includes("/upload-token")) return respond({ jwt: "test-jwt" });
-    if (url.includes("/check-missing")) return respond([]);
-    if (url.includes("/pages/assets")) return respond({});
-    if (url.includes("/policies")) return respond(policies);
-    if (url.includes("/access/apps") && method === "GET") return respond([]);
+    if (deployment) {
+      return respond({ url: `https://abcd1234.${deployment[1]}.pages.dev` });
+    }
+    if (url.includes("/upload-token")) {
+      return respond({ jwt: "test-jwt" });
+    }
+    if (url.includes("/check-missing")) {
+      return respond([]);
+    }
+    if (url.includes("/pages/assets")) {
+      return respond({});
+    }
+    if (url.includes("/policies")) {
+      return respond(policies);
+    }
+    if (url.includes("/access/apps") && method === "GET") {
+      return respond([]);
+    }
     if (url.includes("/access/apps") && method === "POST" && typeof init?.body === "string") {
       const body = JSON.parse(init.body) as { domain: string };
       return respond({ id: "app-1", type: "self_hosted", domain: body.domain });
@@ -242,7 +269,9 @@ describe("publishComposition", () => {
   });
 
   function expectPublish(result: Awaited<ReturnType<typeof publishComposition>>, label: string) {
-    if (!result.success) console.error("ERR in", label, ":", (result as { error?: string }).error);
+    if (!result.success) {
+      console.error("ERR in", label, ":", (result as { error?: string }).error);
+    }
     expect(result.success).toBe(true);
     return (result as { success: true; result: unknown }).result as {
       url: string;
@@ -280,7 +309,9 @@ describe("publishComposition", () => {
     const missing = join(dir, "missing.html");
     const result = await publishComposition({ htmlPath: missing }, dir, compose, fs);
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("unreachable");
+    if (result.success) {
+      throw new Error("unreachable");
+    }
     expect(result.error).toBe(PUBLISH_HTML_NOT_FOUND_ERROR(missing));
   });
 
@@ -289,7 +320,9 @@ describe("publishComposition", () => {
     const { compose } = makeComposer(handlerFor({}));
     const result = await publishComposition({ htmlPath: join(dir, "notes.txt") }, dir, compose, fs);
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("unreachable");
+    if (result.success) {
+      throw new Error("unreachable");
+    }
     expect(result.error).toContain("is not an .html file");
   });
 
@@ -312,9 +345,13 @@ describe("publishComposition", () => {
     expect(out.visibility).toBe("public");
     expect(out.url).toBe("https://octo.github.io/compositions/compositions/weekly-spending/");
     expect(out.pagesEnabled).toBe(true);
-    expect(calls.some((c) => c.startsWith("gh repo create octo/compositions --public"))).toBe(true);
-    expect(calls.some((c) => c.startsWith("git clone"))).toBe(true);
-    expect(calls.some((c) => c.includes("user.email=jazz@users.noreply.github.com"))).toBe(true);
+    expect(calls.some((call) => call.startsWith("gh repo create octo/compositions --public"))).toBe(
+      true,
+    );
+    expect(calls.some((call) => call.startsWith("git clone"))).toBe(true);
+    expect(calls.some((call) => call.includes("user.email=jazz@users.noreply.github.com"))).toBe(
+      true,
+    );
   });
 
   test("recognizes first-publish 404 diagnostics from real subprocess stderr", async () => {
@@ -323,7 +360,9 @@ describe("publishComposition", () => {
       try {
         return handler(file, args);
       } catch (error) {
-        if (file !== "gh" || !(error instanceof Error)) throw error;
+        if (file !== "gh" || !(error instanceof Error)) {
+          throw error;
+        }
         throw Object.assign(new Error(`Command failed: gh ${args.join(" ")}`), {
           stderr: `${error.message}\n`,
           stdout: "",
@@ -350,9 +389,9 @@ describe("publishComposition", () => {
     );
     expect(out.url).toBe("https://octo.github.io/compositions/compositions/weekly-spending/");
     expect(
-      calls.some((c) => c.startsWith("git clone https://github.com/octo/compositions.git")),
+      calls.some((call) => call.startsWith("git clone https://github.com/octo/compositions.git")),
     ).toBe(true);
-    expect(calls.some((c) => c.startsWith("gh repo create"))).toBe(false);
+    expect(calls.some((call) => call.startsWith("gh repo create"))).toBe(false);
   });
 
   test("fails with the auth hint when gh is not logged in", async () => {
@@ -364,7 +403,9 @@ describe("publishComposition", () => {
     });
     const result = await publishComposition({ htmlPath, visibility: "public" }, dir, compose, fs);
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("unreachable");
+    if (result.success) {
+      throw new Error("unreachable");
+    }
     expect(result.error).toBe(PUBLISH_AUTH_ERROR);
   });
 
@@ -377,7 +418,9 @@ describe("publishComposition", () => {
     });
     const result = await publishComposition({ htmlPath, visibility: "public" }, dir, compose, fs);
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("unreachable");
+    if (result.success) {
+      throw new Error("unreachable");
+    }
     expect(result.error).not.toBe(PUBLISH_AUTH_ERROR);
   });
 
@@ -390,9 +433,11 @@ describe("publishComposition", () => {
       fs,
     );
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("unreachable");
+    if (result.success) {
+      throw new Error("unreachable");
+    }
     expect(result.error).toBe(PUBLISH_PRIVATE_REQUIRES_CLOUDFLARE);
-    expect(calls.some((c) => c.startsWith("gh repo"))).toBe(false);
+    expect(calls.some((call) => call.startsWith("gh repo"))).toBe(false);
   });
 
   test("a private publish goes to the private repo on the cloudflare host", async () => {
@@ -405,14 +450,19 @@ describe("publishComposition", () => {
       "https://compositions-private.pages.dev/compositions/private/weekly-spending/",
     );
     expect(
-      calls.some((c) => c.startsWith("gh repo create octo/compositions-private --private")),
+      calls.some((call) => call.startsWith("gh repo create octo/compositions-private --private")),
     ).toBe(true);
     expect(
       urls.some(
-        (u) => u.startsWith("POST") && u.includes("/access/apps") && !u.includes("/policies"),
+        (request) =>
+          request.startsWith("POST") &&
+          request.includes("/access/apps") &&
+          !request.includes("/policies"),
       ),
     ).toBe(true);
-    expect(urls.filter((u) => u.startsWith("POST") && u.endsWith("/access/apps"))).toHaveLength(2);
+    expect(
+      urls.filter((request) => request.startsWith("POST") && request.endsWith("/access/apps")),
+    ).toHaveLength(2);
     expect(out.summary).toContain("Cloudflare Access");
   });
 
@@ -426,9 +476,13 @@ describe("publishComposition", () => {
     const out = expectPublish(result, "public-cf");
     expect(out.url).toBe("https://compositions.pages.dev/compositions/weekly-spending/");
     expect(out.summary).toContain("Cloudflare Pages");
-    expect(urls.some((u) => u.includes("/pages/projects/compositions/upload-token"))).toBe(true);
-    expect(urls.some((u) => u.includes("/pages/projects/compositions/deployments"))).toBe(true);
-    expect(urls.some((u) => u.includes("/access/apps"))).toBe(false);
+    expect(
+      urls.some((request) => request.includes("/pages/projects/compositions/upload-token")),
+    ).toBe(true);
+    expect(
+      urls.some((request) => request.includes("/pages/projects/compositions/deployments")),
+    ).toBe(true);
+    expect(urls.some((request) => request.includes("/access/apps"))).toBe(false);
   });
 
   test("private publishing without accessEmail fails before creating or pushing content", async () => {
@@ -450,7 +504,9 @@ describe("publishComposition", () => {
       fs,
     );
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("unreachable");
+    if (result.success) {
+      throw new Error("unreachable");
+    }
     expect(result.error).toContain(PUBLISH_CLOUDFLARE_NOT_CONFIGURED);
   });
 
@@ -477,7 +533,9 @@ describe("publishComposition", () => {
       mockCfFetch([]),
     );
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("unreachable");
+    if (result.success) {
+      throw new Error("unreachable");
+    }
     expect(result.error).toContain("does not match requested visibility private");
     expect(calls.some((call) => call.startsWith("git push"))).toBe(false);
   });
@@ -568,7 +626,9 @@ describe("publishComposition", () => {
       fetch,
     );
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("unreachable");
+    if (result.success) {
+      throw new Error("unreachable");
+    }
     expect(result.error).toContain("deployment refused");
   });
 
@@ -619,7 +679,9 @@ describe("publishComposition", () => {
     );
     const result = await publishComposition({ htmlPath }, dir, compose, fs);
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("unreachable");
+    if (result.success) {
+      throw new Error("unreachable");
+    }
     expect(result.error).toContain("symbolic links");
     expect(existsSync(join(outside, "weekly-spending"))).toBe(false);
     expect(calls.some((call) => call.startsWith("git push"))).toBe(false);

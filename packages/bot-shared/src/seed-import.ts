@@ -28,7 +28,9 @@ export function agentStoreDirectory(): string {
   try {
     const parsed: unknown = JSON.parse(readFileSync(configPath, "utf8"));
     const { storage } = parsed as { storage?: Parameters<typeof resolveStorageDirectory>[0] };
-    if (storage !== undefined) return resolveStorageDirectory(storage);
+    if (storage !== undefined) {
+      return resolveStorageDirectory(storage);
+    }
   } catch {
     // No config, or unreadable: the store is the Jazz home.
   }
@@ -51,7 +53,9 @@ export function listAgents(dataDir: string): readonly AgentSummary[] {
 
   const agents: AgentSummary[] = [];
   for (const entry of entries) {
-    if (!entry.endsWith(".json")) continue;
+    if (!entry.endsWith(".json")) {
+      continue;
+    }
     const id = entry.slice(0, -".json".length);
     try {
       agents.push({ id, name: readAgentFile(dataDir, id).name });
@@ -70,15 +74,23 @@ export type AgentMatch =
 /** Resolve `--agent` to one id. Ids win over names, which are not unique. */
 export function matchAgent(agents: readonly AgentSummary[], query: string): AgentMatch {
   const wanted = query.trim();
-  if (wanted.length === 0) return { kind: "missing" };
+  if (wanted.length === 0) {
+    return { kind: "missing" };
+  }
 
   const byId = agents.find((agent) => agent.id === wanted);
-  if (byId !== undefined) return { kind: "found", id: byId.id };
+  if (byId !== undefined) {
+    return { kind: "found", id: byId.id };
+  }
 
   const byName = agents.filter((agent) => agent.name.toLowerCase() === wanted.toLowerCase());
   const only = byName[0];
-  if (only !== undefined && byName.length === 1) return { kind: "found", id: only.id };
-  if (byName.length > 1) return { kind: "ambiguous", matches: byName };
+  if (only !== undefined && byName.length === 1) {
+    return { kind: "found", id: only.id };
+  }
+  if (byName.length > 1) {
+    return { kind: "ambiguous", matches: byName };
+  }
   return { kind: "missing" };
 }
 
@@ -91,8 +103,12 @@ export function matchAgent(agents: readonly AgentSummary[], query: string): Agen
 export function importSeedAgent(sourceDir: string, targetDir: string, agentId: string): boolean {
   const source = agentPath(sourceDir, agentId);
   const target = agentPath(targetDir, agentId);
-  if (source === target) return false;
-  if (!existsSync(source) || existsSync(target)) return false;
+  if (source === target) {
+    return false;
+  }
+  if (!existsSync(source) || existsSync(target)) {
+    return false;
+  }
 
   mkdirSync(join(targetDir, "agents"), { recursive: true });
   copyFileSync(source, target);

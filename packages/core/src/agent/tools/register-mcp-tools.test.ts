@@ -6,6 +6,7 @@ import { MCPServerManagerTag, type MCPServerManager } from "@/core/interfaces/mc
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
+import { partialFake } from "@/core/test-support/fakes";
 import { registerMCPToolsForAgent } from "./register-mcp-tools";
 
 /**
@@ -17,24 +18,30 @@ function harness(configuredServers: readonly { name: string; enabled?: boolean }
   const warn = mock((_message: string, _meta?: Record<string, unknown>) => Effect.void);
   const debug = mock((_message: string, _meta?: Record<string, unknown>) => Effect.void);
 
-  const loggerLayer = Layer.succeed(LoggerServiceTag, {
-    debug,
-    info: mock(() => Effect.void),
-    warn,
-    error: mock(() => Effect.void),
-  } as unknown as LoggerService);
+  const loggerLayer = Layer.succeed(
+    LoggerServiceTag,
+    partialFake<LoggerService>({
+      debug,
+      info: mock(() => Effect.void),
+      warn,
+      error: mock(() => Effect.void),
+    }),
+  );
 
-  const mcpManagerLayer = Layer.succeed(MCPServerManagerTag, {
-    listServers: () => Effect.succeed(configuredServers),
-  } as unknown as MCPServerManager);
+  const mcpManagerLayer = Layer.succeed(
+    MCPServerManagerTag,
+    partialFake<MCPServerManager>({
+      listServers: () => Effect.succeed(configuredServers),
+    }),
+  );
 
   const layer = Layer.mergeAll(
     loggerLayer,
     mcpManagerLayer,
-    Layer.succeed(ToolRegistryTag, {} as unknown as ToolRegistry),
-    Layer.succeed(AgentConfigServiceTag, {} as unknown as AgentConfigService),
-    Layer.succeed(TerminalServiceTag, {} as unknown as TerminalService),
-    Layer.succeed(PresentationServiceTag, {} as unknown as PresentationService),
+    Layer.succeed(ToolRegistryTag, partialFake<ToolRegistry>({})),
+    Layer.succeed(AgentConfigServiceTag, partialFake<AgentConfigService>({})),
+    Layer.succeed(TerminalServiceTag, partialFake<TerminalService>({})),
+    Layer.succeed(PresentationServiceTag, partialFake<PresentationService>({})),
   );
 
   return { layer, warn, debug };

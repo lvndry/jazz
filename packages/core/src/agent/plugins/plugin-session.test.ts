@@ -48,7 +48,9 @@ it("runs declared workspace context with bounded output and disables a failing h
         api.workspace.register(async (input) => {
           calls++;
           inputs.push(JSON.stringify(input));
-          if (calls === 2) throw new Error("server failed");
+          if (calls === 2) {
+            throw new Error("server failed");
+          }
           return { content: "diagnostic: " + "x".repeat(10_000) };
         });
       },
@@ -503,13 +505,14 @@ it("opens a notification plugin and delivers completion, input, and approval eve
           module: {
             apiVersion: 1,
             register(api) {
-              for (const event of events)
+              for (const event of events) {
                 api.lifecycle.register({
                   event,
                   handler: async (received, context) => {
                     context.writeTerminalSequence(`\u001b]777;notify;Jazz;${received.event}\u0007`);
                   },
                 });
+              }
             },
           },
         },
@@ -519,7 +522,7 @@ it("opens a notification plugin and delivers completion, input, and approval eve
     }),
   );
   try {
-    for (const event of events)
+    for (const event of events) {
       await Effect.runPromise(
         session.emitLifecycle({
           event,
@@ -528,6 +531,7 @@ it("opens a notification plugin and delivers completion, input, and approval eve
           cwd: "/tmp",
         }),
       );
+    }
     expect(written).toEqual(events.map((event) => `\u001b]777;notify;Jazz;${event}\u0007`));
   } finally {
     await Effect.runPromise(session.close());

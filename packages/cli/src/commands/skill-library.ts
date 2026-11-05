@@ -55,7 +55,9 @@ function formatMeta(entry: SkillDisplayMetadata): string {
 
 function matchesSkillQuery(entry: RegistrySkillEntry, query: string): boolean {
   const normalized = query.trim().toLowerCase();
-  if (normalized.length === 0) return true;
+  if (normalized.length === 0) {
+    return true;
+  }
 
   const searchable = [
     entry.name,
@@ -84,7 +86,9 @@ function targetDirectory(
 ): { readonly directory: string; readonly path: string } | null {
   const root = resolve(getGlobalSkillsDirectory());
   const directory = resolve(join(root, name));
-  if (directory !== root && !directory.startsWith(`${root}${sep}`)) return null;
+  if (directory !== root && !directory.startsWith(`${root}${sep}`)) {
+    return null;
+  }
   return { directory, path: join(directory, "SKILL.md") };
 }
 
@@ -123,7 +127,9 @@ function confirmInstall(
     }
     yield* terminal.log("");
 
-    if (options.yes === true) return true;
+    if (options.yes === true) {
+      return true;
+    }
 
     if (!terminal.isInteractive) {
       yield* terminal.error(
@@ -261,7 +267,9 @@ export function listLibrarySkillsCommand(options?: {
       yield* terminal.log(`  ${chalk.bold(entry.name)}`);
       yield* terminal.log(`    ${chalk.dim(entry.description)}`);
       const meta = formatMeta(entry);
-      if (meta.length > 0) yield* terminal.log(`    ${chalk.dim(meta)}`);
+      if (meta.length > 0) {
+        yield* terminal.log(`    ${chalk.dim(meta)}`);
+      }
       yield* terminal.log("");
     }
 

@@ -37,7 +37,9 @@ export function parseSnowflakeList(raw: string): Set<string> {
   let invalidCount = 0;
   for (const entry of raw.split(",")) {
     const id = entry.trim();
-    if (id.length === 0) continue;
+    if (id.length === 0) {
+      continue;
+    }
     if (!SNOWFLAKE.test(id)) {
       invalidCount += 1;
       continue;
@@ -63,8 +65,12 @@ function channelMatchesAllowlist(
   channelId: string,
   parentChannelId: string | undefined,
 ): boolean {
-  if (allowedChannelIds.size === 0) return true;
-  if (allowedChannelIds.has(channelId)) return true;
+  if (allowedChannelIds.size === 0) {
+    return true;
+  }
+  if (allowedChannelIds.has(channelId)) {
+    return true;
+  }
   return parentChannelId !== undefined && allowedChannelIds.has(parentChannelId);
 }
 
@@ -108,10 +114,18 @@ export function isSenderAllowed(config: AccessConfig, context: MessageAccessCont
  * Guild channels default to mention/reply/thread-participation.
  */
 export function shouldRespond(config: AccessConfig, context: MessageAccessContext): boolean {
-  if (context.isDm) return true;
-  if (!config.requireMention) return true;
-  if (context.mentionedBot) return true;
-  if (context.replyToBot) return true;
+  if (context.isDm) {
+    return true;
+  }
+  if (!config.requireMention) {
+    return true;
+  }
+  if (context.mentionedBot) {
+    return true;
+  }
+  if (context.replyToBot) {
+    return true;
+  }
   return context.isThread && context.threadHasSession;
 }
 
@@ -120,7 +134,9 @@ const MENTION_PATTERN = /<@!?(\d{17,20})>/g;
 export function messageMentionsUser(content: string, userId: string): boolean {
   MENTION_PATTERN.lastIndex = 0;
   for (const match of content.matchAll(MENTION_PATTERN)) {
-    if (match[1] === userId) return true;
+    if (match[1] === userId) {
+      return true;
+    }
   }
   return false;
 }

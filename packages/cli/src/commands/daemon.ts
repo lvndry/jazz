@@ -259,7 +259,9 @@ export function daemonCommand(options: DaemonCommandOptions) {
     }
 
     const decided = decideDaemonToken(provisioned);
-    if (decided.notice !== undefined) process.stderr.write(`${decided.notice}\n`);
+    if (decided.notice !== undefined) {
+      process.stderr.write(`${decided.notice}\n`);
+    }
     const token = decided.token;
 
     // Offer to make this persistent right where the operator would actually hit the need —
@@ -452,13 +454,17 @@ export function daemonCommand(options: DaemonCommandOptions) {
       let tickRunning = false;
       let lastWorkflowCatchUpAt = 0;
       const ticker = setInterval(() => {
-        if (tickRunning) return;
+        if (tickRunning) {
+          return;
+        }
         tickRunning = true;
         const now = Date.now();
         publishStatus({ tickRunning: true, lastTickStartedAt: new Date(now).toISOString() });
         const workflowsDue =
           runInProcessWorkflows && now - lastWorkflowCatchUpAt >= WORKFLOW_CATCH_UP_INTERVAL_MS;
-        if (workflowsDue) lastWorkflowCatchUpAt = now;
+        if (workflowsDue) {
+          lastWorkflowCatchUpAt = now;
+        }
         const reportFailure = (work: string) => (error: unknown) =>
           Effect.gen(function* () {
             const message = String(error);
@@ -772,7 +778,9 @@ export function installDaemonServiceCommand(options: {
         }),
       ),
     );
-    if (installed === undefined) return;
+    if (installed === undefined) {
+      return;
+    }
 
     yield* terminal.success(
       formatServiceInstalledMessage(installed, {
@@ -806,6 +814,8 @@ export function uninstallDaemonServiceCommand(options: { readonly yes?: boolean 
         }),
       ),
     );
-    if (!failed) yield* terminal.success("Uninstalled.");
+    if (!failed) {
+      yield* terminal.success("Uninstalled.");
+    }
   });
 }

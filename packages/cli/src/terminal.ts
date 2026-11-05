@@ -85,10 +85,19 @@ function closePromptCancelled(message: string): void {
 
 type PromptChoiceInput<T> = string | PromptChoice<T>;
 
+/**
+ * `TerminalService.select` lets a bare string stand for its own value, and its signature cannot tie
+ * `T` to `string` for those elements alone. Callers that pass bare strings use the default
+ * `T = string`, so the string is already a `T`.
+ */
+function stringChoiceValue<T>(choice: string): T {
+  return choice as T;
+}
+
 function normalizeChoices<T>(choices: readonly PromptChoiceInput<T>[]): Choice<T>[] {
   return choices.map((choice) =>
     typeof choice === "string"
-      ? { label: choice, value: choice as unknown as T }
+      ? { label: choice, value: stringChoiceValue<T>(choice) }
       : {
           label: choice.name,
           value: choice.value,
@@ -145,11 +154,15 @@ export class InkTerminalService implements TerminalService {
   }
 
   private fallbackToInk = (): void => {
-    if (this.fallbackScheduled || this.disposed || this.inkInstance !== null) return;
+    if (this.fallbackScheduled || this.disposed || this.inkInstance !== null) {
+      return;
+    }
     this.fallbackScheduled = true;
     queueMicrotask(() => {
       this.fallbackScheduled = false;
-      if (this.disposed || this.inkInstance !== null) return;
+      if (this.disposed || this.inkInstance !== null) {
+        return;
+      }
       const fullscreen = this.fullscreen;
       this.fullscreen = null;
       try {
@@ -162,7 +175,9 @@ export class InkTerminalService implements TerminalService {
   };
 
   private mountInk(): void {
-    if (this.inkInstance !== null) return;
+    if (this.inkInstance !== null) {
+      return;
+    }
     setActiveKeymap("classic");
     this.inkInstance = render(
       React.createElement(
@@ -179,7 +194,9 @@ export class InkTerminalService implements TerminalService {
    * Called when the command completes
    */
   cleanup(): void {
-    if (this.disposed) return;
+    if (this.disposed) {
+      return;
+    }
     this.disposed = true;
     store.setStreamPacing(false);
     this.unregisterRendererFallback?.();
@@ -263,7 +280,9 @@ export class InkTerminalService implements TerminalService {
 
   clear(): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      if (!this.fullscreen) console.clear();
+      if (!this.fullscreen) {
+        console.clear();
+      }
       store.clearOutputs();
       this.fullscreen?.invalidate();
     });
@@ -437,7 +456,7 @@ export class InkTerminalService implements TerminalService {
               }),
         },
         resolve: (val: unknown) => {
-          const choice = choices.find((c) => c.value === val);
+          const choice = choices.find((candidate) => candidate.value === val);
           closePromptWithAnswer(message, choice?.label ?? "");
           resume(Effect.succeed(val as T));
         },
@@ -492,7 +511,7 @@ export class InkTerminalService implements TerminalService {
           ...(remove === undefined ? {} : { remove: (value: unknown) => remove(value as T) }),
         },
         resolve: (val: unknown) => {
-          const choice = choices.find((c) => c.value === val);
+          const choice = choices.find((candidate) => candidate.value === val);
           closePromptWithAnswer(message, choice?.label ?? "");
           resume(Effect.succeed(val as T));
         },
@@ -541,8 +560,11 @@ export class InkTerminalService implements TerminalService {
 
   setTitle(title: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      if (this.fullscreen) this.fullscreen.setTitle(title);
-      else process.stdout.write(`\x1b]0;${title.replace(/\p{Cc}/gu, "")}\x07`);
+      if (this.fullscreen) {
+        this.fullscreen.setTitle(title);
+      } else {
+        process.stdout.write(`\x1b]0;${title.replace(/\p{Cc}/gu, "")}\x07`);
+      }
     });
   }
 }

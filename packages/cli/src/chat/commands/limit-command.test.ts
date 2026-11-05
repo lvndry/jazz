@@ -11,6 +11,7 @@ import type { ModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { afterAll, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import type { CommandContext, CommandResult } from "./types";
+import { partialFake, type PartialMembers } from "../../test-support/partial-fake";
 
 mock.module("@jazz/core/utils/models-dev", () => ({
   getModelsDevMetadata: () =>
@@ -24,11 +25,11 @@ afterAll(() => {
 
 const { handleSpecialCommand } = await import("./handler");
 
-const testAgent = {
+const testAgent = partialFake<Agent>({
   id: "a",
   name: "A",
   config: { persona: "default", llm: { provider: "openai", model: "gpt-4" }, tools: [] },
-} as unknown as Agent;
+});
 
 function baseContext(overrides: Partial<CommandContext> = {}): CommandContext {
   return {
@@ -47,15 +48,15 @@ function baseContext(overrides: Partial<CommandContext> = {}): CommandContext {
 function runLimit(
   args: string[],
   context: CommandContext,
-  terminal: Partial<TerminalService>,
+  terminal: PartialMembers<TerminalService>,
 ): Promise<CommandResult> {
-  const fullTerminal: Partial<TerminalService> = {
+  const fullTerminal: PartialMembers<TerminalService> = {
     log: mock(() => Effect.succeed(undefined)),
     ...terminal,
   };
   const terminalLayer = Layer.succeed(
     TerminalServiceTag,
-    fullTerminal as unknown as TerminalService,
+    partialFake<TerminalService>(fullTerminal),
   );
   return Effect.runPromise(
     handleSpecialCommand({ type: "limit", args }, context).pipe(
@@ -161,8 +162,8 @@ describe("handleSpecialCommand /limit", () => {
   });
 
   it("opens the picker and applies the selected metric+value on an interactive terminal", async () => {
-    const select = mock(() => Effect.succeed("tokens")) as unknown as TerminalService["select"];
-    const ask = mock(() => Effect.succeed("100000")) as unknown as TerminalService["ask"];
+    const select = mock(() => Effect.succeed("tokens"));
+    const ask = mock(() => Effect.succeed("100000"));
     const success = mock(() => Effect.void);
     const result = await runLimit([], baseContext(), {
       isInteractive: true,

@@ -215,7 +215,9 @@ interface JsonRpcFailure {
 export type JsonRpcResponse = JsonRpcSuccess | JsonRpcFailure;
 
 export function parseA2ARequest(body: unknown): JsonRpcRequest | undefined {
-  if (typeof body !== "object" || body === null) return undefined;
+  if (typeof body !== "object" || body === null) {
+    return undefined;
+  }
   const candidate = body as Record<string, unknown>;
   if (
     candidate["jsonrpc"] === "2.0" &&
@@ -239,7 +241,9 @@ export function parseA2ARequest(body: unknown): JsonRpcRequest | undefined {
  */
 export function normalizeProtocolVersion(header: string | undefined | null): string {
   const trimmed = (header ?? "").trim();
-  if (trimmed.length === 0) return UNSTATED_VERSION_MEANS;
+  if (trimmed.length === 0) {
+    return UNSTATED_VERSION_MEANS;
+  }
   const parts = trimmed.split(".");
   return parts.length >= 2 ? `${parts[0]}.${parts[1]}` : trimmed;
 }
@@ -267,11 +271,17 @@ function versionNotSupported(id: string | number, requested: string): JsonRpcFai
 }
 
 function extractQuestion(params: unknown): string | undefined {
-  if (typeof params !== "object" || params === null) return undefined;
+  if (typeof params !== "object" || params === null) {
+    return undefined;
+  }
   const message = (params as Record<string, unknown>)["message"];
-  if (typeof message !== "object" || message === null) return undefined;
+  if (typeof message !== "object" || message === null) {
+    return undefined;
+  }
   const parts = (message as Record<string, unknown>)["parts"];
-  if (!Array.isArray(parts)) return undefined;
+  if (!Array.isArray(parts)) {
+    return undefined;
+  }
   const texts = parts
     .map((part) =>
       typeof part === "object" &&

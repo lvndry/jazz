@@ -12,6 +12,7 @@ import type {
   PluginHostApi,
 } from "@jazz/plugin-sdk";
 import { afterEach, describe, expect, it } from "bun:test";
+import { fakeFetch, HookRegistry } from "./host-fakes";
 import plugin, {
   compactAction,
   COMPACT_BIG_RESULT_CHARS,
@@ -30,22 +31,22 @@ afterEach(() => {
 function fakeHost(): {
   readonly api: PluginHostApi;
   readonly providers: DecisionProvider[];
-  readonly handlers: Map<AdvisoryHookId, AdvisoryHookHandler<AdvisoryHookId>>;
-  readonly policyHandlers: Map<PolicyHookId, PolicyHookHandler<PolicyHookId>>;
+  readonly handlers: HookRegistry<{ [Id in AdvisoryHookId]: AdvisoryHookHandler<Id> }>;
+  readonly policyHandlers: HookRegistry<{ [Id in PolicyHookId]: PolicyHookHandler<Id> }>;
 } {
   const providers: DecisionProvider[] = [];
-  const handlers = new Map<AdvisoryHookId, AdvisoryHookHandler<AdvisoryHookId>>();
-  const policyHandlers = new Map<PolicyHookId, PolicyHookHandler<PolicyHookId>>();
+  const handlers = new HookRegistry<{ [Id in AdvisoryHookId]: AdvisoryHookHandler<Id> }>();
+  const policyHandlers = new HookRegistry<{ [Id in PolicyHookId]: PolicyHookHandler<Id> }>();
   const api: PluginHostApi = {
     apiVersion: 1,
     hooks: {
       register(hookId, handler) {
-        handlers.set(hookId, handler as unknown as AdvisoryHookHandler<AdvisoryHookId>);
+        handlers.set(hookId, handler);
       },
     },
     policy: {
       register(hookId, handler) {
-        policyHandlers.set(hookId, handler as unknown as PolicyHookHandler<PolicyHookId>);
+        policyHandlers.set(hookId, handler);
       },
     },
     decisions: {
@@ -97,7 +98,7 @@ describe("Jev decision provider", () => {
   });
 
   it("maps compaction candidates to keep/truncate/drop with an asymmetric policy", async () => {
-    globalThis.fetch = (async () =>
+    globalThis.fetch = fakeFetch(async () =>
       Response.json({
         model: JEV_MODEL,
         answers: {
@@ -127,7 +128,8 @@ describe("Jev decision provider", () => {
           },
         },
         usage: { input_tokens: 100, output_tokens: 10 },
-      })) as unknown as typeof fetch;
+      }),
+    );
     const host = register();
     const handler = host.handlers.get("compact.tools");
     const result = await handler?.(
@@ -154,8 +156,7 @@ describe("Jev decision provider", () => {
   });
 
   it("abstains compaction when the provider is unavailable, so the host falls back", async () => {
-    globalThis.fetch = (async () =>
-      new Response("overloaded", { status: 500 })) as unknown as typeof fetch;
+    globalThis.fetch = fakeFetch(async () => new Response("overloaded", { status: 500 }));
     const host = register();
     const handler = host.handlers.get("compact.tools");
     const result = await handler?.(
@@ -461,7 +462,7 @@ describe("Jev decision provider", () => {
   });
 
   it("fails open when Jev omits a command-risk probability", async () => {
-    globalThis.fetch = (async () =>
+    globalThis.fetch = fakeFetch(async () =>
       Response.json({
         model: JEV_MODEL,
         answers: {
@@ -473,7 +474,8 @@ describe("Jev decision provider", () => {
           },
         },
         usage: { input_tokens: 50, output_tokens: 4 },
-      })) as unknown as typeof fetch;
+      }),
+    );
     const host = register();
     const result = await host.policyHandlers.get("classify.command-risk")?.(
       { command: "some ambiguous command" },
@@ -484,12 +486,13 @@ describe("Jev decision provider", () => {
   });
 
   it("fails open on a model-version mismatch", async () => {
-    globalThis.fetch = (async () =>
+    globalThis.fetch = fakeFetch(async () =>
       Response.json({
         model: "jev-1.14.0",
         answers: {},
         usage: { input_tokens: 10, output_tokens: 1 },
-      })) as unknown as typeof fetch;
+      }),
+    );
     const host = register();
     const result = await host.handlers.get("route.skills")?.(
       { requestText: "read this PDF", skills: [{ name: "pdf", description: "Read PDFs" }] },
@@ -500,10 +503,10 @@ describe("Jev decision provider", () => {
 
   it("makes one attempt inside a hook deadline instead of retrying", async () => {
     let calls = 0;
-    globalThis.fetch = (async () => {
+    globalThis.fetch = fakeFetch(async () => {
       calls += 1;
       return new Response("overloaded", { status: 529 });
-    }) as unknown as typeof fetch;
+    });
     const host = register();
     const result = await host.handlers.get("route.skills")?.(
       { requestText: "hello", skills: [{ name: "pdf", description: "Read PDFs" }] },

@@ -348,11 +348,15 @@ export type AlwaysAllowKey =
   { readonly kind: "key"; readonly key: string } | { readonly kind: "unallowable" };
 
 export function commandKeyFromApproval(event: JazzEvent): AlwaysAllowKey | undefined {
-  if (event.toolName !== "execute_command" || event.message === undefined) return undefined;
+  if (event.toolName !== "execute_command" || event.message === undefined) {
+    return undefined;
+  }
   const command =
     APPROVAL_COMMAND_PATTERN.exec(event.message)?.[1] ??
     APPROVAL_COMMAND_LINE.exec(event.message)?.[1];
-  if (command === undefined || command.trim().length === 0) return undefined;
+  if (command === undefined || command.trim().length === 0) {
+    return undefined;
+  }
   // Undefined for a command the tokenizer refuses to key: it chains, substitutes or redirects.
   const key = extractCommandApprovalKey(command);
   return key === undefined || key.trim().length === 0
@@ -454,7 +458,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     runningCount += 1;
     let released = false;
     return () => {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
       runningCount -= 1;
       waitingForSlot.shift()?.();
@@ -463,7 +469,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
 
   const stateFor = (chatId: ChatId): ChatState => {
     const existing = states.get(chatId);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      return existing;
+    }
     const created: ChatState = { busy: false, pending: new Map(), queue: [], sentIntoRun: [] };
     states.set(chatId, created);
     return created;
@@ -492,7 +500,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   /** Publish a conversation's interactive app, when this bridge serves them. */
   const publishFor = (chatId: ChatId) => {
     const server = config.compositionServer;
-    if (server === undefined) return undefined;
+    if (server === undefined) {
+      return undefined;
+    }
     return (composition: JazzComposition): string | undefined => {
       const id = server.links.publish(config.agentIdFor(chatId), composition);
       return id === undefined ? undefined : `${server.publicBaseUrl}${compositionLinkPath(id)}`;
@@ -506,7 +516,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     choices: readonly Choice[],
     id?: string,
   ): Promise<void> => {
-    if (!canRedrawChoices || ref === undefined) return;
+    if (!canRedrawChoices || ref === undefined) {
+      return;
+    }
     await surface.setChoices?.(chatId, ref, choices, id).catch((error: unknown) => {
       console.error(`Failed to update the buttons on ${surface.name}: ${String(error)}`);
     });
@@ -537,7 +549,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   const refreshApprovalChoices = async (chatId: ChatId): Promise<void> => {
     const outstanding = outstandingApprovals(chatId);
     for (const pending of outstanding) {
-      if (pending.shownCount === outstanding.length || pending.messageRef === undefined) continue;
+      if (pending.shownCount === outstanding.length || pending.messageRef === undefined) {
+        continue;
+      }
       pending.shownCount = outstanding.length;
       await redrawChoices(
         chatId,
@@ -550,7 +564,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
 
   const announceApproval = async (chatId: ChatId, event: JazzEvent): Promise<void> => {
     const toolCallId = event.toolCallId;
-    if (toolCallId === undefined) return;
+    if (toolCallId === undefined) {
+      return;
+    }
 
     // Offered only where somebody can use it: "Always allow" is operator-only.
     const alwaysAllow = config.operators.size > 0 ? commandKeyFromApproval(event) : undefined;
@@ -594,7 +610,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   const announceQuestion = async (chatId: ChatId, event: JazzEvent): Promise<void> => {
     const requestId = event.requestId;
     const question = event.question?.trim();
-    if (requestId === undefined || !question) return;
+    if (requestId === undefined || !question) {
+      return;
+    }
 
     const suggestions = event.suggestions ?? [];
     const choices: readonly Choice[] = suggestions.map((suggestion) => ({
@@ -688,7 +706,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   };
 
   const notifyPendingChange = (chatId: ChatId): void => {
-    if (config.onPendingChange === undefined) return;
+    if (config.onPendingChange === undefined) {
+      return;
+    }
     const outstanding = [...stateFor(chatId).pending.values()].map((pending) => ({
       id: promptId(pending),
       kind: pending.kind,
@@ -744,10 +764,14 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     const { chatId, senderId, text: reply } = message;
     const state = stateFor(chatId);
     const pending = [...state.pending.values()].at(-1);
-    if (pending === undefined || state.run === undefined) return false;
+    if (pending === undefined || state.run === undefined) {
+      return false;
+    }
     // Someone else in a group saying "1" is conversation, not a decision about
     // another person's request.
-    if (state.requester !== senderId) return false;
+    if (state.requester !== senderId) {
+      return false;
+    }
 
     // Whatever the requester sends next is the secret, except a command. The message is
     // answered here and never queued, so it never becomes a turn or reaches a transcript.
@@ -763,13 +787,17 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     // A free-text question has no options, so whatever they say next is it, except a
     // command, which is still a command.
     if (pending.kind === "question" && pending.choices.length === 0) {
-      if (parseCommand(reply) !== undefined && commands.isCommand(reply)) return false;
+      if (parseCommand(reply) !== undefined && commands.isCommand(reply)) {
+        return false;
+      }
       await settle(chatId, pending, reply);
       return true;
     }
 
     const choice = matchChoice(pending.choices, reply);
-    if (choice === undefined) return false;
+    if (choice === undefined) {
+      return false;
+    }
     if (choice.id === ALWAYS_ALLOW_CHOICE_ID && !config.operators.has(senderId)) {
       await send(
         chatId,
@@ -922,14 +950,18 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
 
     if (!envelope.ok) {
       const failure = run.cancelled() ? cancelledSummary() : failedSummary(envelope.error);
-      if (!(await reporter.finish(failure))) await send(chatId, failure);
+      if (!(await reporter.finish(failure))) {
+        await send(chatId, failure);
+      }
       return;
     }
 
     // Carried forward in memory for this conversation's next turn; it never
     // touches disk, so a run that errored just means the next turn starts
     // context-free rather than resurrecting a stale transcript.
-    if (incognito) incognitoHistory.set(chatId, envelope.messages ?? []);
+    if (incognito) {
+      incognitoHistory.set(chatId, envelope.messages ?? []);
+    }
 
     const summary = doneSummary(envelope, reporter.toolsUsed());
     const summaryShown = await reporter.finish(summary);
@@ -1020,7 +1052,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
 
   const cancel = (chatId: ChatId, senderId: SenderId | undefined): CancelOutcome => {
     const state = stateFor(chatId);
-    if (state.run === undefined) return "idle";
+    if (state.run === undefined) {
+      return "idle";
+    }
     if (senderId !== undefined && state.requester !== senderId && !config.operators.has(senderId)) {
       return "not-requester";
     }
@@ -1042,9 +1076,13 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     if (approvals.length === 0 || state.run === undefined) {
       return { outcome: "expired", count: 0 };
     }
-    if (state.requester !== senderId) return { outcome: "not-requester", count: 0 };
+    if (state.requester !== senderId) {
+      return { outcome: "not-requester", count: 0 };
+    }
 
-    for (const pending of approvals) state.pending.delete(pending.toolCallId);
+    for (const pending of approvals) {
+      state.pending.delete(pending.toolCallId);
+    }
     await state.run.approve(
       approvals.map((pending) => ({ toolCallId: pending.toolCallId, approved })),
     );
@@ -1108,7 +1146,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       if (tap.promptId === FOLLOWUP_PROMPT_ID) {
         const prompt = followupPrompt(choiceId);
         const label = FOLLOWUP_OPTIONS[choiceId]?.label;
-        if (prompt === undefined || label === undefined) return "expired";
+        if (prompt === undefined || label === undefined) {
+          return "expired";
+        }
         await redrawChoices(chatId, tap.messageRef, []);
         await surface.send(chatId, {
           body: [plainLine(label)],
@@ -1127,12 +1167,18 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
         return outcome === "cancelled" ? "answered" : outcome === "idle" ? "expired" : outcome;
       }
 
-      if (commands.owns(tap.promptId)) return commands.handleChoice(tap);
+      if (commands.owns(tap.promptId)) {
+        return commands.handleChoice(tap);
+      }
 
       const state = stateFor(chatId);
       const pending = state.pending.get(tap.promptId);
-      if (pending === undefined || state.run === undefined) return "expired";
-      if (state.requester !== senderId) return "not-requester";
+      if (pending === undefined || state.run === undefined) {
+        return "expired";
+      }
+      if (state.requester !== senderId) {
+        return "not-requester";
+      }
 
       if (
         pending.kind === "approval" &&
@@ -1185,7 +1231,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
           await handleSafely(message, () => handleImmediate(message));
           return;
         }
-        if (await resolveTypedReply(message)) return;
+        if (await resolveTypedReply(message)) {
+          return;
+        }
         const route = routeBusyMessage({
           runInFlight: state.run !== undefined,
           requester: state.requester,
@@ -1221,7 +1269,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
               await handleImmediate(current);
               return;
             }
-            if (!(await commands.handle(current))) await answer(current);
+            if (!(await commands.handle(current))) {
+              await answer(current);
+            }
           });
           next = takeNextTurn(state.queue, isCommandText);
         }

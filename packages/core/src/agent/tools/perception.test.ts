@@ -15,6 +15,7 @@ import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
+import { partialFake, standIn } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import * as modelsDevActual from "@/core/utils/models-dev";
@@ -25,7 +26,9 @@ import { AgentRunner } from "../agent-runner";
 mock.module("@/core/utils/models-dev", () => ({
   ...modelsDevActual,
   getModelsDevProviderModels: async (providerId: string) => {
-    if (providerId !== "openai") throw new Error(`provider ${providerId} not in catalog`);
+    if (providerId !== "openai") {
+      throw new Error(`provider ${providerId} not in catalog`);
+    }
     return [
       {
         id: "gpt-5-vision",
@@ -74,12 +77,12 @@ function makeContext(overrides: Partial<ToolExecutionContext> = {}): ToolExecuti
 }
 
 function makePresentation(canPrompt: boolean): PresentationService {
-  return {
+  return partialFake<PresentationService>({
     canPromptForApproval: () => canPrompt,
     openEphemeralRegion: () => Effect.succeed("region"),
     appendEphemeralRegion: () => Effect.void,
     collapseEphemeralRegion: () => Effect.void,
-  } as unknown as PresentationService;
+  });
 }
 
 /** Three providers configured: two media-capable providers and one text-only provider. */
@@ -108,7 +111,7 @@ function makeLlmService(): LLMService {
     supportsTools: false,
     generatesImage: true,
   };
-  return {
+  return partialFake<LLMService>({
     listProviders: () =>
       Effect.succeed([
         { name: "mistral", configured: true },
@@ -127,7 +130,7 @@ function makeLlmService(): LLMService {
         defaultModel: "x",
         authenticate: () => Effect.void,
       }),
-  } as unknown as LLMService;
+  });
 }
 
 let directory = "";
@@ -160,11 +163,11 @@ interface ProposalOutcome {
 }
 
 function makeTerminal(selectedProvider = "ollama"): TerminalService {
-  return {
+  return partialFake<TerminalService>({
     search: () => Effect.succeed(selectedProvider),
     ask: () => Effect.succeed(undefined),
     success: () => Effect.void,
-  } as unknown as TerminalService;
+  });
 }
 
 function runProposal(args: Record<string, unknown>, context: ToolExecutionContext) {
@@ -190,7 +193,7 @@ describe("analyze_media provider and model selection", () => {
     let openaiConfigured = false;
     const setCalls: string[] = [];
 
-    const llmService: LLMService = {
+    const llmService: LLMService = partialFake<LLMService>({
       listProviders: () =>
         Effect.succeed([
           { name: "mistral", configured: true },
@@ -214,7 +217,7 @@ describe("analyze_media provider and model selection", () => {
           defaultModel: "x",
           authenticate: () => Effect.void,
         }),
-    } as unknown as LLMService;
+    });
 
     const terminal = {
       search: () => Effect.succeed("openai"),
@@ -235,8 +238,8 @@ describe("analyze_media provider and model selection", () => {
       Layer.succeed(LoggerServiceTag, silentLogger),
       Layer.succeed(PresentationServiceTag, makePresentation(true)),
       Layer.succeed(LLMServiceTag, llmService),
-      Layer.succeed(TerminalServiceTag, terminal as unknown as TerminalService),
-      Layer.succeed(AgentConfigServiceTag, configService as unknown as AgentConfigService),
+      Layer.succeed(TerminalServiceTag, standIn<TerminalService>(terminal)),
+      Layer.succeed(AgentConfigServiceTag, standIn<AgentConfigService>(configService)),
     );
 
     const outcome = (await Effect.runPromise(
@@ -259,7 +262,7 @@ describe("analyze_media provider and model selection", () => {
   });
 
   it("cancels cleanly when the selected provider's key prompt is cancelled", async () => {
-    const llmService: LLMService = {
+    const llmService: LLMService = partialFake<LLMService>({
       listProviders: () =>
         Effect.succeed([
           { name: "mistral", configured: true },
@@ -272,7 +275,7 @@ describe("analyze_media provider and model selection", () => {
           defaultModel: "x",
           authenticate: () => Effect.void,
         }),
-    } as unknown as LLMService;
+    });
 
     const terminal = {
       search: () => Effect.succeed("openai"),
@@ -284,7 +287,7 @@ describe("analyze_media provider and model selection", () => {
       Layer.succeed(LoggerServiceTag, silentLogger),
       Layer.succeed(PresentationServiceTag, makePresentation(true)),
       Layer.succeed(LLMServiceTag, llmService),
-      Layer.succeed(TerminalServiceTag, terminal as unknown as TerminalService),
+      Layer.succeed(TerminalServiceTag, standIn<TerminalService>(terminal)),
     );
 
     const outcome = (await Effect.runPromise(
@@ -510,12 +513,12 @@ describe("companion failure recovery", () => {
 
   function runExecute(options: { canPrompt: boolean; searchAnswer?: string }) {
     const searchPrompts: string[] = [];
-    const terminal = {
+    const terminal = partialFake<TerminalService>({
       search: (message: string) => {
         searchPrompts.push(message);
         return Effect.succeed(options.searchAnswer);
       },
-    } as unknown as TerminalService;
+    });
     const tool = createPerceptionTools().find(
       (candidate) => candidate.name === "execute_analyze_media",
     )!;
@@ -606,23 +609,23 @@ describe("binding the picked companion", () => {
 
   function makeAgentService(stored: Agent) {
     const updates: Partial<Agent>[] = [];
-    const service = {
+    const service = partialFake<AgentService>({
       getAgent: () => Effect.succeed(stored),
       updateAgent: (_id: string, update: Partial<Agent>) => {
         updates.push(update);
         return Effect.succeed({ ...stored, ...update });
       },
-    } as unknown as AgentService;
+    });
     return { service, updates };
   }
 
   function makeLayer(searchPrompts: string[], agentService?: AgentService) {
-    const terminal = {
+    const terminal = partialFake<TerminalService>({
       search: (message: string) => {
         searchPrompts.push(message);
         return Effect.succeed("openai");
       },
-    } as unknown as TerminalService;
+    });
     const base = Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, silentLogger),
       Layer.succeed(PresentationServiceTag, makePresentation(true)),
@@ -691,10 +694,10 @@ describe("binding the picked companion", () => {
     try {
       const tools = createPerceptionTools();
       const searchPrompts: string[] = [];
-      const missing = {
+      const missing = partialFake<AgentService>({
         getAgent: () => Effect.fail(new Error("not found")),
         updateAgent: () => Effect.die("unreachable"),
-      } as unknown as AgentService;
+      });
       const layer = makeLayer(searchPrompts, missing);
 
       const executed = await run(
@@ -744,9 +747,9 @@ describe("named companions", () => {
       Layer.succeed(LoggerServiceTag, silentLogger),
       Layer.succeed(PresentationServiceTag, makePresentation(false)),
       Layer.succeed(LLMServiceTag, makeLlmService()),
-      Layer.succeed(AgentConfigServiceTag, configService as unknown as AgentConfigService),
+      Layer.succeed(AgentConfigServiceTag, standIn<AgentConfigService>(configService)),
       ...(agentService
-        ? [Layer.succeed(AgentServiceTag, agentService as unknown as AgentService)]
+        ? [Layer.succeed(AgentServiceTag, standIn<AgentService>(agentService))]
         : []),
     );
     const outcome = Effect.runPromise(
@@ -824,9 +827,12 @@ describe("named companions", () => {
         Layer.succeed(LoggerServiceTag, silentLogger),
         Layer.succeed(PresentationServiceTag, makePresentation(false)),
         Layer.succeed(LLMServiceTag, makeLlmService()),
-        Layer.succeed(AgentConfigServiceTag, {
-          appConfig: Effect.succeed({ companions: { ocr: ocr } }),
-        } as unknown as AgentConfigService),
+        Layer.succeed(
+          AgentConfigServiceTag,
+          partialFake<AgentConfigService>({
+            appConfig: Effect.succeed({ companions: { ocr: ocr } }),
+          }),
+        ),
       );
       const outcome = (await Effect.runPromise(
         proposal
@@ -864,14 +870,18 @@ describe("named companions", () => {
       ...parentAgent,
       config: { ...parentAgent.config, companions: { "analyze:image": "ocr" } },
     };
-    const { outcome } = runNamed("image", { ocr: ocr }, {
-      getAgent: () => Effect.succeed(stored),
-      updateAgent: (_id: string, update: unknown) =>
-        Effect.sync(() => {
-          updates.push(update);
-          return stored;
-        }),
-    } as unknown as Partial<AgentService>);
+    const { outcome } = runNamed(
+      "image",
+      { ocr: ocr },
+      partialFake<Partial<AgentService>>({
+        getAgent: () => Effect.succeed(stored),
+        updateAgent: (_id: string, update: unknown) =>
+          Effect.sync(() => {
+            updates.push(update);
+            return stored;
+          }),
+      }),
+    );
     expect((await outcome).success).toBe(true);
     expect(updates).toEqual([]);
   });

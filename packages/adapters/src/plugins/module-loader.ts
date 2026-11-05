@@ -31,7 +31,9 @@ export interface EnabledPluginSnapshot {
 }
 
 function isPluginModule(value: unknown): value is JazzPluginModule {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value)) {
+    return false;
+  }
   const item = value;
   return (
     item["apiVersion"] === 1 &&
@@ -160,7 +162,9 @@ export class PluginModuleLoader {
 
   /** Return the current enablement snapshot without importing plugin code. */
   async listEnabledForAgent(agentId: string): Promise<readonly EnabledPluginSnapshot[]> {
-    if (agentId.trim().length === 0) throw new Error("agentId cannot be empty");
+    if (agentId.trim().length === 0) {
+      throw new Error("agentId cannot be empty");
+    }
     const state = await this.options.stateStore.read();
     return Object.entries(state.plugins)
       .filter(([id, record]) => this.activeFor(id, record, agentId))
@@ -194,7 +198,9 @@ export class PluginModuleLoader {
 
     // Validate every grant before importing any code. This avoids partial loading
     // if one enabled record was modified or its grants became stale.
-    for (const [pluginId, record] of enabled) assertAuthorized(pluginId, record);
+    for (const [pluginId, record] of enabled) {
+      assertAuthorized(pluginId, record);
+    }
 
     const verified = await Promise.all(
       enabled.map(async ([pluginId, record]) => {

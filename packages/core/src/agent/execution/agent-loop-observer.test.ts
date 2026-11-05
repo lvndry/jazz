@@ -1,11 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import type { PresentationService } from "@/core/interfaces/presentation";
+import { partialFake } from "@/core/test-support/fakes";
 import { makeDefaultObserver } from "./agent-loop-observer";
 
 function recordingPresentation() {
   const calls: string[] = [];
-  const service = {
+  const service = partialFake<PresentationService>({
     presentThinking: (agentName: string, isFirst: boolean) =>
       Effect.sync(() => {
         calls.push(`thinking:${agentName}:${isFirst}`);
@@ -18,7 +19,7 @@ function recordingPresentation() {
       Effect.sync(() => {
         calls.push(`completion:${agentName}`);
       }),
-  } as unknown as PresentationService;
+  });
   return { service, calls };
 }
 

@@ -12,13 +12,14 @@ import {
   type ProviderStreamCase,
 } from "./provider-stream-fixtures";
 import { StreamProcessor } from "./stream-processor";
+import { partialFake } from "../test-support/fakes";
 
-const silentLogger = {
+const silentLogger = partialFake<LoggerService>({
   debug: () => Effect.void,
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
-} as unknown as LoggerService;
+});
 
 const LATE_USAGE_DELAY_MS = 20;
 

@@ -185,7 +185,9 @@ function trustedGatewayUrl(candidate: string): string | undefined {
   } catch {
     return undefined;
   }
-  if (protocol !== "wss:") return undefined;
+  if (protocol !== "wss:") {
+    return undefined;
+  }
   if (hostname === "discord.gg" || hostname === "discord.com") {
     return `wss://${hostname}`;
   }
@@ -229,7 +231,9 @@ export async function discordRequest(
       });
     } catch (error) {
       lastError = error;
-      if (!RETRY_SAFE_METHODS.has(method)) break;
+      if (!RETRY_SAFE_METHODS.has(method)) {
+        break;
+      }
       await sleep(1000 * (attempt + 1));
       continue;
     }
@@ -242,7 +246,9 @@ export async function discordRequest(
       continue;
     }
 
-    if (response.status === 204) return undefined;
+    if (response.status === 204) {
+      return undefined;
+    }
 
     const payload: unknown = await response.json().catch(() => undefined);
     if (!response.ok) {
@@ -331,7 +337,9 @@ export async function getOriginalInteraction(
   );
   const payload = (await response.json().catch(() => undefined)) as
     { id?: string; channel_id?: string } | undefined;
-  if (typeof payload?.id !== "string") return undefined;
+  if (typeof payload?.id !== "string") {
+    return undefined;
+  }
   return {
     id: payload.id,
     ...(payload.channel_id !== undefined ? { channel_id: payload.channel_id } : {}),
@@ -535,14 +543,20 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
   let reconnectAttempts = 0;
 
   function clearHeartbeat(): void {
-    if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
-    if (heartbeatTimeout !== undefined) clearTimeout(heartbeatTimeout);
+    if (heartbeatTimer !== undefined) {
+      clearInterval(heartbeatTimer);
+    }
+    if (heartbeatTimeout !== undefined) {
+      clearTimeout(heartbeatTimeout);
+    }
     heartbeatTimer = undefined;
     heartbeatTimeout = undefined;
   }
 
   function send(payload: Record<string, unknown>): void {
-    if (socket === undefined || socket.readyState !== WebSocket.OPEN) return;
+    if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
     socket.send(JSON.stringify(payload));
   }
 
@@ -604,7 +618,9 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
         user?: { id?: string; username?: string };
         application?: { id?: string };
       };
-      if (typeof ready.session_id === "string") sessionId = ready.session_id;
+      if (typeof ready.session_id === "string") {
+        sessionId = ready.session_id;
+      }
       if (typeof ready.resume_gateway_url === "string") {
         resumeUrl = trustedGatewayUrl(ready.resume_gateway_url);
       }
@@ -635,18 +651,24 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
     }
     if (eventName === "GUILD_CREATE") {
       const guild = data as { id?: string };
-      if (typeof guild.id === "string") handlers.onGuildCreate(guild.id);
+      if (typeof guild.id === "string") {
+        handlers.onGuildCreate(guild.id);
+      }
     }
   }
 
   function handlePayload(payload: GatewayPayload): void {
-    if (typeof payload.s === "number") lastSequence = payload.s;
+    if (typeof payload.s === "number") {
+      lastSequence = payload.s;
+    }
 
     switch (payload.op) {
       case OP_HELLO: {
         const interval = (payload.d as { heartbeat_interval?: number } | undefined)
           ?.heartbeat_interval;
-        if (typeof interval !== "number" || !Number.isFinite(interval)) return;
+        if (typeof interval !== "number" || !Number.isFinite(interval)) {
+          return;
+        }
         startHeartbeat(interval);
         if (identifyAfterInvalidSession || sessionId === undefined) {
           identifyAfterInvalidSession = false;
@@ -678,7 +700,9 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
         break;
       }
       case OP_DISPATCH:
-        if (typeof payload.t === "string") handleDispatch(payload.t, payload.d);
+        if (typeof payload.t === "string") {
+          handleDispatch(payload.t, payload.d);
+        }
         break;
       default:
         break;
@@ -686,7 +710,9 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
   }
 
   async function open(): Promise<void> {
-    if (stopped) return;
+    if (stopped) {
+      return;
+    }
 
     let url = resumeUrl;
     if (url === undefined || sessionId === undefined) {
@@ -708,7 +734,9 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
 
     ws.addEventListener("message", (event) => {
       const raw = typeof event.data === "string" ? event.data : undefined;
-      if (raw === undefined) return;
+      if (raw === undefined) {
+        return;
+      }
       try {
         handlePayload(JSON.parse(raw) as GatewayPayload);
       } catch (error) {
@@ -718,7 +746,9 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
 
     ws.addEventListener("close", (event) => {
       clearHeartbeat();
-      if (stopped) return;
+      if (stopped) {
+        return;
+      }
       if (FATAL_CLOSE_CODES.has(event.code)) {
         stopped = true;
         const why = FATAL_CLOSE_EXPLANATIONS[event.code] ?? event.reason;

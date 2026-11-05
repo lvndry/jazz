@@ -155,13 +155,21 @@ export function recordMemoryRecall(input: {
 
 function parseLine(line: string): MemoryRecallEntry | undefined {
   const trimmed = line.trim();
-  if (trimmed.length === 0) return undefined;
+  if (trimmed.length === 0) {
+    return undefined;
+  }
   try {
     const parsed: unknown = JSON.parse(trimmed);
-    if (typeof parsed !== "object" || parsed === null) return undefined;
+    if (typeof parsed !== "object" || parsed === null) {
+      return undefined;
+    }
     const entry = parsed as MemoryRecallEntry;
-    if (typeof entry.surface !== "string" || typeof entry.agentId !== "string") return undefined;
-    if (typeof entry.viewedBeforeFirstAnswer !== "boolean") return undefined;
+    if (typeof entry.surface !== "string" || typeof entry.agentId !== "string") {
+      return undefined;
+    }
+    if (typeof entry.viewedBeforeFirstAnswer !== "boolean") {
+      return undefined;
+    }
     return entry;
   } catch {
     return undefined;
@@ -208,7 +216,9 @@ export function summarizeMemoryRecalls(
     { eligible: number; viewed: number; injectedTotal: number; injectedRuns: number }
   >();
   for (const entry of entries) {
-    if (!entry.memoryToolsOffered) continue;
+    if (!entry.memoryToolsOffered) {
+      continue;
+    }
     const bucket = bySurface.get(entry.surface) ?? {
       eligible: 0,
       viewed: 0,
@@ -216,7 +226,9 @@ export function summarizeMemoryRecalls(
       injectedRuns: 0,
     };
     bucket.eligible += 1;
-    if (entry.viewedBeforeFirstAnswer) bucket.viewed += 1;
+    if (entry.viewedBeforeFirstAnswer) {
+      bucket.viewed += 1;
+    }
     if (typeof entry.injectedCount === "number") {
       bucket.injectedTotal += entry.injectedCount;
       bucket.injectedRuns += 1;
@@ -224,7 +236,7 @@ export function summarizeMemoryRecalls(
     bySurface.set(entry.surface, bucket);
   }
   return [...bySurface.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
     .map(([surface, bucket]) => ({
       surface,
       eligibleRuns: bucket.eligible,

@@ -47,7 +47,9 @@ export function splitVirtualPathIntoSegments(
   const normalized = virtualPath.normalize("NFC");
   const withoutLeadingSlashes = normalized.replace(/^\/+/, "");
 
-  if (withoutLeadingSlashes.length === 0) return [];
+  if (withoutLeadingSlashes.length === 0) {
+    return [];
+  }
 
   if (withoutLeadingSlashes.includes("\\")) {
     throw new VirtualPathViolation("Path must not contain backslashes.");

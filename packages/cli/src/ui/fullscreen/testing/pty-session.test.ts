@@ -44,7 +44,9 @@ test.skipIf(process.platform === "win32")(
       for (;;) {
         await observer.drain();
         const grid = observer.captureGrid();
-        if (check(grid)) return grid;
+        if (check(grid)) {
+          return grid;
+        }
         if (child?.exitCode !== null && child?.exitCode !== undefined) {
           const failure = z.strictObject({ failure: z.string() }).safeParse(
             await Bun.file(resultPath)
@@ -55,10 +57,11 @@ test.skipIf(process.platform === "win32")(
             `Compiled PTY session exited early (${child.exitCode}): ${failure.success ? failure.data.failure : Bun.stripANSI(transport).slice(-2000)}`,
           );
         }
-        if (performance.now() - started > 10_000)
+        if (performance.now() - started > 10_000) {
           throw new Error(
             `Compiled PTY session did not reach the expected screen: ${gridText(grid)}`,
           );
+        }
         await Bun.sleep(10);
       }
     }
@@ -83,7 +86,9 @@ test.skipIf(process.platform === "win32")(
           .json()
           .catch(() => null);
         const parsed = resultSchema.safeParse(raw);
-        if (parsed.success && parsed.data.sequence === current) return parsed.data.grid;
+        if (parsed.success && parsed.data.sequence === current) {
+          return parsed.data.grid;
+        }
         const exited = child?.exitCode ?? null;
         if (exited !== null || performance.now() - started > RESULT_TIMEOUT_MS) {
           throw new Error(
@@ -122,10 +127,11 @@ test.skipIf(process.platform === "win32")(
         ],
         compile: { outfile: binary },
       });
-      if (!built.success)
+      if (!built.success) {
         throw new Error(
           `PTY fixture compilation failed: ${built.logs.map((log) => log.message).join("\n")}`,
         );
+      }
       await writeControl({ sequence: 0, action: "capture" });
       child = Bun.spawn([binary], {
         cwd: directory,
@@ -148,7 +154,9 @@ test.skipIf(process.platform === "win32")(
         },
       });
       const terminal = child.terminal;
-      if (terminal === undefined) throw new Error("PTY was not created");
+      if (terminal === undefined) {
+        throw new Error("PTY was not created");
+      }
       await waitFor((grid) => gridText(grid).includes("history-099"));
       terminal.write("\u001b[5~");
       const detached = await waitFor(

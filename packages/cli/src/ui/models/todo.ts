@@ -72,7 +72,9 @@ export function todoLine(todo: TodoSnapshotItem, glyphs: GlyphSet): TodoLine {
  * instead of keeping a moving mark for work nobody is doing.
  */
 export function settledPlan(todos: readonly TodoSnapshotItem[]): readonly TodoSnapshotItem[] {
-  if (!todos.some((todo) => todo.status === "in_progress")) return todos;
+  if (!todos.some((todo) => todo.status === "in_progress")) {
+    return todos;
+  }
   return todos.map((todo) =>
     todo.status === "in_progress" ? { ...todo, status: "pending" } : todo,
   );

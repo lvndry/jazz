@@ -64,7 +64,10 @@ describe("OccupancyService", () => {
       path,
       Effect.flatMap(OccupancyServiceTag, (service) => service.list()),
     );
-    expect(entries.map((e) => e.runId).sort()).toEqual(["run-1", "run-2"]);
+    expect(entries.map((occupancyEntry) => occupancyEntry.runId).sort()).toEqual([
+      "run-1",
+      "run-2",
+    ]);
   });
 
   it("updates an entry in place on a later heartbeat", async () => {

@@ -57,7 +57,9 @@ async function enableLsp(context: TaskRunContext): Promise<void> {
     pluginDirectory: join(context.jazzHome, "plugins"),
   });
   const added = await registry.add(packed.catalogEntryPath);
-  if (!added.digest) throw new Error("LSP eval plugin install returned no digest");
+  if (!added.digest) {
+    throw new Error("LSP eval plugin install returned no digest");
+  }
   await registry.trust(LSP_PLUGIN_ID, added.digest);
   const inspection = await registry.inspect(LSP_PLUGIN_ID);
   await registry.grantConsent(LSP_PLUGIN_ID, inspection.consentDigest);
@@ -116,8 +118,9 @@ export const tasks: EvalTask[] = [
         jazzHome: context.jazzHome,
         environment: { ...context.environment, JAZZ_LSP_CONFIG: configPath },
       });
-      if (isVariant && !sawReceiptDiagnostic(logPath))
+      if (isVariant && !sawReceiptDiagnostic(logPath)) {
         throw new Error("Ambient LSP never opened receipt.ts or published its diagnostic");
+      }
       return result;
     },
     check(result, workspaceDir) {

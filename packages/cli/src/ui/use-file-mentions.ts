@@ -55,7 +55,9 @@ export function useFileMentions(text: string, caret: number): FileMentions {
         signal: scan.signal,
       })
         .then((entries) => {
-          if (scan.signal.aborted) return;
+          if (scan.signal.aborted) {
+            return;
+          }
           setItems(
             entries.map((entry) => ({
               name: entry.name,
@@ -66,7 +68,9 @@ export function useFileMentions(text: string, caret: number): FileMentions {
         .catch(() => {
           // An unreadable directory is not worth surfacing mid-keystroke; the
           // menu simply stays empty.
-          if (!scan.signal.aborted) setItems([]);
+          if (!scan.signal.aborted) {
+            setItems([]);
+          }
         });
     }, MENTION_SCAN_DEBOUNCE_MS);
 

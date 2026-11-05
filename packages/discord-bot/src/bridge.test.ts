@@ -144,7 +144,9 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  for (const finish of finishers) finish();
+  for (const finish of finishers) {
+    finish();
+  }
   await waitUntil(() => !bridge.runner.busy(DM_CHANNEL));
   rmSync(dataDir, { recursive: true, force: true });
 });

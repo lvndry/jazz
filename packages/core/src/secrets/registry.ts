@@ -36,7 +36,9 @@ export function llmProviderApiKeyFromEnv(
 ): string | undefined {
   for (const name of llmProviderEnvVars(provider)) {
     const value = env[name];
-    if (value !== undefined && value.trim().length > 0) return value;
+    if (value !== undefined && value.trim().length > 0) {
+      return value;
+    }
   }
   return undefined;
 }
@@ -221,38 +223,56 @@ export const SECRET_PATHS: readonly string[] = [
  * still protected rather than silently written to disk in plaintext.
  */
 export function isSecretPath(path: string): boolean {
-  if (path in SECRET_ENV_VARS) return true;
+  if (path in SECRET_ENV_VARS) {
+    return true;
+  }
   // The daemon's own bearer token authenticates operator HTTP calls the same way a peer or
   // webhook token authenticates theirs — it belongs in the keyring, not in plaintext config.
-  if (path === DAEMON_TOKEN_PATH) return true;
-  if (path === CHATGPT_CREDENTIAL_PATH) return true;
+  if (path === DAEMON_TOKEN_PATH) {
+    return true;
+  }
+  if (path === CHATGPT_CREDENTIAL_PATH) {
+    return true;
+  }
   if (path === DAEMON_OPERATOR_TOKEN_PATH) {
     return true;
   }
   // A peer's bearer token authenticates this machine to somebody else's agent. It belongs
   // in the keyring for the same reason an API key does, and the config file names the peer
   // without ever holding its credential.
-  if (PEER_TOKEN_PATH.test(path)) return true;
+  if (PEER_TOKEN_PATH.test(path)) {
+    return true;
+  }
   // A webhook's bearer token authenticates an inbound caller. It belongs in the keyring for
   // the same reason a peer token does: the config file names the webhook without ever
   // holding its credential.
-  if (WEBHOOK_TOKEN_PATH.test(path)) return true;
+  if (WEBHOOK_TOKEN_PATH.test(path)) {
+    return true;
+  }
   // A notify target's bot token, token-bearing webhook URL or signing key authenticates Jazz
   // to your chat or endpoint; the config file names the target without holding them.
-  if (NOTIFY_TARGET_SECRET_PATH.test(path)) return true;
+  if (NOTIFY_TARGET_SECRET_PATH.test(path)) {
+    return true;
+  }
   // A named companion's key authenticates Jazz to the companion's server, exactly like a
   // provider key; the config file names the companion without holding its credential.
-  if (COMPANION_API_KEY_PATH.test(path)) return true;
+  if (COMPANION_API_KEY_PATH.test(path)) {
+    return true;
+  }
   if (WEBHOOK_SECRET_PATH.test(path)) {
     return true;
   }
   // Every OTLP header is treated as a secret, not just `authorization`: a
   // backend may name its credential header anything, and guessing wrong writes
   // it to disk in plaintext.
-  if (OTLP_HEADER_PATH.test(path)) return true;
+  if (OTLP_HEADER_PATH.test(path)) {
+    return true;
+  }
   // Every MCP env var and header is treated as a secret: `--env` and `--header` carry API keys
   // and bearer tokens under whatever name the server chose.
-  if (isMcpServerSecretPath(path)) return true;
+  if (isMcpServerSecretPath(path)) {
+    return true;
+  }
   return /^(llm|web_search)\.[^.]+\.api_key$/.test(path);
 }
 
@@ -267,25 +287,35 @@ export function secretValueFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
   const llm = /^llm\.([^.]+)\.api_key$/.exec(path);
-  if (llm?.[1] !== undefined) return llmProviderApiKeyFromEnv(llm[1], env);
+  if (llm?.[1] !== undefined) {
+    return llmProviderApiKeyFromEnv(llm[1], env);
+  }
   const envVar = envVarForSecretPath(path);
   return envVar === undefined ? undefined : env[envVar];
 }
 
 /** Environment variable that supplies a secret path, if one is defined. */
 export function envVarForSecretPath(path: string): string | undefined {
-  if (path === DAEMON_TOKEN_PATH) return DAEMON_TOKEN_ENV_VAR;
+  if (path === DAEMON_TOKEN_PATH) {
+    return DAEMON_TOKEN_ENV_VAR;
+  }
   // Peer names are user-defined, so their variables are derived rather than enumerated.
   const peer = /^peers\.([^.]+)\.token$/.exec(path);
-  if (peer?.[1] !== undefined) return peerTokenEnvVar(peer[1]);
+  if (peer?.[1] !== undefined) {
+    return peerTokenEnvVar(peer[1]);
+  }
   const webhook = /^webhooks\.([^.]+)\.token$/.exec(path);
-  if (webhook?.[1] !== undefined) return webhookTokenEnvVar(webhook[1]);
+  if (webhook?.[1] !== undefined) {
+    return webhookTokenEnvVar(webhook[1]);
+  }
   const target = NOTIFY_TARGET_SECRET_PATH.exec(path);
   if (target?.[1] !== undefined && target[2] !== undefined) {
     return notifyTargetSecretEnvVar(target[1], target[2]);
   }
   const companion = COMPANION_API_KEY_PATH.exec(path);
-  if (companion?.[1] !== undefined) return companionApiKeyEnvVar(companion[1]);
+  if (companion?.[1] !== undefined) {
+    return companionApiKeyEnvVar(companion[1]);
+  }
   const webhookSecret = /^webhooks\.([^.]+)\.secret$/.exec(path);
   if (webhookSecret?.[1] !== undefined) {
     return webhookSecretEnvVar(webhookSecret[1]);

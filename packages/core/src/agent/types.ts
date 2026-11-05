@@ -36,6 +36,7 @@ import type { Agent } from "../types";
 import type { ReduceToolResultsFn } from "./context/advised-tool-clearing";
 import type { MemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import type { createAgentRunMetrics, RunSpendReport } from "./metrics/agent-run-metrics";
+import type { CacheMissReason } from "./metrics/prompt-cache";
 import type { Blackboard } from "./subagents/blackboard";
 import type { SubagentSupervisor } from "./subagents/supervisor";
 
@@ -567,6 +568,12 @@ export interface AgentResponse {
     /** Model requests the run made itself. */
     readonly requests?: number;
     readonly cacheReadTokens?: number;
+    /** Cache reads over input, 0..1, across the requests that reported cache fields. Absent when none did. */
+    readonly cacheHitRate?: number;
+    /** True when `cacheHitRate` covers only some requests because others reported no cache fields. */
+    readonly cacheHitRatePartial?: true;
+    /** Why the run's latest request's cacheable prefix changed; absent before any request. */
+    readonly cacheMissReason?: CacheMissReason;
   };
   /** Total estimated cost for the full run in USD. Populated when model pricing is available. */
   readonly costUSD?: number;

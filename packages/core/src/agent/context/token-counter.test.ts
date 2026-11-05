@@ -260,7 +260,7 @@ describe("TokenCounter — message-level counting", () => {
     const msgs = [sysMsg("System"), userMsg("Hi"), assistantMsg("Hello")];
 
     const sum = counter.countMessages(msgs, hint);
-    const individual = msgs.reduce((acc, m) => acc + counter.countMessage(m, hint), 0);
+    const individual = msgs.reduce((acc, message) => acc + counter.countMessage(message, hint), 0);
 
     expect(sum).toBe(individual);
   });

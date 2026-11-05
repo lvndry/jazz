@@ -52,7 +52,9 @@ describe("settingsMenuOptions", () => {
   it("says plainly when nothing is set up yet", () => {
     const previous = { ...process.env };
     for (const name of Object.keys(process.env)) {
-      if (name.endsWith("_API_KEY")) delete process.env[name];
+      if (name.endsWith("_API_KEY")) {
+        delete process.env[name];
+      }
     }
     try {
       const options = settingsMenuOptions(config({}));

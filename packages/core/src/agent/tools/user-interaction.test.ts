@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { Cause, Effect, Layer, Option } from "effect";
 import { isRunParkRequested } from "@/core/agent/run/park-signal";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
+import { narrowEffect } from "@/core/test-support/fakes";
 import { userInteractionTools } from "./user-interaction";
 
 const askUserQuestion = userInteractionTools.find((tool) => tool.name === "ask_user_question");
@@ -18,16 +19,18 @@ async function ask(outcome: Record<string, unknown>): Promise<{
   result: string;
   outcome?: string;
 }> {
-  const effect = askUserQuestion!.execute(
-    {
-      question: "When is your appointment?",
-      suggested_responses: [
-        { value: "today", label: "Today" },
-        { value: "tomorrow", label: "Tomorrow" },
-      ],
-    },
-    { agentId: "a", conversationId: "c" },
-  ) as never as Effect.Effect<{ success: boolean; result: string }, never, never>;
+  const effect = narrowEffect<{ success: boolean; result: string }>(
+    askUserQuestion!.execute(
+      {
+        question: "When is your appointment?",
+        suggested_responses: [
+          { value: "today", label: "Today" },
+          { value: "tomorrow", label: "Tomorrow" },
+        ],
+      },
+      { agentId: "a", conversationId: "c" },
+    ),
+  );
   return Effect.runPromise(
     effect.pipe(Effect.provide(harness(outcome))) as Effect.Effect<
       { success: boolean; result: string },
@@ -72,13 +75,15 @@ describe("ask_user_question", () => {
 
   it("gives every option a display label, defaulting to its value", async () => {
     let shown: ReadonlyArray<{ value: string; label?: string }> = [];
-    const effect = askUserQuestion!.execute(
-      {
-        question: "Which?",
-        suggested_responses: [{ value: "a" }, { value: "b", label: "B (Recommended)" }],
-      },
-      { agentId: "a", conversationId: "c" },
-    ) as never as Effect.Effect<unknown, never, never>;
+    const effect = narrowEffect<unknown>(
+      askUserQuestion!.execute(
+        {
+          question: "Which?",
+          suggested_responses: [{ value: "a" }, { value: "b", label: "B (Recommended)" }],
+        },
+        { agentId: "a", conversationId: "c" },
+      ),
+    );
     await Effect.runPromise(
       effect.pipe(
         Effect.provide(
@@ -112,18 +117,20 @@ describe("ask_user_question", () => {
 
   it("returns the same result for a refusal live and on resume", async () => {
     const live = await ask({ kind: "declined" });
-    const effect = askUserQuestion!.execute(
-      {
-        question: "When is your appointment?",
-        suggested_responses: [{ value: "today" }, { value: "tomorrow" }],
-      },
-      {
-        agentId: "a",
-        conversationId: "c",
-        toolCallId: "call_5",
-        resolvedUserInputs: new Map([["call_5", { kind: "declined" }]]),
-      },
-    ) as never as Effect.Effect<{ success: boolean; result: string }, never, never>;
+    const effect = narrowEffect<{ success: boolean; result: string }>(
+      askUserQuestion!.execute(
+        {
+          question: "When is your appointment?",
+          suggested_responses: [{ value: "today" }, { value: "tomorrow" }],
+        },
+        {
+          agentId: "a",
+          conversationId: "c",
+          toolCallId: "call_5",
+          resolvedUserInputs: new Map([["call_5", { kind: "declined" }]]),
+        },
+      ),
+    );
     const resumed = await Effect.runPromise(
       effect.pipe(
         Effect.provide(
@@ -177,15 +184,19 @@ describe("ask_file_picker", () => {
   });
 
   it("uses a resolved selection from a resumed run instead of prompting again", async () => {
-    const effect = askFilePicker!.execute(
-      { message: "Pick the config file" },
-      {
-        agentId: "a",
-        conversationId: "c",
-        toolCallId: "call_3",
-        resolvedFilePickers: new Map([["call_3", { kind: "selected", path: "/tmp/config.json" }]]),
-      },
-    ) as never as Effect.Effect<{ success: boolean; result: string }, never, never>;
+    const effect = narrowEffect<{ success: boolean; result: string }>(
+      askFilePicker!.execute(
+        { message: "Pick the config file" },
+        {
+          agentId: "a",
+          conversationId: "c",
+          toolCallId: "call_3",
+          resolvedFilePickers: new Map([
+            ["call_3", { kind: "selected", path: "/tmp/config.json" }],
+          ]),
+        },
+      ),
+    );
     const result = await Effect.runPromise(
       effect.pipe(
         Effect.provide(
@@ -200,15 +211,17 @@ describe("ask_file_picker", () => {
   });
 
   it("honors a resolved cancellation without prompting again", async () => {
-    const effect = askFilePicker!.execute(
-      { message: "Pick the config file" },
-      {
-        agentId: "a",
-        conversationId: "c",
-        toolCallId: "call_4",
-        resolvedFilePickers: new Map([["call_4", { kind: "cancelled" }]]),
-      },
-    ) as never as Effect.Effect<{ success: boolean; result: string }, never, never>;
+    const effect = narrowEffect<{ success: boolean; result: string }>(
+      askFilePicker!.execute(
+        { message: "Pick the config file" },
+        {
+          agentId: "a",
+          conversationId: "c",
+          toolCallId: "call_4",
+          resolvedFilePickers: new Map([["call_4", { kind: "cancelled" }]]),
+        },
+      ),
+    );
     const result = await Effect.runPromise(
       effect.pipe(
         Effect.provide(
