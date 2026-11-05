@@ -21,6 +21,7 @@ import { Effect, FileSystem } from "effect";
 import {
   composeConfigLayers,
   defaultConfig,
+  documentOf,
   loadConfigFiles,
   projectOverrideDrops,
   requireValidEffectiveConfig,
@@ -176,7 +177,7 @@ export function resolveConfig(
     const traced = traceLayers([
       {
         source: { kind: "default" },
-        document: defaultConfig() as unknown as Record<string, unknown>,
+        document: documentOf(defaultConfig()),
       },
       ...(files.global === undefined
         ? []

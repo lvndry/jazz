@@ -96,7 +96,7 @@ type AppConfigShape = { [Key in keyof AppConfig]: AppConfig[Key] };
  * View a typed config as the untyped document it was built from, aliasing the same object. Sound
  * because an `AppConfig` is a plain JSON-shaped object; the view only widens property types.
  */
-function documentOf(config: AppConfig): ConfigDocument {
+export function documentOf(config: AppConfig): ConfigDocument {
   const shape: AppConfigShape = config;
   return shape;
 }
