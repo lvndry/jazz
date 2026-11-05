@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "scenario": "empty-finish-retry",
+  "provider": "openai",
+  "model": "gpt-4",
+  "calls": [
+    {
+      "request": {
+        "messageRoles": ["system", "user"],
+        "toolNames": ["find_skills", "load_skill", "load_skill_section", "lookup_note"],
+        "toolResults": []
+      },
+      "parts": [
+        { "type": "start" },
+        { "type": "start-step" },
+        {
+          "type": "finish-step",
+          "finishReason": "stop",
+          "usage": { "inputTokens": 120, "outputTokens": 0, "totalTokens": 120 }
+        },
+        {
+          "type": "finish",
+          "finishReason": "stop",
+          "totalUsage": { "inputTokens": 120, "outputTokens": 0, "totalTokens": 120 }
+        }
+      ]
+    },
+    {
+      "request": {
+        "messageRoles": ["system", "user"],
+        "toolNames": ["find_skills", "load_skill", "load_skill_section", "lookup_note"],
+        "toolResults": []
+      },
+      "parts": [
+        { "type": "start" },
+        { "type": "start-step" },
+        { "type": "text-start", "id": "<ID:1>" },
+        { "type": "text-delta", "id": "<ID:1>", "text": "The standup is at 10:00." },
+        { "type": "text-end", "id": "<ID:1>" },
+        {
+          "type": "finish-step",
+          "finishReason": "stop",
+          "usage": { "inputTokens": 120, "outputTokens": 8, "totalTokens": 128 }
+        },
+        {
+          "type": "finish",
+          "finishReason": "stop",
+          "totalUsage": { "inputTokens": 120, "outputTokens": 8, "totalTokens": 128 }
+        }
+      ]
+    }
+  ]
+}

@@ -83,6 +83,7 @@ import {
   type RecursiveRunner,
 } from "./context/summarizer";
 import { closeUnansweredToolCalls } from "./context/unanswered-tool-calls";
+import { autoDetachPolicyFor } from "./detach/auto-detach";
 import { assertConversationWritable } from "./detach/ownership";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createEgressTaint, recordEgressTaint } from "./execution/egress-taint";
@@ -105,7 +106,10 @@ import {
   telemetryErrorCategory,
   type AgentRunMetrics,
 } from "./metrics/agent-run-metrics";
-import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
+import {
+  discoverProjectInstructions,
+  type ProjectInstructionDiscovery,
+} from "./project-instructions";
 import type { RunRecordBoundary } from "./run/run-record";
 import { withRunRecording } from "./run/run-recorder";
 import { ToolActivityTracker } from "./run/tool-activity";
@@ -126,6 +130,7 @@ import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
 import { registerBrowserAdoptionTools, registerPeerTools } from "./tools/register-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
+import { withholdUnreadyTools } from "./tools/tool-readiness";
 import { collectUnlockedToolNames } from "./tools/unlocked-tools";
 import { INTERACTIVE_TOOL_NAMES } from "./tools/user-interaction";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
@@ -431,10 +436,10 @@ function resolveProjectInstructions(
   boundary: RunContextBoundary,
   agentId: string,
   options: AgentRunnerOptions,
-): Effect.Effect<readonly ProjectInstructionFile[], never> {
+): Effect.Effect<ProjectInstructionDiscovery, never> {
   return Effect.gen(function* () {
     if (!boundary.injectsProjectInstructions) {
-      return [];
+      return { files: [], omissions: [], reports: [] };
     }
 
     const workingDirectory = yield* resolveAgentWorkingDirectory(agentId, options);
@@ -540,6 +545,12 @@ function initializeAgentRun(
     const presentationService = yield* Effect.serviceOption(PresentationServiceTag);
     const attended =
       Option.isSome(presentationService) && presentationService.value.canContinueRun?.() === true;
+
+    const autoDetach = autoDetachPolicyFor({
+      attended,
+      receivesLateResults: options.onDetachedToolComplete !== undefined,
+      internal: options.internal === true,
+    });
 
     const actualConversationId = conversationId || generateConversationId();
     const history: ChatMessage[] =
@@ -804,6 +815,10 @@ function initializeAgentRun(
     const allToolNames = yield* toolRegistry.listAllTools();
     combinedToolNames = combinedToolNames.filter((toolName) => allToolNames.includes(toolName));
 
+    // Tools whose prerequisites are missing are left out before expansion and tiering, so
+    // neither the declared tools, the deferred index, nor `search_tools` can reach them.
+    combinedToolNames = [...(yield* withholdUnreadyTools(toolRegistry, combinedToolNames, agent))];
+
     // Expand tool names to include approval execute tools, advertised aliases and companion
     // tools. Each belongs to a tool that already survived every filter above, so it is granted
     // with it: a run that may call `execute_command` has to be able to reach
@@ -889,10 +904,21 @@ function initializeAgentRun(
     // otherwise the process cwd. The summarizer compresses transcripts and has
     // no project to honor, so it never gets them.
     const boundary = runContextBoundary(persona, options);
-    const projectInstructions = yield* resolveProjectInstructions(boundary, agent.id, options);
+    const instructionDiscovery = yield* resolveProjectInstructions(boundary, agent.id, options);
+    const projectInstructions = instructionDiscovery.files;
+    for (const report of instructionDiscovery.reports) {
+      yield* logger.debug(`AGENTS.md instruction file ${report.status}`, {
+        path: report.path,
+        chain: report.chain,
+        originalBytes: report.originalBytes,
+        includedBytes: report.includedBytes,
+        ...(report.reason !== undefined && { reason: report.reason }),
+      });
+    }
     if (projectInstructions.length > 0) {
       yield* logger.debug("AGENTS.md instruction files loaded", {
         count: projectInstructions.length,
+        omitted: instructionDiscovery.omissions.length,
       });
     }
 
@@ -966,6 +992,9 @@ function initializeAgentRun(
         }),
         ...(projectInstructions.length > 0 && { projectInstructions }),
         ...(mcpServerInstructions.length > 0 && { mcpServerInstructions }),
+        ...(instructionDiscovery.omissions.length > 0 && {
+          projectInstructionOmissions: instructionDiscovery.omissions,
+        }),
         ...(options.pinInitialMessage === true ? { pinInitialMessage: true } : {}),
         ...(options.systemPromptOverride !== undefined && {
           systemPromptOverride: options.systemPromptOverride,
@@ -1079,6 +1108,7 @@ function initializeAgentRun(
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.offersShellEscape === true ? { offersShellEscape: true } : {}),
       shellConfinement: resolveConfinementMode(appConfig.shell?.confinement, attended),
+      ...(autoDetach !== undefined ? { autoDetach } : {}),
       onAutoApproveCommand:
         options.onAutoApproveCommand ??
         ((command: string) =>

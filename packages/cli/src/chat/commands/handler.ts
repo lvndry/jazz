@@ -36,9 +36,22 @@ import {
   workStateSizeBytes,
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
+import { formatRetryWaste } from "@jazz/core/agent/metrics/failed-attempts";
 import { lastCacheObservation, promptCacheKey } from "@jazz/core/agent/metrics/prompt-cache";
-import { resolveAgentToolCategoryIds } from "@jazz/core/agent/tools/agent-tool-resolution";
+import {
+  discoverProjectInstructions,
+  type InstructionFileReport,
+} from "@jazz/core/agent/project-instructions";
+import {
+  resolveAgentToolCategoryIds,
+  resolveAgentToolNames,
+} from "@jazz/core/agent/tools/agent-tool-resolution";
 import { runShellCommand } from "@jazz/core/agent/tools/shell";
+import {
+  describeUnreadyAgentTools,
+  describeUnreadyReason,
+  type UnreadyTool,
+} from "@jazz/core/agent/tools/tool-readiness";
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
@@ -162,7 +175,13 @@ import {
   SESSION_LIMIT_FIELD,
   type SessionLimitMetric,
 } from "./session-limits";
-import type { CommandContext, CommandResult, SessionLimits, SpecialCommand } from "./types";
+import type {
+  CommandContext,
+  CommandResult,
+  SessionLimits,
+  SessionUsage,
+  SpecialCommand,
+} from "./types";
 import { handleWaitsCommand } from "./waits";
 import { reviewMemorySuggestions } from "../../memory-review";
 import { managePlugins } from "../../plugin-manager";
@@ -2555,6 +2574,49 @@ function handleSkillsCommand(
   });
 }
 
+function summarizeInstructionBudget(reports: readonly InstructionFileReport[]): string | undefined {
+  const trimmed = reports.filter(
+    (report) => report.status === "truncated" || report.status === "omitted",
+  );
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  return trimmed
+    .map((report) => {
+      const lost = report.originalBytes - report.includedBytes;
+      const verb = report.status === "omitted" ? "left out" : "cut";
+      return `${abbreviateHomePath(report.path)} ${verb} (${String(lost)} bytes over budget)`;
+    })
+    .join("; ");
+}
+
+/**
+ * One `/info` row per tool a run withholds, e.g. `web search  not configured  (how to set it up)`.
+ */
+export function unreadyToolRows(unready: readonly UnreadyTool[]): ReportRow[] {
+  return unready.map((entry) => ({
+    kind: "field" as const,
+    key: entry.name.replaceAll("_", " "),
+    value: describeUnreadyReason(entry.reason),
+    detail: entry.remedy,
+    tone: "muted" as const,
+  }));
+}
+
+/**
+ * Tools this agent is granted that the next run will leave out, with how to fix each. Empty when
+ * the registry or services are not available.
+ */
+function resolveUnreadyToolRows(
+  agent: CommandContext["agent"],
+): Effect.Effect<ReportRow[], never, ToolRegistry | AgentConfigService | LLMService> {
+  return Effect.gen(function* () {
+    const toolNames = yield* resolveAgentToolNames(agent);
+    const unready = yield* describeUnreadyAgentTools(agent, toolNames);
+    return unreadyToolRows(unready);
+  }).pipe(Effect.catchCause(() => Effect.succeed([])));
+}
+
 /**
  * Handle /info command - Show session identity, usage, and where its logs are
  */
@@ -2562,7 +2624,11 @@ function handleInfoCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   context: CommandContext,
-): Effect.Effect<CommandResult, never, FileSystemContextService | FileSystem.FileSystem> {
+): Effect.Effect<
+  CommandResult,
+  never,
+  FileSystemContextService | FileSystem.FileSystem | ToolRegistry | AgentConfigService | LLMService
+> {
   return Effect.gen(function* () {
     const conversation = yield* loadConversationOrNull(agent.id, context.conversationId);
 
@@ -2596,6 +2662,10 @@ function handleInfoCommand(
         : { agentId: agent.id },
     );
 
+    const instructionsSummary = summarizeInstructionBudget(
+      discoverProjectInstructions(workingDirectory).reports,
+    );
+
     const toolCalls = context.conversationHistory.reduce(
       (count, message) => count + (message.tool_calls?.length ?? 0),
       0,
@@ -2615,6 +2685,7 @@ function handleInfoCommand(
       resolveConfinementMode(appConfig?.shell?.confinement, true) === "on"
         ? summarizeConfinement(getConfinementStatus())
         : undefined;
+    const unreadyRows = yield* resolveUnreadyToolRows(agent);
 
     yield* terminal.log(
       report("info", [
@@ -2650,7 +2721,18 @@ function handleInfoCommand(
           value: reasoningSelectionToCliValue(agent.config.llm.reasoning),
         },
         { kind: "field", key: "tools", value: `${String(totalTools)} on` },
+        ...unreadyRows,
         { kind: "field", key: "folder", value: abbreviateHomePath(workingDirectory) },
+        ...(instructionsSummary === undefined
+          ? []
+          : [
+              {
+                kind: "field" as const,
+                key: "instructions",
+                value: instructionsSummary,
+                tone: "warning" as const,
+              },
+            ]),
         ...(writeConfinement === undefined
           ? []
           : [{ kind: "field" as const, key: "writes", value: writeConfinement }]),
@@ -3658,13 +3740,29 @@ function handleContextCommand(
   });
 }
 
+/** The `retries` row of /cost: shown only once an attempt was retried. */
+function retryRows(sessionUsage: SessionUsage): ReportRow[] {
+  const line = formatRetryWaste(
+    {
+      retries: sessionUsage.retries ?? 0,
+      wastedUSD: sessionUsage.wastedUSD,
+      lowerBound: sessionUsage.wasteLowerBound === true,
+      unpriced: false,
+    },
+    formatCost,
+  );
+  return line === undefined
+    ? []
+    : [{ kind: "gap" }, { kind: "field", key: "retries", value: line }];
+}
+
 /**
  * Handle /cost command - Show conversation token usage and estimated cost
  */
 function handleCostCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
-  sessionUsage: { promptTokens: number; completionTokens: number },
+  sessionUsage: SessionUsage,
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
     const { promptTokens, completionTokens } = sessionUsage;
@@ -3711,7 +3809,12 @@ function handleCostCommand(
     yield* terminal.log(
       report(
         "cost",
-        [{ kind: "field", key: "model", value: model }, { kind: "gap" }, ...tokenRows],
+        [
+          { kind: "field", key: "model", value: model },
+          { kind: "gap" },
+          ...tokenRows,
+          ...retryRows(sessionUsage),
+        ],
         priced
           ? `Priced at $${inputPricePerMillion.toFixed(2)} in and $${outputPricePerMillion.toFixed(2)} out per million tokens.`
           : "models.dev has no pricing for this model, so no cost is shown.",

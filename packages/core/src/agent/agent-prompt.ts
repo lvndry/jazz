@@ -26,9 +26,17 @@ import {
   PROPOSE_LESSON_TOOL_NAME,
   VIEW_MEMORY_TOOL_NAME,
 } from "./memory-recall-log";
-import { renderProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
-import { renderPromptLayers, type PromptSection } from "./prompts/layers";
-import { ENVIRONMENT_TEMPLATE, renderHarnessPrompt } from "./prompts/shared";
+import {
+  renderProjectInstructions,
+  type ProjectInstructionFile,
+  type ProjectInstructionOmission,
+} from "./project-instructions";
+import {
+  renderPromptLayersWithStablePrefix,
+  type PromptSection,
+  type RenderedPromptLayers,
+} from "./prompts/layers";
+import { ENVIRONMENT_TEMPLATE, renderHarnessPromptParts } from "./prompts/shared";
 import { collectUserInputAttachments } from "./user-input-attachments";
 
 /**
@@ -141,6 +149,7 @@ export interface AgentPromptOptions {
    * model without the user restating them every session.
    */
   readonly projectInstructions?: readonly ProjectInstructionFile[];
+  readonly projectInstructionOmissions?: readonly ProjectInstructionOmission[];
   /**
    * `instructions` strings of the MCP servers this run is connected to. Server-controlled, so
    * they render inside the untrusted envelope, bounded and stripped of control characters. They
@@ -225,7 +234,9 @@ function getSkillIndexLineFromOption(skill: {
 export const SYSTEM_PROMPT_CACHE_CAPACITY = 16;
 
 export class AgentPromptBuilder {
-  private systemPromptCache = new BoundedLruCache<string, string>(SYSTEM_PROMPT_CACHE_CAPACITY);
+  private systemPromptCache = new BoundedLruCache<string, RenderedPromptLayers>(
+    SYSTEM_PROMPT_CACHE_CAPACITY,
+  );
 
   /**
    * Get current system information including date and OS details.
@@ -297,11 +308,14 @@ export class AgentPromptBuilder {
     // next turn rather than waiting for a process restart.
     if (options.projectInstructions && options.projectInstructions.length > 0) {
       for (const file of options.projectInstructions) {
-        hash.update(`agentsmd:${file.path}:${file.content}`);
+        hash.update(`agentsmd:${file.path}:${file.truncatedBytes ?? 0}:${file.content}`);
       }
     }
     if (options.mcpServerInstructions && options.mcpServerInstructions.length > 0) {
       hash.update(`mcpServerInstructions:${JSON.stringify(options.mcpServerInstructions)}`);
+    }
+    for (const omission of options.projectInstructionOmissions ?? []) {
+      hash.update(`agentsmd-omitted:${omission.path}:${omission.bytes}`);
     }
     hash.update(`canGenerateMedia:${options.canGenerateMedia ?? true}`);
     // Invalidate daily since prompts include current date
@@ -375,6 +389,22 @@ export class AgentPromptBuilder {
     options: AgentPromptOptions,
     personaService?: PersonaService,
   ): Effect.Effect<string, Error> {
+    return this.buildSystemPromptParts(personaName, options, personaService).pipe(
+      Effect.map((rendered) => rendered.text),
+    );
+  }
+
+  /**
+   * Build the system prompt and report how much of its start is identical on every turn of a
+   * conversation. Persona text and harness rules are that span; the skills index, AGENTS.md,
+   * preferences and the environment block (which carries the date) follow it. A persona that
+   * places date or host placeholders itself changes daily, so its prompt has no stable span.
+   */
+  buildSystemPromptParts(
+    personaName: string,
+    options: AgentPromptOptions,
+    personaService?: PersonaService,
+  ): Effect.Effect<RenderedPromptLayers, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
         // Resolve persona first so its content is included in the cache key.
@@ -406,6 +436,7 @@ export class AgentPromptBuilder {
         let personaPrompt = persona.systemPrompt
           .replace("{agentName}", options.agentName)
           .replace("{agentDescription}", options.agentDescription);
+        let personaIsStable = true;
 
         const core: PromptSection[] = [];
         const scope: PromptSection[] = [];
@@ -423,7 +454,10 @@ export class AgentPromptBuilder {
             "{username}",
             "{tty}",
           ].some((placeholder) => personaPrompt.includes(placeholder));
-          personaPrompt = fillEnvironment(personaPrompt);
+          const filledPersonaPrompt = fillEnvironment(personaPrompt);
+          personaIsStable =
+            filledPersonaPrompt === personaPrompt && !personaPrompt.includes("{environment}");
+          personaPrompt = filledPersonaPrompt;
           if (personaPrompt.includes("{environment}")) {
             personaPrompt = personaPrompt.replace("{environment}", envBlock);
           } else if (!usesIndividualEnvironmentFields) {
@@ -431,7 +465,11 @@ export class AgentPromptBuilder {
           }
         }
 
-        core.push({ id: "persona", content: personaPrompt });
+        core.push({
+          id: "persona",
+          content: personaPrompt,
+          ...(personaIsStable ? { stable: true as const } : {}),
+        });
 
         if (personaName !== "summarizer") {
           const skillsIndex = options.knownSkills
@@ -447,26 +485,38 @@ export class AgentPromptBuilder {
                 : "unavailable"
               : undefined;
 
+          const harness = renderHarnessPromptParts({
+            hasTools: (options.toolNames?.length ?? 0) > 0,
+            hasShell: options.toolNames?.includes("execute_command") === true,
+            hasSubagents: options.toolNames?.includes("spawn_subagent") === true,
+            hasToolResultRetrieval: options.toolNames?.includes("retrieve_tool_result") === true,
+            hasMemoryRecall: options.toolNames?.includes(VIEW_MEMORY_TOOL_NAME) === true,
+            hasMemoryWrite: options.toolNames?.includes(MANAGE_MEMORY_TOOL_NAME) === true,
+            hasLessons: options.toolNames?.includes(PROPOSE_LESSON_TOOL_NAME) === true,
+            ...(skillsIndex ? { skillsIndex } : {}),
+            ...(deferredToolsIndex ? { deferredToolsIndex } : {}),
+            ...(media ? { media } : {}),
+          });
           core.push({
             id: "harness",
-            content: renderHarnessPrompt({
-              hasTools: (options.toolNames?.length ?? 0) > 0,
-              hasShell: options.toolNames?.includes("execute_command") === true,
-              hasSubagents: options.toolNames?.includes("spawn_subagent") === true,
-              hasToolResultRetrieval: options.toolNames?.includes("retrieve_tool_result") === true,
-              hasMemoryRecall: options.toolNames?.includes(VIEW_MEMORY_TOOL_NAME) === true,
-              hasMemoryWrite: options.toolNames?.includes(MANAGE_MEMORY_TOOL_NAME) === true,
-              hasLessons: options.toolNames?.includes(PROPOSE_LESSON_TOOL_NAME) === true,
-              ...(skillsIndex ? { skillsIndex } : {}),
-              ...(deferredToolsIndex ? { deferredToolsIndex } : {}),
-              ...(media ? { media } : {}),
-            }),
+            content: harness.stable,
+            ...(personaIsStable ? { stable: true as const } : {}),
           });
+          if (harness.dynamic !== undefined) {
+            core.push({ id: "harness-indexes", content: harness.dynamic });
+          }
 
-          if (options.projectInstructions && options.projectInstructions.length > 0) {
+          if (
+            (options.projectInstructions && options.projectInstructions.length > 0) ||
+            (options.projectInstructionOmissions && options.projectInstructionOmissions.length > 0)
+          ) {
             scope.push({
               id: "project-instructions",
-              content: renderProjectInstructions(options.projectInstructions),
+              content: renderProjectInstructions(
+                options.projectInstructions ?? [],
+                undefined,
+                options.projectInstructionOmissions,
+              ),
             });
           }
 
@@ -498,11 +548,11 @@ export class AgentPromptBuilder {
           }
         }
 
-        const systemPrompt = renderPromptLayers({ core, scope, live });
+        const rendered = renderPromptLayersWithStablePrefix({ core, scope, live });
 
         // Cache the result
-        this.systemPromptCache.set(cacheKey, systemPrompt);
-        return systemPrompt;
+        this.systemPromptCache.set(cacheKey, rendered);
+        return rendered;
       }.bind(this),
     );
   }
@@ -533,12 +583,21 @@ export class AgentPromptBuilder {
   ): Effect.Effect<ConversationMessages, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
-        const systemPrompt =
-          options.systemPromptOverride ??
-          (yield* this.buildSystemPrompt(personaName, options, personaService));
+        const renderedSystemPrompt =
+          options.systemPromptOverride !== undefined
+            ? { text: options.systemPromptOverride }
+            : yield* this.buildSystemPromptParts(personaName, options, personaService);
         const userPrompt = yield* this.buildUserPrompt(personaName, options, personaService);
 
-        const messages: ConversationMessages = [{ role: "system", content: systemPrompt }];
+        const messages: ConversationMessages = [
+          {
+            role: "system",
+            content: renderedSystemPrompt.text,
+            ...(renderedSystemPrompt.stablePrefixLength !== undefined
+              ? { stablePrefixLength: renderedSystemPrompt.stablePrefixLength }
+              : {}),
+          },
+        ];
 
         // Add conversation history if available
         if (options.conversationHistory && options.conversationHistory.length > 0) {

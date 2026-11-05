@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "scenario": "interrupted-batch",
+  "provider": "openai",
+  "model": "gpt-4",
+  "calls": [
+    {
+      "request": {
+        "messageRoles": ["system", "user"],
+        "toolNames": [
+          "apply_change",
+          "find_skills",
+          "load_skill",
+          "load_skill_section",
+          "lookup_note"
+        ],
+        "toolResults": []
+      },
+      "parts": [
+        { "type": "start" },
+        { "type": "start-step" },
+        {
+          "type": "tool-call",
+          "toolCallId": "<ID:1>",
+          "toolName": "apply_change",
+          "input": { "path": "<HOME>/notes/standup.md", "content": "Moved to 10:30" }
+        },
+        {
+          "type": "finish-step",
+          "finishReason": "tool-calls",
+          "usage": { "inputTokens": 140, "outputTokens": 30, "totalTokens": 170 }
+        },
+        {
+          "type": "finish",
+          "finishReason": "tool-calls",
+          "totalUsage": { "inputTokens": 140, "outputTokens": 30, "totalTokens": 170 }
+        }
+      ]
+    }
+  ]
+}

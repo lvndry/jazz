@@ -17,6 +17,7 @@
  */
 
 import { writeSync } from "node:fs";
+import { registerReleaseHook } from "@jazz/core/utils/crash-report";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { store } from "../store";
@@ -425,6 +426,7 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
       renderer.destroy();
     }
   });
+  scope.add(registerReleaseHook("terminal-restore", () => scope.release()));
   const release = (): void => {
     scope.release();
   };
