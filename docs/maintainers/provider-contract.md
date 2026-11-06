@@ -233,3 +233,7 @@ Before a provider is wired in, confirm against this page:
   gave one.
 
 See [Add a model provider](./add-a-provider.md) for the wiring steps.
+
+Blank or duplicate tool identities are rejected before appending history or executing tools.
+The shared request retry budget can ask the provider for a valid completion; rejected usage
+remains failed-attempt spend. Identity repair never receives an extra retry budget.
