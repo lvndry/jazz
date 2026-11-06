@@ -276,6 +276,15 @@ export function finishCycle(
       ...(evaluation !== undefined ? { evaluation } : {}),
       ...(runCap !== undefined ? { cappedBy: runCap } : {}),
     });
+    if (evaluation?.kind === "valid" && evaluation.evaluation.status === "blocked") {
+      const logger = yield* LoggerServiceTag;
+      yield* logger.debug("Goal cycle reported blocked", {
+        goalId: goal.goalId,
+        blockerRounds: next.blockerStreak?.rounds,
+        blockedReports: next.blockerStreak?.reports,
+        outcome: next.state.kind,
+      });
+    }
     yield* writeGoal(goal, next, "settle its cycle");
   });
 }

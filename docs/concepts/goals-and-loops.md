@@ -62,8 +62,9 @@ instead of carrying on by itself, because some of the cycle's actions may have h
 progress note says so; `jazz goal resume` (or `/goal resume` in a chat) continues it.
 
 A cycle that reports it is blocked does not stop the goal at once. The goal stops for your review
-only after 3 consecutive cycles report the same blocker; until then each cycle is told to try a
-different approach.
+after 3 consecutive cycles report the same blocker, or 6 consecutive blocked reports even if
+the wording changes. Until then each cycle is told to try a different approach. Blocked reports
+must name the blocker. Matching ignores case and punctuation while preserving word order.
 
 ### Goals Jazz proposes
 
