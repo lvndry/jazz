@@ -24,6 +24,7 @@ import type { LoopBudget } from "@jazz/core/agent/loop/loop-record";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/errors";
 import { parseWhen } from "@jazz/core/utils/time";
+import { hostTimeZone, isValidTimeZone } from "@jazz/core/utils/user-time-zone";
 import { isDaemonSupervised } from "@jazz/daemon/service-install";
 import { Effect } from "effect";
 import { AGENT_ANSWER_REFUSAL } from "@/cli/commands/run/lifecycle";
@@ -39,18 +40,12 @@ import { describeLoopNow } from "@/cli/loops/describe-loop";
 const AGENT_LOOP_REFUSAL =
   "Starting or resuming a loop is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.";
 
-/** The zone a cron schedule and `--until` clock time are read in when none is given. */
+/**
+ * The zone a cron schedule and `--until` clock time are read in when none is given: the machine
+ * the person is typing at. Once started, the schedule keeps this zone by name.
+ */
 function localTimezone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
-}
-
-function isValidTimezone(timezone: string): boolean {
-  try {
-    new Intl.DateTimeFormat(undefined, { timeZone: timezone });
-    return true;
-  } catch {
-    return false;
-  }
+  return hostTimeZone();
 }
 
 /** Every file store a loop command touches: loops, the runs they start, and goals sharing answers. */
@@ -90,7 +85,7 @@ export function startLoopCommand(options: StartLoopOptions) {
       return;
     }
     const timezone = options.timezone ?? localTimezone();
-    if (!isValidTimezone(timezone)) {
+    if (!isValidTimeZone(timezone)) {
       failEnvelope(
         options.json,
         `Unknown timezone "${timezone}"; use an IANA name like Europe/Paris.`,

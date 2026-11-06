@@ -16,6 +16,7 @@ import { lastSucceededToolCall, type ToolCallMessage } from "@/core/agent/tools/
 import { isValidCronExpression, nextCronRun } from "@/core/utils/cron";
 import type { ProcessOwner } from "@/core/utils/process";
 import { parseDurationMs } from "@/core/utils/time";
+import { parseTimeZone } from "@/core/utils/user-time-zone";
 import {
   DEFAULT_LOOP_BUDGET,
   MAX_CONSECUTIVE_LOOP_FAILURES,
@@ -313,13 +314,19 @@ export function parseLoopSchedule(
       : { ok: true, schedule: { kind: "every", everyMs } };
   }
   if (isValidCronExpression(trimmed)) {
+    if (timezone === undefined) {
+      return {
+        ok: false,
+        reason: `"${spec}" is a cron expression, which is read in a time zone. Give the IANA zone it runs in, such as Europe/Paris.`,
+      };
+    }
+    const parsedZone = parseTimeZone(timezone);
+    if (!parsedZone.ok) {
+      return { ok: false, reason: parsedZone.error };
+    }
     return {
       ok: true,
-      schedule: {
-        kind: "cron",
-        expression: trimmed,
-        ...(timezone !== undefined ? { timezone } : {}),
-      },
+      schedule: { kind: "cron", expression: trimmed, timezone: parsedZone.zone },
     };
   }
   return {

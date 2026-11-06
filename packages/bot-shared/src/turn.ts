@@ -42,7 +42,13 @@ import {
 } from "./chat-sandbox";
 import { compositionLinkPath, type CompositionLinks } from "./compositions";
 import { IncognitoTranscripts } from "./incognito-transcripts";
-import { type JazzComposition, type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
+import {
+  type JazzComposition,
+  type JazzEvent,
+  type JazzRun,
+  type JazzRunOptions,
+  startJazzRun,
+} from "./jazz-run";
 import { routeBusyMessage, takeNextTurn } from "./mid-turn";
 import { createProgressReporter } from "./progress";
 import { splitReasoning } from "./reasoning";
@@ -63,7 +69,7 @@ import {
   type RichText,
   type Surface,
 } from "./surface";
-import { tzForChat } from "./timezone-store";
+import { chatZone } from "./timezone-store";
 import { createCommands, operatorOnlyMessage, parseCommand } from "./turn-commands";
 import {
   capBlockMessage,
@@ -229,6 +235,9 @@ export const ALWAYS_ALLOW_CHOICE_ID = "always";
 export const APPROVE_ALL_CHOICE_ID = "approve-all";
 export const REJECT_ALL_CHOICE_ID = "reject-all";
 export const DECLINE_SECRET_CHOICE_ID = "decline-secret";
+
+/** The command every bridge offers for remembering a conversation's zone. */
+export const ZONE_SETTING_COMMAND = "/tz";
 
 /** Told to anyone with a run in flight, or writing in, while the bridge shuts down. */
 const RESTARTING_NOTICE: RichText = [
@@ -859,6 +868,25 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     }
   };
 
+  /**
+   * The zone a run starts with: the conversation's, or none, so the agent asks the user
+   * instead of reading clock times in the server's zone.
+   */
+  const zoneOptionsFor = (
+    chatId: ChatId,
+  ): Pick<JazzRunOptions, "timezone" | "zoneSettingCommand"> => {
+    const zone = chatZone(config.jazzHome, config.files.timezone, chatId);
+    console.debug(
+      zone === undefined
+        ? `Zone for ${chatId}: none set; the agent will ask the user.`
+        : `Zone for ${chatId}: ${zone.zone} (${zone.source}).`,
+    );
+    return {
+      ...(zone !== undefined ? { timezone: zone } : {}),
+      zoneSettingCommand: ZONE_SETTING_COMMAND,
+    };
+  };
+
   const runAndAnswer = async (
     message: InboundMessage,
     state: ChatState,
@@ -890,7 +918,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
           config.approvalPolicy,
         ),
         autoApproveTools: config.autoApproveTools,
-        timezone: tzForChat(config.jazzHome, config.files.timezone, chatId),
+        ...zoneOptionsFor(chatId),
         runTimeoutMs: config.runTimeoutMs,
         conversation: incognito
           ? { kind: "ephemeral", history: incognitoHistory.get(chatId) }

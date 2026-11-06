@@ -118,7 +118,7 @@ one started. Use cron for runs aligned to clock times.
 ```
 
 Supply exactly five schedule fields, separated by spaces, without quotes. The rest is the prompt.
-Schedules use this machine's timezone.
+Schedules use this machine's timezone when you start them, and keep that zone by name: a loop created in Europe/Paris keeps firing on Paris time if the machine's zone changes.
 
 | Field syntax | Meaning     | Example                                                   |
 | ------------ | ----------- | --------------------------------------------------------- |

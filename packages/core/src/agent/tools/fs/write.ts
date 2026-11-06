@@ -320,9 +320,13 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
 
         const originalContent = current?.text ?? "";
         const isNewFile = current === undefined;
-        if (context.toolCallId !== undefined) {
+        const proposedKey =
+          context.toolCallId === undefined
+            ? undefined
+            : approvalKey(context.toolCallId, canonicalTarget, args.content);
+        if (proposedKey !== undefined) {
           const recorded = rememberApprovedVersion(
-            approvalKey(context.toolCallId, canonicalTarget, args.content),
+            proposedKey,
             versionOf(canonicalTarget, current),
           );
           yield* Effect.logDebug(
@@ -358,14 +362,11 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           : `replaces ${pluralLines(lineCount(originalContent))} with ${pluralLines(newLines)}`;
         return {
           message,
-          ...(context.toolCallId !== undefined
+          ...(proposedKey !== undefined
             ? {
                 writeSnapshot: {
-                  key: approvalKey(context.toolCallId, canonicalTarget, args.content),
-                  version:
-                    approvedVersions.get(
-                      approvalKey(context.toolCallId, canonicalTarget, args.content),
-                    ) ?? versionOf(canonicalTarget, current),
+                  key: proposedKey,
+                  version: approvedVersions.get(proposedKey) ?? versionOf(canonicalTarget, current),
                 },
               }
             : {}),

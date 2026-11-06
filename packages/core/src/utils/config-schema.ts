@@ -175,6 +175,7 @@ const loggingShape = {
 
 const historyShape = {
   maxConversationsPerAgent: positiveWholeNumber.exactOptional(),
+  toolResultRetentionDays: wholeNumber.exactOptional(),
 } satisfies SchemaShape<HistoryConfig>;
 
 const apiKeyOnly = z

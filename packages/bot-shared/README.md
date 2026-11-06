@@ -14,7 +14,7 @@ Depends on `@jazz/core` and `@jazz/adapters` (for `PersonaServiceImpl`).
 - **`personas.ts`**: `/persona` picker discovery, via `@jazz/adapters`'s `PersonaServiceImpl` rather than
   each bridge scanning persona directories by hand.
 - **`session-store.ts`**: per-conversation epoch/incognito state (`/new`, `/incognito`).
-- **`timezone-store.ts`**: per-conversation IANA zone resolution and `/tz`.
+- **`timezone-store.ts`**: per-conversation IANA zone resolution and `/tz`; a conversation with no zone has none, never the server's.
 - **`usage-store.ts`**: daily runs/tokens/cost aggregation for `/status` and the daily spend cap.
 - **`scoped-record-store.ts`**: the corrupt-tolerant JSON-record-file primitive the three stores above
   share.

@@ -363,6 +363,11 @@ export interface HistoryConfig {
    * uses is never archived. Defaults to 100.
    */
   readonly maxConversationsPerAgent?: number;
+  /**
+   * Days an offloaded tool result is kept after its last write before a background sweep
+   * deletes it. 0 keeps them forever. Defaults to 30.
+   */
+  readonly toolResultRetentionDays?: number;
 }
 
 export interface LLMProviderConfig {

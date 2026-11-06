@@ -22,6 +22,7 @@ import { parseLoopSchedule, type LoopControl } from "@jazz/core/agent/loop/loop-
 import { FileSystemContextServiceTag } from "@jazz/core/interfaces/fs";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
+import { hostTimeZone } from "@jazz/core/utils/user-time-zone";
 import { Effect } from "effect";
 import { describeDaemonStart, ensureDaemonRunning } from "@/cli/helpers/daemon-launch";
 import { describeLoopNow } from "@/cli/loops/describe-loop";
@@ -85,10 +86,7 @@ function startHere(context: CommandContext, args: readonly string[]) {
       );
       return;
     }
-    const schedule = parseLoopSchedule(
-      parts.schedule,
-      Intl.DateTimeFormat().resolvedOptions().timeZone,
-    );
+    const schedule = parseLoopSchedule(parts.schedule, hostTimeZone());
     if (!schedule.ok) {
       yield* terminal.warn(schedule.reason);
       return;

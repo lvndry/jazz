@@ -188,3 +188,6 @@ must leave the cached identity unchanged.
 MCP server instruction budgets include their truncation markers. Rendering scans a bounded
 prefix of each raw instruction string, caps server attribution, and keeps server-controlled
 names inside the untrusted frame. A closed transport contributes no instructions.
+
+Ink footer and session accounting continue when receipt metrics are hidden or a completion
+has no timing metrics. Display preferences gate the receipt row, not recorded spend.
