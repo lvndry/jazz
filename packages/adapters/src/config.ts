@@ -1339,7 +1339,16 @@ function readOptionalConfigFile(
   filePath: string,
 ): Effect.Effect<GlobalConfigFileOnDisk | undefined, ConfigurationError> {
   return Effect.gen(function* () {
-    const exists = yield* fs.exists(filePath).pipe(Effect.catch(() => Effect.succeed(false)));
+    const exists = yield* fs.exists(filePath).pipe(
+      Effect.mapError(
+        () =>
+          new ConfigurationError({
+            field: "file",
+            message: `Cannot inspect config file at ${filePath}`,
+            suggestion: "Check the file and parent-directory permissions and try again.",
+          }),
+      ),
+    );
     if (!exists) {
       return undefined;
     }

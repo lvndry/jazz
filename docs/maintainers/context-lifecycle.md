@@ -521,6 +521,8 @@ process. Existing stamp files remain readable until the next complete sweep repl
 
 Cleanup reads retention policy once at the start of each scheduled pass, before home discovery.
 Invalid or unreadable configuration skips deletion; only absent settings use the default.
+Global and project config access-check failures also stop loading, so an inaccessible file
+cannot silently remove its safety settings.
 The daemon reloads the selected global and project config documents for each pass. Bridges
 stream sandbox homes, and discovery plus cleanup share one run-wide budget.
 

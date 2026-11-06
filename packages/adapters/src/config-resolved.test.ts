@@ -10,6 +10,7 @@ import { parseConfigFile } from "@jazz/core/utils/config-schema";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Cause, Effect, Exit, FileSystem, Option } from "effect";
+import { systemError } from "effect/PlatformError";
 import {
   composeConfigLayers,
   defaultConfig,
@@ -323,6 +324,35 @@ describe("output", () => {
 });
 
 describe("invalid configuration", () => {
+  it("refuses access-check failures instead of dropping global or project safety policy", async () => {
+    writeFixture({ global: { history: { toolResultRetentionDays: 0 } }, project: {} });
+    for (const deniedPath of [globalPath(), projectPath()]) {
+      const exit = await Effect.runPromiseExit(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const inaccessible = FileSystem.FileSystem.of({
+            ...fs,
+            exists: (target) =>
+              target === deniedPath
+                ? Effect.fail(
+                    systemError({
+                      _tag: "PermissionDenied",
+                      module: "FileSystem",
+                      method: "access",
+                      pathOrDescriptor: target,
+                    }),
+                  )
+                : fs.exists(target),
+          });
+          return yield* loadConfigFiles(inaccessible);
+        }).pipe(Effect.provide(NodeFileSystem.layer)),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      const failure = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+      expect(Option.isSome(failure) ? String(failure.value) : "").toContain(deniedPath);
+    }
+  });
+
   it("fails naming the project file and the unknown key", async () => {
     writeFixture({ project: { logging: { levle: "warn" } } });
     const exit = await Effect.runPromiseExit(
