@@ -104,17 +104,20 @@ See [observability](../configure/observability.md).
 Jazz rotates logs, archives older conversations, and expires telemetry. Memory, workflows,
 and workspace content remain yours to manage.
 
-| Data                          | Bound                                                                                            | Setting                            |
-| ----------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------- |
-| Conversation logs             | Grow with what was said, about 2 KB per turn of a typical chat                                   |                                    |
-| Conversations per agent       | 100 most recently used stay in `history/`; older ones move to `history/archive/`                 | `history.maxConversationsPerAgent` |
-| Files in `logs/`              | Rotated at 10 MB (two older copies, `name.1` and `name.2`); deleted 14 days after the last write | `logging.retentionDays`            |
-| The whole `logs/` directory   | 200 MB; past that the least recently written files are deleted first                             | `logging.maxTotalSizeMB`           |
-| `logs/one-shot/`              | Deleted a day after the job fired                                                                |                                    |
-| Job batches                   | Moved to `job-batches/.archive/` once their results reached the agent; deleted after 7 days      |                                    |
-| `memory-recall/`, `misfires/` | 4 MB each, plus one rotated copy                                                                 |                                    |
-| `telemetry/`                  | Deleted after 90 days                                                                            | `telemetry.retentionDays`          |
-| `runs/`                       | Records pruned once terminal                                                                     |                                    |
+| Data                          | Bound                                                                                                                                                                  | Setting                            |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| Conversation logs             | Grow with what was said, about 2 KB per turn of a typical chat                                                                                                         |                                    |
+| Conversations per agent       | 100 most recently used stay in `history/`; older ones move to `history/archive/`                                                                                       | `history.maxConversationsPerAgent` |
+| Offloaded tool results        | Deleted 30 days after their last write, when the conversation is not open, mid-turn or active within 30 days; swept in the background at most once a day, 0 keeps them | `history.toolResultRetentionDays`  |
+| Files in `logs/`              | Rotated at 10 MB (two older copies, `name.1` and `name.2`); deleted 14 days after the last write                                                                       | `logging.retentionDays`            |
+| The whole `logs/` directory   | 200 MB; past that the least recently written files are deleted first                                                                                                   | `logging.maxTotalSizeMB`           |
+| `logs/one-shot/`              | Deleted a day after the job fired                                                                                                                                      |                                    |
+| Job batches                   | Moved to `job-batches/.archive/` once their results reached the agent; deleted after 7 days                                                                            |                                    |
+| `memory-recall/`, `misfires/` | 4 MB each, plus one rotated copy                                                                                                                                       |                                    |
+| `telemetry/`                  | Deleted after 90 days                                                                                                                                                  | `telemetry.retentionDays`          |
+| `runs/`                       | Records pruned once terminal                                                                                                                                           |                                    |
+
+Only `work/<agent>/<conversation>/tool-results/` is swept. The compaction journal and work state beside it, `workspace/` and `generated/` are never aged out. If the model asks `retrieve_tool_result` for a result that was swept, it is told nothing is stored and to rerun the original tool. The sweep runs in chat, the daemon and the bot bridges, a short time after startup and never delaying the first prompt; `jazz run` does not run it.
 
 Job batches remain active until their fan-in turn finishes or parks and `deliveredAt` is recorded. Failed deliveries remain available for retry; the periodic archive sweep never removes an undelivered batch.
 

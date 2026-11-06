@@ -125,6 +125,15 @@ describe("retrieve_tool_result", () => {
     });
   });
 
+  it("answers a missing result, even with the whole work directory gone, without throwing", async () => {
+    writeToolResult("agent-1", "conv-1", "call_1", "short body");
+    await nodeFs.rm(path.join(jazzHome, "work"), { recursive: true, force: true });
+    const outcome = await retrieve({ tool_call_id: "call_1" });
+    expect(outcome.success).toBe(false);
+    expect(outcome.error).toContain('No offloaded result for tool_call_id "call_1"');
+    expect(outcome.error).toContain("Re-run the original tool");
+  });
+
   it("pages a long body, each page fitting one tool result, until the end", async () => {
     const body = Array.from({ length: 6_000 }, (_, index) => `line ${String(index)}`).join("\n");
     writeToolResult("agent-1", "conv-1", "call_1", body);

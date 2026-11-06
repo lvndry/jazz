@@ -37,6 +37,7 @@ import { answerRunFromChat, isRunAnswerCommand } from "@jazz/bot-shared/run-answ
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { installShutdown } from "@jazz/bot-shared/shutdown";
 import { line, plainLine, subtle, text } from "@jazz/bot-shared/surface";
+import { startToolResultSweep } from "@jazz/bot-shared/tool-result-sweep";
 import {
   type ChoiceOutcome,
   createTurnRunner,
@@ -825,6 +826,7 @@ export function startBridge(): void {
 
   const bridge = createBridge(config, createDiscordSurface({ botToken: config.botToken }));
   startHealthServer(bridge);
+  startToolResultSweep(config.jazzHome);
   startReminderSweep({
     dataDir: config.jazzHome,
     decodeScope: (agentId) => channelIdFromAgentId(agentId) ?? undefined,

@@ -26,6 +26,7 @@ import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
 import { installShutdown } from "@jazz/bot-shared/shutdown";
+import { startToolResultSweep } from "@jazz/bot-shared/tool-result-sweep";
 import { createTurnRunner, type TurnRunner } from "@jazz/bot-shared/turn";
 import { BoundedLruCache } from "@jazz/core/utils/bounded-lru-cache";
 import qrcode from "qrcode-terminal";
@@ -430,6 +431,7 @@ export async function startBridge(): Promise<void> {
     );
   };
 
+  startToolResultSweep(config.jazzHome);
   startReminderSweep({
     dataDir: config.jazzHome,
     decodeScope: (agentId) => jidFromAgentId(agentId),

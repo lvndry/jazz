@@ -41,6 +41,7 @@ import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { installShutdown } from "@jazz/bot-shared/shutdown";
 import { code, line, plainLine, text } from "@jazz/bot-shared/surface";
 import { setTzForChat, isValidTimeZone } from "@jazz/bot-shared/timezone-store";
+import { startToolResultSweep } from "@jazz/bot-shared/tool-result-sweep";
 import {
   type ChoiceOutcome,
   createTurnRunner,
@@ -812,6 +813,7 @@ export async function startBridge(): Promise<void> {
     createTelegramSurface({ botToken: config.botToken, apiBase: config.apiBase }),
   );
   startHealthServer(bridge);
+  startToolResultSweep(config.jazzHome);
   startReminderSweep({
     dataDir: config.jazzHome,
     decodeScope: (agentId) => {

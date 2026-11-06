@@ -33,6 +33,7 @@ import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
 import { installShutdown } from "@jazz/bot-shared/shutdown";
 import type { ChatId } from "@jazz/bot-shared/surface";
+import { startToolResultSweep } from "@jazz/bot-shared/tool-result-sweep";
 import { createTurnRunner, type TurnRunner } from "@jazz/bot-shared/turn";
 import {
   type AccessConfig,
@@ -612,6 +613,7 @@ export async function startBridge(): Promise<void> {
 
   await maybeOfferService(config);
 
+  startToolResultSweep(config.jazzHome);
   startReminderSweep({
     dataDir: config.jazzHome,
     decodeScope: (agentId) => {

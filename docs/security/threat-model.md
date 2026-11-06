@@ -240,3 +240,12 @@ Before exposing an unattended agent:
 For configuration, see [Approvals](./approvals.md), [Surface access](./surface-access.md),
 and [Secrets and egress](./secrets-and-egress.md). Report vulnerabilities privately using
 the instructions in [SECURITY.md](../../SECURITY.md).
+
+### Offloaded-result cleanup
+
+The unattended retention sweep treats directory entries as untrusted. It anchors to opened
+directory descriptors, rejects symlinked ancestors and roots, and uses `openat`/`unlinkat` for
+traversal and deletion. Renaming an ancestor cannot redirect an operation through its replacement.
+It does not cross mounted filesystems below the configured home. Stamp replacement creates a
+private directory inode rather than following or overwriting an existing link. Streaming directory
+reads share the same bounded budget as file cleanup. Native-load failure stops the sweep.
