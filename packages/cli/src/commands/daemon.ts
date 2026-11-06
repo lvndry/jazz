@@ -30,6 +30,11 @@ import {
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
+import {
+  DEFAULT_TOOL_RESULT_RETENTION_DAYS,
+  scheduleToolResultSweep,
+  TOOL_RESULT_SWEEP_INTERVAL_MS,
+} from "@jazz/adapters/tool-result-retention";
 import { resolveWebhookSecret, resolveWebhookToken } from "@jazz/adapters/webhooks/token";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
@@ -339,6 +344,10 @@ export function daemonCommand(options: DaemonCommandOptions) {
     }
 
     const logger = yield* LoggerServiceTag;
+    const daemonConfigService = yield* AgentConfigServiceTag;
+    const startupAppConfig = yield* daemonConfigService.appConfig;
+    const toolResultRetentionDays =
+      startupAppConfig.history?.toolResultRetentionDays ?? DEFAULT_TOOL_RESULT_RETENTION_DAYS;
     const scheduler = yield* SchedulerServiceTag;
     const runInProcessWorkflows = scheduler.getSchedulerType() === "in-process";
     yield* markInterruptedRuns().pipe(
@@ -415,6 +424,16 @@ export function daemonCommand(options: DaemonCommandOptions) {
           const pathname = new URL(request.url).pathname;
           const route = routes.find((candidate) => pathname.startsWith(candidate.prefix));
           return (route?.handle ?? handle)(request);
+        },
+      });
+
+      scheduleToolResultSweep({
+        jazzHomes: () => [getJazzHomeDirectory()],
+        retentionDays: () => toolResultRetentionDays,
+        repeatEveryMs: TOOL_RESULT_SWEEP_INTERVAL_MS,
+        logger: {
+          debug: (message, fields) => void Effect.runFork(logger.debug(message, fields)),
+          warn: (message, fields) => void Effect.runFork(logger.warn(message, fields)),
         },
       });
 
