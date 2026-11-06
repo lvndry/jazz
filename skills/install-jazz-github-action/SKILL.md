@@ -147,7 +147,7 @@ The config has no top-level `model` field: the model is set entirely inside `con
 
 - Read PR context from `/tmp/jazz-pr-context.json`
 - Run `execute_command` with `git diff __PR_BASE_SHA__...__PR_HEAD_SHA__`
-- Assemble a board of `spawn_subagent` lenses (Correctness, Architecture, Silent Failures, Security, Performance, Test Rigor, and diff-scoped lenses) and cross-examine findings
+- Assemble a board of `spawn_subagent` lenses (Correctness, Architecture, Silent Failures, Security, Performance, Test Rigor, Product & UX Impact, and diff-scoped lenses) and cross-examine findings
 - Output exactly two four-backtick fenced blocks: `markdown` verdict then `json` inline comments
 
 See the [reference WORKFLOW.md](https://github.com/lvndry/jazz/blob/main/.github/jazz/workflows/code-review/WORKFLOW.md) for the full review board protocol.
