@@ -19,8 +19,10 @@ import { useInputHandler } from "./hooks/use-input-service";
 import { InkHome } from "./InkHome";
 import { markdownToAnsi } from "./markdown/ansi";
 import { agentDetailsBodyHeight, agentDetailsRows } from "./models/agent-details";
+import { formatBackgroundWork } from "./models/background-work";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
+import { forceSendQueue } from "./queue-force-send";
 import { QueueInput } from "./QueueInput";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
 import {
@@ -33,12 +35,11 @@ import {
 } from "./skill-browser";
 import StatusFooter from "./StatusFooter";
 import { store, useOutputSlice, usePromptSlice, useSessionSlice, type ActiveMenu } from "./store";
+import { centredWindowStart } from "./text/picker-window";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId } from "./types";
 import { WizardHome } from "./WizardHome";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
-import { formatBackgroundWork } from "./models/background-work";
-import { centredWindowStart } from "./text/picker-window";
 import { clipTerminalCells } from "./text/terminal-cells";
 import packageJson from "../../../../package.json";
 
@@ -548,9 +549,13 @@ export function App(): React.ReactElement {
         clearTimeout(escapeHintTimerRef.current);
         escapeHintTimerRef.current = null;
       }
+      // Queued messages are sent into the chat now, as the fullscreen double Esc does.
+      if (forceSendQueue("", interruptHandlerRef.current) === "sent") {
+        return;
+      }
       // User-initiated abort — drop any open ephemeral panels (subagents,
-      // reasoning) and any queued chat message so nothing gets stuck after
-      // the run is interrupted. Print immediate feedback: the loop's own
+      // reasoning) so nothing gets stuck after the run is interrupted.
+      // Print immediate feedback: the loop's own
       // "generation stopped" line can lag behind a mid-flight tool.
       store.printOutput({
         type: "warn",
@@ -558,7 +563,6 @@ export function App(): React.ReactElement {
         timestamp: new Date(),
       });
       store.collapseAllEphemeral();
-      store.clearQueue();
       interruptHandlerRef.current();
     } else {
       // First press — show hint, auto-dismiss after timeout

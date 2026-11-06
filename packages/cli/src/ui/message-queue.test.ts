@@ -27,7 +27,7 @@ describe("takeSteering", () => {
     const { taken, rest } = takeSteering(queue);
 
     expect(taken).toEqual([]);
-    expect(rest).toEqual(queue);
+    expect(rest).toBe(queue);
     expect(hasSteering(queue)).toBe(false);
   });
 
@@ -85,18 +85,6 @@ describe("a run that ends with entries still queued", () => {
     expect(duringRun.taken).toEqual(["use the staging db"]);
     expect(afterRun.taken).toEqual(["then summarize"]);
     expect(afterRun.rest).toEqual([]);
-  });
-
-  it("an interrupted run flushes every entry, each follow-up still its own turn", () => {
-    let queue: readonly QueueEntry[] = [steer("stop that"), followUp("then do x"), steer("and y")];
-    const turns: (readonly string[])[] = [];
-    while (queue.length > 0) {
-      const next = takeNextTurn(queue);
-      turns.push(next.taken);
-      queue = next.rest;
-    }
-
-    expect(turns).toEqual([["stop that"], ["then do x"], ["and y"]]);
   });
 });
 

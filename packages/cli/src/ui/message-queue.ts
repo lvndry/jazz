@@ -41,6 +41,16 @@ export interface QueueTake {
  */
 export function takeSteering(queue: readonly QueueEntry[]): QueueTake {
   const horizon = steeringHorizon(queue);
+  let steeringPresent = false;
+  for (let index = 0; index < horizon; index += 1) {
+    if (isSteering(queue[index]!)) {
+      steeringPresent = true;
+      break;
+    }
+  }
+  if (!steeringPresent) {
+    return { taken: EMPTY_TEXTS, rest: queue };
+  }
   const taken: string[] = [];
   const rest: QueueEntry[] = [];
   queue.forEach((entry, index) => {
@@ -50,9 +60,6 @@ export function takeSteering(queue: readonly QueueEntry[]): QueueTake {
       rest.push(entry);
     }
   });
-  if (taken.length === 0) {
-    return { taken: EMPTY_TEXTS, rest: queue };
-  }
   return { taken, rest };
 }
 
@@ -79,6 +86,19 @@ export function takeNextTurn(queue: readonly QueueEntry[]): QueueTake {
     end += 1;
   }
   return { taken: queue.slice(0, end).map((entry) => entry.text), rest: queue.slice(end) };
+}
+
+/**
+ * Whether the chat sends the queue as the next turn without prompting. A clean turn does; a turn
+ * that failed or was interrupted hands the queue back to the composer as a draft, unless the user
+ * asked to flush it (double Esc or Ctrl+Enter).
+ */
+export function sendsQueueUnprompted(options: {
+  readonly queueLength: number;
+  readonly lastTurnErrored: boolean;
+  readonly flushRequested: boolean;
+}): boolean {
+  return options.queueLength > 0 && (!options.lastTurnErrored || options.flushRequested);
 }
 
 /** Every entry's text joined as the composer shows it when the queue is recalled for editing. */

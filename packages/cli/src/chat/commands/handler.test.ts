@@ -53,7 +53,7 @@ import {
   type SkillsBySource,
 } from "@jazz/core/skills/skill-service";
 import type { Agent } from "@jazz/core/types/agent";
-import { LLMRequestError } from "@jazz/core/types/errors";
+import { GenerationInterruptedError, LLMRequestError } from "@jazz/core/types/errors";
 import type { ChatMessage, ConversationMessages } from "@jazz/core/types/message";
 import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
 import { describe, test, expect, afterAll, beforeEach, afterEach, mock, spyOn } from "bun:test";
@@ -63,6 +63,7 @@ import { ChatServiceImpl } from "@/cli/chat-service";
 import * as agentCreation from "@/cli/commands/create-agent";
 import { reasoningChoicesFor } from "@/cli/helpers/reasoning";
 import { getGlyphs } from "@/cli/ui/glyphs";
+import { forceSendQueue } from "@/cli/ui/queue-force-send";
 import { reportPlainText } from "@/cli/ui/report-layout";
 import { store } from "@/cli/ui/store";
 import * as chatGoal from "./goal";
@@ -442,6 +443,97 @@ describe("conversation titles through the chat loop", () => {
       store.registerModeSwitchHandler(null);
     }
   });
+});
+
+describe("queued messages through the production chat loop", () => {
+  for (const outcome of ["clean", "interrupt-flush", "failed-draft"] as const) {
+    test(`${outcome}: steering and follow-ups stay in their intended turns`, async () => {
+      const setup = spyOn(chatSession, "setupAgent").mockReturnValue(Effect.void);
+      const initialize = spyOn(chatSession, "initializeSession").mockReturnValue(Effect.void);
+      const directory = spyOn(chatSession, "updateWorkingDirectoryInStore").mockImplementation(
+        () => {},
+      );
+      const handoff = spyOn(chatGoal, "offerGoalHandoffs").mockReturnValue(Effect.void);
+      const turns: string[] = [];
+      const steering: unknown[] = [];
+      const drafts: (string | undefined)[] = [];
+      const run = spyOn(AgentRunner, "run").mockImplementation((options) =>
+        Effect.suspend((): ReturnType<typeof AgentRunner.run> => {
+          turns.push(options.userInput);
+          if (turns.length === 1) {
+            store.appendToQueue("then summarize", "followup");
+            store.appendToQueue("use staging");
+            steering.push(options.checkQueuedMessage?.());
+            if (outcome === "interrupt-flush") {
+              store.appendToQueue("finally explain", "followup");
+              forceSendQueue("", () => undefined);
+              return Effect.fail(new GenerationInterruptedError({ reason: "user interrupted" }));
+            }
+            if (outcome === "failed-draft") {
+              return Effect.fail(
+                new LLMRequestError({
+                  provider: "openai",
+                  message: "bad request",
+                  permanent: true,
+                }),
+              );
+            }
+          }
+          return Effect.succeed({ conversationId: "queue-loop", content: "done", messages: [] });
+        }),
+      );
+      store.clearQueue();
+      store.consumeFlushQueue();
+      try {
+        const terminal = terminalFixture({
+          ask: (_message, options) =>
+            Effect.sync(() => {
+              drafts.push(options?.defaultValue);
+              return "/exit";
+            }),
+        });
+        const layer = chatLoopLayer(
+          terminal,
+          partialFake<AgentConfigService>({ appConfig: Effect.succeed({}) }),
+          {
+            get: () => Effect.succeed(undefined),
+            set: () => Effect.void,
+            load: () => Effect.succeed({}),
+          },
+          partialFake<FileSystemContextService>({ getCwd: () => Effect.succeed(tmpDir) }),
+        );
+        const result = await Effect.runPromise(
+          new ChatServiceImpl()
+            .startChatSession(testAgent, {
+              conversationId: "queue-loop",
+              initialMessage: "start",
+              ephemeral: true,
+            })
+            .pipe(Effect.provide(layer)),
+        );
+        expect(result.reason).toBe("exit");
+        expect(steering).toEqual([{ content: "use staging", typed: "use staging" }]);
+        expect(turns).toEqual(
+          outcome === "failed-draft"
+            ? ["start"]
+            : outcome === "interrupt-flush"
+              ? ["start", "then summarize", "finally explain"]
+              : ["start", "then summarize"],
+        );
+        expect(drafts).toEqual([outcome === "failed-draft" ? "then summarize" : undefined]);
+        expect(store.getMessageQueueSnapshot()).toEqual([]);
+      } finally {
+        run.mockRestore();
+        setup.mockRestore();
+        initialize.mockRestore();
+        directory.mockRestore();
+        handoff.mockRestore();
+        store.clearQueue();
+        store.consumeFlushQueue();
+        store.registerModeSwitchHandler(null);
+      }
+    });
+  }
 });
 
 describe("failed-turn spend through the production chat loop", () => {
