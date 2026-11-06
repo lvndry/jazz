@@ -406,6 +406,13 @@ describe("executeWithoutStreaming empty responses", () => {
     };
   }
 
+  it("refuses duplicate IDs before recording or executing the batch", async () => {
+    const call = toolCallCompletion.toolCalls![0]!;
+    const harness = runWith([{ ...toolCallCompletion, toolCalls: [call, call] }], 0);
+    await expect(harness.run()).rejects.toThrow("duplicate tool call IDs");
+    expect(harness.runContext.runMetrics.totalRequests).toBe(0);
+  });
+
   it("asks again after an empty finish and answers from the retry", async () => {
     const harness = runWith([emptyCompletion(), { ...finalCompletion }], 2);
 

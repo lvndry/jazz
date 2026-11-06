@@ -69,6 +69,7 @@ import {
   unlistedPrivateAddressesFor,
 } from "./private-destination";
 import type { ToolBatchLedger } from "./tool-batch-ledger";
+import { toolCallIdentityError } from "./tool-call-identity";
 import {
   emitToolInvocation,
   recordToolError,
@@ -498,6 +499,10 @@ export class ToolExecutor {
     | LLMService
   > {
     return Effect.gen(function* () {
+      const identityError = toolCallIdentityError([toolCall]);
+      if (identityError !== undefined) {
+        return yield* Effect.fail(new Error(identityError));
+      }
       const presentationService = yield* PresentationServiceTag;
       const logger = yield* LoggerServiceTag;
 
@@ -1185,6 +1190,10 @@ export class ToolExecutor {
     | LLMService
   > {
     return Effect.gen(function* () {
+      const identityError = toolCallIdentityError(toolCalls);
+      if (identityError !== undefined) {
+        return yield* Effect.fail(new Error(identityError));
+      }
       const presentationService = yield* PresentationServiceTag;
       const logger = yield* LoggerServiceTag;
       const registry = yield* ToolRegistryTag;

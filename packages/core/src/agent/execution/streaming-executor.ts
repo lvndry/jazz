@@ -39,7 +39,7 @@ import { isRetryableLLMError } from "@/core/utils/llm-error";
 import type { UsageCostTokens } from "@/core/utils/usage-cost";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
-import { rejectEmptyCompletion } from "./empty-completion";
+import { validateCompletion } from "./completion-validation";
 import type { RecursiveRunner } from "../context/summarizer";
 import {
   emitLLMRetry,
@@ -308,7 +308,7 @@ export function executeWithStreaming(
                     }),
               ),
             );
-            const accepted = yield* rejectEmptyCompletion(
+            const accepted = yield* validateCompletion(
               { completion, interrupted: false },
               emptyCompletionContext,
             );
@@ -347,7 +347,7 @@ export function executeWithStreaming(
             ),
           ).pipe(
             Effect.map((completion) => ({ completion, interrupted: false })),
-            Effect.flatMap((result) => rejectEmptyCompletion(result, emptyCompletionContext)),
+            Effect.flatMap((result) => validateCompletion(result, emptyCompletionContext)),
           );
 
           /**

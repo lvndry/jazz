@@ -25,7 +25,7 @@ import { isRetryableLLMError } from "@/core/utils/llm-error";
 import type { UsageCostTokens } from "@/core/utils/usage-cost";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
-import { rejectEmptyCompletion } from "./empty-completion";
+import { validateCompletion } from "./completion-validation";
 import type { RecursiveRunner } from "../context/summarizer";
 import {
   emitLLMRetry,
@@ -152,7 +152,7 @@ export function executeWithoutStreaming(
                 let rejectedUsage: UsageCostTokens | undefined;
                 return yield* llmService.createChatCompletion(provider, llmOptions).pipe(
                   Effect.flatMap((result) =>
-                    rejectEmptyCompletion(
+                    validateCompletion(
                       { completion: result },
                       {
                         provider,
