@@ -202,6 +202,12 @@ export interface MCPServerManager {
   ) => Effect.Effect<MCPServerCapabilities | undefined, never>;
 
   /**
+   * The `instructions` string the server returned at initialize, or undefined when it sent none
+   * or the server is not connected. Server-controlled text: callers treat it as untrusted.
+   */
+  readonly getInstructions: (serverName: string) => Effect.Effect<string | undefined, never>;
+
+  /**
    * Subscribe to `notifications/tools/list_changed`. Returns an unsubscribe
    * function. Handlers fire with the re-listed tools already resolved.
    */

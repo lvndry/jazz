@@ -87,6 +87,7 @@ import { autoDetachPolicyFor } from "./detach/auto-detach";
 import { assertConversationWritable } from "./detach/ownership";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createEgressTaint, recordEgressTaint } from "./execution/egress-taint";
+import { collectMcpServerInstructions } from "./mcp-server-instructions";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import {
   MANAGE_MEMORY_TOOL_NAME,
@@ -955,6 +956,8 @@ function initializeAgentRun(
       ...(options.memorySources ?? collectMemorySources(history, currentMemorySource)),
     ];
 
+    const mcpServerInstructions = yield* collectMcpServerInstructions(connectedMCPServers);
+
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
     const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
@@ -988,6 +991,7 @@ function initializeAgentRun(
           initialAttachments: options.initialAttachments,
         }),
         ...(projectInstructions.length > 0 && { projectInstructions }),
+        ...(mcpServerInstructions.length > 0 && { mcpServerInstructions }),
         ...(instructionDiscovery.omissions.length > 0 && {
           projectInstructionOmissions: instructionDiscovery.omissions,
         }),
