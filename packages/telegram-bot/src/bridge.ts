@@ -309,7 +309,7 @@ const BOT_COMMANDS: { command: string; description: string }[] = [
   { command: "incognito", description: "Start a private conversation (nothing saved) until /new" },
   { command: "remind", description: "Set a reminder, e.g. /remind 30m take pizza out" },
   { command: "reminders", description: "List and cancel your reminders" },
-  { command: "tz", description: "Set your timezone, e.g. /tz Europe/Paris" },
+  { command: "tz", description: "Pick your timezone, or /tz Paris" },
   { command: "status", description: "Model, today's usage, uptime" },
   { command: "help", description: "Show available commands" },
 ];

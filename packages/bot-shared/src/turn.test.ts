@@ -727,6 +727,25 @@ describe("turn runner", () => {
     expect(sent.at(-1)?.choiceIds).toEqual(["safe", "yolo"]);
   });
 
+  test("a bare /tz on a button surface draws a place picker and a tap sets the zone", async () => {
+    await runner.handle(message("/tz"));
+    expect(sent.at(-1)?.promptId).toBe("command:tz");
+    expect(sent.at(-1)?.choiceIds).toContain("Europe/Paris");
+    expect(await runner.deliverChoice(tap("command:tz", "Europe/Paris"))).toBe("answered");
+    expect(sent.at(-1)?.text).toContain("Timezone → Europe/Paris");
+  });
+
+  test("the zone picker refuses an id that was not offered", async () => {
+    expect(await runner.deliverChoice(tap("command:tz", "Nowhere/Land"))).toBe("expired");
+  });
+
+  test("/tz accepts a city and rejects a place it cannot place", async () => {
+    await runner.handle(message("/tz Tokyo"));
+    expect(sent.at(-1)?.text).toContain("Timezone → Asia/Tokyo");
+    await runner.handle(message("/tz Atlantis"));
+    expect(sent.at(-1)?.text).toContain("I don't know");
+  });
+
   test("/remind runs a turn that asks the agent to add the reminder", async () => {
     const turn = runner.handle(message("/remind 30m take pizza out"));
     await nextRun();

@@ -57,14 +57,14 @@ Follow the [Telegram setup](../guides/deploy-a-chat-agent.md#telegram) to create
 set its token and allowed chat ids, and start the container. Message the bot directly;
 it shows tool activity and reasoning while the run works.
 
-| You want to        | Send or choose                                                                    |
-| ------------------ | --------------------------------------------------------------------------------- |
-| Change model       | `/model` for a picker, or `/model provider/model` after configuring that provider |
-| Change behavior    | `/persona`                                                                        |
-| Stop a run         | `/stop` or the stop button                                                        |
-| Approve a tool     | Accept or reject its approval message; batch buttons answer several at once       |
-| Set a reminder     | `/remind 30m check the deploy`                                                    |
-| Set your time zone | `/tz Europe/Paris`; until then the agent asks before scheduling a clock time      |
+| You want to        | Send or choose                                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------------------------------- |
+| Change model       | `/model` for a picker, or `/model provider/model` after configuring that provider                              |
+| Change behavior    | `/persona`                                                                                                     |
+| Stop a run         | `/stop` or the stop button                                                                                     |
+| Approve a tool     | Accept or reject its approval message; batch buttons answer several at once                                    |
+| Set a reminder     | `/remind 30m check the deploy`                                                                                 |
+| Set your time zone | `/tz` (tap your place, or `/tz Paris`); until then the agent asks where you are before scheduling a clock time |
 
 Each chat has its own agent settings and conversation. In the default Linux container
 setup, chat agents run under separate Unix users. Provider keys still bill the operator's

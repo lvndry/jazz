@@ -105,18 +105,22 @@ export function resolveUserZone(inputs: UserZoneInputs): UserZone {
 }
 
 /**
- * What the model is told when the user's zone is not known: ask, then pass the answer back.
- * `settingCommand` is the surface's command that remembers a zone for the conversation.
+ * What the model is told when the user's zone is not known: ask in the user's terms, then pass
+ * the answer back. `settingCommand` is the surface's command that remembers a zone for the
+ * conversation.
  */
 export function unknownZoneInstruction(settingCommand?: string): string {
   const remember =
     settingCommand === undefined
       ? ""
-      : ` Offer to remember it: the user can send ${settingCommand} <zone> once and it applies to every later request.`;
+      : ` Offer to remember it: the user can send ${settingCommand} once and it applies to every later request.`;
   return (
-    "The user's time zone is not known on this surface. Ask the user which time zone they are in " +
-    "(an IANA name such as Europe/Paris, or their city, which you convert to its IANA name), " +
-    "then call this tool again with timeZone set to their answer." +
+    "The user's time zone is not known on this surface. Ask where they are (their city or country), " +
+    "never for a zone name or code, and never show them one to type. When ask_user_question is " +
+    "available, offer the 2 to 4 most likely places as choices, judged from the conversation " +
+    "(language, places and times mentioned), and let them name another. Convert their answer to " +
+    'its IANA name yourself, confirm it in words ("Paris, so 14:00 your time"), then call this tool ' +
+    "again with timeZone set to that name." +
     remember
   );
 }
