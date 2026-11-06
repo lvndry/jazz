@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { z } from "zod";
 import {
   BLOCKED_ROUNDS_REQUIRED,
   MAX_CONSECUTIVE_BLOCKED_REPORTS,
@@ -48,13 +49,19 @@ describe("report_goal_cycle", () => {
     const goal = testStoredGoal({
       cycle,
       latestRunId: RUN_ID,
-      blockerStreak: { blocker: "access no", rounds: BLOCKED_ROUNDS_REQUIRED - 1 },
+      blockerStreak: { blocker: "no access", rounds: BLOCKED_ROUNDS_REQUIRED - 1 },
     });
     const result = await report(
       { status: "blocked", summary: "No access.", blocker: "No access" },
       goal,
     );
     expect(result.result).toEqual({ recorded: true });
+  });
+
+  it("advertises the required blocker in the blocked schema branch", () => {
+    const schema = z.toJSONSchema(createReportGoalCycleTool().parameters);
+    expect(schema.anyOf?.[0]?.required).toContain("blocker");
+    expect(schema.anyOf?.[1]?.required).not.toContain("blocker");
   });
 
   it("rejects a blocked report that names no blocker", async () => {
@@ -81,7 +88,7 @@ describe("report_goal_cycle", () => {
   });
 
   it("does not match a goal that has no open cycle when the call has no run id", async () => {
-    const goal = testStoredGoal({ blockerStreak: { blocker: "access no", rounds: 1 } });
+    const goal = testStoredGoal({ blockerStreak: { blocker: "no access", rounds: 1 } });
     const result = await report(
       { status: "blocked", summary: "No access.", blocker: "No access" },
       goal,

@@ -10,6 +10,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import {
   BLOCKED_ROUNDS_REQUIRED,
+  MAX_CONSECUTIVE_BLOCKED_REPORTS,
   blockedReportCount,
   blockedRuleInstruction,
   blockedStopsGoal,
@@ -26,7 +27,7 @@ import { lastSucceededToolCall, type ToolCallMessage } from "./tool-call-history
 
 export const REPORT_GOAL_CYCLE_TOOL_NAME = "report_goal_cycle";
 
-const reportGoalCycleParameters = z
+const reportGoalCycleFields = z
   .object({
     status: z
       .enum(["continue", "complete", "blocked", "question"])
@@ -44,7 +45,7 @@ const reportGoalCycleParameters = z
       .max(MAX_BLOCKER_CHARS)
       .optional()
       .describe(
-        `For blocked (required): a few words naming what stops the work. Use the same words each cycle while the same thing still stands; the goal stops as blocked after ${BLOCKED_ROUNDS_REQUIRED} consecutive cycles report the same blocker.`,
+        `For blocked (required): a few words naming what stops the work. Use the same words each cycle while the same thing still stands; the goal stops as blocked after ${BLOCKED_ROUNDS_REQUIRED} consecutive cycles report the same blocker, or after ${MAX_CONSECUTIVE_BLOCKED_REPORTS} consecutive blocked reports regardless of wording.`,
       ),
     nextAction: z
       .string()
@@ -77,11 +78,21 @@ const reportGoalCycleParameters = z
       .optional()
       .describe("For question: what to ask the user."),
   })
-  .strict()
-  .refine((args) => args.status !== "blocked" || args.blocker !== undefined, {
-    message: "A blocked report names its blocker.",
-    path: ["blocker"],
-  });
+  .strict();
+
+const reportGoalCycleParameters = z.union([
+  reportGoalCycleFields.extend({
+    status: z.literal("blocked"),
+    blocker: reportGoalCycleFields.shape.blocker
+      .unwrap()
+      .describe(reportGoalCycleFields.shape.blocker.description!),
+  }),
+  reportGoalCycleFields.extend({
+    status: z
+      .enum(["continue", "complete", "question"])
+      .describe("The cycle's disposition when it is not blocked."),
+  }),
+]);
 
 type ReportGoalCycleArgs = z.infer<typeof reportGoalCycleParameters>;
 

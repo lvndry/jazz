@@ -453,7 +453,7 @@ describe("stopping as blocked", () => {
       const next = settleCycle(current, blockedEnd("Login fails"));
       expect(next.state).toEqual({ kind: "active" });
       expect(next.blockerStreak).toEqual({
-        blocker: "fails login",
+        blocker: "login fails",
         rounds: round,
         reports: round,
       });
@@ -467,9 +467,9 @@ describe("stopping as blocked", () => {
   });
 
   it("starts the count over when the blocker changes or any other disposition intervenes", () => {
-    const streak = goal({ blockerStreak: { blocker: "fails login", rounds: 2, reports: 2 } });
+    const streak = goal({ blockerStreak: { blocker: "login fails", rounds: 2, reports: 2 } });
     expect(settleCycle(streak, blockedEnd("Disk is full")).blockerStreak).toEqual({
-      blocker: "disk full is",
+      blocker: "disk is full",
       rounds: 1,
       reports: 3,
     });
@@ -485,11 +485,25 @@ describe("stopping as blocked", () => {
     expect(continued.blockerStreak).toBeUndefined();
   });
 
-  it("treats a reworded blocker as the same blocker", () => {
+  it("keeps role-reversed blockers distinct", () => {
+    const first = settleCycle(goal(), blockedEnd("server rejects client"));
+    const next = settleCycle(
+      goal({ blockerStreak: first.blockerStreak! }),
+      blockedEnd("client rejects server"),
+    );
+    expect(next.blockerStreak?.rounds).toBe(1);
+  });
+
+  it("preserves the matching count from a previously saved phrase", () => {
+    const old = goal({ blockerStreak: { blocker: "login fails", rounds: 2 } });
+    expect(settleCycle(old, blockedEnd("LOGIN fails.")).state.kind).toBe("review-required");
+  });
+
+  it("ignores case and punctuation in a blocker", () => {
     let current = goal();
-    for (const wording of ["API key missing", "Missing API key", "missing api-key."]) {
+    for (const wording of ["API key missing", "api-key missing", "API KEY missing."]) {
       const next = settleCycle(current, blockedEnd(wording));
-      if (wording === "missing api-key.") {
+      if (wording === "API KEY missing.") {
         expect(next.state.kind).toBe("review-required");
       }
       current = goal({ blockerStreak: next.blockerStreak! });
@@ -508,7 +522,7 @@ describe("stopping as blocked", () => {
   });
 
   it("counts a record saved before reports were tracked from its rounds", () => {
-    const old = goal({ blockerStreak: { blocker: "fails login", rounds: 2 } });
+    const old = goal({ blockerStreak: { blocker: "login fails", rounds: 2 } });
     expect(settleCycle(old, blockedEnd("something else")).blockerStreak?.reports).toBe(3);
   });
 });
@@ -545,14 +559,18 @@ describe("the authority granted on acceptance", () => {
 
 describe("counters that must run in a row", () => {
   it("a blocker streak survives a report that was not accepted", () => {
-    const next = settleCycle(goal({ blockerStreak: { blocker: "login fails", rounds: 2 } }), {
-      run: { kind: "completed", spend: SPEND },
-      evaluation: {
-        kind: "invalid",
-        reason: "Completion evidence for criterion 1 does not appear in this cycle's tool output.",
+    const next = settleCycle(
+      goal({ blockerStreak: { blocker: "login fails", rounds: 2, reports: 4 } }),
+      {
+        run: { kind: "completed", spend: SPEND },
+        evaluation: {
+          kind: "invalid",
+          reason:
+            "Completion evidence for criterion 1 does not appear in this cycle's tool output.",
+        },
       },
-    });
-    expect(next.blockerStreak).toEqual({ blocker: "login fails", rounds: 2 });
+    );
+    expect(next.blockerStreak).toEqual({ blocker: "login fails", rounds: 2, reports: 4 });
     expect(next.unverifiedClaims).toBe(1);
   });
 });
