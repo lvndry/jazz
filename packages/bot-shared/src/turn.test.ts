@@ -65,6 +65,7 @@ describe("turn runner", () => {
   let runsStarted: string[];
   let pendingSeen: PendingSummary[][];
   let current: FakeRun | undefined;
+  let onRunStarted: ((run: FakeRun) => void) | undefined;
   let runner: TurnRunner;
   let baseConfig: TurnConfig;
 
@@ -175,6 +176,7 @@ describe("turn runner", () => {
     runsStarted = [];
     pendingSeen = [];
     current = undefined;
+    onRunStarted = undefined;
 
     const config: TurnConfig = {
       surface,
@@ -202,6 +204,9 @@ describe("turn runner", () => {
         const fake = makeFakeRun();
         fake.setHandlers(handlers ?? {});
         current = fake;
+        const notify = onRunStarted;
+        onRunStarted = undefined;
+        notify?.(fake);
         return fake.run;
       },
     };
@@ -221,9 +226,7 @@ describe("turn runner", () => {
    */
   const startTurn = async (prompt = "hello"): Promise<{ turn: Promise<void> }> => {
     const turn = runner.handle(message(prompt));
-    for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) {
-      await Bun.sleep(1);
-    }
+    await nextRun();
     if (current === undefined) {
       throw new Error("the run never started");
     }
@@ -534,40 +537,33 @@ describe("turn runner", () => {
   });
 
   test("two quick messages run one after the other", async () => {
+    const firstStarted = new Promise<FakeRun>((resolve) => {
+      onRunStarted = resolve;
+    });
     const first = runner.handle(message("first"));
     const second = runner.handle(message("second"));
-    for (let attempt = 0; runsStarted.length === 0 && attempt < 200; attempt += 1) {
-      await Bun.sleep(1);
-    }
-    await Bun.sleep(10);
+    const firstRun = await firstStarted;
     expect(runsStarted).toEqual(["first"]);
-
-    // The second message was queued behind the first, so the first handle call is the one
-    // that answers it: finishing both is what lets it return.
     await second;
-    const firstRun = current;
-    current = undefined;
-    firstRun?.finish();
-    const running = (): FakeRun | undefined => current;
-    for (let attempt = 0; running() === undefined && attempt < 200; attempt += 1) {
-      await Bun.sleep(1);
-    }
+
+    const secondStarted = new Promise<FakeRun>((resolve) => {
+      onRunStarted = resolve;
+    });
+    firstRun.finish();
+    const secondRun = await secondStarted;
     expect(runsStarted).toEqual(["first", "second"]);
-    running()?.finish();
+    secondRun.finish();
     await first;
   });
 
-  /** Wait for the next run to register after the one in `current` finished. */
-  const nextRun = async (): Promise<FakeRun> => {
-    const running = (): FakeRun | undefined => current;
-    for (let attempt = 0; running() === undefined && attempt < 200; attempt += 1) {
-      await Bun.sleep(1);
+  /** Wait for registration itself, rather than giving filesystem setup a 200 ms deadline. */
+  const nextRun = (): Promise<FakeRun> => {
+    if (current !== undefined) {
+      return Promise.resolve(current);
     }
-    const run = running();
-    if (run === undefined) {
-      throw new Error("no next run started");
-    }
-    return run;
+    return new Promise((resolve) => {
+      onRunStarted = resolve;
+    });
   };
 
   test("the requester's message mid-run goes into that run instead of a run of its own", async () => {
@@ -658,9 +654,7 @@ describe("turn runner", () => {
     // Wrapped, like `startTurn`: returning the turn itself would await the whole run.
     const turnAs = async (senderId: string): Promise<{ turn: Promise<void> }> => {
       const turn = runner.handle(message("list files", senderId));
-      for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) {
-        await Bun.sleep(1);
-      }
+      await nextRun();
       return { turn };
     };
     const event = {
@@ -704,9 +698,7 @@ describe("turn runner", () => {
 
   test("a follow-up tap starts a new turn with that prompt", async () => {
     expect(await runner.deliverChoice(tap("followup", "shorter"))).toBe("answered");
-    for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) {
-      await Bun.sleep(1);
-    }
+    await nextRun();
     expect(runsStarted[0]).toContain("shorter version");
     current?.finish();
   });
@@ -737,9 +729,7 @@ describe("turn runner", () => {
 
   test("/remind runs a turn that asks the agent to add the reminder", async () => {
     const turn = runner.handle(message("/remind 30m take pizza out"));
-    for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) {
-      await Bun.sleep(1);
-    }
+    await nextRun();
     expect(runsStarted).toEqual(["Add a reminder: 30m take pizza out"]);
     current?.finish();
     await turn;
@@ -824,9 +814,7 @@ describe("turn runner", () => {
     firstRun?.finish();
     await turn;
     const running = (): FakeRun | undefined => current;
-    for (let attempt = 0; running() === undefined && attempt < 200; attempt += 1) {
-      await Bun.sleep(1);
-    }
+    await nextRun();
     expect(runsStarted).toEqual(["hello", "other chat"]);
     running()?.finish();
     await other;
@@ -843,9 +831,7 @@ describe("turn runner", () => {
 
     const startSecretTurn = async (privateChat: boolean) => {
       const turn = runner.handle({ ...message("open invoice.pdf"), privateChat });
-      for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) {
-        await Bun.sleep(1);
-      }
+      await nextRun();
       current?.emit(secretEvent);
       await Bun.sleep(5);
       return { turn };
@@ -925,9 +911,7 @@ describe("turn runner", () => {
     test("a tapped follow-up keeps the chat's private kind", async () => {
       await runner.handle({ ...message("/help"), privateChat: true });
       const turn = runner.handle(message("open invoice.pdf"));
-      for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) {
-        await Bun.sleep(1);
-      }
+      await nextRun();
       current?.emit(secretEvent);
       await Bun.sleep(5);
       expect(runner.awaitsReplyFrom("c1", REQUESTER)).toBe(true);

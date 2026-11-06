@@ -67,6 +67,7 @@ describe("propose_goal", () => {
     );
 
     expect(result.success).toBe(true);
+    expect(result.concludesTurn).toBe(true);
     expect(created).toHaveLength(1);
     const goal = created[0]!;
     expect(goal.state).toEqual({ kind: "proposed" });

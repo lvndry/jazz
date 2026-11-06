@@ -10,7 +10,7 @@ import { Duration, Effect, Fiber, FileSystem, Layer } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { formatMemorySourceTag } from "@/core/memory/source-trust";
-import { partialFake } from "@/core/test-support/fakes";
+import { partialFake, standIn } from "@/core/test-support/fakes";
 import { GenerationInterruptedError, LLMRequestError } from "@/core/types/errors";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
@@ -58,6 +58,7 @@ import { DEFAULT_TOKEN_COUNTER, ensureGptEncoders } from "../context/token-count
 import { PROTECTED_TOOL_CYCLES } from "../context/tool-result-clearing";
 import { readOffloadedToolResult } from "../context/tool-result-offload";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+import { createRetryWasteTally } from "../metrics/failed-attempts";
 import { createSubagentSupervisor } from "../subagents/supervisor";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
@@ -242,6 +243,7 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
       sideCostUSD: 0,
       sideCostUnknown: false,
       usageMissing: false,
+      retryWaste: createRetryWasteTally(),
       iterationSummaries: [],
       errors: [],
       metrics: {
@@ -439,6 +441,7 @@ describe("executeAgentLoop", () => {
             name: toolCall.function.name,
             result: { state: "proposed" },
             success: true,
+            concludesTurn: true,
           })),
         );
       },
@@ -457,6 +460,74 @@ describe("executeAgentLoop", () => {
       expect(toolsAllowedPerCall).toEqual([true, false]);
       expect(executed).toEqual(["propose_goal"]);
       expect(result.content).toBe("I proposed a plan; accept it to start.");
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+
+  it("after a tool result concludes the turn, asks for text only whatever the tool is", async () => {
+    const toolsAllowedPerCall: boolean[] = [];
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (_messages, _iteration, toolsAllowed) => {
+        toolsAllowedPerCall.push(toolsAllowed);
+        const toolCall = (id: string, name: string) => ({
+          id,
+          type: "function" as const,
+          function: { name, arguments: "{}" },
+        });
+        return Effect.succeed({
+          completion:
+            toolsAllowedPerCall.length === 1
+              ? {
+                  id: "c1",
+                  model: "gpt-4",
+                  content: "",
+                  toolCalls: [toolCall("call_1", "archive_notes")],
+                }
+              : {
+                  id: "c2",
+                  model: "gpt-4",
+                  content: "Archived.",
+                  toolCalls: [toolCall("call_2", "write_file")],
+                },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const executed: string[] = [];
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = standIn<typeof ToolExecutor.executeToolCalls>(
+      mock((toolCalls: readonly { id: string; function: { name: string } }[]) => {
+        executed.push(...toolCalls.map((toolCall) => toolCall.function.name));
+        return Effect.succeed(
+          toolCalls.map((toolCall) => ({
+            toolCallId: toolCall.id,
+            name: toolCall.function.name,
+            result: { state: "proposed" },
+            success: true,
+            concludesTurn: true,
+          })),
+        );
+      }),
+    );
+    try {
+      const result = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 5 }),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(toolsAllowedPerCall).toEqual([true, false]);
+      expect(executed).toEqual(["archive_notes"]);
+      expect(result.content).toBe("Archived.");
     } finally {
       ToolExecutor.executeToolCalls = originalExecute;
     }

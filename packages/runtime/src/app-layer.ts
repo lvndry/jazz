@@ -8,6 +8,7 @@ import path from "node:path";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { createAgentServiceLayer } from "@jazz/adapters/agent-service";
 import { createConfigLayer, validateConfigFiles } from "@jazz/adapters/config";
+import { formatResolvedConfig, resolveConfig } from "@jazz/adapters/config-resolved";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
 import { setConversationRetentionLimit } from "@jazz/adapters/history/conversation-history-service";
 import { createJazzStateServiceLayer } from "@jazz/adapters/jazz-state";
@@ -45,6 +46,7 @@ import { createWakeTriggerServiceLayer } from "@jazz/adapters/wake-trigger-servi
 import { createWorkflowRegistryServiceLayer } from "@jazz/adapters/workflow-registry-service";
 import { createWorkspaceServiceLayer } from "@jazz/adapters/workspace-service";
 import { createChatServiceLayer } from "@jazz/cli/chat-service-layer";
+import { failEnvelope } from "@jazz/cli/helpers/json-output";
 import { createPlainTerminalServiceLayer } from "@jazz/cli/plain-terminal";
 import { CLIPresentationServiceLayer } from "@jazz/cli/presentation/cli-presentation-service";
 import {
@@ -699,6 +701,36 @@ export function runCliEffect<R, E extends JazzError | Error>(
       );
     }
   });
+}
+
+/**
+ * Print the effective configuration with the layer each key came from. Like validation it skips
+ * the app layer, so it runs with no keyring access, daemon, network or provider credentials, and
+ * still explains a broken file by naming it and the key.
+ */
+export async function runConfigResolved(options: {
+  readonly configPath?: string | undefined;
+  readonly debug?: boolean | undefined;
+  readonly json: boolean;
+}): Promise<void> {
+  const exit = await Effect.runPromiseExit(
+    resolveConfig({ configPath: options.configPath, debug: options.debug === true }).pipe(
+      Effect.provide(NodeFileSystem.layer),
+    ),
+  );
+  if (Exit.isSuccess(exit)) {
+    process.stdout.write(
+      options.json
+        ? `${JSON.stringify({ ok: true, ...exit.value })}\n`
+        : formatResolvedConfig(exit.value),
+    );
+    return;
+  }
+  const failure = Cause.findErrorOption(exit.cause);
+  failEnvelope(
+    options.json,
+    Option.isSome(failure) ? failure.value.message : Cause.pretty(exit.cause),
+  );
 }
 
 /**

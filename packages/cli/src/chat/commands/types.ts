@@ -133,6 +133,12 @@ export interface SessionUsage {
   requests: number;
   promptTokens: number;
   completionTokens: number;
+  /** Failed model attempts retried this session. */
+  retries?: number;
+  /** What those attempts wasted; already counted in the run costs, not in the token totals above. */
+  wastedUSD?: number;
+  /** True when the real waste may be higher than `wastedUSD`. */
+  wasteLowerBound?: boolean;
 }
 
 /**

@@ -2,6 +2,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
+import { isApprovalRequiredResult } from "@/core/types/tools";
 import { runTool } from "./test-helpers";
 import { createWriteFileTools } from "./write";
 
@@ -26,6 +27,49 @@ describe("write_file overwrite guard", () => {
     }
     return { directory, path };
   }
+
+  for (const changed of [false, true]) {
+    it(`restores the original snapshot in a fresh process (${changed ? "changed" : "unchanged"} file)`, async () => {
+      const { directory, path } = fixture("original\n");
+      const input = { path, content: "replacement\n" };
+      const toolCallId = `fresh-process-${String(changed)}`;
+      const proposal = await runTool(write.approval, input, directory, { toolCallId });
+      if (!isApprovalRequiredResult(proposal.result)) {
+        throw new Error("expected a proposal");
+      }
+      expect(proposal.result.writeSnapshot).toBeDefined();
+      if (changed) {
+        writeFileSync(path, "new work\n");
+      }
+      const child = Bun.spawnSync([
+        process.execPath,
+        join(import.meta.dir, "write-guard-process.fixture.ts"),
+        JSON.stringify({ directory, input, toolCallId, snapshot: proposal.result.writeSnapshot }),
+      ]);
+      expect(child.exitCode).toBe(0);
+      const result: unknown = JSON.parse(child.stdout.toString());
+      expect(result).toMatchObject(
+        changed ? { success: false, result: { errorType: "StaleFileError" } } : { success: true },
+      );
+      expect(readFileSync(path, "utf8")).toBe(changed ? "new work\n" : "replacement\n");
+    });
+  }
+
+  it("refuses a resumed legacy approval without its original snapshot", async () => {
+    const { directory, path } = fixture("changed after an older process proposed\n");
+    const input = { path, content: "replacement\n" };
+    const child = Bun.spawnSync([
+      process.execPath,
+      join(import.meta.dir, "write-guard-process.fixture.ts"),
+      JSON.stringify({ directory, input, toolCallId: "legacy-resume" }),
+    ]);
+    expect(child.exitCode).toBe(0);
+    expect(JSON.parse(child.stdout.toString())).toMatchObject({
+      success: false,
+      result: { errorType: "UnverifiedApprovalError" },
+    });
+    expect(readFileSync(path, "utf8")).toBe("changed after an older process proposed\n");
+  });
 
   it("refuses to overwrite a file that changed after the approval was shown", async () => {
     const { directory, path } = fixture("original\n");

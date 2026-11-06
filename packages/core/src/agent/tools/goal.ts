@@ -122,6 +122,7 @@ export function createProposeGoalTool(): Tool<GoalStoreTag> {
         );
         return {
           success: true,
+          concludesTurn: true,
           result: {
             goalId: goal.goalId,
             name,

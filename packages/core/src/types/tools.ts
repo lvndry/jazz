@@ -5,6 +5,7 @@
  */
 import type { Effect } from "effect";
 import type { z } from "zod";
+import type { AutoDetachPolicy } from "@/core/agent/detach/auto-detach";
 import type { ToolActivityTracker } from "@/core/agent/run/tool-activity";
 import type { Blackboard } from "@/core/agent/subagents/blackboard";
 import type { SubagentSupervisor } from "@/core/agent/subagents/supervisor";
@@ -228,6 +229,11 @@ export interface ToolExecutionResult {
    */
   readonly untrusted?: UntrustedProvenance;
   /**
+   * Set on a successful result that ends the turn's tool use: the rest of the turn is a
+   * text-only reply describing the result, and the model gets no further tool step.
+   */
+  readonly concludesTurn?: boolean;
+  /**
    * Deferred-tier tools this call made callable. The agent loop records them on the result's
    * message so every later run of the conversation declares them again.
    */
@@ -256,6 +262,12 @@ export interface ApprovalOption {
  * Result structure when a tool requires user approval before execution.
  * Returned by approval tools created with `defineApprovalTool`.
  */
+/** Host-generated binding of a write proposal to the file bytes its approver saw. */
+export interface WriteApprovalSnapshot {
+  readonly key: string;
+  readonly version: string;
+}
+
 export interface ApprovalRequiredResult {
   readonly approvalRequired: true;
   /** Human-readable message explaining what will happen if approved */
@@ -264,6 +276,8 @@ export interface ApprovalRequiredResult {
   readonly executeToolName: string;
   /** The arguments to pass to the execution tool */
   readonly executeArgs: Record<string, unknown>;
+  /** Persisted with the request; never accepted from model arguments. */
+  readonly writeSnapshot?: WriteApprovalSnapshot;
   /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
   readonly previewDiff?: string;
   /**
@@ -311,6 +325,8 @@ export interface ApprovalRequest {
   readonly executeToolName: string;
   /** Arguments that will be passed to the execution tool */
   readonly executeArgs: Record<string, unknown>;
+  /** Persisted with the request; never accepted from model arguments. */
+  readonly writeSnapshot?: WriteApprovalSnapshot;
   /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
   readonly previewDiff?: string;
   /** What approving concretely does, with real numbers. See {@link ApprovalRequiredResult.impact}. */
@@ -354,6 +370,8 @@ export type ApprovalOutcome =
       readonly approved: true;
       readonly alwaysApproveCommand?: string;
       readonly alwaysApproveTool?: string;
+      /** Restored by the host from the parked request, overriding caller-supplied data. */
+      readonly writeSnapshot?: WriteApprovalSnapshot | undefined;
       /**
        * For picker-style requests (`ApprovalRequest.options`): which row the human
        * chose. The executor merges this into the execution tool's args under
@@ -464,6 +482,10 @@ export interface ToolExecutionContext {
    * Set only when resuming a parked run: the person answered in another process, possibly
    * yesterday, and the executor uses the stored outcome instead of asking again.
    */
+  /** Host-only precondition for the execution half of write_file. */
+  readonly approvedWriteSnapshot?: WriteApprovalSnapshot;
+  /** A replay must carry its original precondition, never a fresh proposal baseline. */
+  readonly resumedApproval?: true;
   readonly resolvedApprovals?: ReadonlyMap<string, ApprovalOutcome>;
   /** Answers supplied by a human after a run parked on ask_user_question. */
   readonly resolvedUserInputs?: ReadonlyMap<
@@ -705,6 +727,12 @@ export interface ToolExecutionContext {
    * which is what a one-shot tool call outside an agent run gets.
    */
   readonly shellConfinement?: WriteConfinementMode;
+  /**
+   * Set for an attended run that can receive a late result: a foreground `execute_command`
+   * still running at its threshold moves to the background. Absent means a slow command stays
+   * in the foreground until it finishes or hits its cap.
+   */
+  readonly autoDetach?: AutoDetachPolicy;
   readonly [key: string]: unknown;
 }
 

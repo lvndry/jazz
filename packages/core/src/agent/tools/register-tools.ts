@@ -33,6 +33,7 @@ import {
   createComputerWaitTool,
   createComputerPointerTools,
 } from "./computer/computer-tools";
+import { computerUseReadiness } from "./computer/readiness";
 import { createContextInfoTool, createGetTimeTool, createRetrieveToolResultTool } from "./context";
 import { createPdfTool } from "./create-pdf";
 import { fs } from "./fs";
@@ -414,7 +415,9 @@ export function registerBrowserAdoptionTools(): Effect.Effect<void, Error, ToolR
 export function registerComputerTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory(COMPUTER_CATEGORY);
+    const registerCategoryTool = registry.registerForCategory(COMPUTER_CATEGORY);
+    const registerTool: typeof registerCategoryTool = (tool) =>
+      registerCategoryTool({ ...tool, ready: computerUseReadiness });
 
     yield* registerTool(createComputerAppsTool());
     yield* registerTool(createComputerObserveTool());

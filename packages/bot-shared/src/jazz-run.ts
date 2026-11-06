@@ -19,6 +19,7 @@
  * decide how to put the events on screen.
  */
 
+import { crashReportPathFromStderr } from "@jazz/core/utils/crash-report";
 import { bridgeRunEnv, type ChatSandbox, sandboxCommand } from "./chat-sandbox";
 import type { ChatZone } from "./timezone-store";
 import { runSpendFromEvent, spendFields, type RunSpend } from "./usage-store";
@@ -461,8 +462,11 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
 
     const envelope = parseEnvelope(stdout);
     if (envelope === undefined) {
+      const crashReportPath = crashReportPathFromStderr(stderrTail);
       console.error(
-        `Jazz produced no JSON envelope (exit ${exitCode}). stderr:\n${stderrTail.join("\n")}`,
+        `Jazz produced no JSON envelope (exit ${exitCode}${
+          crashReportPath === undefined ? "" : `, crash report ${crashReportPath}`
+        }). stderr:\n${stderrTail.join("\n")}`,
       );
       return { ok: false, error: "Jazz did not return a response.", ...spendFields(lastSpend) };
     }

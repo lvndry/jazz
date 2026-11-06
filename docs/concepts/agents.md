@@ -132,7 +132,14 @@ Discovery runs on each turn against the agent's current working directory:
 The walk climbs from the working directory to the repository root, the nearest ancestor with a
 `.git`, and stops there, so a checkout never inherits an unrelated `AGENTS.md` from a directory
 above it. Files enter the system prompt outermost-first, so **when two conflict, the more
-specific one wins**. Each file is capped at 32 KB; keep them short and they stay effective.
+specific one wins**.
+
+Two independent size budgets keep the prompt bounded: your global `~/.agents/AGENTS.md` gets 32 KB
+and the whole project chain (repository root down to the working directory) gets 32 KB. A large
+project chain can never push out your global file. When the project chain is over budget, Jazz
+keeps the file closest to the working directory and the beginning of each kept file, and omits the
+broadest files first. The prompt tells the model which file was cut or left out and by how many
+bytes, and `/info` lists them under `instructions`. Keep the files short and they stay effective.
 
 Edits take effect on the next turn. Nothing to restart.
 

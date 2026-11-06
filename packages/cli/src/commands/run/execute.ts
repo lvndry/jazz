@@ -12,9 +12,11 @@ import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@jazz/core/agent/context/work-state-preamble";
 import { judgeAnswer } from "@jazz/core/agent/run/answer-outcome";
+import type { CancelCause } from "@jazz/core/agent/run/cancel-cause";
 import { RunParkRequested, isRunParkRequested } from "@jazz/core/agent/run/park-signal";
 import { isRunCostKnown, runSpendAsCallSpend } from "@jazz/core/agent/run/run-spend";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
+import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { CommonSuggestions, getErrorMessage } from "@jazz/core/presentation/error-handler";
 import {
@@ -551,7 +553,23 @@ export function runAgentOnceCommand(
     });
 
     const runResult = yield* (
-      deadline ? Effect.raceFirst(runEffect, deadline.watch) : runEffect
+      deadline
+        ? Effect.raceFirst(
+            runEffect,
+            deadline.watch.pipe(
+              Effect.tapError(() =>
+                Effect.flatMap(Effect.serviceOption(LoggerServiceTag), (logger) =>
+                  Option.isSome(logger)
+                    ? logger.value.debug("Stopping the run", {
+                        cancelCause: "deadline" satisfies CancelCause,
+                        timeoutMs: options.timeoutMs ?? null,
+                      })
+                    : Effect.void,
+                ),
+              ),
+            ),
+          )
+        : runEffect
     ).pipe(
       Effect.tap((response) => {
         const outcome = judgeAnswer(response);

@@ -168,5 +168,23 @@ Linux runner with the same Bun version, building the complete standalone release
 artifacts and enforcing raw/gzip size growth budgets. Existing suites compare
 p50 and p95 with proportional and absolute noise allowances. New suites use
 explicit absolute ceilings from `bench/budgets.json` until a baseline exists.
+`bun run bench:first-turn` separately budgets the fixed per-request cost of the
+default agent (system prompt tokens, eager tool-schema tokens, eager tool count;
+estimates from the o200k tokenizer) and runs on every pull request; see
+[the benchmark guide](../../bench/README.md#first-turn-token-budget).
 Reports are retained as CI artifacts for investigation. Review budget changes as
 product trade-offs; do not raise a ceiling merely to make a regression pass.
+
+Failed-turn accounting uses the runner's exit spend report, including exhausted retries. Retry
+counts advance when the next provider attempt starts, so cancellation during backoff and a
+zero retry budget do not create phantom retries. Empty completions rejected for retry never
+render as successful steps; their usage belongs to the failed-attempt receipt and `/cost`.
+
+Process-owner identity uses the operating system birth time, cached on first use. Runtime
+initialization can lag process creation under load, so a performance time origin alone must not
+make a live lock holder appear to be a reused PID. Wall-clock changes and virtual test clocks
+must leave the cached identity unchanged.
+
+MCP server instruction budgets include their truncation markers. Rendering scans a bounded
+prefix of each raw instruction string, caps server attribution, and keeps server-controlled
+names inside the untrusted frame. A closed transport contributes no instructions.

@@ -22,20 +22,24 @@ const STDIO_CONFIG: MCPServerConfigStdio = {
 };
 
 interface FakeClient {
+  transport: object | undefined;
   connect: ReturnType<typeof mock>;
   close: ReturnType<typeof mock>;
   getServerCapabilities: ReturnType<typeof mock>;
   getProtocolEra: ReturnType<typeof mock>;
+  getInstructions: ReturnType<typeof mock>;
   listTools: ReturnType<typeof mock>;
   setRequestHandler: ReturnType<typeof mock>;
 }
 
 function fakeClient(connect: () => Promise<void>): FakeClient {
   return {
+    transport: {},
     connect: mock(connect),
     close: mock(() => Promise.resolve()),
     getServerCapabilities: mock(() => undefined),
     getProtocolEra: mock(() => "test-era"),
+    getInstructions: mock(() => undefined),
     listTools: mock(() => Promise.resolve({ tools: [] })),
     setRequestHandler: mock(() => undefined),
   };
@@ -86,6 +90,34 @@ describe("connectServer", () => {
     expect(secondAttempt.close).not.toHaveBeenCalled();
 
     expect(await Effect.runPromise(manager.isConnected(STDIO_CONFIG.name))).toBe(true);
+  });
+
+  it("exposes the instructions a connected server returned, and none once it disconnects", async () => {
+    const logger = fakeLogger();
+    const manager = new MCPServerManagerImpl(logger);
+    const client = fakeClient(() => Promise.resolve());
+    client.getInstructions = mock(() => "Search before fetching.");
+    wireFakeClients(manager, [client]);
+
+    expect(await Effect.runPromise(manager.getInstructions(STDIO_CONFIG.name))).toBeUndefined();
+    await runEffect(manager.connectServer(STDIO_CONFIG), logger);
+    expect(await Effect.runPromise(manager.getInstructions(STDIO_CONFIG.name))).toBe(
+      "Search before fetching.",
+    );
+
+    await runEffect(manager.disconnectServer(STDIO_CONFIG.name), logger);
+    expect(await Effect.runPromise(manager.getInstructions(STDIO_CONFIG.name))).toBeUndefined();
+  });
+
+  it("does not expose instructions after a remote transport close", async () => {
+    const logger = fakeLogger();
+    const manager = new MCPServerManagerImpl(logger);
+    const client = fakeClient(() => Promise.resolve());
+    client.getInstructions = mock(() => "stale instructions");
+    wireFakeClients(manager, [client]);
+    await runEffect(manager.connectServer(STDIO_CONFIG), logger);
+    client.transport = undefined;
+    expect(await Effect.runPromise(manager.getInstructions(STDIO_CONFIG.name))).toBeUndefined();
   });
 
   it("closes the failing attempt's client without masking the connection error", async () => {
