@@ -1340,3 +1340,19 @@ describe("semantic presentation persistence", () => {
     ]);
   });
 });
+
+describe("stored tool-call shape boundary", () => {
+  for (const tool_calls of [{}, [null], [{ type: "function", function: null }]]) {
+    test("rejects malformed nested tool calls before identity repair", () => {
+      expect(
+        parseConversationLog(
+          JSON.stringify({
+            type: "message",
+            at: "2026-11-05T00:00:00Z",
+            message: { role: "assistant", content: "", tool_calls },
+          }),
+        ),
+      ).toEqual([]);
+    });
+  }
+});

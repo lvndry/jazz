@@ -9,6 +9,7 @@
  */
 
 import type { Context } from "@ai-sdk/provider-utils";
+import { isUsableToolCallField } from "@jazz/core/agent/context/tool-call-identity";
 import type { LoggerService } from "@jazz/core/interfaces/logger";
 import type { ChatCompletionResponse, StreamEvent } from "@jazz/core/types";
 import { toFinishReason, type FinishReason } from "@jazz/core/types/chat";
@@ -25,7 +26,7 @@ import { isBridgedToolName } from "./claude-code/tool-bridge";
 import type { ParseChunk, ReasoningParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
 import { routerBilledCostUSD } from "./router-cost";
-import { toJazzToolCall } from "./tool-call-parts";
+import { hasToolCallIdentity, malformedToolCallError, toJazzToolCall } from "./tool-call-parts";
 
 /** The full `streamText` result; Jazz never passes `experimental_lowMemory`, which returns a narrower one. */
 export type StreamTextResult = AiStreamTextResult<ToolSet, Context, OutputInterface>;
@@ -179,6 +180,53 @@ type EmitFunction = (
   effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>,
 ) => void;
 
+/** Indexed pending identities; an unmatched completion invalidates older unattached starts. */
+class ToolInputIdentities {
+  private readonly all = new Set<{ id: string; toolName: string }>();
+  private readonly byId = new Map<string, Set<{ id: string; toolName: string }>>();
+  private readonly byName = new Map<string, Set<{ id: string; toolName: string }>>();
+  add(start: { id: string; toolName: string }): void {
+    this.all.add(start);
+    for (const [index, key] of [
+      [this.byId, start.id],
+      [this.byName, start.toolName],
+    ] as const) {
+      let matches = index.get(key);
+      if (matches === undefined) {
+        matches = new Set();
+        index.set(key, matches);
+      }
+      matches.add(start);
+    }
+  }
+  take(
+    id: string | undefined,
+    name: string | undefined,
+  ): { id: string; toolName: string } | undefined {
+    const matches =
+      id !== undefined ? this.byId.get(id) : name !== undefined ? this.byName.get(name) : this.all;
+    const match = matches?.size === 1 ? matches.values().next().value : undefined;
+    if (match === undefined || (name !== undefined && match.toolName !== name)) {
+      this.all.clear();
+      this.byId.clear();
+      this.byName.clear();
+      return undefined;
+    }
+    this.all.delete(match);
+    for (const [index, key] of [
+      [this.byId, match.id],
+      [this.byName, match.toolName],
+    ] as const) {
+      const entries = index.get(key);
+      entries?.delete(match);
+      if (entries?.size === 0) {
+        index.delete(key);
+      }
+    }
+    return match;
+  }
+}
+
 /**
  * Configuration for stream processor
  */
@@ -247,6 +295,8 @@ interface StreamProcessorState {
 
   // Tool calls
   collectedToolCalls: ToolCall[];
+  /** Identity each `tool-input-start` established, in stream order, for blanked completions. */
+  startedToolInputs: ToolInputIdentities;
   /** Provider-native tool calls waiting for tool-result to arrive with enriched data (e.g. query) */
   pendingNativeToolCalls: Map<string, { toolCall: ToolCall; sequence: number }>;
 
@@ -280,6 +330,7 @@ function createInitialState(): StreamProcessorState {
     reasoningStreamActive: false,
     accumulatedReasoning: "",
     collectedToolCalls: [],
+    startedToolInputs: new ToolInputIdentities(),
     pendingNativeToolCalls: new Map(),
     firstTokenTime: null,
     firstTextTime: null,
@@ -508,14 +559,54 @@ export class StreamProcessor {
             break;
           }
 
+          case "tool-input-start": {
+            this.state.startedToolInputs.add({ id: part.id, toolName: part.toolName });
+            break;
+          }
+
           case "tool-call": {
-            if (isBridgedToolName(part.toolName)) {
+            const hasId = isUsableToolCallField(part.toolCallId);
+            const hasName = isUsableToolCallField(part.toolName);
+            const established = this.state.startedToolInputs.take(
+              hasId ? part.toolCallId : undefined,
+              hasName ? part.toolName : undefined,
+            );
+            const completed = {
+              ...part,
+              toolCallId: isUsableToolCallField(part.toolCallId)
+                ? part.toolCallId
+                : (established?.id ?? ""),
+              toolName: isUsableToolCallField(part.toolName)
+                ? part.toolName
+                : (established?.toolName ?? ""),
+            };
+            if (!hasToolCallIdentity(completed)) {
+              Effect.runFork(
+                this.logger.warn("Tool call completed without an id or name, failing the step", {
+                  provider: this.config.providerName,
+                  model: this.config.modelName,
+                  hasId: isUsableToolCallField(completed.toolCallId),
+                  hasName: isUsableToolCallField(completed.toolName),
+                  establishedIdentity: established !== undefined,
+                }),
+              );
+              throw malformedToolCallError(this.config.providerName);
+            }
+            if (completed.toolCallId !== part.toolCallId || completed.toolName !== part.toolName) {
+              Effect.runFork(
+                this.logger.debug("Restored a blanked tool call identity from its input start", {
+                  provider: this.config.providerName,
+                  toolName: completed.toolName,
+                }),
+              );
+            }
+            if (isBridgedToolName(completed.toolName)) {
               break;
             }
             const isProviderNative =
-              this.config.providerNativeToolNames?.has(part.toolName) ?? false;
+              this.config.providerNativeToolNames?.has(completed.toolName) ?? false;
 
-            const toolCall = toJazzToolCall(part);
+            const toolCall = toJazzToolCall(completed);
 
             if (isProviderNative) {
               // Buffer provider-native tool calls (e.g. OpenAI web_search).
