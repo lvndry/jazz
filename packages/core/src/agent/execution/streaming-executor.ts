@@ -39,6 +39,7 @@ import { isRetryableLLMError } from "@/core/utils/llm-error";
 import type { UsageCostTokens } from "@/core/utils/usage-cost";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
+import { buildCompletionOptions } from "./completion-request";
 import { validateCompletion } from "./completion-validation";
 import type { RecursiveRunner } from "../context/summarizer";
 import {
@@ -145,23 +146,15 @@ export function executeWithStreaming(
           yield* Ref.set(completionRef, undefined);
           yield* Ref.set(textAccumulatorRef, "");
 
-          const llmOptions = {
+          const llmOptions = buildCompletionOptions({
+            agent,
             model,
-            messages: currentMessages,
             tools: runContext.tools,
-            toolChoice: toolsAllowed ? ("auto" as const) : ("none" as const),
-            ...(reasoning !== undefined ? { reasoning } : {}),
-            ...(toolHost !== undefined ? { toolHost } : {}),
+            messages: currentMessages,
+            toolChoice: toolsAllowed ? "auto" : "none",
             ...(actualConversationId ? { conversationId: actualConversationId } : {}),
-            ...(typeof agent.config.llm.temperature === "number"
-              ? { temperature: agent.config.llm.temperature }
-              : {}),
-            ...(typeof agent.config.llm.numCtx === "number"
-              ? { num_ctx: agent.config.llm.numCtx }
-              : {}),
-            ...(agent.config.llm.apiKeys ? { providerApiKeys: agent.config.llm.apiKeys } : {}),
-            ...(agent.config.llm.baseUrls ? { providerBaseUrls: agent.config.llm.baseUrls } : {}),
-          };
+            ...(toolHost !== undefined ? { toolHost } : {}),
+          });
 
           const showAgentStatus = (
             message: string,
