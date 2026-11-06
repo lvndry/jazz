@@ -53,12 +53,24 @@ export interface DetachedCallTracker {
   readonly running: () => readonly DetachedCallEntry[];
   /** Calls moved at the threshold that are still running. */
   readonly countAuto: () => number;
+  /** Atomically claims capacity until ownership transfers or the attempt ends. */
+  readonly reserveAuto: (limit: number) => (() => void) | undefined;
   /** Stops every running detached call. */
   readonly stopAll: () => Effect.Effect<void>;
 }
 
 export function createDetachedCallTracker(): DetachedCallTracker {
   const entries = new Set<DetachedCallEntry>();
+  let reserved = 0;
+  const countAuto = () => {
+    let count = reserved;
+    for (const entry of entries) {
+      if (entry.origin === "auto") {
+        count += 1;
+      }
+    }
+    return count;
+  };
   return {
     register: (entry) => {
       entries.add(entry);
@@ -67,7 +79,20 @@ export function createDetachedCallTracker(): DetachedCallTracker {
       };
     },
     running: () => [...entries],
-    countAuto: () => [...entries].filter((entry) => entry.origin === "auto").length,
+    countAuto,
+    reserveAuto: (limit) => {
+      if (countAuto() >= limit) {
+        return undefined;
+      }
+      reserved += 1;
+      let released = false;
+      return () => {
+        if (!released) {
+          released = true;
+          reserved -= 1;
+        }
+      };
+    },
     stopAll: () =>
       Effect.forEach([...entries], (entry) => entry.stop, {
         concurrency: "unbounded",
