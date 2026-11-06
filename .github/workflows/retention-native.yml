@@ -48,6 +48,7 @@ jobs:
           docker run --rm --read-only --network none \
             --tmpfs /tmp:rw,exec,size=256m --user 0:0 --memory=1g \
             --cap-add SYS_ADMIN --security-opt seccomp=unconfined \
+            --security-opt apparmor=unconfined \
             -e JAZZ_TEST_BIND_MOUNT=1 \
             -v "$GITHUB_WORKSPACE:/workspace:ro" -w /workspace \
             "$RETENTION_IMAGE" sh -c '
