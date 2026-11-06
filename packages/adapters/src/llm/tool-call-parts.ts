@@ -3,7 +3,9 @@
  * entry) to Jazz's `ToolCall`. Both completion paths use it, so they agree on how arguments are
  * serialized, which provider metadata survives, and how an invalid call is marked.
  */
+import { isUsableToolCallField } from "@jazz/core/agent/context/tool-call-identity";
 import { AI_SDK_MAX_STEPS } from "@jazz/core/constants/agent";
+import { LLMRequestError } from "@jazz/core/types/errors";
 import type { ToolCall } from "@jazz/core/types/tools";
 import { toError } from "@jazz/core/utils/errors";
 import { stepCountIs, type StopCondition, type ToolSet } from "ai";
@@ -16,6 +18,27 @@ export interface SdkToolCall {
   readonly invalid?: boolean | undefined;
   readonly error?: unknown;
   readonly providerMetadata?: unknown;
+}
+
+/** Whether a completed SDK call has the id and name a provider and the transcript require. */
+export function hasToolCallIdentity(
+  sdkToolCall: Pick<SdkToolCall, "toolCallId" | "toolName">,
+): boolean {
+  return (
+    isUsableToolCallField(sdkToolCall.toolCallId) && isUsableToolCallField(sdkToolCall.toolName)
+  );
+}
+
+/**
+ * The failure for a step whose tool call completed without an id or name. It carries no status
+ * code and no `permanent` flag, so the shared retry policy asks the model again.
+ */
+export function malformedToolCallError(provider: string): LLMRequestError {
+  return new LLMRequestError({
+    provider,
+    message: "The model streamed a tool call without an id or name.",
+    malformedToolCall: true,
+  });
 }
 
 /** One schema problem as the validator reports it: where, and what was wrong there. */

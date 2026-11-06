@@ -164,7 +164,12 @@ import {
   StreamProcessor,
   type StreamTextResult,
 } from "./stream-processor";
-import { SDK_STOP_CONDITIONS, toJazzToolCall } from "./tool-call-parts";
+import {
+  hasToolCallIdentity,
+  malformedToolCallError,
+  SDK_STOP_CONDITIONS,
+  toJazzToolCall,
+} from "./tool-call-parts";
 import rootPackageJson from "../../../../package.json";
 
 /** Diagnostic fields from provider errors that cannot contain request or response content. */
@@ -2579,7 +2584,6 @@ class AISDKService implements LLMService {
             : (result.text ?? "");
         // Files the model itself produced. Empty for every text-only model, so this costs
         // nothing on the common path.
-        const generatedArtifacts = await saveModelGeneratedFiles(result.files ?? [], responseModel);
         let toolCalls: ChatCompletionResponse["toolCalls"] = undefined;
         let usage: ChatCompletionResponse["usage"] = undefined;
 
@@ -2627,6 +2631,17 @@ class AISDKService implements LLMService {
             }
           }
 
+          if (!result.toolCalls.every((toolCall) => hasToolCallIdentity(toolCall))) {
+            Effect.runFork(
+              this.logger.warn("Tool call completed without an id or name, failing the step", {
+                provider: providerName,
+                model: options.model,
+                toolCallCount: result.toolCalls.length,
+              }),
+            );
+            throw malformedToolCallError(providerName);
+          }
+
           const filteredToolCalls = result.toolCalls.filter(
             (tc: TypedToolCall<ToolSet>) =>
               !providerNativeToolNames.has(tc.toolName) && !isBridgedToolName(tc.toolName),
@@ -2636,6 +2651,8 @@ class AISDKService implements LLMService {
             toolCalls = filteredToolCalls.map((tc: TypedToolCall<ToolSet>) => toJazzToolCall(tc));
           }
         }
+
+        const generatedArtifacts = await saveModelGeneratedFiles(result.files ?? [], responseModel);
 
         const reasoningParts = extractReasoningParts(result.response.messages, providerName);
 
