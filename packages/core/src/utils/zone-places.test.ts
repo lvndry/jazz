@@ -36,3 +36,31 @@ describe("lookupZoneByPlace", () => {
     }
   });
 });
+
+it("does not read inherited object properties as place aliases", () => {
+  expect(lookupZoneByPlace("constructor")).toEqual({ kind: "unknown" });
+});
+
+it("every picker label names the zone that choosing it saves", () => {
+  for (const choice of COMMON_ZONE_CHOICES) {
+    const zone = parseTimeZone(choice.zone);
+    expect(zone.ok).toBe(true);
+    if (zone.ok) {
+      expect(lookupZoneByPlace(choice.label)).toEqual({ kind: "found", zone: zone.zone });
+    }
+  }
+});
+
+it("does not silently override a city with a conflicting country or region", () => {
+  for (const [place, cityZone] of [
+    ["Vancouver, Canada", "America/Vancouver"],
+    ["Perth, Australia", "Australia/Perth"],
+    ["Paris, Texas", "Europe/Paris"],
+  ] as const) {
+    const result = lookupZoneByPlace(place);
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.zones).toContain(cityZone);
+    }
+  }
+});

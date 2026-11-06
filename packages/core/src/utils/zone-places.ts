@@ -10,28 +10,28 @@ export interface ZoneChoice {
   readonly label: string;
 }
 
-/** Zones a picker offers first, west to east, each labelled by the places it covers. */
+/** Zones a picker offers first, west to east, each labelled by one representative place. */
 export const COMMON_ZONE_CHOICES: readonly ZoneChoice[] = [
-  { zone: "Pacific/Honolulu", label: "Hawaii" },
-  { zone: "America/Anchorage", label: "Alaska" },
-  { zone: "America/Los_Angeles", label: "Los Angeles, Vancouver" },
-  { zone: "America/Denver", label: "Denver, Calgary" },
-  { zone: "America/Chicago", label: "Chicago, Mexico City" },
-  { zone: "America/New_York", label: "New York, Toronto" },
-  { zone: "America/Sao_Paulo", label: "São Paulo, Buenos Aires" },
+  { zone: "Pacific/Honolulu", label: "Honolulu" },
+  { zone: "America/Anchorage", label: "Anchorage" },
+  { zone: "America/Los_Angeles", label: "Los Angeles" },
+  { zone: "America/Denver", label: "Denver" },
+  { zone: "America/Chicago", label: "Chicago" },
+  { zone: "America/New_York", label: "New York" },
+  { zone: "America/Sao_Paulo", label: "São Paulo" },
   { zone: "UTC", label: "UTC" },
-  { zone: "Europe/London", label: "London, Dublin, Lisbon" },
-  { zone: "Europe/Paris", label: "Paris, Berlin, Madrid, Rome" },
-  { zone: "Europe/Athens", label: "Athens, Helsinki, Kyiv" },
-  { zone: "Europe/Istanbul", label: "Istanbul, Moscow" },
-  { zone: "Africa/Cairo", label: "Cairo, Johannesburg" },
-  { zone: "Africa/Lagos", label: "Lagos, Kinshasa" },
+  { zone: "Europe/London", label: "London" },
+  { zone: "Europe/Paris", label: "Paris" },
+  { zone: "Europe/Athens", label: "Athens" },
+  { zone: "Europe/Istanbul", label: "Istanbul" },
+  { zone: "Africa/Cairo", label: "Cairo" },
+  { zone: "Africa/Lagos", label: "Lagos" },
   { zone: "Asia/Dubai", label: "Dubai" },
   { zone: "Asia/Kolkata", label: "India" },
-  { zone: "Asia/Bangkok", label: "Bangkok, Jakarta" },
-  { zone: "Asia/Shanghai", label: "Beijing, Singapore, Perth" },
-  { zone: "Asia/Tokyo", label: "Tokyo, Seoul" },
-  { zone: "Australia/Sydney", label: "Sydney, Melbourne" },
+  { zone: "Asia/Bangkok", label: "Bangkok" },
+  { zone: "Asia/Shanghai", label: "Beijing" },
+  { zone: "Asia/Tokyo", label: "Tokyo" },
+  { zone: "Australia/Sydney", label: "Sydney" },
   { zone: "Pacific/Auckland", label: "Auckland" },
 ];
 
@@ -149,19 +149,27 @@ export function lookupZoneByPlace(input: string): PlaceZoneLookup {
   if (parsed.ok) {
     return { kind: "found", zone: parsed.zone };
   }
+  const whole = lookupPlace(input);
   const parts = input.split(",");
-  const candidates = parts.length > 1 ? [input, ...[...parts].reverse()] : [input];
-  let ambiguous: readonly string[] | undefined;
-  for (const candidate of candidates) {
-    const found = lookupPlace(candidate);
+  if (parts.length === 1 || whole.kind !== "unknown") {
+    return whole;
+  }
+  const zones = new Set<string>();
+  for (const part of parts) {
+    const found = lookupPlace(part);
     if (found.kind === "found") {
-      return found;
-    }
-    if (found.kind === "ambiguous") {
-      ambiguous ??= found.zones;
+      zones.add(found.zone);
+    } else if (found.kind === "ambiguous") {
+      for (const zone of found.zones) {
+        zones.add(zone);
+      }
     }
   }
-  return ambiguous === undefined ? { kind: "unknown" } : { kind: "ambiguous", zones: ambiguous };
+  const [only] = zones;
+  if (zones.size === 1 && only !== undefined) {
+    return { kind: "found", zone: only };
+  }
+  return zones.size === 0 ? { kind: "unknown" } : { kind: "ambiguous", zones: [...zones] };
 }
 
 function lookupPlace(input: string): PlaceZoneLookup {
@@ -169,7 +177,7 @@ function lookupPlace(input: string): PlaceZoneLookup {
   if (place.length === 0) {
     return { kind: "unknown" };
   }
-  const alias = PLACE_ALIASES[place];
+  const alias = Object.hasOwn(PLACE_ALIASES, place) ? PLACE_ALIASES[place] : undefined;
   if (alias !== undefined) {
     const aliased = parseTimeZone(alias);
     if (aliased.ok) {

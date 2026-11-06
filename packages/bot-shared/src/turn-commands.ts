@@ -514,7 +514,7 @@ export function createCommands(context: CommandContext): Commands {
       found.kind === "ambiguous"
         ? [
             plainLine(
-              `More than one place is called "${args}". Send the country too, e.g. /tz Paris, France.`,
+              `I can't identify one timezone for "${args}". Send a more specific city name.${buttons ? " Or send /tz alone to pick a place." : ""}`,
             ),
           ]
         : [

@@ -66,6 +66,11 @@ it shows tool activity and reasoning while the run works.
 | Set a reminder     | `/remind 30m check the deploy`                                                                                 |
 | Set your time zone | `/tz` (tap your place, or `/tz Paris`); until then the agent asks where you are before scheduling a clock time |
 
+Timezone picker labels name one representative place per zone. Places with different daylight-saving
+rules are not grouped under one choice; type `/tz Mexico City` or `/tz Johannesburg` to select
+places outside the short list. A conflicting city/country answer asks for clarification and
+keeps the previously saved zone.
+
 Each chat has its own agent settings and conversation. In the default Linux container
 setup, chat agents run under separate Unix users. Provider keys still bill the operator's
 accounts. See [per-chat isolation](../../packages/telegram-bot/README.md#per-chat-isolation).

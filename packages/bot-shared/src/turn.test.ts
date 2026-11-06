@@ -11,6 +11,7 @@ import {
   renderPlain,
   type Surface,
 } from "./surface";
+import { chatZone } from "./timezone-store";
 import {
   ALWAYS_ALLOW_CHOICE_ID,
   APPROVE_ALL_CHOICE_ID,
@@ -744,6 +745,13 @@ describe("turn runner", () => {
     expect(sent.at(-1)?.text).toContain("Timezone → Asia/Tokyo");
     await runner.handle(message("/tz Atlantis"));
     expect(sent.at(-1)?.text).toContain("I don't know");
+  });
+
+  test("a conflicting city and country leaves the saved timezone unchanged", async () => {
+    await runner.handle(message("/tz Tokyo"));
+    await runner.handle(message("/tz Vancouver, Canada"));
+    expect(sent.at(-1)?.text).toContain("can't identify one timezone");
+    expect(chatZone(dataDir, "t-tz.json", "c1")?.zone).toBe("Asia/Tokyo");
   });
 
   test("/remind runs a turn that asks the agent to add the reminder", async () => {
