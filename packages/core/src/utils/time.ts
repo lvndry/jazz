@@ -132,7 +132,7 @@ export function parseDurationMs(spec: string): number | null {
  * same instant everywhere; a clock time, weekday or date is not.
  */
 export function isClockDependentWhen(spec: string): boolean {
-  return parseDurationMs(spec) === null;
+  return parseDurationMs(spec) === null && parseWhen(spec, Date.now(), "UTC") !== null;
 }
 
 /** Days in `month` (1-12) of `year`, leap years included. */

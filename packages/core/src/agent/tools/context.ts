@@ -88,7 +88,7 @@ export function createGetTimeTool(): Tool<never> {
             ...(zone.source === "interactive-host"
               ? { note: `Taken from this machine (${hostTimeZone()}); state this assumption.` }
               : {}),
-            ...(zone.source === "explicit-in-message" && context.zoneSettingCommand !== undefined
+            ...(zone.source === "tool-argument" && context.zoneSettingCommand !== undefined
               ? {
                   next: `Offer to remember ${zone.zone}: the user can send ${context.zoneSettingCommand} ${zone.zone}.`,
                 }

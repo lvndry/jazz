@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test, spyOn } from "bun:test";
 import { BOT_DEFAULT_TIMEZONE_ENV, chatZone, hasChatTz, setTzForChat } from "./timezone-store";
 
 const FILE = "test-tz.json";
@@ -36,6 +36,19 @@ describe("a conversation's zone", () => {
       zone: "America/Chicago",
       source: "operator-default",
     });
+  });
+
+  test("warns once without logging the invalid operator value", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    const environment = { [BOT_DEFAULT_TIMEZONE_ENV]: "invalid-private-default-123" };
+    try {
+      chatZone(dataDir, FILE, 1, environment);
+      chatZone(dataDir, FILE, 2, environment);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(environment[BOT_DEFAULT_TIMEZONE_ENV]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   test("an invalid operator default is ignored", () => {

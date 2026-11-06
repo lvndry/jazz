@@ -30,7 +30,7 @@ describe("resolveUserZone", () => {
         userConfig: "America/Chicago",
         hostIsUserDevice: true,
       }),
-    ).toEqual({ kind: "known", zone: "Asia/Tokyo", source: "explicit-in-message" });
+    ).toEqual({ kind: "known", zone: "Asia/Tokyo", source: "tool-argument" });
   });
 
   test("falls through chat setting, user config, then the interactive host", () => {
@@ -105,4 +105,9 @@ describe("a stored cron schedule keeps its zone", () => {
       }
     }
   });
+});
+
+test("rejects timezone abbreviations whose daylight-saving meaning is ambiguous", () => {
+  expect(parseTimeZone("EST").ok).toBe(false);
+  expect(parseTimeZone("CET").ok).toBe(false);
 });

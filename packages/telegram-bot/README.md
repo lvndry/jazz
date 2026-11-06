@@ -106,7 +106,7 @@ right local time. The coordinates are stored in the conversation history
 reverse-geocoding (coords still passed to the agent), or point it at a self-hosted
 Nominatim.
 
-**Timezone.** Reminder times are resolved per person: an explicit `/tz` choice, a
+**Timezone.** Reminder times are resolved per chat: an explicit `/tz` choice, a
 zone auto-detected from a shared location, then `JAZZ_BOT_DEFAULT_TIMEZONE` if the
 operator set one (in that order). The server's own zone is never used. A chat with
 none has no zone: the agent asks for it before scheduling a clock time and offers
@@ -426,7 +426,7 @@ and pointed at its own Jazz home:
 ```
 
 `JAZZ_HOME`, `HOME`, `XDG_*`, `GNUPGHOME` and `PASSWORD_STORE_DIR` all move
-inside that home, so mail, calendar and `pass` are per person too. Chat uids are
+inside that home, so mail, calendar and `pass` are per chat too. Chat uids are
 deliberately **not** in the operator group, which is what makes the group bits
 one-way: the operator reads every chat, no chat reads another, and the setgid
 bit on each directory is what keeps the operator's access working as agents

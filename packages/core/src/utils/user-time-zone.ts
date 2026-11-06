@@ -1,7 +1,7 @@
 /**
  * Whose time zone a request is in, and where that answer came from.
  *
- * A zone is request-local: it comes from what the user said, a setting they made, or the
+ * A zone is request-local: it comes from a tool argument, a setting the user made, or the
  * machine they are sitting at. The zone of a server process says nothing about the user, so it
  * is never an answer on its own; a surface that cannot name the user's zone reports `unknown`
  * and the agent asks.
@@ -9,7 +9,7 @@
 
 /** Where a known zone came from, most specific first. */
 export const USER_ZONE_SOURCES = [
-  "explicit-in-message",
+  "tool-argument",
   "chat-setting",
   "user-config",
   "operator-default",
@@ -34,7 +34,11 @@ const IANA_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_+-]*(\/[A-Za-z0-9_+-]+)*$/;
  */
 export function parseTimeZone(name: string): ParsedTimeZone {
   const trimmed = name.trim();
-  if (trimmed.length === 0 || !IANA_NAME_PATTERN.test(trimmed)) {
+  if (
+    trimmed.length === 0 ||
+    !IANA_NAME_PATTERN.test(trimmed) ||
+    (trimmed.toUpperCase() !== "UTC" && !trimmed.includes("/"))
+  ) {
     return {
       ok: false,
       error: `"${name}" is not an IANA time zone name. Use a name such as Europe/Paris or America/New_York.`,
@@ -62,7 +66,7 @@ export function hostTimeZone(): string {
 }
 
 export interface UserZoneInputs {
-  /** A zone the user named in this request. */
+  /** A request-local zone supplied by a tool argument; not host-verified user provenance. */
   readonly explicit?: string | undefined;
   /** A zone stored for this conversation. */
   readonly chatSetting?: string | undefined;
@@ -82,7 +86,7 @@ export interface UserZoneInputs {
  */
 export function resolveUserZone(inputs: UserZoneInputs): UserZone {
   const candidates: readonly (readonly [UserZoneSource, string | undefined])[] = [
-    ["explicit-in-message", inputs.explicit],
+    ["tool-argument", inputs.explicit],
     ["chat-setting", inputs.chatSetting],
     ["user-config", inputs.userConfig],
     ["operator-default", inputs.operatorDefault],

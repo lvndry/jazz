@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { parseWhen, wallClockToEpoch, zonedDateParts, zonedWeekday } from "./time";
+import {
+  isClockDependentWhen,
+  parseWhen,
+  wallClockToEpoch,
+  zonedDateParts,
+  zonedWeekday,
+} from "./time";
 
 describe("parseWhen", () => {
   test("parses a plain minute duration", () => {
@@ -169,4 +175,10 @@ describe("parseWhen calendar validation", () => {
     expect(parseWhen("2028-02-29 10:00", now, "UTC")).toBe(Date.UTC(2028, 1, 29, 10, 0));
     expect(parseWhen("2026-01-31 10:00", now, "UTC")).toBe(Date.UTC(2026, 0, 31, 10, 0));
   });
+});
+
+test("invalid time syntax does not ask for a timezone", () => {
+  expect(isClockDependentWhen("nonsense")).toBe(false);
+  expect(isClockDependentWhen("30m")).toBe(false);
+  expect(isClockDependentWhen("09:00")).toBe(true);
 });
