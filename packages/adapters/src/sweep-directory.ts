@@ -8,7 +8,7 @@
 import { constants, closeSync, fstatSync, futimesSync, type Stats } from "node:fs";
 import { constants as osConstants } from "node:os";
 import * as path from "node:path";
-import { dlopen, toArrayBuffer } from "bun:ffi";
+import { dlopen, toArrayBuffer, type Pointer } from "bun:ffi";
 
 const darwin = process.platform === "darwin";
 if (!darwin && process.platform !== "linux") {
@@ -17,12 +17,14 @@ if (!darwin && process.platform !== "linux") {
 if (process.arch !== "arm64" && process.arch !== "x64") {
   throw new Error("Unsupported cleanup ABI");
 }
-const readdirSymbol = darwin && process.arch === "x64" ? "readdir$INODE64" : "readdir";
+const inodeSuffix = darwin && process.arch === "x64" ? "$INODE64" : "";
+const readdirSymbol = `readdir${inodeSuffix}`;
+const fdopendirSymbol = `fdopendir${inodeSuffix}`;
 const native = dlopen(darwin ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
   openat: { args: ["i32", "buffer", "i32"], returns: "i32" },
   mkdirat: { args: ["i32", "buffer", "u32"], returns: "i32" },
   unlinkat: { args: ["i32", "buffer", "i32"], returns: "i32" },
-  fdopendir: { args: ["i32"], returns: "ptr" },
+  [fdopendirSymbol]: { args: ["i32"], returns: "ptr" },
   [readdirSymbol]: { args: ["ptr"], returns: "ptr" },
   closedir: { args: ["ptr"], returns: "i32" },
   [darwin ? "__error" : "__errno_location"]: { args: [], returns: "ptr" },
@@ -117,7 +119,7 @@ export class SweepDirectory {
     if (fd < 0) {
       throw nativeError("open directory stream");
     }
-    const stream = native.symbols.fdopendir(fd);
+    const stream = native.symbols[fdopendirSymbol]!(fd) as Pointer | null;
     if (stream === null) {
       const error = nativeError("fdopendir");
       closeSync(fd);
