@@ -42,6 +42,14 @@ describe("validateGoalEvaluation", () => {
     ).toBe(false);
   });
 
+  it("requires a blocker on a blocked disposition, in the repair schema too", () => {
+    const blockedWithoutName = { status: "blocked", summary: "Cannot log in." };
+    expect(validateGoalEvaluation(JSON.stringify(blockedWithoutName), plan, []).kind).toBe(
+      "invalid",
+    );
+    expect(goalEvaluationSchemaForPlan(plan).safeParse(blockedWithoutName).success).toBe(false);
+  });
+
   it("builds a bounded repair request that labels cycle output and tool results as data", () => {
     const messages = goalEvaluationRepairMessages(
       plan,

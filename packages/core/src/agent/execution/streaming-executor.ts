@@ -1,3 +1,8 @@
+/**
+ * Streaming completion strategy for the shared agent loop. Streaming and plain-request fallback
+ * share one retry budget; failed attempts retain their usage, and only accepted completions
+ * reach the renderer. Cancellation aborts the current provider request and preserves partial work.
+ */
 import {
   Cause,
   Deferred,
@@ -35,11 +40,12 @@ import type { UsageCostTokens } from "@/core/utils/usage-cost";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
 import { buildCompletionOptions } from "./completion-request";
-import { rejectEmptyCompletion } from "./empty-completion";
+import { validateCompletion } from "./completion-validation";
 import type { RecursiveRunner } from "../context/summarizer";
 import {
   emitLLMRetry,
   recordFailedAttempt,
+  recordAttemptRetried,
   recordFirstTokenLatency,
 } from "../metrics/agent-run-metrics";
 import { isSubstantialOutput, type AttemptMode } from "../metrics/failed-attempts";
@@ -177,14 +183,22 @@ export function executeWithStreaming(
           const streamedCharsRef = yield* Ref.make(0);
           const toolCallStartedRef = yield* Ref.make(false);
           const attemptUsageRef = yield* Ref.make<UsageCostTokens | undefined>(undefined);
-          const usageRenderedRef = yield* Ref.make(false);
+          const completeEventRef = yield* Ref.make<
+            Extract<StreamEvent, { type: "complete" }> | undefined
+          >(undefined);
 
+          let onRetry: ((retried: boolean) => Effect.Effect<void>) | undefined;
           const beginAttempt = Effect.gen(function* () {
+            if (onRetry !== undefined) {
+              const notify = onRetry;
+              onRetry = undefined;
+              yield* notify(true);
+            }
             yield* Ref.set(attemptStartedAtRef, Date.now());
             yield* Ref.set(streamedCharsRef, 0);
             yield* Ref.set(toolCallStartedRef, false);
             yield* Ref.set(attemptUsageRef, undefined);
-            yield* Ref.set(usageRenderedRef, false);
+            yield* Ref.set(completeEventRef, undefined);
           });
 
           const emptyCompletionContext = {
@@ -213,9 +227,13 @@ export function executeWithStreaming(
                   if (isModelOutputEvent(event)) {
                     yield* Ref.set(outputStartedRef, true);
                   }
-                  yield* renderer.handleEvent(
-                    event.type === "stream_start" ? { ...event, contextWindow } : event,
-                  );
+                  if (event.type !== "complete") {
+                    yield* renderer.handleEvent(
+                      event.type === "stream_start" ? { ...event, contextWindow } : event,
+                    );
+                  } else {
+                    yield* Ref.set(completeEventRef, event);
+                  }
                   if (event.type === "text_chunk") {
                     yield* Ref.set(textAccumulatorRef, event.accumulated);
                     yield* Ref.update(streamedCharsRef, (chars) => chars + event.delta.length);
@@ -232,7 +250,6 @@ export function executeWithStreaming(
                   if (event.type === "complete") {
                     if (event.response.usage) {
                       yield* Ref.set(attemptUsageRef, event.response.usage);
-                      yield* Ref.set(usageRenderedRef, true);
                     }
                     yield* Ref.set(completionRef, event.response);
                     if (event.metrics?.firstTokenLatencyMs) {
@@ -284,15 +301,20 @@ export function executeWithStreaming(
                     }),
               ),
             );
-            return yield* rejectEmptyCompletion(
+            const accepted = yield* validateCompletion(
               { completion, interrupted: false },
               emptyCompletionContext,
             );
+            const completeEvent = yield* Ref.get(completeEventRef);
+            if (completeEvent !== undefined) {
+              yield* renderer.handleEvent(completeEvent);
+            }
+            return accepted;
           }).pipe(
             Effect.tapError((error) =>
               Effect.gen(function* () {
                 if (isRetryableLLMError(error)) {
-                  yield* renderer.reset();
+                  yield* renderer.reset({ preserveTurn: true });
                 }
                 if (
                   error instanceof LLMRequestError ||
@@ -318,13 +340,13 @@ export function executeWithStreaming(
             ),
           ).pipe(
             Effect.map((completion) => ({ completion, interrupted: false })),
-            Effect.flatMap((result) => rejectEmptyCompletion(result, emptyCompletionContext)),
+            Effect.flatMap((result) => validateCompletion(result, emptyCompletionContext)),
           );
 
           /**
            * Leaves the failed attempt's record: what it streamed and used, never what it said.
-           * The usage a renderer already received in a `complete` event is not passed on again,
-           * so a receipt adding it does not count that spend twice. A failure that interrupts
+           * Completion events are rendered only after acceptance, so failed usage belongs to
+           * the retry receipt rather than an apparently successful step. A failure that interrupts
            * the step (Esc, the step's wall-clock limit) never reaches here.
            */
           const recordAttemptFailure = (error: unknown, mode: AttemptMode) =>
@@ -333,8 +355,7 @@ export function executeWithStreaming(
               const streamedChars = yield* Ref.get(streamedCharsRef);
               const toolCallStarted = yield* Ref.get(toolCallStartedRef);
               const usage = yield* Ref.get(attemptUsageRef);
-              const usageRendered = yield* Ref.get(usageRenderedRef);
-              const willRetry = isRetryableLLMError(error);
+              const retriesUsed = yield* Ref.get(retryAttemptRef);
               const record = recordFailedAttempt(
                 runMetrics,
                 {
@@ -347,9 +368,8 @@ export function executeWithStreaming(
                   toolCallStarted,
                   usage,
                 },
-                willRetry,
+                false,
               );
-              yield* emitLLMRetry(runMetrics, error, record);
               yield* logger.debug("Model attempt failed", {
                 attempt: record.index,
                 reason: record.reason,
@@ -360,36 +380,43 @@ export function executeWithStreaming(
                 streamedChars,
                 toolCallStarted,
                 usageReported: usage !== undefined,
-                willRetry,
+                retryable: isRetryableLLMError(error),
+                retriesRemaining: Math.max(0, maxRetries - retriesUsed),
                 agentId: agent.id,
                 conversationId: actualConversationId,
               });
-              if (willRetry && isSubstantialOutput(streamedChars, toolCallStarted)) {
-                yield* logger.debug("Retry after substantial streamed output", {
-                  count: runMetrics.retryWaste.retriesAfterSubstantialOutput,
-                  reason: record.reason,
-                  mode,
-                  provider,
-                  model: record.model,
-                  streamedChars,
-                  toolCallStarted,
-                  usageReported: usage !== undefined,
-                  agentId: agent.id,
-                  conversationId: actualConversationId,
+              onRetry = (retried) =>
+                Effect.gen(function* () {
+                  if (retried) {
+                    recordAttemptRetried(runMetrics, record);
+                    yield* emitLLMRetry(runMetrics, error, record);
+                  }
+                  if (retried && isSubstantialOutput(streamedChars, toolCallStarted)) {
+                    yield* logger.debug("Retry after substantial streamed output", {
+                      count: runMetrics.retryWaste.retriesAfterSubstantialOutput,
+                      reason: record.reason,
+                      mode,
+                      provider,
+                      model: record.model,
+                      streamedChars,
+                      toolCallStarted,
+                      usageReported: usage !== undefined,
+                      agentId: agent.id,
+                      conversationId: actualConversationId,
+                    });
+                  }
+                  yield* renderer.handleEvent({
+                    type: "llm_attempt_failed",
+                    retried,
+                    ...(usage !== undefined ? { usage } : {}),
+                    usageUnknown:
+                      usage === undefined &&
+                      (streamedChars > 0 ||
+                        toolCallStarted ||
+                        record.reason === "stream_stalled" ||
+                        record.reason === "unreadable_response"),
+                  });
                 });
-              }
-              if (willRetry) {
-                yield* renderer.handleEvent({
-                  type: "llm_attempt_failed",
-                  ...(usage !== undefined && !usageRendered ? { usage } : {}),
-                  usageUnknown:
-                    usage === undefined &&
-                    (streamedChars > 0 ||
-                      toolCallStarted ||
-                      record.reason === "stream_stalled" ||
-                      record.reason === "unreadable_response"),
-                });
-              }
             });
 
           /**
@@ -450,6 +477,13 @@ export function executeWithStreaming(
             retrySchedule,
           ).pipe(
             Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
+            Effect.ensuring(
+              Effect.suspend(() => {
+                const notify = onRetry;
+                onRetry = undefined;
+                return notify?.(false) ?? Effect.void;
+              }),
+            ),
             Effect.tapError((error) =>
               Cause.isTimeoutError(error)
                 ? showAgentStatus(

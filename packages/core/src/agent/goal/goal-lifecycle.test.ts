@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { RunState } from "@/core/agent/run/run-state";
-import { BLOCKED_ROUNDS_REQUIRED } from "./goal-blocker";
+import { BLOCKED_ROUNDS_REQUIRED, MAX_CONSECUTIVE_BLOCKED_REPORTS } from "./goal-blocker";
 import {
   decideAccept,
   decideCancel,
@@ -316,7 +316,7 @@ describe("settleCycle outcomes are writable from every cycle state", () => {
     { run: { kind: "completed", spend: SPEND }, evaluation: continued },
     {
       run: { kind: "completed", spend: SPEND },
-      evaluation: valid({ status: "blocked", summary: "b" }),
+      evaluation: valid({ status: "blocked", summary: "b", blocker: "b" }),
     },
     {
       run: { kind: "completed", spend: SPEND },
@@ -438,12 +438,12 @@ describe("cycles cut off by the process stopping", () => {
 });
 
 describe("stopping as blocked", () => {
-  const blockedEnd = (blocker?: string): CycleEnd => ({
+  const blockedEnd = (blocker: string): CycleEnd => ({
     run: { kind: "completed", spend: SPEND },
     evaluation: valid({
       status: "blocked",
       summary: "Cannot log in.",
-      ...(blocker !== undefined ? { blocker } : {}),
+      blocker,
     }),
   });
 
@@ -452,21 +452,26 @@ describe("stopping as blocked", () => {
     for (let round = 1; round < BLOCKED_ROUNDS_REQUIRED; round += 1) {
       const next = settleCycle(current, blockedEnd("Login fails"));
       expect(next.state).toEqual({ kind: "active" });
-      expect(next.blockerStreak).toEqual({ blocker: "login fails", rounds: round });
+      expect(next.blockerStreak).toEqual({
+        blocker: "login fails",
+        rounds: round,
+        reports: round,
+      });
       expect(next.lastProgress).toContain(`round ${round} of ${BLOCKED_ROUNDS_REQUIRED}`);
       expect(parseGoalRecord({ ...next, version: 4 }).ok).toBe(true);
       current = goal({ blockerStreak: next.blockerStreak! });
     }
-    const final = settleCycle(current, blockedEnd("  LOGIN   fails "));
+    const final = settleCycle(current, blockedEnd("  LOGIN   fails. "));
     expect(final.state).toEqual({ kind: "review-required", reason: "Cannot log in." });
     expect(final.blockerStreak).toBeUndefined();
   });
 
   it("starts the count over when the blocker changes or any other disposition intervenes", () => {
-    const streak = goal({ blockerStreak: { blocker: "login fails", rounds: 2 } });
+    const streak = goal({ blockerStreak: { blocker: "login fails", rounds: 2, reports: 2 } });
     expect(settleCycle(streak, blockedEnd("Disk is full")).blockerStreak).toEqual({
       blocker: "disk is full",
       rounds: 1,
+      reports: 3,
     });
     const continued = settleCycle(streak, {
       run: { kind: "completed", spend: SPEND },
@@ -480,8 +485,45 @@ describe("stopping as blocked", () => {
     expect(continued.blockerStreak).toBeUndefined();
   });
 
-  it("falls back to the summary as the blocker when none is named", () => {
-    expect(settleCycle(goal(), blockedEnd()).blockerStreak?.blocker).toBe("cannot log in.");
+  it("keeps role-reversed blockers distinct", () => {
+    const first = settleCycle(goal(), blockedEnd("server rejects client"));
+    const next = settleCycle(
+      goal({ blockerStreak: first.blockerStreak! }),
+      blockedEnd("client rejects server"),
+    );
+    expect(next.blockerStreak?.rounds).toBe(1);
+  });
+
+  it("preserves the matching count from a previously saved phrase", () => {
+    const old = goal({ blockerStreak: { blocker: "login fails", rounds: 2 } });
+    expect(settleCycle(old, blockedEnd("LOGIN fails.")).state.kind).toBe("review-required");
+  });
+
+  it("ignores case and punctuation in a blocker", () => {
+    let current = goal();
+    for (const wording of ["API key missing", "api-key missing", "API KEY missing."]) {
+      const next = settleCycle(current, blockedEnd(wording));
+      if (wording === "API KEY missing.") {
+        expect(next.state.kind).toBe("review-required");
+      }
+      current = goal({ blockerStreak: next.blockerStreak! });
+    }
+  });
+
+  it("stops for review after a bounded run of blocked reports even when no two match", () => {
+    let current = goal();
+    for (let report = 1; report < MAX_CONSECUTIVE_BLOCKED_REPORTS; report += 1) {
+      const next = settleCycle(current, blockedEnd(`blocker number ${report} differs entirely`));
+      expect(next.state).toEqual({ kind: "active" });
+      current = goal({ blockerStreak: next.blockerStreak! });
+    }
+    const final = settleCycle(current, blockedEnd("one more different reason"));
+    expect(final.state.kind).toBe("review-required");
+  });
+
+  it("counts a record saved before reports were tracked from its rounds", () => {
+    const old = goal({ blockerStreak: { blocker: "login fails", rounds: 2 } });
+    expect(settleCycle(old, blockedEnd("something else")).blockerStreak?.reports).toBe(3);
   });
 });
 
@@ -516,16 +558,19 @@ describe("the authority granted on acceptance", () => {
 });
 
 describe("counters that must run in a row", () => {
-  /** The regression: a cycle with an unverified claim kept the interruption count alive. */
-  it("a blocker streak ends at any cycle that finishes, verified or not", () => {
-    const next = settleCycle(goal({ blockerStreak: { blocker: "login fails", rounds: 2 } }), {
-      run: { kind: "completed", spend: SPEND },
-      evaluation: {
-        kind: "invalid",
-        reason: "Completion evidence for criterion 1 does not appear in this cycle's tool output.",
+  it("a blocker streak survives a report that was not accepted", () => {
+    const next = settleCycle(
+      goal({ blockerStreak: { blocker: "login fails", rounds: 2, reports: 4 } }),
+      {
+        run: { kind: "completed", spend: SPEND },
+        evaluation: {
+          kind: "invalid",
+          reason:
+            "Completion evidence for criterion 1 does not appear in this cycle's tool output.",
+        },
       },
-    });
-    expect(next.blockerStreak).toBeUndefined();
+    );
+    expect(next.blockerStreak).toEqual({ blocker: "login fails", rounds: 2, reports: 4 });
     expect(next.unverifiedClaims).toBe(1);
   });
 });

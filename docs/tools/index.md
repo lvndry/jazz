@@ -399,6 +399,8 @@ See [email and calendar setup](../configure/email-calendar.md).
 
 ## Notes
 
+- **Whole-file write approvals survive restarts.** `write_file` binds approval to the original file bytes, path and replacement content. A parked run restores that snapshot when resumed in another process. If the file changed, execution returns `StaleFileError` and leaves it intact. Older parked approvals without a snapshot are refused; read the file and request a new write.
+
 - **Editing a file another agent may change**: Pass the `snapshot` from a text `read_file` unchanged to `edit_file`, even if you read only a line range. A stale snapshot returns `StaleFileError` without writing or asking for approval; read again and retry. Append reads and media attachments do not produce snapshots. Jazz serializes its own edits; writes from other programs can still conflict.
 - **Following a file that is still being written**: `read_file` with `sinceByte` returns appended bytes, plus `nextByte` and `inode` for the next read. On truncation or rotation it restarts at byte 0 and reports the change. A nonzero `sinceByte` cannot be combined with `startLine` or `endLine`.
 - **`find` vs `grep`**: `find` locates files by name, glob, or path pattern. `grep` searches _inside_ file contents.

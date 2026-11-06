@@ -892,7 +892,7 @@ describe("AI SDK Service - Unit Tests", () => {
               message: {
                 role: "assistant",
                 content:
-                  '{"result":{"status":"blocked","summary":"The oracle cannot inspect the service."}}',
+                  '{"result":{"status":"blocked","summary":"The oracle cannot inspect the service.","blocker":"No service access"}}',
               },
               finish_reason: "stop",
             },
@@ -928,6 +928,7 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(JSON.parse(response.content)).toEqual({
         status: "blocked",
         summary: "The oracle cannot inspect the service.",
+        blocker: "No service access",
       });
       expect(response.usage?.totalTokens).toBe(18);
     } finally {

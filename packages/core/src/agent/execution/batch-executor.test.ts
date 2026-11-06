@@ -406,6 +406,13 @@ describe("executeWithoutStreaming empty responses", () => {
     };
   }
 
+  it("refuses duplicate IDs before recording or executing the batch", async () => {
+    const call = toolCallCompletion.toolCalls![0]!;
+    const harness = runWith([{ ...toolCallCompletion, toolCalls: [call, call] }], 0);
+    await expect(harness.run()).rejects.toThrow("duplicate tool call IDs");
+    expect(harness.runContext.runMetrics.totalRequests).toBe(0);
+  });
+
   it("asks again after an empty finish and answers from the retry", async () => {
     const harness = runWith([emptyCompletion(), { ...finalCompletion }], 2);
 
@@ -423,6 +430,15 @@ describe("executeWithoutStreaming empty responses", () => {
     expect(runMetrics.retryWaste.promptTokens).toBe(12);
     expect(runMetrics.totalPromptTokens).toBe(finalCompletion.usage?.promptTokens ?? 0);
     expect(runMetrics.totalRequests).toBe(1);
+  });
+
+  it("keeps failed usage when no retry is allowed, without counting a retry", async () => {
+    const harness = runWith([emptyCompletion()], 0);
+    await expect(harness.run()).rejects.toThrow("empty response");
+    expect(harness.calls()).toBe(1);
+    expect(harness.runContext.runMetrics.llmRetryCount).toBe(0);
+    expect(harness.runContext.runMetrics.retryWaste.retryableFailures).toBe(0);
+    expect(harness.runContext.runMetrics.retryWaste.promptTokens).toBe(12);
   });
 
   it("fails clearly once the retry budget is spent on empty finishes", async () => {

@@ -10,7 +10,10 @@ import { Effect } from "effect";
 import { z } from "zod";
 import {
   BLOCKED_ROUNDS_REQUIRED,
+  MAX_CONSECUTIVE_BLOCKED_REPORTS,
+  blockedReportCount,
   blockedRuleInstruction,
+  blockedStopsGoal,
   blockerKey,
   blockerRound,
 } from "@/core/agent/goal/goal-blocker";
@@ -24,7 +27,7 @@ import { lastSucceededToolCall, type ToolCallMessage } from "./tool-call-history
 
 export const REPORT_GOAL_CYCLE_TOOL_NAME = "report_goal_cycle";
 
-const reportGoalCycleParameters = z
+const reportGoalCycleFields = z
   .object({
     status: z
       .enum(["continue", "complete", "blocked", "question"])
@@ -42,7 +45,7 @@ const reportGoalCycleParameters = z
       .max(MAX_BLOCKER_CHARS)
       .optional()
       .describe(
-        `For blocked: a short name for what stops the work. Use the identical text each cycle while the same thing still stands; the goal stops as blocked after ${BLOCKED_ROUNDS_REQUIRED} consecutive cycles report the same blocker.`,
+        `For blocked (required): a few words naming what stops the work. Use the same words each cycle while the same thing still stands; the goal stops as blocked after ${BLOCKED_ROUNDS_REQUIRED} consecutive cycles report the same blocker, or after ${MAX_CONSECUTIVE_BLOCKED_REPORTS} consecutive blocked reports regardless of wording.`,
       ),
     nextAction: z
       .string()
@@ -77,6 +80,20 @@ const reportGoalCycleParameters = z
   })
   .strict();
 
+const reportGoalCycleParameters = z.union([
+  reportGoalCycleFields.extend({
+    status: z.literal("blocked"),
+    blocker: reportGoalCycleFields.shape.blocker
+      .unwrap()
+      .describe(reportGoalCycleFields.shape.blocker.description!),
+  }),
+  reportGoalCycleFields.extend({
+    status: z
+      .enum(["continue", "complete", "question"])
+      .describe("The cycle's disposition when it is not blocked."),
+  }),
+]);
+
 type ReportGoalCycleArgs = z.infer<typeof reportGoalCycleParameters>;
 
 export function createReportGoalCycleTool(): Tool<GoalStoreTag> {
@@ -94,18 +111,22 @@ export function createReportGoalCycleTool(): Tool<GoalStoreTag> {
         if (args.status !== "blocked") {
           return { success: true, result: { recorded: true } } satisfies ToolExecutionResult;
         }
-        const blocker = blockerKey(args);
+        if (args.blocker === undefined || context.runId === undefined) {
+          return { success: true, result: { recorded: true } } satisfies ToolExecutionResult;
+        }
+        const { runId } = context;
+        const blocker = blockerKey(args.blocker);
         const goals = yield* GoalStoreTag;
         const open = (yield* goals.list({ states: CLAIMED_GOAL_STATES })).find(
-          (goal) => goal.cycle?.runId === context.runId,
+          (goal) => goal.cycle?.runId === runId,
         );
         const round = open === undefined ? 1 : blockerRound(open, blocker);
+        const reports = open === undefined ? 1 : blockedReportCount(open);
         return {
           success: true,
-          result:
-            round >= BLOCKED_ROUNDS_REQUIRED
-              ? { recorded: true }
-              : { recorded: true, instruction: blockedRuleInstruction(blocker, round) },
+          result: blockedStopsGoal(round, reports)
+            ? { recorded: true }
+            : { recorded: true, instruction: blockedRuleInstruction(blocker, round) },
         } satisfies ToolExecutionResult;
       }).pipe(
         Effect.catch(() =>
