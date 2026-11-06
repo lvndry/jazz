@@ -387,6 +387,14 @@ export function observeRequest(conversationKey: string, current: RequestFingerpr
   return change;
 }
 
+/**
+ * What {@link observeRequest} would classify for this request, without remembering it. Lets a
+ * caller decide whether sending a request is worth it before the ledger records it as sent.
+ */
+export function peekCacheChange(conversationKey: string, current: RequestFingerprint): CacheChange {
+  return classifyCacheChange(ledger.get(conversationKey)?.fingerprint, current);
+}
+
 export function recordCacheUsage(
   conversationKey: string,
   usage: CacheUsageInput,

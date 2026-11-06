@@ -726,9 +726,14 @@ Static tool risks, allowlists, approval tiers, and the shell denylist remain enf
 | Command                         | Purpose                                                                                                           |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `jazz config show`              | Show all configuration values, secrets redacted; `--reveal` prints them                                           |
+| `jazz config resolved`          | Show every effective setting and the layer it came from; `--json` prints one JSON document                        |
 | `jazz config validate`          | Check config files without starting the application                                                               |
 | `jazz config get <key>`         | Print one value and nothing else, redacted when it is or holds a secret; `--reveal` prints it. Exits `1` if unset |
 | `jazz config set <key> [value]` | Set one value                                                                                                     |
+
+`config resolved` reads the config files, the environment and `--debug` without starting the
+daemon, reading the keyring or using the network, so it works on a machine with nothing
+configured. [Read where a setting came from](./configure/jazz.md#see-where-each-setting-came-from).
 
 `config validate` also checks every agent file: one that cannot be read, or names a provider or
 reasoning level Jazz does not know, fails the check with exit code `1`; a tool name no built-in
@@ -831,6 +836,7 @@ options still accept [global options](#global-options) and `-h, --help`.
 | `jazz plugin doctor`        | `--json`                                         | Emit JSON                                                                                                                                                                                                   |
 | `jazz plugin secret status` | `--json`                                         | Emit JSON                                                                                                                                                                                                   |
 | `jazz config get`           | `--reveal`                                       | Print secret values in full                                                                                                                                                                                 |
+| `jazz config resolved`      | `--json`                                         | Print one JSON document                                                                                                                                                                                     |
 | `jazz config show`          | `--reveal`                                       | Print secret values in full                                                                                                                                                                                 |
 | `jazz computer grant`       | `--expires <duration>`                           | How long the grant lasts, such as 8h (default 8h, at most 7d)                                                                                                                                               |
 | `jazz computer grant`       | `--idle <duration>`                              | End a run's access after this long without an action (default 30m)                                                                                                                                          |
@@ -1162,6 +1168,18 @@ Ctrl+B leaves the call running and lets the agent carry on: it is told the call 
 and that it will hear back. When the call finishes, the chat shows one line naming it, and the
 agent gets its result at its next step. If the chat is idle by then, the result starts a turn
 on its own, so you do not have to send a message to get the agent to read it.
+
+You do not have to press the key for a slow shell command. In an interactive chat, an `execute_command`
+that is still running 45 seconds after it started (the wait for your approval does not count) is
+moved to the background for you. The transcript shows `→ moved to the background after 45s`, the
+agent is told the same run is still going and must not be started again, and its result (exit code,
+whether it hit the 15 minute limit, the end of its output) arrives like any backgrounded call. At most
+3 such commands run at once; a fourth stays in the foreground. The 15 minute limit still stops a
+backgrounded command. Leaving the chat or switching conversations stops every command still running
+in the background and tells you which ones. Pressing Esc stops the foreground turn; commands already moved to the background keep running.
+Completed results stay with their original conversation, and its saved history records which
+commands were stopped when you left. Unattended runs, bridges, sub-agents and `jazz run`
+without a terminal never move commands to the background and keep the foreground wait.
 
 ### Commands that answer right away
 

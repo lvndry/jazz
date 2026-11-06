@@ -56,6 +56,39 @@ Omit `<value>` to enter it at a prompt. For a per-entry secret such as `notify.t
 
 A write changes only the key you set, and only in the global file. Values merged in from a project file, from `--debug`, from environment variables, or from the keyring are never copied into it. Unknown or invalid entries remain untouched, but Jazz refuses to overwrite malformed JSON.
 
+## See where each setting came from
+
+`jazz config resolved` prints every effective setting and the layer that set it, so you can see what Jazz will boot with. It reads the config files, the environment and `--debug`; it starts no daemon, reads no keyring and calls no provider, so it works offline. It exits `0` for a valid configuration. For an invalid one it prints the error `jazz config validate` gives, naming the file and the key, and exits `1`.
+
+```text
+Settings
+  logging.level = "debug"
+      from flag --debug
+      replaced "info" from default
+      replaced "warn" from global file /home/me/.jazz/config.json
+  shell.confinement = "on"
+      from global file /home/me/.jazz/config.json
+
+Secrets (values are never shown)
+  llm.openai.api_key = <redacted>
+      from environment OPENAI_API_KEY
+      replaced <redacted> from global file /home/me/.jazz/config.json
+
+Ignored
+  shell.confinement = "off"
+      from project file /work/app/.jazz/config.json
+      not applied: a project config can turn write confinement on but not off
+```
+
+Read each entry like this:
+
+- `from` names the layer whose value Jazz uses: `default`, `global file <path>`, `project file <path>`, `flag --debug` or `environment <VARIABLE>`. Layers apply in that order, lowest first.
+- `replaced` lists the lower-layer values this one overrode, lowest first. A key with no `replaced` lines was set in one layer only.
+- `Ignored` lists values a layer set that Jazz did not apply, with the reason: a project `shell.confinement: "off"`, a project `network` or `companions` section, a project `llm.openrouter.zdr: false`, a project `storage`, and a project `mcpServers.<name>.trusted`. The setting above it shows the value that took effect.
+- `Secrets` shows `<redacted>` for every credential, never the value or a prefix. A secret held in a config file or supplied by an environment variable is listed with its source; any others live in the keyring, which this command does not read.
+
+Keys you have not set are not listed; Jazz applies each one's built-in default where it reads it. `jazz config resolved --json` prints one JSON document with `layers`, `locations`, `secretStore`, `settings`, `secrets` and `ignored`, each entry carrying its `path`, `value`, `source` and `overridden` list, in the same sorted order.
+
 ## Mistakes in a configuration file
 
 Jazz checks each configuration file before it can affect runtime behavior. A value of the wrong type, an unknown key, an invalid safety invariant, or malformed JSON stops every command with exit code `1` and names each problem, rather than running on defaults that could quietly drop your limits and approvals. A `--config` path that does not exist stops the command the same way:

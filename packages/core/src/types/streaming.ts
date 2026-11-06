@@ -3,6 +3,7 @@ import type { CacheChangedPart, CacheMissReason } from "@/core/agent/metrics/pro
 import type { ChatCompletionResponse } from "./chat";
 import type { LLMError } from "./errors";
 import type { ToolCall, ApprovalOption } from "./tools";
+import type { UsageCostTokens } from "../utils/usage-cost";
 
 /**
  * Streaming LLM types and interfaces
@@ -110,6 +111,18 @@ export type StreamEvent =
 
   // Usage updates (optional, for real-time token tracking)
   | { type: "usage_update"; usage: TokenUsage }
+
+  /**
+   * A model attempt failed and the step will try again. `usage` is what the provider reported
+   * for it, set only when no `complete` event already carried that usage to the renderer, so
+   * a receipt that adds it never counts it twice. `usageUnknown` marks an attempt that may
+   * have billed output it never reported.
+   */
+  | {
+      type: "llm_attempt_failed";
+      usage?: UsageCostTokens;
+      usageUnknown: boolean;
+    }
 
   /**
    * How the request about to be answered differs, in what providers cache, from the run's

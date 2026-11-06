@@ -105,6 +105,7 @@ import {
   recordLLMUsage,
   recordToolDefinitionTokens,
   recordSideSpend,
+  runRetryWaste,
   recordToolResultTokens,
   runSpendReport,
   type RunCost,
@@ -118,6 +119,7 @@ import {
   type PromptCacheScope,
 } from "../metrics/prompt-cache-observer";
 import { lifecycleEventForStreamEvent } from "../plugins/lifecycle-bridge";
+import type { CancelCause } from "../run/cancel-cause";
 import type { SubagentSupervisor } from "../subagents/supervisor";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
@@ -386,11 +388,11 @@ interface LoopState {
   /** The tool batch in flight, until every call of it has a result in the transcript. */
   activeToolBatch: ActiveToolBatch | undefined;
   /**
-   * Set once a goal proposal is saved: accepting it is the user's decision, so the rest of
-   * the turn may only describe the plan, never start it. Later completions are asked for
-   * text only, and tool calls the provider returns anyway are dropped.
+   * Set once a tool result concludes the turn (a saved goal proposal, whose acceptance is the
+   * user's decision): the rest of the turn may only describe the result. Later completions
+   * are asked for text only, and tool calls the provider returns anyway are dropped.
    */
-  awaitingGoalDecision: boolean;
+  turnConcluded: boolean;
   /**
    * Set when the model answered before reading results its sub-agents produced: the
    * next step is told to read them first, instead of the answer standing.
@@ -647,6 +649,13 @@ export interface CompletionStrategy {
   shouldShowReasoning: boolean;
 }
 
+/**
+ * The loop's interrupt signal is raised only by the renderer's interrupt handler (Esc,
+ * Ctrl+C), so a run it ends is a user stop. Stops from outside the loop (a parent, a
+ * deadline, a shutdown) interrupt the fiber and never reach this response.
+ */
+const IN_LOOP_CANCEL_CAUSE: CancelCause = "user";
+
 interface FinalizeInput {
   response: AgentResponse;
   currentMessages: ConversationMessages;
@@ -707,6 +716,7 @@ function finalizeRun(
 
     yield* logger.debug("Finalizing agent run", {
       interrupted,
+      ...(interrupted ? { cancelCause: IN_LOOP_CANCEL_CAUSE } : {}),
       finished,
       costCapped,
       tokenCapped,
@@ -731,11 +741,12 @@ function finalizeRun(
     // (bridge daily caps, the per-run maxCostUSD guard) treat costIncomplete as
     // unpriced spend and refuse to enforce a cap they cannot verify.
     const { costUSD, costIncomplete } = computeRunCost(runMetrics, modelMetadata);
+    const retryWaste = runRetryWaste(runMetrics, modelMetadata);
     const cacheHitRate = cacheTallyHitRate(runMetrics.cacheTally);
 
     return {
       ...response,
-      ...(interrupted ? { interrupted: true } : {}),
+      ...(interrupted ? { interrupted: true, cancelCause: IN_LOOP_CANCEL_CAUSE } : {}),
       messages: currentMessages,
       usage: {
         promptTokens: runMetrics.totalPromptTokens,
@@ -752,6 +763,15 @@ function finalizeRun(
       },
       ...(costUSD !== undefined ? { costUSD } : {}),
       ...(costIncomplete ? { costIncomplete: true } : {}),
+      ...(retryWaste.retries > 0
+        ? {
+            retryWaste: {
+              retries: retryWaste.retries,
+              ...(retryWaste.wastedUSD !== undefined ? { wastedUSD: retryWaste.wastedUSD } : {}),
+              lowerBound: retryWaste.lowerBound,
+            },
+          }
+        : {}),
       ...(costCapped ? { costCapped: true } : {}),
       ...(tokenCapped ? { tokenCapped: true } : {}),
       ...(durationCapped ? { durationCapped: true } : {}),
@@ -1562,12 +1582,15 @@ function handleToolPhase(
     ) {
       deps.memoryOpportunities?.invalidateSnapshot();
     }
-    if (
-      toolResults.some(
-        (toolResult) => toolResult.success && toolResult.name === PROPOSE_GOAL_TOOL_NAME,
-      )
-    ) {
-      state.awaitingGoalDecision = true;
+    if (toolResults.some((toolResult) => toolResult.success && toolResult.concludesTurn === true)) {
+      state.turnConcluded = true;
+      yield* logger.debug("Tool result concluded the turn; no further tool steps", {
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        tools: toolResults
+          .filter((toolResult) => toolResult.concludesTurn === true)
+          .map((toolResult) => toolResult.name),
+      });
     }
     const missingResults: string[] = [];
     for (const toolCall of toolCalls) {
@@ -1711,9 +1734,9 @@ function handleToolPhase(
   );
 }
 
-/** Whether the next completion may call tools: not while a goal awaits a decision or the run is writing its final answer. */
+/** Whether the next completion may call tools: not once a tool result concluded the turn or the run is writing its final answer. */
 function toolsOffered(state: LoopState): boolean {
-  return !state.awaitingGoalDecision && state.finalAnswerReason === undefined;
+  return !state.turnConcluded && state.finalAnswerReason === undefined;
 }
 
 /** The instruction appended to the run's final, tool-less request. */
@@ -2006,6 +2029,11 @@ function runIteration(
       contextWindowMaxTokens,
       allowMemoryExtraction,
       deps.context.egressTaint,
+      {
+        tools: deps.tools,
+        cacheScope: { ...promptCacheScope(deps), emit: undefined },
+        pricing: deps.modelMetadata,
+      },
     ).pipe(Effect.map(Option.some));
     // A summarizer call is a model call of its own; Esc has to reach it like any other.
     const interruptSignal = strategy.getInterruptSignal?.();
@@ -2552,7 +2580,7 @@ export function executeAgentLoop(
           compactedSinceLastRequest: options.historyCompacted === true,
           overflowRecoveryUsed: false,
           activeToolBatch: undefined,
-          awaitingGoalDecision: false,
+          turnConcluded: false,
           unreadSubagentNotice: undefined,
           finalAnswerReason: undefined,
         };

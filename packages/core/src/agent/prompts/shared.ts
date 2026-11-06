@@ -132,9 +132,19 @@ function renderOperatingRules(options: HarnessPromptOptions): string {
   return `## Operating rules\n\n${COMPLETION_PREAMBLE}\n\n${numbered.join("\n")}`;
 }
 
-/** Render all Jazz-owned behavioral guidance as one coherent prompt block. */
-export function renderHarnessPrompt(options: HarnessPromptOptions): string {
-  const sections = [renderOperatingRules(options)];
+export interface HarnessPromptParts {
+  /** Rules and tool guidance: constant for a given tool set. */
+  readonly stable: string;
+  /** Skills index, deferred-tool index and media guidance: the index sections change as skills and unlocked tools do. */
+  readonly dynamic?: string;
+}
+
+/**
+ * Render the harness block in two parts that join, with a blank line, into exactly the
+ * block `renderHarnessPrompt` returns.
+ */
+export function renderHarnessPromptParts(options: HarnessPromptOptions): HarnessPromptParts {
+  const stableSections = [renderOperatingRules(options)];
 
   if (options.hasTools) {
     const guidance = [TOOL_SELECTION_INSTRUCTIONS, UNTRUSTED_TOOL_OUTPUT_RULE];
@@ -151,22 +161,34 @@ export function renderHarnessPrompt(options: HarnessPromptOptions): string {
         "Retrieve offloaded or cut tool results instead of repeating the original call.",
       );
     }
-    sections.push(`## Tools\n\n${guidance.join(" ")}`);
+    stableSections.push(`## Tools\n\n${guidance.join(" ")}`);
   }
+
+  const dynamicSections: string[] = [];
   if (options.skillsIndex !== undefined) {
-    sections.push(
+    dynamicSections.push(
       `## Skills\n\n${SKILLS_INSTRUCTIONS}\n\n<available_skills>\n${options.skillsIndex}\n</available_skills>`,
     );
   }
   if (options.deferredToolsIndex !== undefined) {
-    sections.push(
+    dynamicSections.push(
       `## Deferred tools\n\n${TOOL_SEARCH_INSTRUCTIONS.trim()}\n\n<deferred_tools>\n${options.deferredToolsIndex}\n</deferred_tools>`,
     );
   }
   if (options.media !== undefined) {
     const guidance =
       options.media === "delegated" ? MEDIA_GENERATION_DELEGATED : MEDIA_GENERATION_UNAVAILABLE;
-    sections.push(`## Media\n\n${guidance}`);
+    dynamicSections.push(`## Media\n\n${guidance}`);
   }
-  return `# Jazz harness\n\n${sections.join("\n\n")}`;
+
+  return {
+    stable: `# Jazz harness\n\n${stableSections.join("\n\n")}`,
+    ...(dynamicSections.length > 0 ? { dynamic: dynamicSections.join("\n\n") } : {}),
+  };
+}
+
+/** Render all Jazz-owned behavioral guidance as one coherent prompt block. */
+export function renderHarnessPrompt(options: HarnessPromptOptions): string {
+  const { stable, dynamic } = renderHarnessPromptParts(options);
+  return dynamic === undefined ? stable : `${stable}\n\n${dynamic}`;
 }
