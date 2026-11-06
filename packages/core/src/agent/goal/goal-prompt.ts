@@ -6,6 +6,7 @@
  * controller can check against the cycle's own tool output.
  */
 
+import { BLOCKED_ROUNDS_REQUIRED, MAX_CONSECUTIVE_BLOCKED_REPORTS } from "./goal-blocker";
 import { numberedCriteria } from "./goal-evaluation";
 import type { GoalRecord } from "./goal-record";
 
@@ -75,7 +76,7 @@ export function goalCyclePrompt(
           "The user is in the chat with you. When you need a decision only they can make, ask it with ask_user_question and carry on with their answer in this cycle.",
         ]
       : ['- You need a decision only the user can make: status "question" with the question.']),
-    '- You cannot continue safely: status "blocked" with a summary of what stops you and why.',
+    `- You cannot continue safely: status "blocked" with a summary of what stops you and why, and a blocker: a short name for it. The goal stops as blocked once ${BLOCKED_ROUNDS_REQUIRED} consecutive cycles report the same blocker, or ${MAX_CONSECUTIVE_BLOCKED_REPORTS} consecutive blocked reports regardless of wording, so try a different approach each cycle first and reuse the identical blocker text while it still stands.`,
     "",
     `Original request: ${JSON.stringify(goal.request)}`,
   ].join("\n");

@@ -501,9 +501,10 @@ export interface StreamingRenderer {
   readonly setBackgroundHandler?: (handler: (() => void) | null) => Effect.Effect<void, never>;
 
   /**
-   * Reset renderer state (call between conversations)
+   * Reset stream state. Preserve accepted steps when retrying within the same turn;
+   * a reset between conversations clears the whole turn.
    */
-  readonly reset: () => Effect.Effect<void, never>;
+  readonly reset: (options?: { readonly preserveTurn?: boolean }) => Effect.Effect<void, never>;
 
   /**
    * Flush any pending output

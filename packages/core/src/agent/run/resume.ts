@@ -194,11 +194,18 @@ export function resumeRun(options: ResumeRunOptions) {
 
     // The turn stopped on an assistant message whose tool calls never got results. Those
     // are what resume has to finish; anything already answered stays answered.
-    const lastAssistant = [...snapshot.messages]
-      .reverse()
-      .find((message) => message.role === "assistant" && message.tool_calls !== undefined);
+    let lastAssistantIndex = snapshot.messages.length - 1;
+    while (lastAssistantIndex >= 0) {
+      const message = snapshot.messages[lastAssistantIndex];
+      if (message?.role === "assistant" && message.tool_calls !== undefined) {
+        break;
+      }
+      lastAssistantIndex -= 1;
+    }
+    const lastAssistant = snapshot.messages[lastAssistantIndex];
     const answered = new Set(
       snapshot.messages
+        .slice(lastAssistantIndex + 1)
         .filter((message) => message.role === "tool")
         .map((message) => message.tool_call_id),
     );
@@ -246,7 +253,12 @@ export function resumeRun(options: ResumeRunOptions) {
         ? {
             resolvedApprovals: new Map([
               ...alreadyAnswered,
-              [pending.request.toolCallId, options.outcome.value] as const,
+              [
+                pending.request.toolCallId,
+                options.outcome.value.approved
+                  ? { ...options.outcome.value, writeSnapshot: pending.request.writeSnapshot }
+                  : options.outcome.value,
+              ] as const,
             ]),
           }
         : options.outcome.kind === "question" && pending.kind === "question"

@@ -8,11 +8,16 @@
 #   assistant    conversational PR / codebase Q&A  (agent: pr-assistant)
 #
 # Triggers:
-#   PR opened / ready       -> code-review
-#   comment "/jazz-review"  -> code-review
+#   PR push (opened, reopened, ready, synchronize)
+#                           -> jazz-review-gate.yml waits out a debounce, enforces the review
+#                              limits, cancels older queued automatic reviews, then dispatches
+#                              this workflow with job=code-review and automatic=true
+#   comment "/jazz-review"  -> code-review (counts toward the global cap only)
 #   comment "/jazz <req>"   -> assistant
-#   Actions tab dispatch    -> either job
+#   Actions tab dispatch    -> either job (counts toward the global cap only)
+#   jazz.yml changed        -> code-review for the pushed branch's open PR
 #
+# Review limits (debounce, per-PR budget, global cap) live in scripts/jazz-review-gate.ts.
 # Configuration lives in .github/jazz/ (agent configs + workflow prompts).
 # Secrets: GITHUB_TOKEN (automatic), JAZZ_CHATGPT_CREDENTIAL, and a GitHub App
 #          installation used only to persist rotated ChatGPT OAuth credentials.
@@ -20,16 +25,12 @@
 
 name: Jazz
 
-concurrency:
-  # ChatGPT refresh tokens rotate and are shared by all PRs. Keep the complete run,
-  # including the secret update, inside one repository-wide queue.
-  group: jazz-chatgpt-oauth-${{ github.repository }}
-  queue: max
-  cancel-in-progress: false
+run-name: >-
+  ${{ (github.event_name == 'workflow_dispatch' && format('Jazz {0} #{1} [{2}] {3}', inputs.job, inputs.pull_request_number, inputs.automatic && 'auto' || 'manual', inputs.head_sha))
+  || (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/jazz-review') && format('Jazz code-review #{0} [manual]', github.event.issue.number))
+  || format('Jazz {0}', github.event_name) }}
 
 on:
-  pull_request:
-    types: [opened, ready_for_review]
   # Re-run all jazz jobs when the workflow file itself changes, so a fix or
   # tweak to jazz.yml gets exercised end-to-end against any open PR for the
   # pushed branch (or just validated for direct pushes to default).
@@ -54,6 +55,15 @@ on:
         description: "Request to send to Jazz (assistant job only)"
         required: false
         type: string
+      automatic:
+        description: "Set by jazz-review-gate.yml for push-triggered reviews; leave false when running by hand"
+        required: false
+        default: false
+        type: boolean
+      head_sha:
+        description: "Commit the gate saw; only labels the run"
+        required: false
+        type: string
   issue_comment:
     types: [created]
 
@@ -74,6 +84,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      contents: read
+      actions: read
       pull-requests: write
       issues: write
     outputs:
@@ -83,6 +95,7 @@ jobs:
       pr_head_repo_full_name: ${{ steps.resolve.outputs.pr_head_repo_full_name }}
       request: ${{ steps.resolve.outputs.request }}
       command: ${{ steps.resolve.outputs.command }}
+      review_allowed: ${{ steps.global-cap.outputs.review_allowed }}
     steps:
       - name: Resolve PR context
         id: resolve
@@ -100,13 +113,7 @@ jobs:
             let prNumber, baseSha, headSha, prHeadRepoFullName;
             let request = '';
 
-            if (context.payload.pull_request) {
-              const pr = context.payload.pull_request;
-              prNumber = pr.number;
-              baseSha = pr.base.sha;
-              headSha = pr.head.sha;
-              prHeadRepoFullName = pr.head.repo.full_name;
-            } else if (context.eventName === 'workflow_dispatch') {
+            if (context.eventName === 'workflow_dispatch') {
               prNumber = Number(context.payload.inputs.pull_request_number);
               const { data: pr } = await github.rest.pulls.get({
                 owner: context.repo.owner,
@@ -188,8 +195,6 @@ jobs:
               command = isReview ? 'review' : (isAssist ? 'assist' : 'none');
             } else if (context.eventName === 'workflow_dispatch') {
               command = (context.payload.inputs.job === 'code-review') ? 'review' : 'assist';
-            } else if (context.eventName === 'pull_request') {
-              command = 'review';
             }
 
             core.setOutput('pr_number', String(prNumber));
@@ -198,6 +203,37 @@ jobs:
             core.setOutput('pr_head_repo_full_name', prHeadRepoFullName);
             core.setOutput('request', request);
             core.setOutput('command', command);
+
+      - name: Checkout for the global review cap
+        id: global-cap-checkout
+        if: |
+          steps.resolve.outputs.command == 'review' &&
+          github.event.inputs.automatic != 'true' &&
+          steps.resolve.outputs.pr_number != '' &&
+          steps.resolve.outputs.pr_head_repo_full_name == github.repository && (
+            github.event_name != 'issue_comment' ||
+            github.event.comment.author_association == 'OWNER' ||
+            github.event.comment.author_association == 'MEMBER' ||
+            github.event.comment.author_association == 'COLLABORATOR'
+          )
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun for the global review cap
+        if: steps.global-cap-checkout.conclusion == 'success'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Enforce the global review cap
+        id: global-cap
+        if: steps.global-cap-checkout.conclusion == 'success'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+        run: bun scripts/jazz-review-gate.ts global-check
 
       - name: React with eyes on triggering comment
         if: |
@@ -247,12 +283,22 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    concurrency:
+      # ChatGPT refresh tokens rotate and are shared by every review and assistant run, so one
+      # run at a time may hold the credential, from restoring it through the secret update that
+      # persists the rotated one. The group wraps only the jobs that touch it: resolve and
+      # every skipped job stay out, so ordinary PR comments never wait in this queue. Never
+      # set cancel-in-progress: cancelling a run after it refreshed the token but before it
+      # saved the rotated one invalidates the credential for every PR.
+      group: jazz-chatgpt-oauth-${{ github.repository }}
+      queue: max
+      cancel-in-progress: false
     permissions:
       contents: read
       pull-requests: write
       issues: write
     if: |
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository) ||
+      needs.resolve.outputs.review_allowed != 'false' && (
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'code-review' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && needs.resolve.outputs.command == 'review' && (
         github.event.comment.author_association == 'OWNER' ||
@@ -260,11 +306,61 @@ jobs:
         github.event.comment.author_association == 'COLLABORATOR'
       ) && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
       (github.event_name == 'push' && needs.resolve.outputs.pr_number != '' && needs.resolve.outputs.pr_head_repo_full_name == github.repository)
+      )
     steps:
+      - name: Resolve current PR head
+        id: live
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          FALLBACK_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+          FALLBACK_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // The run may have queued for a long time behind other reviews; review the
+            // commit the PR points at now, not the one it pointed at when queued.
+            try {
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: parseInt(process.env.PR_NUMBER, 10),
+              });
+              core.setOutput('base_sha', pr.base.sha);
+              core.setOutput('head_sha', pr.head.sha);
+              core.info(`PR head at job start: ${pr.head.sha}`);
+            } catch (e) {
+              core.warning(`Could not re-read the PR head (${e.message}); using the queued one.`);
+              core.setOutput('base_sha', process.env.FALLBACK_BASE_SHA);
+              core.setOutput('head_sha', process.env.FALLBACK_HEAD_SHA);
+            }
+
+      - name: Post status comment
+        id: status
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const runUrl = process.env.RUN_URL;
+            try {
+              const { data } = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: `## Jazz Code Review\n\n⏳ Review in progress… ([workflow run](${runUrl}))`,
+              });
+              core.setOutput('comment_id', String(data.id));
+            } catch (e) {
+              core.warning(`Could not post status comment: ${e.message}`);
+              core.setOutput('comment_id', '');
+            }
+
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.resolve.outputs.head_sha }}
+          ref: ${{ steps.live.outputs.head_sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -278,8 +374,8 @@ jobs:
 
       - name: Setup Jazz agent and workflow
         env:
-          PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
-          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          PR_BASE_SHA: ${{ steps.live.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ steps.live.outputs.head_sha }}
           WORKSPACE: ${{ github.workspace }}
         run: |
           mkdir -p "$HOME/.jazz/agents" workflows/code-review
@@ -320,29 +416,6 @@ jobs:
           fi
           echo "--- PR context (first 200 lines) ---"
           head -n 200 "$OUT"
-
-      - name: Post status comment
-        id: status
-        env:
-          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
-          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const prNumber = parseInt(process.env.PR_NUMBER, 10);
-            const runUrl = process.env.RUN_URL;
-            try {
-              const { data } = await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body: `## Jazz Code Review\n\n⏳ Review in progress… ([workflow run](${runUrl}))`,
-              });
-              core.setOutput('comment_id', String(data.id));
-            } catch (e) {
-              core.warning(`Could not post status comment: ${e.message}`);
-              core.setOutput('comment_id', '');
-            }
 
       - name: Run code review
         id: run-code-review
@@ -397,18 +470,43 @@ jobs:
           gh secret set JAZZ_CHATGPT_CREDENTIAL --repo "$GITHUB_REPOSITORY" < "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"
           rm -f "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"
 
+      - name: Mark the status comment cancelled
+        if: cancelled() && steps.status.outputs.comment_id != ''
+        env:
+          STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: parseInt(process.env.STATUS_COMMENT_ID, 10),
+                body: `## Jazz Code Review\n\n🚫 Review cancelled before it finished ([workflow run](${process.env.RUN_URL})). Comment \`/jazz-review\` to run one.`,
+              });
+            } catch (e) {
+              core.warning(`Could not update the status comment: ${e.message}`);
+            }
+
       - name: Post review comments
-        if: always()
+        if: always() && !cancelled()
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
-          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          PR_HEAD_SHA: ${{ steps.live.outputs.head_sha }}
           STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const raw = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
+            let raw = '';
+            let reviewOutputMissing = false;
+            try {
+              raw = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
+            } catch (_) {
+              reviewOutputMissing = true;
+            }
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const headSha = process.env.PR_HEAD_SHA;
             const statusCommentId = parseInt(process.env.STATUS_COMMENT_ID, 10) || 0;
@@ -422,7 +520,23 @@ jobs:
               output = json.answer ?? raw;
             } catch (_) {}
 
-            const postOrUpdate = async (body) => {
+            // Name the commit this review covers; flag it when the PR moved while the review ran.
+            let provenance = `\n\n*Reviewed commit \`${headSha.slice(0, 7)}\`*`;
+            try {
+              const { data: currentPr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+              if (currentPr.head.sha !== headSha) {
+                provenance += `\n\n> ⚠️ The PR head moved to \`${currentPr.head.sha.slice(0, 7)}\` while this ran, so this review covers an older commit. A newer push is reviewed automatically; comment \`/jazz-review\` to request one now.`;
+              }
+            } catch (e) {
+              core.warning(`Could not re-read the PR head: ${e.message}`);
+            }
+
+            const postOrUpdate = async (rawBody) => {
+              const body = rawBody + provenance;
               if (statusCommentId > 0) {
                 await github.rest.issues.updateComment({
                   owner: context.repo.owner,
@@ -448,7 +562,9 @@ jobs:
             let jazzExitCode = 0;
             try {
               jazzExitCode = parseInt(fs.readFileSync('/tmp/jazz-review-exit', 'utf8').trim(), 10) || 0;
-            } catch (_) {}
+            } catch (_) {
+              jazzExitCode = reviewOutputMissing ? 1 : 0;
+            }
 
             // Read model from agent config for display in review comment
             let modelLabel = '';
@@ -464,6 +580,9 @@ jobs:
               try {
                 cause = fs.readFileSync('/tmp/jazz-error.txt', 'utf8').trim();
               } catch (_) {}
+              if (!cause && reviewOutputMissing) {
+                cause = 'a setup step failed before the review started.';
+              }
               const detail = cause ? `\n\n> ${cause.split('\n').join('\n> ')}` : '';
               const headline = /authentication|api key/i.test(cause) ? 'provider authentication failed' : 'the run failed';
               await postOrUpdate(`## Jazz Code Review\n\n⚠️ Review skipped: ${headline}.${detail}\n\nSee the [workflow run](${runUrl}) for the job log.${modelLabel}`);
@@ -686,7 +805,7 @@ jobs:
                   pull_number: prNumber,
                   commit_id: headSha,
                   event: 'COMMENT',
-                  body: reviewBody,
+                  body: reviewBody + provenance,
                   comments: inlineComments.map(mapComment)
                 });
                 if (statusCommentId > 0) {
@@ -705,12 +824,16 @@ jobs:
 
   # On-demand PR assistant — triggered by a /jazz comment or manual workflow dispatch.
   assistant:
-    # Depends only on resolve. The workflow queue serializes this rotating
+    # Depends only on resolve. The same group as code-review serializes the rotating
     # credential across runs; event conditions ensure only one model job runs
     # within a workflow run.
     needs: [resolve]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    concurrency:
+      group: jazz-chatgpt-oauth-${{ github.repository }}
+      queue: max
+      cancel-in-progress: false
     permissions:
       contents: read
       pull-requests: write

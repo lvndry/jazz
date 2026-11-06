@@ -536,6 +536,166 @@ describe("queued messages through the production chat loop", () => {
   }
 });
 
+describe("failed-turn spend through the production chat loop", () => {
+  for (const fails of [true, false]) {
+    test(`keeps usage and retry spend exactly once (${fails ? "failed" : "successful"} turn)`, async () => {
+      const setup = spyOn(chatSession, "setupAgent").mockReturnValue(Effect.void);
+      const initialize = spyOn(chatSession, "initializeSession").mockReturnValue(Effect.void);
+      const directory = spyOn(chatSession, "updateWorkingDirectoryInStore").mockImplementation(
+        () => {},
+      );
+      const handoff = spyOn(chatGoal, "offerGoalHandoffs").mockReturnValue(Effect.void);
+      const usage = { requests: 1, promptTokens: 0, completionTokens: 0 };
+      const retryWaste = { retries: 2, wastedUSD: 0.25, lowerBound: false };
+      const seen: CommandContext["sessionUsage"][] = [];
+      const reports: string[] = [];
+      const original = commandHandlers.handleSpecialCommand;
+      const handle = spyOn(commandHandlers, "handleSpecialCommand").mockImplementation(
+        (command, context) => {
+          if (command.type === "cost") {
+            seen.push({ ...context.sessionUsage });
+          }
+          return original(command, context);
+        },
+      );
+      const run = spyOn(AgentRunner, "run").mockImplementation((options) =>
+        Effect.suspend((): ReturnType<typeof AgentRunner.run> => {
+          options.onRunSpend?.({
+            totalTokens: 0,
+            costUSD: 0.25,
+            costIncomplete: false,
+            usage,
+            retryWaste,
+          });
+          return fails
+            ? Effect.fail(
+                new LLMRequestError({ provider: "openai", message: "failed", permanent: true }),
+              )
+            : Effect.succeed({
+                conversationId: "spend-loop",
+                content: "done",
+                messages: [],
+                usage,
+                retryWaste,
+              });
+        }),
+      );
+      store.clearQueue();
+      store.consumeFlushQueue();
+      try {
+        const commands = ["/cost", "/exit"];
+        const layer = chatLoopLayer(
+          terminalFixture({
+            ask: () => Effect.sync(() => commands.shift() ?? "/exit"),
+            log: (message) =>
+              Effect.sync(() => {
+                if (isTerminalReport(message)) {
+                  reports.push(outputText(message));
+                }
+                return undefined;
+              }),
+          }),
+          partialFake<AgentConfigService>({ appConfig: Effect.succeed({}) }),
+          {
+            get: () => Effect.succeed(undefined),
+            set: () => Effect.void,
+            load: () => Effect.succeed({}),
+          },
+          partialFake<FileSystemContextService>({ getCwd: () => Effect.succeed(tmpDir) }),
+        );
+        await Effect.runPromise(
+          new ChatServiceImpl()
+            .startChatSession(testAgent, {
+              conversationId: "spend-loop",
+              initialMessage: "start",
+              ephemeral: true,
+            })
+            .pipe(Effect.provide(layer)),
+        );
+        expect(seen).toEqual([{ ...usage, retries: 2, wastedUSD: 0.25 }]);
+        expect(reports.join("\n")).toContain("retries: 2");
+        expect(reports.join("\n")).toContain("$0.25");
+      } finally {
+        handle.mockRestore();
+        run.mockRestore();
+        setup.mockRestore();
+        initialize.mockRestore();
+        directory.mockRestore();
+        handoff.mockRestore();
+        store.clearQueue();
+        store.consumeFlushQueue();
+        store.registerModeSwitchHandler(null);
+      }
+    });
+  }
+});
+
+describe("detached results through the production chat loop", () => {
+  test("a completion queued before /new never reaches the new conversation", async () => {
+    const setup = spyOn(chatSession, "setupAgent").mockReturnValue(Effect.void);
+    const initialize = spyOn(chatSession, "initializeSession").mockReturnValue(Effect.void);
+    const directory = spyOn(chatSession, "updateWorkingDirectoryInStore").mockImplementation(
+      () => {},
+    );
+    const handoff = spyOn(chatGoal, "offerGoalHandoffs").mockReturnValue(Effect.void);
+    const turns: string[] = [];
+    const queued: unknown[] = [];
+    const run = spyOn(AgentRunner, "run").mockImplementation((options) =>
+      Effect.sync(() => {
+        turns.push(options.userInput);
+        queued.push(options.checkQueuedMessage?.());
+        if (turns.length === 1) {
+          options.onDetachedToolComplete?.({
+            toolName: "execute_command",
+            summary: "OLD-CONVERSATION-RESULT",
+          });
+          store.appendToQueue("/new");
+          store.appendToQueue("next question");
+        }
+        return {
+          conversationId: options.conversationId ?? "detached-loop",
+          content: "done",
+          messages: [],
+        };
+      }),
+    );
+    store.clearQueue();
+    store.consumeFlushQueue();
+    try {
+      const layer = chatLoopLayer(
+        terminalFixture({ ask: () => Effect.succeed("/exit") }),
+        partialFake<AgentConfigService>({ appConfig: Effect.succeed({}) }),
+        {
+          get: () => Effect.succeed(undefined),
+          set: () => Effect.void,
+          load: () => Effect.succeed({}),
+        },
+        partialFake<FileSystemContextService>({ getCwd: () => Effect.succeed(tmpDir) }),
+      );
+      await Effect.runPromise(
+        new ChatServiceImpl()
+          .startChatSession(testAgent, {
+            conversationId: "detached-loop",
+            initialMessage: "start",
+            ephemeral: true,
+          })
+          .pipe(Effect.provide(layer)),
+      );
+      expect(turns).toEqual(["start", "next question"]);
+      expect(queued).toEqual([undefined, undefined]);
+    } finally {
+      run.mockRestore();
+      setup.mockRestore();
+      initialize.mockRestore();
+      directory.mockRestore();
+      handoff.mockRestore();
+      store.clearQueue();
+      store.consumeFlushQueue();
+      store.registerModeSwitchHandler(null);
+    }
+  });
+});
+
 describe("handleSpecialCommand /rename", () => {
   const context: CommandContext = {
     agent: testAgent,

@@ -31,6 +31,9 @@ const MAX_QUOTE_FRAGMENTS = 3;
  */
 const SELF_AUTHORED_RESULT_TOOLS = new Set(["write_file", "edit_file", "report_goal_cycle"]);
 
+/** A blocker is a short name of what stops the work; the summary carries the detail. */
+export const MAX_BLOCKER_CHARS = 200;
+
 function makeGoalEvaluationSchema(completedStepId: z.ZodType<string>) {
   return z.discriminatedUnion("status", [
     z.object({
@@ -49,7 +52,11 @@ function makeGoalEvaluationSchema(completedStepId: z.ZodType<string>) {
       nextAction: z.string().min(1).max(2000),
       completedStepIds: z.array(completedStepId).max(8),
     }),
-    z.object({ status: z.literal("blocked"), summary: z.string().min(1).max(2000) }),
+    z.object({
+      status: z.literal("blocked"),
+      summary: z.string().min(1).max(2000),
+      blocker: z.string().min(1).max(MAX_BLOCKER_CHARS),
+    }),
     z.object({ status: z.literal("question"), question: z.string().min(1).max(2000) }),
   ]);
 }
@@ -125,6 +132,7 @@ export function goalEvaluationRepairMessages(
         `Use these accepted step IDs exactly: ${JSON.stringify(goal.steps.map((step) => step.id))}.`,
         "For complete, cite every accepted criterion by its number and quote text copied from the supplied tool outputs that shows it is met.",
         "Do not claim an edit, test, or evaluation succeeded unless a tool output verifies it.",
+        "For blocked, name the blocker in a few words, in the same words the cycle used.",
       ].join(" "),
     },
     {

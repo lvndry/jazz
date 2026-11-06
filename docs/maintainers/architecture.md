@@ -309,3 +309,6 @@ terminal screen with the renderer's intended buffer.
 - **Missing tag at runtime**: Ensure the Layer providing that tag is included in `createAppLayer`.
 - **Circular dependency**: Use dependency injection (pass functions as parameters) instead of direct imports.
 - **Context overflow**: The `Summarizer` automatically compacts context when tokens approach 80% of the limit.
+
+Process-owner records use the process's fixed start time, not the current wall clock minus
+uptime. Adjusting the system clock must not make a live lock holder look like a reused PID.

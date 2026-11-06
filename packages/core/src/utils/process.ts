@@ -4,6 +4,7 @@
  */
 import type { ChildProcess } from "node:child_process";
 import { hostname } from "node:os";
+import { performance } from "node:perf_hooks";
 
 /** The signals Jazz treats as a request to shut down. */
 export type ShutdownSignal = "SIGINT" | "SIGTERM";
@@ -26,18 +27,21 @@ export interface ProcessOwner {
 }
 
 /**
- * `ps` reports start times to the second, and this process's own figure comes from its
- * uptime; the two can disagree by a little over a second for the same process.
+ * `ps` reports start times to the second. The runtime time origin is a fallback when the
+ * operating system cannot report this process's birth time.
  */
 const START_TIME_TOLERANCE_MS = 3_000;
+const RUNTIME_STARTED_AT = Math.round(performance.timeOrigin);
+let cachedProcessOwner: ProcessOwner | undefined;
 
-/** This process as an owner record. */
+/** This process as an owner record, using the OS birth time cached on first use. */
 export function currentProcessOwner(): ProcessOwner {
-  return {
+  cachedProcessOwner ??= {
     pid: process.pid,
     host: hostname(),
-    startedAt: Math.round(Date.now() - process.uptime() * 1000),
+    startedAt: processStartedAt(process.pid) ?? RUNTIME_STARTED_AT,
   };
+  return cachedProcessOwner;
 }
 
 /**

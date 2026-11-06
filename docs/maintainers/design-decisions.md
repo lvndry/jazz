@@ -202,6 +202,33 @@ one cache miss. That is cheaper than never hitting the cache at all.
 
 📄 [`ai-sdk-service.ts`](../../packages/adapters/src/llm/ai-sdk-service.ts)
 
+### Cache the tools and the stable system prompt on their own
+
+**Decision.** Anthropic requests are ordered tools, system, messages, and a change
+anywhere invalidates everything after it. The Anthropic provider therefore puts a
+breakpoint on the last function tool, splits the system prompt into two blocks with a
+breakpoint after the first, and keeps the conversation breakpoint on the last
+persisted message: 3 of the 4 breakpoints Anthropic allows. The first block is the
+persona and the harness rules and tool guidance; the second is the skills and
+deferred-tool indexes, `AGENTS.md`, preferences and the environment block with the date.
+The two blocks concatenate to the same prompt every other provider receives as one message.
+
+**What busts which block.** A new day, an edited preference or `AGENTS.md`, or a changed
+skills index rewrites only the second block, so the tools and the first block still hit. A
+different tool set (including a tool unlocked through `search_tools`) rewrites the tools and
+everything after them. Editing the persona or switching its rules rewrites the first block.
+A persona that places `{currentDate}` or other host placeholders itself has no stable
+span and is sent as one block.
+
+**Alternatives rejected.** Splitting for OpenRouter and the AI gateway: they route to
+arbitrary models and some reject a second system message; OpenRouter's provider also drops
+tool-level options. They keep one system message with its own breakpoint.
+
+**Cost accepted.** The media guidance sits after the skills index in the harness, so it
+travels in the second block although it never changes; moving it would reorder the prompt.
+
+📄 [`agent-prompt.ts`](../../packages/core/src/agent/agent-prompt.ts) · [`layers.ts`](../../packages/core/src/agent/prompts/layers.ts)
+
 ### Sub-agent cost rolls up into the parent
 
 **Decision.** A parent run reports its own cost plus all child cost, and emits a figure

@@ -21,11 +21,18 @@ import type { ToolHost } from "@/core/types/chat";
 import { LLMRateLimitError } from "@/core/types/errors";
 import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/model-capabilities";
 import type { DisplayConfig } from "@/core/types/output";
+import { isRetryableLLMError } from "@/core/utils/llm-error";
+import type { UsageCostTokens } from "@/core/utils/usage-cost";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
-import { rejectEmptyCompletion } from "./empty-completion";
+import { buildCompletionOptions } from "./completion-request";
+import { validateCompletion } from "./completion-validation";
 import type { RecursiveRunner } from "../context/summarizer";
-import { emitLLMRetry, recordLLMRetry } from "../metrics/agent-run-metrics";
+import {
+  emitLLMRetry,
+  recordFailedAttempt,
+  recordAttemptRetried,
+} from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 /**
@@ -92,23 +99,15 @@ export function executeWithoutStreaming(
         toolHost?: ToolHost,
       ) {
         return Effect.gen(function* () {
-          const llmOptions = {
+          const llmOptions = buildCompletionOptions({
+            agent,
             model,
-            messages: currentMessages,
             tools: runContext.tools,
-            toolChoice: toolsAllowed ? ("auto" as const) : ("none" as const),
-            ...(reasoning !== undefined ? { reasoning } : {}),
-            ...(toolHost !== undefined ? { toolHost } : {}),
+            messages: currentMessages,
+            toolChoice: toolsAllowed ? "auto" : "none",
             ...(actualConversationId ? { conversationId: actualConversationId } : {}),
-            ...(typeof agent.config.llm.temperature === "number"
-              ? { temperature: agent.config.llm.temperature }
-              : {}),
-            ...(typeof agent.config.llm.numCtx === "number"
-              ? { num_ctx: agent.config.llm.numCtx }
-              : {}),
-            ...(agent.config.llm.apiKeys ? { providerApiKeys: agent.config.llm.apiKeys } : {}),
-            ...(agent.config.llm.baseUrls ? { providerBaseUrls: agent.config.llm.baseUrls } : {}),
-          };
+            ...(toolHost !== undefined ? { toolHost } : {}),
+          });
 
           const showAgentStatus = (
             message: string,
@@ -131,31 +130,73 @@ export function executeWithoutStreaming(
             presentationService.presentRetry,
           );
 
+          let onRetry: Effect.Effect<void> | undefined;
           const completion = yield* Effect.retry(
             withLongRunningLlmNotice(
               agent.name,
               showSlowModelNotice,
-              llmService.createChatCompletion(provider, llmOptions).pipe(
-                Effect.flatMap((result) =>
-                  rejectEmptyCompletion(
-                    { completion: result },
-                    {
-                      provider,
-                      model: agent.config.llm.model,
-                      agentId: agent.id,
-                      conversationId: runMetrics.conversationId,
-                      logger,
-                      runMetrics,
-                    },
-                  ).pipe(Effect.map((checked) => checked.completion)),
-                ),
-                Effect.tapError((error) =>
-                  Effect.gen(function* () {
-                    recordLLMRetry(runMetrics, error);
-                    yield* emitLLMRetry(runMetrics, error);
-                  }),
-                ),
-              ),
+              Effect.gen(function* () {
+                if (onRetry !== undefined) {
+                  const notify = onRetry;
+                  onRetry = undefined;
+                  yield* notify;
+                }
+                const startedAt = Date.now();
+                let rejectedUsage: UsageCostTokens | undefined;
+                return yield* llmService.createChatCompletion(provider, llmOptions).pipe(
+                  Effect.flatMap((result) =>
+                    validateCompletion(
+                      { completion: result },
+                      {
+                        provider,
+                        model: agent.config.llm.model,
+                        agentId: agent.id,
+                        conversationId: runMetrics.conversationId,
+                        logger,
+                        onRejected: (rejected) =>
+                          Effect.sync(() => {
+                            rejectedUsage = rejected.usage;
+                          }),
+                      },
+                    ).pipe(Effect.map((checked) => checked.completion)),
+                  ),
+                  Effect.tapError((error) =>
+                    Effect.gen(function* () {
+                      const retriesUsed = yield* Ref.get(retryAttemptRef);
+                      const record = recordFailedAttempt(
+                        runMetrics,
+                        {
+                          error,
+                          mode: "non_streaming",
+                          provider,
+                          model: agent.config.llm.model,
+                          durationMs: Date.now() - startedAt,
+                          streamedChars: 0,
+                          toolCallStarted: false,
+                          usage: rejectedUsage,
+                        },
+                        false,
+                      );
+                      onRetry = Effect.sync(() => recordAttemptRetried(runMetrics, record)).pipe(
+                        Effect.andThen(emitLLMRetry(runMetrics, error, record)),
+                      );
+                      yield* logger.debug("Model attempt failed", {
+                        attempt: record.index,
+                        reason: record.reason,
+                        mode: record.mode,
+                        provider,
+                        model: record.model,
+                        durationMs: record.durationMs,
+                        usageReported: rejectedUsage !== undefined,
+                        retryable: isRetryableLLMError(error),
+                        retriesRemaining: Math.max(0, maxRetries - retriesUsed),
+                        agentId: agent.id,
+                        conversationId: runMetrics.conversationId,
+                      });
+                    }),
+                  ),
+                );
+              }),
             ),
             batchRetrySchedule,
           ).pipe(

@@ -30,6 +30,17 @@ These percentages use the model's effective context window, lowered by the agent
 Jazz shows when it happens. It uses an additional model call and can lose detail; `llm.summarizerModel`
 selects the model for that call. The agent can also request compaction with `summarize_context`.
 
+When the summarizer model is the conversation's own model and that model's provider prices
+cached input, an automatic compaction asks for the summary as one more request of the
+conversation: same system prompt, same tools, same messages, then one final instruction, with
+tool calls disabled. That request shares its prefix with the step before it, so the provider can
+serve most of it from cache instead of billing the largest call of the run as fully uncached
+input. Jazz falls back to a separate summarizer when `llm.summarizerModel` names another model,
+the provider reports no cache pricing, the request would not leave room in the window for the
+summary, the history changed since the last request, `/compact` or `summarize_context` triggers it,
+or the model returns a tool call anyway. The step's cache rate is computed like any other
+request.
+
 **Trimming** removes older messages without summarizing them. Jazz uses it when compaction
 cannot free enough space or the summarizer fails. Tool calls and their results stay paired,
 and Jazz tells you when history is discarded.
