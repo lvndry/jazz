@@ -3771,7 +3771,11 @@ function handleCostCommand(
 
     if (totalTokens === 0) {
       yield* terminal.log(
-        report("cost", [{ kind: "field", key: "model", value: model }], "No tokens used yet."),
+        report(
+          "cost",
+          [{ kind: "field", key: "model", value: model }, ...retryRows(sessionUsage)],
+          "No successful request has reported token usage yet.",
+        ),
       );
       return { shouldContinue: true };
     }

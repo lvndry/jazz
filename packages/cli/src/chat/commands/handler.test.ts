@@ -53,6 +53,7 @@ import {
   type SkillsBySource,
 } from "@jazz/core/skills/skill-service";
 import type { Agent } from "@jazz/core/types/agent";
+import { LLMRequestError } from "@jazz/core/types/errors";
 import type { ChatMessage, ConversationMessages } from "@jazz/core/types/message";
 import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
 import { describe, test, expect, afterAll, beforeEach, afterEach, mock, spyOn } from "bun:test";
@@ -441,6 +442,100 @@ describe("conversation titles through the chat loop", () => {
       store.registerModeSwitchHandler(null);
     }
   });
+});
+
+describe("failed-turn spend through the production chat loop", () => {
+  for (const fails of [true, false]) {
+    test(`keeps usage and retry spend exactly once (${fails ? "failed" : "successful"} turn)`, async () => {
+      const setup = spyOn(chatSession, "setupAgent").mockReturnValue(Effect.void);
+      const initialize = spyOn(chatSession, "initializeSession").mockReturnValue(Effect.void);
+      const directory = spyOn(chatSession, "updateWorkingDirectoryInStore").mockImplementation(
+        () => {},
+      );
+      const handoff = spyOn(chatGoal, "offerGoalHandoffs").mockReturnValue(Effect.void);
+      const usage = { requests: 1, promptTokens: 0, completionTokens: 0 };
+      const retryWaste = { retries: 2, wastedUSD: 0.25, lowerBound: false };
+      const seen: CommandContext["sessionUsage"][] = [];
+      const reports: string[] = [];
+      const original = commandHandlers.handleSpecialCommand;
+      const handle = spyOn(commandHandlers, "handleSpecialCommand").mockImplementation(
+        (command, context) => {
+          if (command.type === "cost") {
+            seen.push({ ...context.sessionUsage });
+          }
+          return original(command, context);
+        },
+      );
+      const run = spyOn(AgentRunner, "run").mockImplementation((options) =>
+        Effect.suspend((): ReturnType<typeof AgentRunner.run> => {
+          options.onRunSpend?.({
+            totalTokens: 0,
+            costUSD: 0.25,
+            costIncomplete: false,
+            usage,
+            retryWaste,
+          });
+          return fails
+            ? Effect.fail(
+                new LLMRequestError({ provider: "openai", message: "failed", permanent: true }),
+              )
+            : Effect.succeed({
+                conversationId: "spend-loop",
+                content: "done",
+                messages: [],
+                usage,
+                retryWaste,
+              });
+        }),
+      );
+      store.clearQueue();
+      store.consumeFlushQueue();
+      try {
+        const commands = ["/cost", "/exit"];
+        const layer = chatLoopLayer(
+          terminalFixture({
+            ask: () => Effect.sync(() => commands.shift() ?? "/exit"),
+            log: (message) =>
+              Effect.sync(() => {
+                if (isTerminalReport(message)) {
+                  reports.push(outputText(message));
+                }
+                return undefined;
+              }),
+          }),
+          partialFake<AgentConfigService>({ appConfig: Effect.succeed({}) }),
+          {
+            get: () => Effect.succeed(undefined),
+            set: () => Effect.void,
+            load: () => Effect.succeed({}),
+          },
+          partialFake<FileSystemContextService>({ getCwd: () => Effect.succeed(tmpDir) }),
+        );
+        await Effect.runPromise(
+          new ChatServiceImpl()
+            .startChatSession(testAgent, {
+              conversationId: "spend-loop",
+              initialMessage: "start",
+              ephemeral: true,
+            })
+            .pipe(Effect.provide(layer)),
+        );
+        expect(seen).toEqual([{ ...usage, retries: 2, wastedUSD: 0.25 }]);
+        expect(reports.join("\n")).toContain("retries: 2");
+        expect(reports.join("\n")).toContain("$0.25");
+      } finally {
+        handle.mockRestore();
+        run.mockRestore();
+        setup.mockRestore();
+        initialize.mockRestore();
+        directory.mockRestore();
+        handoff.mockRestore();
+        store.clearQueue();
+        store.consumeFlushQueue();
+        store.registerModeSwitchHandler(null);
+      }
+    });
+  }
 });
 
 describe("detached results through the production chat loop", () => {

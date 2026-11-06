@@ -158,13 +158,16 @@ function foldAttemptUsage(
  * receipt. The run's tally is fed from the full observation; this one only has what the
  * `llm_attempt_failed` event carries.
  */
-export function addRetriedAttempt(
+export function addFailedAttemptReceipt(
   tally: RetryWasteTally,
   usage: UsageCostTokens | undefined,
   usageUnknown: boolean,
+  retried: boolean,
 ): void {
   tally.failedAttempts += 1;
-  tally.retryableFailures += 1;
+  if (retried) {
+    tally.retryableFailures += 1;
+  }
   foldAttemptUsage(tally, usage, usageUnknown);
 }
 
@@ -184,7 +187,7 @@ export function addFailedAttempt(
   if (willRetry) {
     tally.retryableFailures += 1;
   }
-  if (isSubstantialOutput(observation.streamedChars, observation.toolCallStarted)) {
+  if (willRetry && isSubstantialOutput(observation.streamedChars, observation.toolCallStarted)) {
     tally.retriesAfterSubstantialOutput += 1;
   }
   foldAttemptUsage(
@@ -269,10 +272,10 @@ export function formatRetryWaste(
   waste: RetryWaste,
   formatAmount: (usd: number) => string,
 ): string | undefined {
-  if (waste.retries <= 0) {
+  if (waste.retries <= 0 && (waste.wastedUSD ?? 0) <= 0 && !waste.lowerBound) {
     return undefined;
   }
-  const retries = `retries: ${String(waste.retries)}`;
+  const retries = waste.retries > 0 ? `retries: ${String(waste.retries)}` : "failed attempt";
   if (waste.wastedUSD !== undefined && waste.wastedUSD > 0) {
     const comparator = waste.lowerBound ? ">= " : "";
     return `${retries}, wasted ${comparator}${formatAmount(waste.wastedUSD)}`;

@@ -2430,6 +2430,26 @@ function runIteration(
   });
 }
 
+/** Restored answers authorize the recorded pending batch; later model calls need new decisions. */
+function withoutResolvedInputs(context: AgentRunContext["context"]): AgentRunContext["context"] {
+  if (
+    context.resolvedApprovals === undefined &&
+    context.resolvedUserInputs === undefined &&
+    context.resolvedFilePickers === undefined &&
+    context.resolvedUserSecrets === undefined
+  ) {
+    return context;
+  }
+  const {
+    resolvedApprovals: _approvals,
+    resolvedUserInputs: _inputs,
+    resolvedFilePickers: _pickers,
+    resolvedUserSecrets: _secrets,
+    ...continuing
+  } = context;
+  return continuing;
+}
+
 /**
  * Shared agent execution loop used by both streaming and batch executors.
  *
@@ -2676,6 +2696,7 @@ export function executeAgentLoop(
           }
         }
 
+        deps.context = withoutResolvedInputs(deps.context);
         yield* reportCheckpoint(state, options, deps.context.egressTaint);
 
         for (

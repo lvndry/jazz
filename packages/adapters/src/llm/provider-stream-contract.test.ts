@@ -1,4 +1,4 @@
-import { rejectEmptyCompletion } from "@jazz/core/agent/execution/empty-completion";
+import { validateCompletion } from "@jazz/core/agent/execution/completion-validation";
 import type { ProviderName } from "@jazz/core/constants/models";
 import type { LoggerService } from "@jazz/core/interfaces/logger";
 import type { ChatCompletionResponse, StreamEvent } from "@jazz/core/types";
@@ -154,7 +154,7 @@ function assertCompleted(
   }
 
   const emptyFinishRejection = Effect.runSyncExit(
-    rejectEmptyCompletion(
+    validateCompletion(
       { completion: response },
       {
         provider: fixture.providerName,

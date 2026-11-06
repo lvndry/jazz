@@ -510,7 +510,11 @@ a 16 KB cap. They are typically small, trusted argv programs, not a general shel
 is unresolved and an untyped property carries no constraint, so MCP tools forward the
 model's arguments untouched and let the server's own schema reject bad calls. Validating
 locally against the converted schema would reject or silently empty calls the server accepts.
-Builtin tools, whose schemas are authored alongside their handlers, are validated normally.
+Builtin tools, whose schemas are authored alongside their handlers, validate required values and
+meaningful inputs normally. They may set aside unknown fields, empty or null optional values,
+and fields belonging to another command of a multi-command tool. Fields carrying authority,
+destinations, revisions, credentials or budgets remain strict. The call records which fields
+were relaxed; this does not grant any permission or bypass approval.
 
 Current tool list: [tool inventory](../tools/index.md).
 
@@ -522,3 +526,10 @@ Current tool list: [tool inventory](../tools/index.md).
 - [Headless](../surfaces/headless.md): setting the policy for unattended runs
 - [Security](../../SECURITY.md): the threat model and hardening guidance
 - [Architecture](./architecture.md): package boundaries and extension points
+
+Restored approval, question, file-picker and secret answers apply only to the recorded pending
+batch. Once that batch finishes, fresh model calls require their own answers even if the
+provider reuses an earlier call ID. Resume matches results after the last assistant tool batch,
+so a prior batch's result cannot make a new call look answered.
+
+Tool batches require nonempty names and IDs, with each ID unique inside its batch. A malformed batch is refused before any sibling tool runs, including when resuming an older persisted batch. IDs may recur in later batches, but restored answers apply only to their recorded batch.
