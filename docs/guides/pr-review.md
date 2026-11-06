@@ -107,6 +107,7 @@ Edit `.github/jazz/workflows/code-review/WORKFLOW.md`:
 - replace Jazz-specific runtime assumptions with your stack and trust boundaries;
 - keep the requirement to inspect every changed file;
 - keep subagents isolated by review lens;
+- keep the `End-user impact` section, so a change that is bug-free but a net negative for users is still flagged;
 - require the parent to reproduce findings before publishing them;
 - preserve the strict two-block output contract consumed by the Actions parser.
 
@@ -135,6 +136,7 @@ Open a same-repository pull request or run the workflow manually with a pull-req
 
 - a verdict naming how many changed files were reviewed;
 - one verdict per required review lens;
+- an `End-user impact` section rating the change net positive, neutral, net negative, or mixed for the user, with a product-grounds merge call;
 - inline comments only on lines present in the diff;
 - a visible “could not review” notice if the provider fails or returns unusable output.
 

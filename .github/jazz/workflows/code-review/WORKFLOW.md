@@ -49,6 +49,7 @@ Spawn specialist sub-agents with `spawn_subagent` (persona `coder`, `name` = the
 | Harness & Agent Behavior | diff touches `src/core/agent/`, prompts, tool definitions, context/compaction, subagents, or streaming | Regressions to the agent loop, prompt contracts, tool schemas/results, context-window management, subagent semantics                                                                                  |
 | Headless & CI Surfaces   | diff touches CLI entry, UI, presentation, config, env handling, or process lifecycle                   | TTY/interactivity assumptions, one-shot mode breakage, CI/bridge (Telegram/Discord) regressions, prompts that block unattended runs                                                                   |
 | Bundle & Dependencies    | diff touches `package.json`, `bun.lock`, build config, or adds imports of new packages                 | Unjustified new dependencies (weight, maintenance, overlap with existing deps), eager imports on the startup path, code that lands in binaries but shouldn't                                          |
+| Product & UX Impact      | always                                                                                                 | What the end user actually sees change: new/changed/removed behavior, defaults, prompts, output, latency, cost, failure messages, and docs; whether the PR is a net positive for UX; whether the problem it solves is one users have                        |
 | Test Rigor               | always                                                                                                 | Whether the diff's own regression would be caught: missing tests for new behavior, tests asserting too little, deleted or weakened assertions                                                         |
 
 Each sub-agent's task must include: the diff range, the exact files in its scope, what to hunt for, the instruction to read surrounding code and call sites (never judge a hunk in isolation), and the required return shape — a list of findings, each with `path`, diff `line`, what fails or falls short, why, and a concrete fix direction, plus a one-line lens verdict.
@@ -78,11 +79,22 @@ Before finalizing, play devil's advocate against your own conclusions:
 
 After defects, judge the change as a whole: is this the strongest reasonable version of it? A working-but-inferior design, a missed simplification that materially reduces risk, or a dependency where fifty lines of code would do — these are findings too, labeled **Nit**. They must be as concrete as bug findings (exact location, why the current form is inferior, what excellent looks like) and capped at the few that matter most. "This might be unsafe" without a realistic path, "consider pattern X" without a demonstrated deficiency, and pure style or formatting preferences are still not findings.
 
+## End-user impact (required section)
+
+A PR with no bugs can still be wrong to merge. The verdict must contain an `### End-user impact` section, written from the product owner's seat, never as a restatement of the diff. It has exactly these parts:
+
+- **What changes for the user**: 1-3 sentences in user terms — what they see, do, wait for, or pay differently. If nothing user-visible changes, say so and stop.
+- **Net UX**: one of `Net positive`, `Neutral`, `Net negative`, or `Mixed`, with the reason. Weigh who benefits against who pays: new friction, extra prompts, slower startup or turns, higher token cost, changed defaults, removed behavior, noisier output, and extra concepts to learn all count against the change. A fix that restores broken behavior is net positive; a feature few users would reach for that adds surface area is not.
+- **Surfaces affected**: which of the interactive TUI (fullscreen and Ink), headless/one-shot, bridges, and docs change for the user, and whether any is left behind.
+- **Merge call on product grounds**: `Ship`, `Ship with changes` (name them), or `Rethink` (say why the change should not land as designed), judged independently of the code-quality findings. A `Net negative` or `Mixed` rating must come with a concrete alternative or the condition under which it becomes a net positive.
+
+Ground every claim in the diff and the PR description. Do not speculate about users the code gives no evidence for; when the user impact depends on a fact you cannot establish from the repository, state that fact as the open question.
+
 ## Output Format (strict)
 
 Your output must contain exactly two fenced blocks, in this order, with no text before, between, or after them. Both outer fences use FOUR backticks so triple-backtick snippets inside `body` nest cleanly.
 
-1. A four-backtick `markdown` block — the review verdict, never empty. This is a verdict, not a PR summary: state how many of the changed files you reviewed (this count must equal the number of files from step 1 — if it does not, you have not finished), then a one-line verdict per lens (spawned or justified-skip), then what you found or a clear "meets the bar" conclusion.
+1. A four-backtick `markdown` block — the review verdict, never empty. This is a verdict, not a PR summary: state how many of the changed files you reviewed (this count must equal the number of files from step 1 — if it does not, you have not finished), then a one-line verdict per lens (spawned or justified-skip), then a `### End-user impact` section (see below), then what you found or a clear "meets the bar" conclusion.
 2. A four-backtick `json` block — an array of inline comments, `[]` when there are none. Each object:
    - `path`: repo-relative file path in the diff
    - `line`: target line from the diff
@@ -108,7 +120,7 @@ Use one label per comment, matching what it actually is — never label a positi
 ### Example (issues found)
 
 ```markdown
-Reviewed 4/4 changed files with a 6-lens board (Harness, Headless, Bundle skipped: no agent-core, CLI-surface, or dependency changes — justification: diff is confined to `src/services/llm/` retry logic).
+Reviewed 4/4 changed files with a 7-lens board (Harness, Headless, Bundle skipped: no agent-core, CLI-surface, or dependency changes — justification: diff is confined to `src/services/llm/` retry logic).
 
 - Correctness & Intent: 1 critical — retry path throws on null user
 - Architecture & Types: sound
@@ -116,6 +128,14 @@ Reviewed 4/4 changed files with a 6-lens board (Harness, Headless, Bundle skippe
 - Security & Trust: sound
 - Performance & Memory: sound
 - Test Rigor: 1 nit — no test covers the new retry ceiling
+- Product & UX Impact: sound — see below
+
+### End-user impact
+
+- **What changes for the user**: failed requests now retry up to 3 times, so a flaky provider connection recovers instead of ending the turn.
+- **Net UX**: Net positive — fewer dropped turns; worst case adds a few seconds before an error surfaces.
+- **Surfaces affected**: TUI, headless, and bridges all benefit; no UI change.
+- **Merge call on product grounds**: Ship.
 
 Verdict: not mergeable as-is; the retry-path crash is a concrete regression.
 ```
@@ -134,7 +154,7 @@ Verdict: not mergeable as-is; the retry-path crash is a concrete regression.
 ### Example (meets the bar)
 
 ```markdown
-Reviewed 6/6 changed files with the full 9-lens board.
+Reviewed 6/6 changed files with the full 10-lens board.
 
 - Correctness & Intent: sound — traced all call sites of the changed exports
 - Architecture & Types: sound — error channels stay typed, Layer boundaries intact
@@ -145,6 +165,14 @@ Reviewed 6/6 changed files with the full 9-lens board.
 - Headless & CI Surfaces: sound — no TTY assumptions introduced
 - Bundle & Dependencies: sound — no new dependencies, no startup-path imports
 - Test Rigor: sound — new behavior carries regression tests
+- Product & UX Impact: sound — see below
+
+### End-user impact
+
+- **What changes for the user**: nothing user-visible; internal refactor.
+- **Net UX**: Neutral.
+- **Surfaces affected**: none.
+- **Merge call on product grounds**: Ship.
 
 Verdict: meets the bar. No concrete correctness, security, or nit findings.
 ```
@@ -153,4 +181,4 @@ Verdict: meets the bar. No concrete correctness, security, or nit findings.
 []
 ```
 
-Before emitting, confirm: every triggered lens was spawned or its skip justified in the verdict; every comment names concrete diff lines and a concrete failure mode or quality gap; exactly two blocks in order `markdown` then `json`; both outer fences are four backticks; nothing follows the closing `json` fence.
+Before emitting, confirm: every triggered lens was spawned or its skip justified in the verdict; the `### End-user impact` section is present with all four parts; every comment names concrete diff lines and a concrete failure mode or quality gap; exactly two blocks in order `markdown` then `json`; both outer fences are four backticks; nothing follows the closing `json` fence.
