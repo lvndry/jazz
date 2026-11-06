@@ -92,6 +92,53 @@ describe("InkStreamingRenderer", () => {
     store.setCollapseReasoning(true);
   });
 
+  for (const terminal of [true, false]) {
+    test(`keeps failed-attempt spend when metrics are hidden (${terminal ? "terminal" : "retried"})`, () => {
+      const renderer = createRenderer(false);
+      emitStreamStart(renderer);
+      const before = store.getRunStatsSnapshot().costUSD ?? 0;
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "llm_attempt_failed",
+          retried: !terminal,
+          usage: { promptTokens: 900, completionTokens: 0, billedCostUSD: 0.25 },
+          usageUnknown: false,
+        }),
+      );
+      if (!terminal) {
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "complete",
+            response: {
+              ...completeResponse("done"),
+              usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12, billedCostUSD: 0.1 },
+            },
+            totalDurationMs: 10,
+          }),
+        );
+      }
+      expect((store.getRunStatsSnapshot().costUSD ?? 0) - before).toBeCloseTo(
+        terminal ? 0.25 : 0.35,
+      );
+      expect(
+        printOutputCalls.map(contentFromOutput).filter((entry) => entry.kind === "turn-receipt"),
+      ).toEqual([]);
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "complete",
+          response: {
+            ...completeResponse("next"),
+            usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12, billedCostUSD: 0.1 },
+          },
+          totalDurationMs: 10,
+        }),
+      );
+      expect((store.getRunStatsSnapshot().costUSD ?? 0) - before).toBeCloseTo(
+        terminal ? 0.35 : 0.45,
+      );
+    });
+  }
+
   test("closes a terminal failure's spend receipt without carrying it into the next turn", () => {
     const renderer = createRenderer(true);
     emitStreamStart(renderer);
