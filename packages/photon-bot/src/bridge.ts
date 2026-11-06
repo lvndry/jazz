@@ -33,6 +33,7 @@ import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
 import { installShutdown } from "@jazz/bot-shared/shutdown";
 import type { ChatId } from "@jazz/bot-shared/surface";
+import { startToolResultSweep } from "@jazz/bot-shared/tool-result-sweep";
 import { createTurnRunner } from "@jazz/bot-shared/turn";
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
@@ -446,6 +447,7 @@ export async function startBridge(): Promise<void> {
     operatorSettingName: "PHOTON_OPERATOR_HANDLES",
   });
 
+  startToolResultSweep(config.jazzHome);
   startReminderSweep({
     dataDir: config.jazzHome,
     decodeScope: (agentId) => knownSpaces.spaceFor(agentId),

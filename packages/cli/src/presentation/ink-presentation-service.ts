@@ -927,9 +927,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.printFinalResponse(event);
     }
 
-    if (this.showMetrics && event.metrics) {
-      this.printOutro(event);
-    }
+    this.printOutro(event);
 
     if (this.streamTarget.kind === "scrollback") {
       store.setActivity({ phase: "idle" });
@@ -1012,6 +1010,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const retryStats = this.takeRetryStats();
     const cacheReason = this.pendingCacheReason;
     this.pendingCacheReason = undefined;
+    if (!this.showMetrics) {
+      this.turn = EMPTY_TURN;
+      return;
+    }
     this.turn = addStep(this.turn, {
       durationMs: event.totalDurationMs,
       ...retryStats,
@@ -1045,6 +1047,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const finishedAt = Date.now();
     const turn: TurnTotals = { ...this.turn, finishedAt };
     this.turn = EMPTY_TURN;
+    if (event.metrics === undefined) {
+      return;
+    }
     const line = formatTurnReceipt(turn);
     if (line === undefined) {
       return;
@@ -1073,12 +1078,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   /** End a failed step's receipt now, so its retry spend cannot leak into the next turn. */
   private flushFailedAttemptReceipt(): void {
+    const retryStats = this.takeRetryStats();
     if (!this.showMetrics) {
-      this.pendingRetries = createRetryWasteTally();
       return;
     }
     const finishedAt = Date.now();
-    const turn = addStep(EMPTY_TURN, { durationMs: 0, ...this.takeRetryStats() });
+    const turn = addStep(EMPTY_TURN, { durationMs: 0, ...retryStats });
     const line = formatTurnReceipt({ ...turn, finishedAt });
     if (line === undefined) {
       return;

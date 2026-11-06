@@ -29,6 +29,11 @@ import {
 } from "@jazz/adapters/history/conversation-lease";
 import { moveConversationToAgent } from "@jazz/adapters/history/move-conversation";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
+import {
+  DEFAULT_TOOL_RESULT_RETENTION_DAYS,
+  openConversationKey,
+  scheduleToolResultSweep,
+} from "@jazz/adapters/tool-result-retention";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { processDetachedCalls } from "@jazz/core/agent/detach/auto-detach";
 import { carryEgressTaint } from "@jazz/core/agent/execution/egress-taint";
@@ -81,7 +86,9 @@ import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { toError } from "@jazz/core/utils/errors";
 import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
+import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { reportProgramCwd } from "@jazz/core/utils/program-status";
+import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
 import { Effect, FileSystem, Layer, Option } from "effect";
@@ -298,6 +305,20 @@ export class ChatServiceImpl implements ChatService {
       });
 
       const ephemeral = options?.ephemeral === true;
+
+      scheduleToolResultSweep({
+        jazzHomes: () => [getJazzHomeDirectory()],
+        retentionDays: () =>
+          appConfig.history?.toolResultRetentionDays ?? DEFAULT_TOOL_RESULT_RETENTION_DAYS,
+        openConversations: () =>
+          new Set([
+            openConversationKey(storageSafeSegment(agent.id), storageSafeSegment(conversationId)),
+          ]),
+        logger: {
+          debug: (message, fields) => void Effect.runFork(logger.debug(message, fields)),
+          warn: (message, fields) => void Effect.runFork(logger.warn(message, fields)),
+        },
+      });
 
       let chatActive = true;
       const jobQueueOption = yield* Effect.serviceOption(JobQueueServiceTag);

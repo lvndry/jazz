@@ -153,9 +153,23 @@ export function conversationLogPath(
   conversationId: string,
   historyDirectory?: string,
 ): string {
+  return conversationLogPathForSegments(
+    storageSafeSegment(agentId),
+    storageSafeSegment(conversationId),
+    historyDirectory,
+  );
+}
+
+/** `conversationLogPath` for ids already reduced to path segments, as the `work/` layout holds them. */
+export function conversationLogPathForSegments(
+  agentSegment: string,
+  conversationSegment: string,
+  historyDirectory?: string,
+): string {
   return path.join(
-    agentConversationsDirectory(agentId, historyDirectory),
-    `${storageSafeSegment(conversationId)}${CONVERSATION_LOG_EXTENSION}`,
+    getConversationLogsDirectory(historyDirectory),
+    agentSegment,
+    `${conversationSegment}${CONVERSATION_LOG_EXTENSION}`,
   );
 }
 
@@ -187,11 +201,24 @@ export function conversationTurnLockPath(
   conversationId: string,
   historyDirectory?: string,
 ): string {
+  return conversationTurnLockPathForSegments(
+    storageSafeSegment(agentId),
+    storageSafeSegment(conversationId),
+    historyDirectory,
+  );
+}
+
+/** `conversationTurnLockPath` for ids already reduced to path segments, as the `work/` layout holds them. */
+export function conversationTurnLockPathForSegments(
+  agentSegment: string,
+  conversationSegment: string,
+  historyDirectory?: string,
+): string {
   return path.join(
     historyDirectory ?? getHistoryDirectory(),
     CONVERSATION_LOCKS_DIRECTORY_NAME,
-    storageSafeSegment(agentId),
-    `${storageSafeSegment(conversationId)}.turn`,
+    agentSegment,
+    `${conversationSegment}.turn`,
   );
 }
 

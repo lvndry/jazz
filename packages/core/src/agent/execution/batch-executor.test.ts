@@ -406,6 +406,20 @@ describe("executeWithoutStreaming empty responses", () => {
     };
   }
 
+  it("repairs a malformed identity within the shared retry budget before any tool runs", async () => {
+    const call = toolCallCompletion.toolCalls![0]!;
+    const harness = runWith(
+      [{ ...toolCallCompletion, toolCalls: [call, call] }, finalCompletion],
+      1,
+    );
+    const result = await harness.run();
+    expect(result.content).toBe("There are 2 entries.");
+    expect(harness.calls()).toBe(2);
+    expect(harness.runContext.runMetrics.llmRetryCount).toBe(1);
+    expect(harness.runContext.runMetrics.totalRequests).toBe(1);
+    expect(harness.runContext.runMetrics.retryWaste.records).toHaveLength(1);
+  });
+
   it("refuses duplicate IDs before recording or executing the batch", async () => {
     const call = toolCallCompletion.toolCalls![0]!;
     const harness = runWith([{ ...toolCallCompletion, toolCalls: [call, call] }], 0);
