@@ -1,4 +1,4 @@
-import { store, type UIStore } from "./store";
+import { store } from "./store";
 
 export type ForceSendOutcome = "sent" | "nothing-to-send" | "no-run";
 
@@ -8,23 +8,19 @@ export type ForceSendOutcome = "sent" | "nothing-to-send" | "no-run";
  * interrupt handler is registered, so the caller can treat the key as plain Enter
  * instead of queueing a message that then waits for the run to finish.
  */
-export function forceSendQueue(
-  draft: string,
-  interrupt: (() => void) | null,
-  target: UIStore = store,
-): ForceSendOutcome {
+export function forceSendQueue(draft: string, interrupt: (() => void) | null): ForceSendOutcome {
   if (interrupt === null) {
     return "no-run";
   }
   if (draft.length > 0) {
-    target.appendToQueue(draft);
+    store.appendToQueue(draft);
   }
-  if (target.getMessageQueueSnapshot().length === 0) {
+  if (store.getMessageQueueSnapshot().length === 0) {
     return "nothing-to-send";
   }
-  target.requestFlushQueue();
-  target.printOutput({ type: "warn", message: "Interrupting…", timestamp: new Date() });
-  target.collapseAllEphemeral();
+  store.requestFlushQueue();
+  store.printOutput({ type: "warn", message: "Interrupting…", timestamp: new Date() });
+  store.collapseAllEphemeral();
   interrupt();
   return "sent";
 }
