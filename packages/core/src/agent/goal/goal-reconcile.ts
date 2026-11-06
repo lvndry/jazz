@@ -11,8 +11,9 @@
 import type { CancelCause } from "@/core/agent/run/cancel-cause";
 import type { RunSpend } from "@/core/agent/run/run-spend";
 import {
-  BLOCKED_ROUNDS_REQUIRED,
+  blockedReportCount,
   blockedRuleInstruction,
+  blockedStopsGoal,
   blockerKey,
   blockerRound,
 } from "./goal-blocker";
@@ -142,6 +143,7 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
             ...(base.unverifiedClaims !== undefined
               ? { unverifiedClaims: base.unverifiedClaims }
               : {}),
+            ...(base.blockerStreak !== undefined ? { blockerStreak: base.blockerStreak } : {}),
           }
         : settledBase;
 
@@ -173,9 +175,10 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
   }
   switch (evaluation.evaluation.status) {
     case "blocked": {
-      const blocker = blockerKey(evaluation.evaluation);
+      const blocker = blockerKey(evaluation.evaluation.blocker);
       const round = blockerRound(goal, blocker);
-      if (round >= BLOCKED_ROUNDS_REQUIRED) {
+      const reports = blockedReportCount(goal);
+      if (blockedStopsGoal(round, reports)) {
         return {
           ...review(progressed, evaluation.evaluation.summary),
           lastProgress: evaluation.evaluation.summary,
@@ -184,7 +187,7 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
       const limit = reachedLimit(progressed);
       return {
         ...progressed,
-        blockerStreak: { blocker, rounds: round },
+        blockerStreak: { blocker, rounds: round, reports },
         lastProgress: `${evaluation.evaluation.summary}\n${blockedRuleInstruction(blocker, round)}`,
         state: limit === undefined ? { kind: "active" } : { kind: "budget-limited", limit },
       };

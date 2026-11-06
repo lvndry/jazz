@@ -151,7 +151,12 @@ export interface GoalRecord {
    * The blocker the latest cycles reported and how many consecutive cycles have reported it.
    * A goal stops as blocked only once the count reaches the required number of rounds.
    */
-  readonly blockerStreak?: { readonly blocker: string; readonly rounds: number };
+  readonly blockerStreak?: {
+    readonly blocker: string;
+    readonly rounds: number;
+    /** Consecutive blocked reports of any blocker; absent on a record saved before it existed. */
+    readonly reports?: number;
+  };
   readonly createdAt: string;
   readonly updatedAt: string;
   /** Compare-and-set version for competing controls and continuation workers. */
@@ -395,7 +400,9 @@ export const goalRecordSchema = z
       .optional(),
     lastProgress: z.string().optional(),
     unverifiedClaims: positiveInteger.optional(),
-    blockerStreak: z.object({ blocker: nonEmpty, rounds: positiveInteger }).optional(),
+    blockerStreak: z
+      .object({ blocker: nonEmpty, rounds: positiveInteger, reports: positiveInteger.optional() })
+      .optional(),
     createdAt: nonEmpty,
     updatedAt: nonEmpty,
     version: positiveInteger,
