@@ -876,11 +876,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     chatId: ChatId,
   ): Pick<JazzRunOptions, "timezone" | "zoneSettingCommand"> => {
     const zone = chatZone(config.jazzHome, config.files.timezone, chatId);
-    console.debug(
-      zone === undefined
-        ? `Zone for ${chatId}: none set; the agent will ask the user.`
-        : `Zone for ${chatId}: ${zone.zone} (${zone.source}).`,
-    );
+
     return {
       ...(zone !== undefined ? { timezone: zone } : {}),
       zoneSettingCommand: ZONE_SETTING_COMMAND,

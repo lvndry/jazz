@@ -80,7 +80,7 @@ describe("add_reminder on a surface that does not know the user's zone", () => {
     expect(recorded.zone).toBe("Asia/Tokyo");
     expect(outcome.result).toMatchObject({
       timeZone: "Asia/Tokyo",
-      timeZoneSource: "explicit-in-message",
+      timeZoneSource: "tool-argument",
     });
   });
 

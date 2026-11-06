@@ -256,6 +256,10 @@ describe("the daemon's routes", () => {
     };
     expect(loop.name).toBe("check-deploy-finished");
     expect(loop.approvalPolicy).toBe("low-risk");
+    expect((await post("/loops", { ...start, every: "0 9 * * *" })).status).toBe(400);
+    expect(
+      (await post("/loops", { ...start, every: "0 9 * * *", timezone: "Europe/Paris" })).status,
+    ).toBe(201);
 
     expect((await post(`/loops/${loop.name}/pause`, {})).status).toBe(400);
     expect((await post(`/loops/${loop.name}/pause`, { version: loop.version + 1 })).status).toBe(

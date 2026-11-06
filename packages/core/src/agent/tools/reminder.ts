@@ -78,7 +78,7 @@ export function createAddReminderTool(): Tool<ReminderToolDeps> {
               ? { timeZone: zone.zone, timeZoneSource: zone.source }
               : {}),
             ...(zone.kind === "known" &&
-            zone.source === "explicit-in-message" &&
+            zone.source === "tool-argument" &&
             context.zoneSettingCommand !== undefined
               ? {
                   next: `Offer to remember ${zone.zone}: the user can send ${context.zoneSettingCommand} ${zone.zone}.`,

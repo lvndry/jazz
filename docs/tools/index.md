@@ -426,3 +426,9 @@ See [email and calendar setup](../configure/email-calendar.md).
 - [Commands and flags](../commands.md): `--approval-policy` and friends
 - [Agent configuration](../configure/agents.md): `customTools`, `envAllowlist`, and per-agent denials
 - [Jazz configuration](../configure/jazz.md): runtime defaults and `autoApprovedCommands`
+
+Time-zone names must be region identifiers such as `America/New_York`, or `UTC`; ambiguous
+abbreviations such as `EST` are rejected. A request-local tool parameter is reported as
+`tool-argument`, distinct from a stored chat setting or operator default. It does not establish
+a verified user preference or save a chat setting. Invalid time syntax is rejected before
+asking the user for a zone.

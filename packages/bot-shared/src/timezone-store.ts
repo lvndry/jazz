@@ -47,6 +47,8 @@ export function hasChatTz(dataDir: string, fileName: string, scopeId: string | n
   return storedZone(dataDir, fileName, scopeId) !== undefined;
 }
 
+let warnedDefault: string | undefined;
+
 /** The zone for a conversation: its stored choice, else the operator's configured default. */
 export function chatZone(
   dataDir: string,
@@ -60,6 +62,12 @@ export function chatZone(
   }
   const configured = environment[BOT_DEFAULT_TIMEZONE_ENV]?.trim() ?? "";
   const parsed = configured.length > 0 ? parseTimeZone(configured) : undefined;
+  if (parsed?.ok === false && warnedDefault !== configured) {
+    warnedDefault = configured;
+    console.warn(
+      "[timezone] JAZZ_BOT_DEFAULT_TIMEZONE is invalid; use an IANA region name or UTC. Chats without a saved zone will be asked.",
+    );
+  }
   return parsed?.ok === true ? { zone: parsed.zone, source: "operator-default" } : undefined;
 }
 
