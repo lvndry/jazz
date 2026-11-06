@@ -553,6 +553,12 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
       subagentDepth: currentDepth + 1,
       ...(outlivesTurn ? { outlivesTurn: true } : {}),
       ...(context.offersShellEscape === true ? { offersShellEscape: true } : {}),
+      ...(context.timezone !== undefined ? { timezone: context.timezone } : {}),
+      ...(context.timezoneSource !== undefined ? { timezoneSource: context.timezoneSource } : {}),
+      ...(context.hostIsUserDevice === true ? { hostIsUserDevice: true } : {}),
+      ...(context.zoneSettingCommand !== undefined
+        ? { zoneSettingCommand: context.zoneSettingCommand }
+        : {}),
       ...(context.onAutoApproveCommand
         ? { onAutoApproveCommand: context.onAutoApproveCommand }
         : {}),

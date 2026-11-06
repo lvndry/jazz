@@ -6,6 +6,7 @@ import {
   isLoopDue,
   loopRunCaps,
   nextRunAfter,
+  parseLoopSchedule,
   settleLoopRun,
   stopAtLimit,
 } from "./loop-lifecycle";
@@ -254,5 +255,34 @@ describe("the user's controls", () => {
     expect(
       decideLoopControl(loop({ state: { kind: "completed", reason: "done" } }), "pause", NOW).kind,
     ).toBe("refused");
+  });
+});
+
+describe("a schedule typed by a person", () => {
+  it("stores a cron expression with its canonical IANA zone", () => {
+    expect(parseLoopSchedule("0 9 * * mon", "europe/paris")).toEqual({
+      ok: true,
+      schedule: { kind: "cron", expression: "0 9 * * mon", timezone: "Europe/Paris" },
+    });
+  });
+
+  it("refuses a cron expression with no zone instead of reading it in the host's", () => {
+    const parsed = parseLoopSchedule("0 9 * * mon");
+    expect(parsed.ok).toBe(false);
+  });
+
+  it("refuses a zone that is not an IANA name", () => {
+    const parsed = parseLoopSchedule("0 9 * * mon", "Nowhere");
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.reason).toContain("Nowhere");
+    }
+  });
+
+  it("needs no zone for a duration", () => {
+    expect(parseLoopSchedule("10m")).toEqual({
+      ok: true,
+      schedule: { kind: "every", everyMs: 600_000 },
+    });
   });
 });

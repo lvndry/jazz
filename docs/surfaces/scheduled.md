@@ -40,7 +40,7 @@ jazz workflow history daily-standup-prep
 ```
 
 The test should produce a summary grounded in your commits and working tree. The
-schedule runs at 09:00 on weekdays in the machine's timezone. The agent and its
+schedule runs at 09:00 on weekdays in the machine's timezone, which the schedule stores by name when you create it. The agent and its
 provider credentials must remain available on that machine.
 
 To send the result to your phone or chat, configure a

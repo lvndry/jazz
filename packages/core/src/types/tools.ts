@@ -29,6 +29,7 @@ import type {
   RouteSnapshotOutcome,
 } from "@/core/types/plugin";
 import type { StreamEvent } from "@/core/types/streaming";
+import type { UserZoneSource } from "@/core/utils/user-time-zone";
 
 /** A secret typed for a parked ask_user_secret call, or the person declining to type one. */
 export type ResolvedUserSecret =
@@ -704,9 +705,16 @@ export interface ToolExecutionContext {
    * `--timezone` flag or a surface-specific caller (e.g. the Telegram bridge
    * passing a per-chat zone). Not LLM-facing — tools that need "now" in the
    * caller's local time (e.g. add_reminder) read this directly rather than
-   * asking the model to supply a timezone string. Defaults to "UTC" when unset.
+   * asking the model to supply a timezone string. Absent means the user's zone is unknown
+   * unless `hostIsUserDevice` says this machine's zone is theirs.
    */
   readonly timezone?: string;
+  /** Where `timezone` came from; a `--timezone` flag without a source is the user's config. */
+  readonly timezoneSource?: UserZoneSource;
+  /** Whether this process runs on the user's own device, so the host zone is the user's zone. */
+  readonly hostIsUserDevice?: boolean;
+  /** The surface's command that remembers a zone for the conversation, such as `/tz`. */
+  readonly zoneSettingCommand?: string;
   /**
    * Whether the person on this surface can run a shell command themselves with `! <command>`.
    * Set only by the interactive terminal chat; tool errors that hand a command back to the

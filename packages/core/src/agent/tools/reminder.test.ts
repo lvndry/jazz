@@ -63,7 +63,7 @@ describe("add_reminder tool", () => {
     const tool = createAddReminderTool();
     const result = await runWithFakeReminderService(
       fakeService as ReminderService,
-      tool.execute({ when: "whenever", text: "water the plants" }, context),
+      tool.execute({ when: "whenever", text: "water the plants" }, { ...context, timezone: "UTC" }),
     );
     expect(result.success).toBe(false);
     expect(result.error).toContain("Could not understand the time");

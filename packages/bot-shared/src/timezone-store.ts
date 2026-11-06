@@ -1,43 +1,66 @@
 /**
- * Per-conversation timezone support, shared by the Discord and Telegram bridges.
+ * Per-conversation timezone support, shared by the Discord, Telegram, iMessage and WhatsApp
+ * bridges.
  *
- * Neither platform reliably sends the sender's timezone, so each conversation's
- * zone is resolved from (in order): an explicit `/tz` choice, the container's
- * `TZ`, then UTC. Everything time-related — reminder parsing, clock times,
- * confirmations — runs against the resolved zone so "next friday at 2pm" means
- * 2pm where the sender is.
+ * No platform reliably sends the sender's timezone, so a conversation's zone is what the user
+ * chose with `/tz` (or shared a location for), then the operator's explicit
+ * `JAZZ_BOT_DEFAULT_TIMEZONE`. The server's own zone is never used: it says nothing about the
+ * user. A conversation with neither has no zone, and the agent asks for it.
  *
  * `fileName` is the per-bridge store file (`dc-tz.json` / `tg-tz.json`); each
  * bridge's own `timezone.ts` bakes that in so call sites don't repeat it.
  */
 
+import {
+  isValidTimeZone,
+  parseTimeZone,
+  type UserZoneSource,
+} from "@jazz/core/utils/user-time-zone";
 import { recordStorePath, readRecordStore, writeRecordStore } from "./scoped-record-store";
 
-export function isValidTimeZone(tz: string): boolean {
-  if (tz.length === 0) {
-    return false;
-  }
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
+export { isValidTimeZone };
+
+/** Environment variable naming the zone for conversations that have not set their own. */
+export const BOT_DEFAULT_TIMEZONE_ENV = "JAZZ_BOT_DEFAULT_TIMEZONE";
+
+/** A conversation's zone and where it came from. */
+export interface ChatZone {
+  readonly zone: string;
+  readonly source: Extract<UserZoneSource, "chat-setting" | "operator-default">;
 }
 
-/** True when this conversation has an explicitly stored, valid zone (vs. falling back). */
+function storedZone(
+  dataDir: string,
+  fileName: string,
+  scopeId: string | number,
+): string | undefined {
+  const stored = readRecordStore<string>(recordStorePath(dataDir, fileName))?.[String(scopeId)];
+  if (typeof stored !== "string") {
+    return undefined;
+  }
+  const parsed = parseTimeZone(stored);
+  return parsed.ok ? parsed.zone : undefined;
+}
+
+/** True when this conversation has an explicitly stored, valid zone. */
 export function hasChatTz(dataDir: string, fileName: string, scopeId: string | number): boolean {
-  const stored = readRecordStore<string>(recordStorePath(dataDir, fileName))?.[String(scopeId)];
-  return typeof stored === "string" && isValidTimeZone(stored);
+  return storedZone(dataDir, fileName, scopeId) !== undefined;
 }
 
-export function tzForChat(dataDir: string, fileName: string, scopeId: string | number): string {
-  const stored = readRecordStore<string>(recordStorePath(dataDir, fileName))?.[String(scopeId)];
-  if (typeof stored === "string" && isValidTimeZone(stored)) {
-    return stored;
+/** The zone for a conversation: its stored choice, else the operator's configured default. */
+export function chatZone(
+  dataDir: string,
+  fileName: string,
+  scopeId: string | number,
+  environment: NodeJS.ProcessEnv = process.env,
+): ChatZone | undefined {
+  const stored = storedZone(dataDir, fileName, scopeId);
+  if (stored !== undefined) {
+    return { zone: stored, source: "chat-setting" };
   }
-  const fromEnv = process.env["TZ"]?.trim() ?? "";
-  return isValidTimeZone(fromEnv) ? fromEnv : "UTC";
+  const configured = environment[BOT_DEFAULT_TIMEZONE_ENV]?.trim() ?? "";
+  const parsed = configured.length > 0 ? parseTimeZone(configured) : undefined;
+  return parsed?.ok === true ? { zone: parsed.zone, source: "operator-default" } : undefined;
 }
 
 /** Persist an explicit zone for a conversation. Returns the previously stored value. */

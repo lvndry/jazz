@@ -66,6 +66,9 @@ export function describeCronSchedule(cron: string): string | null {
   }
 }
 
+/** The zone a stored schedule without one is read in; the host's zone is never consulted. */
+const DEFAULT_CRON_ZONE = "UTC";
+
 /**
  * The first time a cron schedule fires strictly after `after`, read in `timezone` (an IANA
  * name; UTC when absent), or undefined when the expression does not parse.
@@ -75,7 +78,7 @@ export function nextCronRun(cron: string, after: Date, timezone?: string): Date 
     return cronParser
       .parse(normalizeCronExpression(cron), {
         currentDate: after,
-        ...(timezone !== undefined ? { tz: timezone } : {}),
+        tz: timezone ?? DEFAULT_CRON_ZONE,
       })
       .next()
       .toDate();
