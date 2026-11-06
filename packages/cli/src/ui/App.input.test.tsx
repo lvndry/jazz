@@ -54,9 +54,9 @@ test("classic double Escape interrupts the run and marks follow-ups for immediat
       <App />
     </InputProvider>,
     {
-      stdin: input as unknown as NodeJS.ReadStream,
-      stdout: output as unknown as NodeJS.WriteStream,
-      stderr: output as unknown as NodeJS.WriteStream,
+      stdin: input,
+      stdout: output,
+      stderr: output,
       exitOnCtrlC: false,
       patchConsole: false,
       debug: true,
