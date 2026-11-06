@@ -27,19 +27,21 @@ export interface ProcessOwner {
 }
 
 /**
- * `ps` reports start times to the second, and this process's own figure comes from its
- * fixed performance time origin; the two can disagree by a little over a second for the same process.
+ * `ps` reports start times to the second. The runtime time origin is a fallback when the
+ * operating system cannot report this process's birth time.
  */
 const START_TIME_TOLERANCE_MS = 3_000;
-const PROCESS_STARTED_AT = Math.round(performance.timeOrigin);
+const RUNTIME_STARTED_AT = Math.round(performance.timeOrigin);
+let cachedProcessOwner: ProcessOwner | undefined;
 
-/** This process as an owner record. */
+/** This process as an owner record, using the OS birth time cached on first use. */
 export function currentProcessOwner(): ProcessOwner {
-  return {
+  cachedProcessOwner ??= {
     pid: process.pid,
     host: hostname(),
-    startedAt: PROCESS_STARTED_AT,
+    startedAt: processStartedAt(process.pid) ?? RUNTIME_STARTED_AT,
   };
+  return cachedProcessOwner;
 }
 
 /**

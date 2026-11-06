@@ -175,3 +175,8 @@ Failed-turn accounting uses the runner's exit spend report, including exhausted 
 counts advance when the next provider attempt starts, so cancellation during backoff and a
 zero retry budget do not create phantom retries. Empty completions rejected for retry never
 render as successful steps; their usage belongs to the failed-attempt receipt and `/cost`.
+
+Process-owner identity uses the operating system birth time, cached on first use. Runtime
+initialization can lag process creation under load, so a performance time origin alone must not
+make a live lock holder appear to be a reused PID. Wall-clock changes and virtual test clocks
+must leave the cached identity unchanged.
