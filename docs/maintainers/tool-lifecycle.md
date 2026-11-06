@@ -390,9 +390,12 @@ tool's "always approve" may have changed the answer while this one waited.
 A batch can be stopped part-way: double-Esc, the run's `maxDurationMs` deadline, `--timeout`,
 or SIGTERM. Each is a **clean stop**, not a crash:
 
-- **Every tool fiber is interrupted, and the interrupt waits for it.** Tool calls are daemon
-  fibers (so Ctrl+B can detach them), and the batch interrupts each one it forked when it is
-  itself interrupted.
+- **Every attached tool fiber is interrupted, and the interrupt waits for it.** Tool calls are
+  daemon fibers so background calls can outlive their batch. A detached call belongs to the
+  background tracker, and survives interruption of its former foreground batch. Capacity is
+  reserved atomically before transferring ownership; the completion watcher and ownership
+  record are installed together before interruption can resume. Leaving the conversation
+  stops its remaining background calls.
 - **Commands get to clean up.** `execute_command` and custom command tools run in their own
   process group. Stopping one sends SIGTERM to the group, then SIGKILL after
   `PROCESS_TERMINATION_GRACE_MS` (3s) if it is still running, so a script that traps SIGTERM
