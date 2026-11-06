@@ -38,6 +38,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { opendir } from "node:fs/promises";
 import { join } from "node:path";
 import { SPEND_LEDGER_ENV, SPEND_RECORDED_BY_PARENT } from "@jazz/core/spend/caps";
 import { isRecord } from "@jazz/core/utils/is-record";
@@ -504,6 +505,27 @@ export function listChatSandboxes(dataDir: string): { agentId: string; home: str
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => ({ agentId: entry.name, home: join(root, entry.name) }));
+}
+
+/** Streams sandbox homes for bounded cleanup, including homes created since bridge startup. */
+export async function* iterateChatSandboxHomes(dataDir: string): AsyncGenerator<string> {
+  if (!chatIsolationEnabled()) {
+    return;
+  }
+  let directory;
+  try {
+    directory = await opendir(sandboxDirectory(dataDir));
+  } catch (error) {
+    if (isRecord(error) && error["code"] === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+  for await (const entry of directory) {
+    if (entry.isDirectory()) {
+      yield join(sandboxDirectory(dataDir), entry.name);
+    }
+  }
 }
 
 /** Wrap a command so it runs as the sandbox's uid with no supplementary groups. */

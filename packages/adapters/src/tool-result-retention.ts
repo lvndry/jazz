@@ -22,6 +22,8 @@
  */
 
 import * as path from "node:path";
+import { isRecord } from "@jazz/core/utils/is-record";
+import { localOwnerStatus, type ProcessOwner } from "@jazz/core/utils/process";
 import { FileSweep, missingSweepPath, type SweepResult } from "./stale-file-sweep";
 import type { SweepDirectory } from "./sweep-directory";
 
@@ -108,6 +110,50 @@ function descendant(root: SweepDirectory, names: readonly string[]): SweepDirect
   }
 }
 
+/** A corrupt, unreadable or unverifiable attachment conservatively protects the conversation. */
+function hasOpenAttachment(
+  home: SweepDirectory,
+  options: ToolResultRetentionOptions,
+  agent: string,
+  conversation: string,
+  sweep: FileSweep,
+): boolean {
+  let attachments: SweepDirectory | undefined;
+  const target = path.join(options.jazzHome, "chat-attachments", agent, `${conversation}.json`);
+  try {
+    attachments = descendant(home, ["chat-attachments", agent]);
+    const owner: unknown = JSON.parse(attachments.readText(`${conversation}.json`));
+    if (
+      !isRecord(owner) ||
+      typeof owner["pid"] !== "number" ||
+      !Number.isSafeInteger(owner["pid"]) ||
+      owner["pid"] <= 0 ||
+      typeof owner["host"] !== "string" ||
+      owner["host"].trim().length === 0 ||
+      (owner["startedAt"] !== undefined &&
+        (typeof owner["startedAt"] !== "number" ||
+          !Number.isFinite(owner["startedAt"]) ||
+          owner["startedAt"] <= 0))
+    ) {
+      throw new Error("Invalid open-chat attachment");
+    }
+    const parsed: ProcessOwner = {
+      pid: owner["pid"],
+      host: owner["host"],
+      ...(typeof owner["startedAt"] === "number" ? { startedAt: owner["startedAt"] } : {}),
+    };
+    return localOwnerStatus(parsed) !== "gone";
+  } catch (error) {
+    if (missingSweepPath(error)) {
+      return false;
+    }
+    sweep.fail(target, "lstat", error);
+    return true;
+  } finally {
+    attachments?.close();
+  }
+}
+
 function conversationIsProtected(
   home: SweepDirectory,
   options: ToolResultRetentionOptions,
@@ -118,16 +164,16 @@ function conversationIsProtected(
   if (options.openConversations?.has(openConversationKey(agent, conversation))) {
     return true;
   }
-  for (const kind of ["conversation-locks", "conversations"] as const) {
+  if (hasOpenAttachment(home, options, agent, conversation, sweep)) {
+    return true;
+  }
+  for (const kind of ["conversations"] as const) {
     let directory;
     const target = path.join(options.jazzHome, "history", kind, agent);
     try {
       directory = descendant(home, ["history", kind, agent]);
-      const stat = directory.stat(
-        `${conversation}${kind === "conversation-locks" ? ".turn" : ".jsonl"}`,
-      );
+      const stat = directory.stat(`${conversation}.jsonl`);
       if (
-        kind === "conversation-locks" ||
         !stat.isFile() ||
         options.now - stat.mtimeMs <= options.retentionDays * MILLISECONDS_PER_DAY
       ) {
@@ -211,6 +257,7 @@ async function runSweep(
           }
           let conversation: SweepDirectory | undefined;
           let results: SweepDirectory | undefined;
+          let releaseLease: (() => Promise<void>) | undefined;
           const conversationPath = path.join(agentPath, conversationName);
           try {
             if (!agent.stat(conversationName).isDirectory()) {
@@ -219,6 +266,15 @@ async function runSweep(
             conversation = agent.child(conversationName);
             conversationsVisited += 1;
             if (conversationIsProtected(home, options, agentName, conversationName, sweep)) {
+              conversationsProtected += 1;
+              continue;
+            }
+            const { trySweepConversationLease } = await import("./sweep-conversation-lease");
+            releaseLease = await trySweepConversationLease(home, agentName, conversationName);
+            if (
+              releaseLease === undefined ||
+              conversationIsProtected(home, options, agentName, conversationName, sweep)
+            ) {
               conversationsProtected += 1;
               continue;
             }
@@ -236,6 +292,13 @@ async function runSweep(
           } finally {
             results?.close();
             conversation?.close();
+            if (releaseLease !== undefined) {
+              try {
+                await releaseLease();
+              } catch (error) {
+                sweep.fail(conversationPath, "containment", error);
+              }
+            }
           }
           if (sweep.result().truncated) {
             break;
@@ -304,9 +367,11 @@ export async function sweepToolResultsIfDue(
 
 export interface ScheduleToolResultSweepOptions {
   /** Re-discovered for each run, including sandboxes created after startup. */
-  readonly jazzHomes: () => readonly string[];
+  readonly jazzHomes: () => Iterable<string> | AsyncIterable<string>;
   /** Read when the sweep fires, so a setting changed meanwhile applies. */
-  readonly retentionDays: () => number;
+  readonly retentionDays: () => number | Promise<number>;
+  /** Shared discovery and entry budget across all homes in one scheduled pass. */
+  readonly maxEntriesPerRun?: number;
   readonly openConversations?: () => ReadonlySet<string>;
   readonly startupDelayMs?: number;
   /** When set, the sweep is attempted again at this interval for a long-lived process. */
@@ -342,16 +407,30 @@ export function scheduleToolResultSweep(options: ScheduleToolResultSweepOptions)
   scheduledInThisProcess = true;
   const logger = options.logger ?? silentLogger;
   const run = async (): Promise<void> => {
-    for (const jazzHome of options.jazzHomes()) {
-      await sweepToolResultsIfDue({
+    const retentionDays = await options.retentionDays();
+    if (retentionDays <= 0) {
+      return;
+    }
+    let remaining = options.maxEntriesPerRun ?? MAX_SWEEP_ENTRIES;
+    if (!Number.isSafeInteger(remaining) || remaining < 0) {
+      throw new Error("Invalid cleanup pass budget");
+    }
+    for await (const jazzHome of options.jazzHomes()) {
+      if (remaining <= 0) {
+        break;
+      }
+      remaining -= 1;
+      const result = await sweepToolResultsIfDue({
         jazzHome,
         now: Date.now(),
-        retentionDays: options.retentionDays(),
+        retentionDays,
+        maxEntries: remaining,
         ...(options.openConversations === undefined
           ? {}
           : { openConversations: options.openConversations() }),
         logger,
       });
+      remaining -= result?.sweep.examined ?? 0;
     }
   };
   let running = false;

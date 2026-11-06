@@ -29,7 +29,12 @@ import { isRecord } from "@/core/utils/is-record";
 import { PRIVATE_DIRECTORY_MODE, PRIVATE_FILE_MODE } from "@/core/utils/private-mode";
 import { currentProcessOwner, localOwnerStatus } from "@/core/utils/process";
 
-const HOLDER_FILE = "owner.json";
+/** Shared on-disk protocol for normal store locks and descriptor-anchored cleanup leases. */
+export const FILE_LOCK_PROTOCOL = {
+  holderFile: "owner.json",
+  guardSuffix: ".guard",
+  guardStaleMs: 10_000,
+} as const;
 const PROCESS_OWNER = currentProcessOwner();
 
 export interface FileLockOptions {
@@ -47,17 +52,17 @@ export interface FileLockOptions {
 const DEFAULT_STALE_MS = 10_000;
 /** Critical sections are a read, a check, and a write; ten minutes is a stuck remote holder. */
 const DEFAULT_MAX_HOLD_MS = 10 * 60_000;
-/** The guard covers one stat, one read, and one removal; older than this, its holder died. */
-const GUARD_STALE_MS = 10_000;
+
 /** Headroom on top of the slowest crash recovery, for a live holder's ordinary hold time. */
 const RECOVERY_MARGIN_MS = 10_000;
 /**
  * How long a waiter keeps trying by default. A crash can leave an unstamped lock (reclaimed
- * after `DEFAULT_STALE_MS`) behind a dead guard (removed after `GUARD_STALE_MS`), so the budget
+ * after `DEFAULT_STALE_MS`) behind a dead guard (removed after `FILE_LOCK_PROTOCOL.guardStaleMs`), so the budget
  * covers both in sequence plus a margin: a write that starts right after a crash waits out the
  * recovery instead of failing.
  */
-export const FILE_LOCK_MAX_WAIT_MS = DEFAULT_STALE_MS + GUARD_STALE_MS + RECOVERY_MARGIN_MS;
+export const FILE_LOCK_MAX_WAIT_MS =
+  DEFAULT_STALE_MS + FILE_LOCK_PROTOCOL.guardStaleMs + RECOVERY_MARGIN_MS;
 const DEFAULT_RETRY_DELAY_MS = 25;
 /**
  * Checking a holder's start time spawns `ps` (synchronously), so a waiter re-checks one live
@@ -86,7 +91,7 @@ function isLockHolder(value: unknown): value is LockHolder {
 async function readHolder(lockDirectory: string): Promise<LockHolder | undefined> {
   try {
     const parsed: unknown = JSON.parse(
-      await nodeFs.readFile(path.join(lockDirectory, HOLDER_FILE), "utf8"),
+      await nodeFs.readFile(path.join(lockDirectory, FILE_LOCK_PROTOCOL.holderFile), "utf8"),
     );
     return isLockHolder(parsed) ? parsed : undefined;
   } catch {
@@ -149,7 +154,7 @@ async function isStale(
  * holds it. A guard left by a process that died is removed once it is older than its window.
  */
 async function underGuard(lockDirectory: string, operation: () => Promise<void>) {
-  const guard = `${lockDirectory}.guard`;
+  const guard = `${lockDirectory}${FILE_LOCK_PROTOCOL.guardSuffix}`;
   try {
     await nodeFs.mkdir(guard, { mode: PRIVATE_DIRECTORY_MODE });
   } catch (error) {
@@ -157,7 +162,7 @@ async function underGuard(lockDirectory: string, operation: () => Promise<void>)
       throw error;
     }
     const stats = await nodeFs.stat(guard).catch(() => undefined);
-    if (stats !== undefined && Date.now() - stats.mtimeMs > GUARD_STALE_MS) {
+    if (stats !== undefined && Date.now() - stats.mtimeMs > FILE_LOCK_PROTOCOL.guardStaleMs) {
       await nodeFs.rm(guard, { recursive: true, force: true });
     }
     return false;
@@ -190,7 +195,7 @@ export async function acquireFileLock(
     try {
       await nodeFs.mkdir(lockDirectory, { mode: PRIVATE_DIRECTORY_MODE });
       try {
-        const holderFile = path.join(lockDirectory, HOLDER_FILE);
+        const holderFile = path.join(lockDirectory, FILE_LOCK_PROTOCOL.holderFile);
         await nodeFs.writeFile(holderFile, JSON.stringify(holder), {
           encoding: "utf8",
           flag: "wx",
@@ -206,7 +211,7 @@ export async function acquireFileLock(
         throw error;
       }
       return async () => {
-        const releaseBy = Date.now() + GUARD_STALE_MS * 2;
+        const releaseBy = Date.now() + FILE_LOCK_PROTOCOL.guardStaleMs * 2;
         for (;;) {
           const released = await underGuard(lockDirectory, async () => {
             const current = await readHolder(lockDirectory);

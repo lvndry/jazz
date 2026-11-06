@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
+import { hostname } from "node:os";
 import * as path from "node:path";
+import { acquireFileLock } from "@jazz/core/utils/file-lock";
 import { afterEach, beforeEach, describe, expect, test, mock, spyOn } from "bun:test";
 import { SweepDirectory } from "./sweep-directory";
 import {
@@ -126,6 +128,73 @@ describe("sweepOrphanedToolResults", () => {
     expect(result.conversationsProtected).toBe(1);
   });
 
+  test("protects an idle chat attachment held by another live process", async () => {
+    const old = writeResult("open", "old.txt", 60 * DAY_MS);
+    const child = Bun.spawn(["sleep", "30"], { stdout: "ignore", stderr: "ignore" });
+    try {
+      const marker = path.join(home, "chat-attachments", "agent", "open.json");
+      fs.mkdirSync(path.dirname(marker), { recursive: true });
+      fs.writeFileSync(marker, JSON.stringify({ pid: child.pid, host: hostname() }));
+      const result = await sweepOrphanedToolResults({
+        jazzHome: home,
+        now: NOW,
+        retentionDays: 30,
+      });
+      expect(fs.existsSync(old)).toBe(true);
+      expect(result.conversationsProtected).toBe(1);
+    } finally {
+      child.kill();
+      await child.exited;
+    }
+  });
+
+  test.skipIf(process.getuid?.() !== 0)(
+    "preserves a sandbox owner's access to newly created lease directories",
+    async () => {
+      for (let index = 0; index < 70; index++) {
+        writeResult("owned", `old-${index}`, 60 * DAY_MS);
+      }
+      fs.chownSync(home, 12002, 12002);
+      let checked = false;
+      await sweepOrphanedToolResults({
+        jazzHome: home,
+        now: NOW,
+        retentionDays: 30,
+        yieldToEventLoop: async () => {
+          checked = true;
+          const lock = path.join(home, "history", "conversation-locks", "agent", "owned.turn");
+          expect(fs.statSync(lock).uid).toBe(12002);
+          expect(fs.statSync(path.join(lock, "owner.json")).uid).toBe(12002);
+        },
+      });
+      expect(checked).toBe(true);
+      expect(fs.statSync(path.join(home, "history")).uid).toBe(12002);
+    },
+  );
+
+  test("holds the normal turn lease across event-loop yields and releases it afterwards", async () => {
+    for (let index = 0; index < 70; index++) {
+      writeResult("busy-race", `old-${index}`, 60 * DAY_MS);
+    }
+    const lock = path.join(home, "history", "conversation-locks", "agent", "busy-race.turn");
+    let checked = false;
+    await sweepOrphanedToolResults({
+      jazzHome: home,
+      now: NOW,
+      retentionDays: 30,
+      yieldToEventLoop: async () => {
+        if (checked) {
+          return;
+        }
+        checked = true;
+        await expect(acquireFileLock(lock, { maxWaitMs: 0 })).rejects.toThrow("Timed out");
+      },
+    });
+    expect(checked).toBe(true);
+    const release = await acquireFileLock(lock, { maxWaitMs: 0 });
+    await release();
+  });
+
   test("skips a conversation open in this process", async () => {
     const old = writeResult("open", "call_1.txt", 60 * DAY_MS);
     await sweepOrphanedToolResults({
@@ -183,13 +252,21 @@ describe("sweepToolResultsIfDue", () => {
       const old = writeResult("abandoned", "old.txt", 60 * DAY_MS);
       const options = { jazzHome: home, now: NOW, retentionDays: 30 };
       const failure = Object.assign(new Error("permission denied"), { code: "EACCES" });
+      const originalRemove = SweepDirectory.prototype.remove;
       const injected =
         operation === "readdir"
           ? spyOn(SweepDirectory.prototype, "entries").mockImplementation(() => {
               throw failure;
             })
-          : spyOn(SweepDirectory.prototype, "remove").mockImplementation(() => {
-              throw failure;
+          : spyOn(SweepDirectory.prototype, "remove").mockImplementation(function (
+              this: SweepDirectory,
+              name,
+              directory,
+            ) {
+              if (name === "old.txt") {
+                throw failure;
+              }
+              return originalRemove.call(this, name, directory);
             });
       const failed = await sweepToolResultsIfDue(options);
       injected.mockRestore();
@@ -248,7 +325,7 @@ describe("scheduleToolResultSweep", () => {
         }
         return [...homes];
       },
-      retentionDays: () => 0,
+      retentionDays: () => 30,
       startupDelayMs: 0,
       repeatEveryMs: 1,
     });
@@ -256,6 +333,58 @@ describe("scheduleToolResultSweep", () => {
     homes.push(path.join(home, "new-sandbox"));
     await secondRead;
     expect(homes).toHaveLength(2);
+  });
+
+  test("does not enumerate homes when retention is disabled", async () => {
+    let reads = 0;
+    let ready: () => void = () => undefined;
+    const configured = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    scheduleToolResultSweep({
+      jazzHomes: () => {
+        reads++;
+        return [];
+      },
+      retentionDays: () => {
+        ready();
+        return 0;
+      },
+      startupDelayMs: 0,
+    });
+    await configured;
+    await Promise.resolve();
+    expect(reads).toBe(0);
+  });
+
+  test("shares a bounded budget across streamed homes and reads policy once", async () => {
+    let reads = 0;
+    let discovered = 0;
+    let done: () => void = () => undefined;
+    const finished = new Promise<void>((resolve) => {
+      done = resolve;
+    });
+    scheduleToolResultSweep({
+      jazzHomes: function* () {
+        try {
+          for (let index = 0; index < 100; index++) {
+            discovered++;
+            yield path.join(home, `absent-${index}`);
+          }
+        } finally {
+          done();
+        }
+      },
+      retentionDays: () => {
+        reads++;
+        return 30;
+      },
+      maxEntriesPerRun: 3,
+      startupDelayMs: 0,
+    });
+    await finished;
+    expect(reads).toBe(1);
+    expect(discovered).toBeLessThanOrEqual(4);
   });
 
   test("schedules once per process", () => {

@@ -249,3 +249,10 @@ traversal and deletion. Renaming an ancestor cannot redirect an operation throug
 It does not cross mounted filesystems below the configured home. Stamp replacement creates a
 private directory inode rather than following or overwriting an existing link. Streaming directory
 reads share the same bounded budget as file cleanup. Native-load failure stops the sweep.
+
+Retention cleanup participates in the turn-lease protocol, so a normal agent turn cannot start
+while its results are being swept. Cleanup never reclaims an existing turn lease. Cross-process
+chat attachments and unreadable protection metadata keep results. Linux directory handles
+are checked by mount ID as well as no-follow traversal; a bind mount on the same device does
+not become a cleanup root. Native compilation uses only an embedded, fixed source asset in a
+private temporary directory, with no model-controlled source or compiler options.

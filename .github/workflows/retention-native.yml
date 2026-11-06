@@ -1,0 +1,57 @@
+name: Retention native boundaries
+
+on:
+  pull_request:
+    paths:
+      - "packages/adapters/src/sweep-*"
+      - "packages/adapters/src/*retention*"
+      - "packages/core/src/utils/file-lock*"
+      - "bun.lock"
+      - ".github/workflows/retention-native.yml"
+  push:
+    branches: [main]
+    paths:
+      - "packages/adapters/src/sweep-*"
+      - "packages/adapters/src/*retention*"
+      - "packages/core/src/utils/file-lock*"
+      - "bun.lock"
+      - ".github/workflows/retention-native.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - libc: glibc
+            image: oven/bun:1.4.2
+          - libc: musl
+            image: oven/bun:1.4.2-alpine
+    name: retention (${{ matrix.libc }})
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Verify bind mounts, turn leases and standalone source assets
+        env:
+          RETENTION_IMAGE: ${{ matrix.image }}
+        run: |
+          docker run --rm --read-only --network none \
+            --tmpfs /tmp:rw,exec,size=256m --user 0:0 --memory=1g \
+            --cap-add SYS_ADMIN --security-opt seccomp=unconfined \
+            -e JAZZ_TEST_BIND_MOUNT=1 \
+            -v "$GITHUB_WORKSPACE:/workspace:ro" -w /workspace \
+            "$RETENTION_IMAGE" sh -c '
+              bun test packages/adapters/src/stale-file-sweep.test.ts packages/adapters/src/tool-result-retention.test.ts packages/adapters/src/tool-result-retention-policy.test.ts &&
+              bun build --compile packages/adapters/src/retention-native-smoke.fixture.ts --outfile /tmp/retention-smoke &&
+              /tmp/retention-smoke
+            '
