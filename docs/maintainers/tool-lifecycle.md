@@ -102,6 +102,25 @@ is then expanded with the names its tools also answer to: advertised aliases (`g
 denials are re-applied over what expansion added, so a deny entry cannot be undone by an
 alias one step below it. The result is the run's **effective tool set**.
 
+A tool can also declare a `ready()` check: a cheap judgment from configuration and stored
+credentials only, with no network call, no spawned process and no side effect. The run asks
+once, after the filters above and before expansion and tiering, and leaves a tool that is not
+ready out of the set, with a debug log naming the tool and the reason class
+(`missing_credential`, `not_configured`, `not_connected`, `unsupported_platform`; never a
+secret). Because the withheld tool never reaches the set, the deferred index, `search_tools`
+and the executor's refusal all treat it as absent. `web_search` is ready when the configured
+provider has a key (the same lookup the tool uses when called), or when no global provider is
+set and the model's own provider hosts search. The computer tools are ready only on macOS with
+Apple Silicon. `/info` lists every tool the next run will withhold, with how to fix it.
+
+The check is evaluated per run, never per step, so the tools block stays identical within a
+run. For prompt caching: a key added mid-conversation takes effect at the next run, and a
+change in readiness changes the tools block once, which costs one cache miss on that turn.
+
+MCP tools are not covered by `ready()`: a server that is not connected or not authenticated
+registers no tools at all. Browser tools are not covered either: finding Chrome can fall back
+to a probe launch, which is not a cheap check.
+
 That one set does three jobs:
 
 - **Advertisement.** `eager`-tier members are sent as schemas with every request;
@@ -371,9 +390,12 @@ tool's "always approve" may have changed the answer while this one waited.
 A batch can be stopped part-way: double-Esc, the run's `maxDurationMs` deadline, `--timeout`,
 or SIGTERM. Each is a **clean stop**, not a crash:
 
-- **Every tool fiber is interrupted, and the interrupt waits for it.** Tool calls are daemon
-  fibers (so Ctrl+B can detach them), and the batch interrupts each one it forked when it is
-  itself interrupted.
+- **Every attached tool fiber is interrupted, and the interrupt waits for it.** Tool calls are
+  daemon fibers so background calls can outlive their batch. A detached call belongs to the
+  background tracker, and survives interruption of its former foreground batch. Capacity is
+  reserved atomically before transferring ownership; the completion watcher and ownership
+  record are installed together before interruption can resume. Leaving the conversation
+  stops its remaining background calls.
 - **Commands get to clean up.** `execute_command` and custom command tools run in their own
   process group. Stopping one sends SIGTERM to the group, then SIGKILL after
   `PROCESS_TERMINATION_GRACE_MS` (3s) if it is still running, so a script that traps SIGTERM

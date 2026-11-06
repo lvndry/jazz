@@ -87,6 +87,7 @@ import { autoDetachPolicyFor } from "./detach/auto-detach";
 import { assertConversationWritable } from "./detach/ownership";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createEgressTaint, recordEgressTaint } from "./execution/egress-taint";
+import { collectMcpServerInstructions } from "./mcp-server-instructions";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import {
   MANAGE_MEMORY_TOOL_NAME,
@@ -129,6 +130,7 @@ import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
 import { registerBrowserAdoptionTools, registerPeerTools } from "./tools/register-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
+import { withholdUnreadyTools } from "./tools/tool-readiness";
 import { collectUnlockedToolNames } from "./tools/unlocked-tools";
 import { INTERACTIVE_TOOL_NAMES } from "./tools/user-interaction";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
@@ -813,6 +815,10 @@ function initializeAgentRun(
     const allToolNames = yield* toolRegistry.listAllTools();
     combinedToolNames = combinedToolNames.filter((toolName) => allToolNames.includes(toolName));
 
+    // Tools whose prerequisites are missing are left out before expansion and tiering, so
+    // neither the declared tools, the deferred index, nor `search_tools` can reach them.
+    combinedToolNames = [...(yield* withholdUnreadyTools(toolRegistry, combinedToolNames, agent))];
+
     // Expand tool names to include approval execute tools, advertised aliases and companion
     // tools. Each belongs to a tool that already survived every filter above, so it is granted
     // with it: a run that may call `execute_command` has to be able to reach
@@ -950,6 +956,8 @@ function initializeAgentRun(
       ...(options.memorySources ?? collectMemorySources(history, currentMemorySource)),
     ];
 
+    const mcpServerInstructions = yield* collectMcpServerInstructions(connectedMCPServers);
+
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
     const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
@@ -983,6 +991,7 @@ function initializeAgentRun(
           initialAttachments: options.initialAttachments,
         }),
         ...(projectInstructions.length > 0 && { projectInstructions }),
+        ...(mcpServerInstructions.length > 0 && { mcpServerInstructions }),
         ...(instructionDiscovery.omissions.length > 0 && {
           projectInstructionOmissions: instructionDiscovery.omissions,
         }),

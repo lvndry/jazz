@@ -1,7 +1,16 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import type { Tool, ToolDisclosure, ToolRiskLevel } from "@/core/interfaces/tool-registry";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
+import type {
+  Tool,
+  ToolDisclosure,
+  ToolReadiness,
+  ToolReadinessContext,
+  ToolReadinessRequirements,
+  ToolRiskLevel,
+} from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import { relaxToolArguments } from "./argument-tolerance";
 
 /**
  * Shared builders for Jazz tools.
@@ -115,6 +124,10 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
    * Custom timeout in milliseconds. Overrides the default 3-minute timeout.
    */
   readonly timeoutMs?: number;
+  /** See {@link Tool.ready}. */
+  readonly ready?: (
+    context: ToolReadinessContext,
+  ) => Effect.Effect<ToolReadiness, never, ToolReadinessRequirements>;
 }
 
 /**
@@ -153,18 +166,39 @@ export function defineTool<R, Args extends Record<string, unknown>>(
       : {}),
     ...(config.longRunning ? { longRunning: true } : {}),
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+    ...(config.ready !== undefined ? { ready: config.ready } : {}),
     createSummary: config.createSummary,
     execute(
       args: Record<string, unknown>,
       context: ToolExecutionContext,
     ): Effect.Effect<ToolExecutionResult, Error, R> {
       const validator = config.validate ?? makeZodValidator(config.parameters as z.ZodType<Args>);
-      const result = validator(args);
+      const relaxed =
+        config.jsonSchema === undefined
+          ? relaxToolArguments(config.name, config.parameters, args)
+          : { args, relaxations: [] };
+      const result = validator(relaxed.args);
       if (!result.valid) {
         const message = (result.errors || ["Invalid arguments"]).join("; ");
         return Effect.succeed({ success: false, result: null, error: message });
       }
-      return config.handler(result.value as Args, context);
+      const relaxations = relaxed.relaxations;
+      if (relaxations.length === 0) {
+        return config.handler(result.value as Args, context);
+      }
+      return Effect.gen(function* () {
+        const logger = yield* Effect.serviceOption(LoggerServiceTag);
+        if (logger._tag === "Some") {
+          for (const relaxation of relaxations) {
+            yield* logger.value.debug("tool argument relaxed", {
+              tool: config.name,
+              field: relaxation.field,
+              reason: relaxation.reason,
+            });
+          }
+        }
+        return yield* config.handler(result.value as Args, context);
+      });
     },
   };
 }

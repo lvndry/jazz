@@ -5,8 +5,10 @@
  * never wrote. A running turn picks them up at its next step; an idle chat starts a turn with
  * them, the way a finished sub-agent does.
  */
+import type { DetachedCallEntry } from "@jazz/core/agent/detach/auto-detach";
 import { detachedResultMessage } from "@jazz/core/agent/execution/egress-taint";
 import type { DetachedToolResult } from "@jazz/core/agent/types";
+import type { ChatMessage } from "@jazz/core/types/message";
 
 export interface DetachedResultInbox {
   readonly push: (result: DetachedToolResult) => void;
@@ -55,4 +57,40 @@ export function detachedResultsMessage(results: readonly DetachedToolResult[]): 
 export function detachedResultsNotice(results: readonly DetachedToolResult[]): string {
   const names = results.map((result) => `\`${result.toolName}\``).join(", ");
   return `${names} finished in the background.`;
+}
+
+/**
+ * A push into the session-wide inbox that only lands while `owner` is still the open
+ * conversation. A background command stopped as its conversation is left reports "stopped" from
+ * a watcher that runs after the switch; without this check that notice would reach, and wake,
+ * the conversation the person moved to.
+ */
+export function pushWhileOpen(
+  inbox: DetachedResultInbox,
+  owner: string,
+  openConversationId: () => string,
+  onDropped: (result: DetachedToolResult) => void,
+): (result: DetachedToolResult) => void {
+  return (result) => {
+    if (openConversationId() !== owner) {
+      onDropped(result);
+      return;
+    }
+    inbox.push(result);
+  };
+}
+
+/**
+ * The host message that closes a conversation's history when its running background commands
+ * are stopped as it is left, so the saved transcript never ends on a "still running" placeholder.
+ */
+export function stoppedDetachedMessage(entries: readonly DetachedCallEntry[]): ChatMessage {
+  const content = entries
+    .map((entry) =>
+      detachedResultMessage(
+        `Background task \`${entry.toolName}\` (${entry.description}) was stopped before it finished because this conversation was left.`,
+      ),
+    )
+    .join("\n\n");
+  return { role: "user", content };
 }
