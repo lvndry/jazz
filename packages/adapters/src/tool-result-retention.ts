@@ -17,22 +17,13 @@
  * the model to rerun the original tool.
  *
  * `scheduleToolResultSweep` runs the sweep once per process, off the critical path, and at most
- * once per `TOOL_RESULT_SWEEP_INTERVAL_MS` per Jazz home across processes (a stamp file's
- * modification time records the last run). A retention of 0 disables it.
+ * once per `TOOL_RESULT_SWEEP_INTERVAL_MS` per Jazz home across processes (a private stamp directory's
+ * modification time records the last successful, complete run). A retention of 0 disables it.
  */
 
-import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
-import {
-  conversationLogPathForSegments,
-  conversationTurnLockPathForSegments,
-} from "./history/conversation-log";
-import {
-  nodeSweepFileSystem,
-  sweepStaleFiles,
-  type SweepFileSystem,
-  type SweepResult,
-} from "./stale-file-sweep";
+import { FileSweep, missingSweepPath, type SweepResult } from "./stale-file-sweep";
+import type { SweepDirectory } from "./sweep-directory";
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -71,7 +62,7 @@ export interface ToolResultRetentionOptions {
   readonly maxEntries?: number;
   /** Path segments (`<agent>/<conversation>`) of conversations open in this process. */
   readonly openConversations?: ReadonlySet<string>;
-  readonly fileSystem?: SweepFileSystem;
+  readonly openDirectory?: (root: string) => SweepDirectory;
   readonly yieldToEventLoop?: () => Promise<void>;
   readonly logger?: ToolResultSweepLogger;
 }
@@ -98,243 +89,220 @@ export function openConversationKey(agentSegment: string, conversationSegment: s
   return `${agentSegment}/${conversationSegment}`;
 }
 
-async function listDirectories(
-  fileSystem: SweepFileSystem,
-  directory: string,
-): Promise<readonly string[]> {
-  let names: readonly string[];
+/** Opens a chain under an existing handle, closing intermediate descriptors. */
+function descendant(root: SweepDirectory, names: readonly string[]): SweepDirectory {
+  let current: SweepDirectory | undefined;
   try {
-    names = await fileSystem.readdir(directory);
-  } catch {
-    return [];
+    for (const name of names) {
+      const child = (current ?? root).child(name);
+      current?.close();
+      current = child;
+    }
+    if (current === undefined) {
+      throw new Error("Empty directory chain");
+    }
+    return current;
+  } catch (error) {
+    current?.close();
+    throw error;
   }
-  const directories: string[] = [];
-  for (const name of names) {
+}
+
+function conversationIsProtected(
+  home: SweepDirectory,
+  options: ToolResultRetentionOptions,
+  agent: string,
+  conversation: string,
+  sweep: FileSweep,
+): boolean {
+  if (options.openConversations?.has(openConversationKey(agent, conversation))) {
+    return true;
+  }
+  for (const kind of ["conversation-locks", "conversations"] as const) {
+    let directory;
+    const target = path.join(options.jazzHome, "history", kind, agent);
     try {
-      const stat = await fileSystem.lstat(path.join(directory, name));
-      if (stat.isDirectory() && !stat.isSymbolicLink()) {
-        directories.push(name);
+      directory = descendant(home, ["history", kind, agent]);
+      const stat = directory.stat(
+        `${conversation}${kind === "conversation-locks" ? ".turn" : ".jsonl"}`,
+      );
+      if (
+        kind === "conversation-locks" ||
+        !stat.isFile() ||
+        options.now - stat.mtimeMs <= options.retentionDays * MILLISECONDS_PER_DAY
+      ) {
+        return true;
       }
-    } catch {
-      continue;
+    } catch (error) {
+      if (!missingSweepPath(error)) {
+        sweep.fail(target, "lstat", error);
+        return true;
+      }
+    } finally {
+      directory?.close();
     }
   }
-  return directories;
+  return false;
 }
 
-async function exists(fileSystem: SweepFileSystem, target: string): Promise<boolean> {
-  try {
-    await fileSystem.lstat(target);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function conversationIsProtected(
-  fileSystem: SweepFileSystem,
+async function runSweep(
   options: ToolResultRetentionOptions,
-  agentSegment: string,
-  conversationSegment: string,
-  maxAgeMs: number,
-): Promise<boolean> {
-  if (options.openConversations?.has(openConversationKey(agentSegment, conversationSegment))) {
-    return true;
+  onlyIfDue: boolean,
+): Promise<ToolResultRetentionResult | undefined> {
+  const logger = options.logger ?? silentLogger;
+  const sweep = new FileSweep({
+    now: options.now,
+    maxAgeMs: options.retentionDays * MILLISECONDS_PER_DAY,
+    maxEntries: options.maxEntries ?? MAX_SWEEP_ENTRIES,
+    ...(options.yieldToEventLoop === undefined
+      ? {}
+      : { yieldToEventLoop: options.yieldToEventLoop }),
+  });
+  let conversationsVisited = 0;
+  let conversationsProtected = 0;
+  const result = (
+    skipped: ToolResultRetentionResult["skipped"] = undefined,
+  ): ToolResultRetentionResult => ({
+    skipped,
+    conversationsVisited,
+    conversationsProtected,
+    sweep: sweep.result(),
+  });
+  if (options.retentionDays <= 0) {
+    return onlyIfDue ? undefined : result("disabled");
   }
-  const historyDirectory = path.join(options.jazzHome, "history");
-  if (
-    await exists(
-      fileSystem,
-      conversationTurnLockPathForSegments(agentSegment, conversationSegment, historyDirectory),
-    )
-  ) {
-    return true;
-  }
+  let home: SweepDirectory | undefined;
+  let work: SweepDirectory | undefined;
+  const workPath = path.join(options.jazzHome, WORK_DIRECTORY_NAME);
   try {
-    const log = await fileSystem.lstat(
-      conversationLogPathForSegments(agentSegment, conversationSegment, historyDirectory),
-    );
-    return options.now - log.mtimeMs <= maxAgeMs;
-  } catch {
-    return false;
+    const open = options.openDirectory ?? (await import("./sweep-directory")).SweepDirectory.open;
+    home = open(options.jazzHome);
+    work = home.child(WORK_DIRECTORY_NAME);
+    if (onlyIfDue) {
+      try {
+        const stamp = work.stat(SWEEP_STAMP_FILENAME);
+        if (
+          (stamp.isFile() || stamp.isDirectory()) &&
+          options.now - stamp.mtimeMs < TOOL_RESULT_SWEEP_INTERVAL_MS
+        ) {
+          return undefined;
+        }
+      } catch (error) {
+        if (!missingSweepPath(error)) {
+          throw error;
+        }
+      }
+    }
+    for (const agentName of work.entries()) {
+      if (!(await sweep.take())) {
+        break;
+      }
+      let agent: SweepDirectory | undefined;
+      const agentPath = path.join(workPath, agentName);
+      try {
+        if (!work.stat(agentName).isDirectory()) {
+          continue;
+        }
+        agent = work.child(agentName);
+        for (const conversationName of agent.entries()) {
+          if (!(await sweep.take())) {
+            break;
+          }
+          let conversation: SweepDirectory | undefined;
+          let results: SweepDirectory | undefined;
+          const conversationPath = path.join(agentPath, conversationName);
+          try {
+            if (!agent.stat(conversationName).isDirectory()) {
+              continue;
+            }
+            conversation = agent.child(conversationName);
+            conversationsVisited += 1;
+            if (conversationIsProtected(home, options, agentName, conversationName, sweep)) {
+              conversationsProtected += 1;
+              continue;
+            }
+            results = conversation.child(TOOL_RESULTS_DIRECTORY_NAME);
+            const resultsPath = path.join(conversationPath, TOOL_RESULTS_DIRECTORY_NAME);
+            const removed = await sweep.walk(results, resultsPath);
+            results.close();
+            if (removed && sweep.prune(conversation, TOOL_RESULTS_DIRECTORY_NAME, resultsPath)) {
+              conversation.close();
+              sweep.prune(agent, conversationName, conversationPath);
+            }
+          } catch (error) {
+            sweep.fail(conversationPath, "containment", error);
+          } finally {
+            results?.close();
+            conversation?.close();
+          }
+          if (sweep.result().truncated) {
+            break;
+          }
+        }
+        agent.close();
+        if (sweep.result().deletedFiles + sweep.result().deletedSymlinks > 0) {
+          sweep.prune(work, agentName, agentPath);
+        }
+      } catch (error) {
+        sweep.fail(agentPath, "readdir", error);
+      } finally {
+        agent?.close();
+      }
+      if (sweep.result().truncated) {
+        break;
+      }
+    }
+    if (onlyIfDue && sweep.result().failures.length === 0 && !sweep.result().truncated) {
+      work.stamp(SWEEP_STAMP_FILENAME, options.now);
+    }
+  } catch (error) {
+    if (missingSweepPath(error)) {
+      return result("no-work-directory");
+    }
+    sweep.fail(workPath, "containment", error);
+  } finally {
+    work?.close();
+    home?.close();
   }
+  if (sweep.result().failures.length > 0) {
+    logger.warn("Tool-result sweep could not remove some paths", {
+      failureCount: sweep.result().failures.length,
+      firstOperation: sweep.result().failures[0]?.operation,
+    });
+  }
+  logger.debug("Tool-result sweep finished", {
+    ...sweep.result(),
+    failures: undefined,
+    conversationsVisited,
+    conversationsProtected,
+  });
+  return result();
 }
 
-/** Sweeps every conversation's `tool-results/` under one Jazz home. Never throws. */
+/** Sweeps abandoned result directories under descriptor-anchored Jazz home and work handles. */
 export async function sweepOrphanedToolResults(
   options: ToolResultRetentionOptions,
 ): Promise<ToolResultRetentionResult> {
-  const logger = options.logger ?? silentLogger;
-  const fileSystem = options.fileSystem ?? nodeSweepFileSystem;
-  if (options.retentionDays <= 0) {
-    logger.debug("Tool-result sweep disabled", { retentionDays: options.retentionDays });
-    return {
+  return (
+    (await runSweep(options, false)) ?? {
       skipped: "disabled",
       conversationsVisited: 0,
       conversationsProtected: 0,
       sweep: EMPTY_SWEEP,
-    };
-  }
-
-  const startedAt = Date.now();
-  const maxAgeMs = options.retentionDays * MILLISECONDS_PER_DAY;
-  const workRoot = path.join(options.jazzHome, WORK_DIRECTORY_NAME);
-  const agentSegments = await listDirectories(fileSystem, workRoot);
-  if (agentSegments.length === 0) {
-    logger.debug("Tool-result sweep found no work directories", { workRoot });
-    return {
-      skipped: "no-work-directory",
-      conversationsVisited: 0,
-      conversationsProtected: 0,
-      sweep: EMPTY_SWEEP,
-    };
-  }
-
-  const budget = options.maxEntries ?? MAX_SWEEP_ENTRIES;
-  let conversationsVisited = 0;
-  let conversationsProtected = 0;
-  let examined = 0;
-  let deletedFiles = 0;
-  let deletedSymlinks = 0;
-  let prunedDirectories = 0;
-  let bytesFreed = 0;
-  let truncated = false;
-  const failures: SweepResult["failures"][number][] = [];
-
-  for (const agentSegment of agentSegments) {
-    const agentDirectory = path.join(workRoot, agentSegment);
-    for (const conversationSegment of await listDirectories(fileSystem, agentDirectory)) {
-      if (examined >= budget) {
-        truncated = true;
-        break;
-      }
-      conversationsVisited += 1;
-      if (
-        await conversationIsProtected(
-          fileSystem,
-          options,
-          agentSegment,
-          conversationSegment,
-          maxAgeMs,
-        )
-      ) {
-        conversationsProtected += 1;
-        continue;
-      }
-      const conversationDirectory = path.join(agentDirectory, conversationSegment);
-      const toolResults = path.join(conversationDirectory, TOOL_RESULTS_DIRECTORY_NAME);
-      if (!(await exists(fileSystem, toolResults))) {
-        continue;
-      }
-      const result = await sweepStaleFiles({
-        root: toolResults,
-        now: options.now,
-        maxAgeMs,
-        maxEntries: budget - examined,
-        fileSystem,
-        ...(options.yieldToEventLoop === undefined
-          ? {}
-          : { yieldToEventLoop: options.yieldToEventLoop }),
-      });
-      examined += result.examined;
-      deletedFiles += result.deletedFiles;
-      deletedSymlinks += result.deletedSymlinks;
-      prunedDirectories += result.prunedDirectories;
-      bytesFreed += result.bytesFreed;
-      failures.push(...result.failures);
-      if (result.truncated) {
-        truncated = true;
-      }
-      if (result.deletedFiles + result.deletedSymlinks > 0) {
-        try {
-          if ((await fileSystem.readdir(toolResults)).length === 0) {
-            await fileSystem.rmdir(toolResults);
-            prunedDirectories += 1;
-            await fileSystem.rmdir(conversationDirectory);
-            prunedDirectories += 1;
-            await fileSystem.rmdir(agentDirectory);
-            prunedDirectories += 1;
-          }
-        } catch {
-          // A non-empty parent (state.json, journal, another conversation) ends the pruning.
-        }
-      }
     }
-  }
-
-  const sweep: SweepResult = {
-    examined,
-    deletedFiles,
-    deletedSymlinks,
-    prunedDirectories,
-    bytesFreed,
-    truncated,
-    failures,
-  };
-  logger.debug("Tool-result sweep finished", {
-    conversationsVisited,
-    conversationsProtected,
-    examined,
-    deletedFiles,
-    deletedSymlinks,
-    prunedDirectories,
-    bytesFreed,
-    truncated,
-    failureCount: failures.length,
-    durationMs: Date.now() - startedAt,
-  });
-  if (failures.length > 0) {
-    logger.warn("Tool-result sweep could not remove some paths", {
-      failureCount: failures.length,
-      firstOperation: failures[0]?.operation,
-    });
-  }
-  return { skipped: undefined, conversationsVisited, conversationsProtected, sweep };
+  );
 }
 
-async function stampIsFresh(stampPath: string, now: number): Promise<boolean> {
-  try {
-    const stat = await nodeFs.stat(stampPath);
-    return now - stat.mtimeMs < TOOL_RESULT_SWEEP_INTERVAL_MS;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Runs the sweep when this home has not been swept within `TOOL_RESULT_SWEEP_INTERVAL_MS`.
- * Returns undefined when it was not due or is disabled. Never throws.
- */
+/** Writes a due stamp only after an untruncated, successful sweep; never follows its pathname. */
 export async function sweepToolResultsIfDue(
   options: ToolResultRetentionOptions,
 ): Promise<ToolResultRetentionResult | undefined> {
-  const logger = options.logger ?? silentLogger;
-  if (options.retentionDays <= 0) {
-    logger.debug("Tool-result sweep disabled", { retentionDays: options.retentionDays });
-    return undefined;
-  }
-  try {
-    const workRoot = path.join(options.jazzHome, WORK_DIRECTORY_NAME);
-    const stampPath = path.join(workRoot, SWEEP_STAMP_FILENAME);
-    if (await stampIsFresh(stampPath, options.now)) {
-      logger.debug("Tool-result sweep not due", { stampPath });
-      return undefined;
-    }
-    await nodeFs.mkdir(workRoot, { recursive: true, mode: 0o700 });
-    await nodeFs.writeFile(stampPath, String(options.now), { mode: 0o600 });
-    const stamped = new Date(options.now);
-    await nodeFs.utimes(stampPath, stamped, stamped);
-    return await sweepOrphanedToolResults(options);
-  } catch (error) {
-    logger.warn("Tool-result sweep failed", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return undefined;
-  }
+  return runSweep(options, true);
 }
 
 export interface ScheduleToolResultSweepOptions {
-  readonly jazzHomes: readonly string[];
+  /** Re-discovered for each run, including sandboxes created after startup. */
+  readonly jazzHomes: () => readonly string[];
   /** Read when the sweep fires, so a setting changed meanwhile applies. */
   readonly retentionDays: () => number;
   readonly openConversations?: () => ReadonlySet<string>;
@@ -345,10 +313,20 @@ export interface ScheduleToolResultSweepOptions {
 }
 
 let scheduledInThisProcess = false;
+let startupTimer: ReturnType<typeof setTimeout> | undefined;
+let repeatTimer: ReturnType<typeof setInterval> | undefined;
 
 /** Test hook: forget that a sweep was scheduled. */
 export function resetToolResultSweepSchedule(): void {
   scheduledInThisProcess = false;
+  if (startupTimer !== undefined) {
+    clearTimeout(startupTimer);
+  }
+  if (repeatTimer !== undefined) {
+    clearInterval(repeatTimer);
+  }
+  startupTimer = undefined;
+  repeatTimer = undefined;
 }
 
 /**
@@ -362,7 +340,7 @@ export function scheduleToolResultSweep(options: ScheduleToolResultSweepOptions)
   scheduledInThisProcess = true;
   const logger = options.logger ?? silentLogger;
   const run = async (): Promise<void> => {
-    for (const jazzHome of options.jazzHomes) {
+    for (const jazzHome of options.jazzHomes()) {
       await sweepToolResultsIfDue({
         jazzHome,
         now: Date.now(),
@@ -374,15 +352,31 @@ export function scheduleToolResultSweep(options: ScheduleToolResultSweepOptions)
       });
     }
   };
-  const timer = setTimeout(() => {
-    void run();
+  let running = false;
+  const runSafely = async (): Promise<void> => {
+    if (running) {
+      return;
+    }
+    running = true;
+    try {
+      await run();
+    } catch (error) {
+      logger.warn("Tool-result sweep discovery failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      running = false;
+    }
+  };
+  startupTimer = setTimeout(() => {
+    void runSafely();
     if (options.repeatEveryMs !== undefined) {
-      setInterval(() => void run(), options.repeatEveryMs).unref();
+      repeatTimer = setInterval(() => void runSafely(), options.repeatEveryMs);
+      repeatTimer.unref();
     }
   }, options.startupDelayMs ?? TOOL_RESULT_SWEEP_STARTUP_DELAY_MS);
-  timer.unref();
+  startupTimer.unref();
   logger.debug("Tool-result sweep scheduled", {
-    homes: options.jazzHomes.length,
     startupDelayMs: options.startupDelayMs ?? TOOL_RESULT_SWEEP_STARTUP_DELAY_MS,
   });
   return true;

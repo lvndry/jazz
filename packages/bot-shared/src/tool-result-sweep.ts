@@ -27,7 +27,7 @@ function configuredRetentionDays(dataDir: string): number {
 
 export function startToolResultSweep(dataDir: string): void {
   scheduleToolResultSweep({
-    jazzHomes: [dataDir, ...listChatSandboxes(dataDir).map((sandbox) => sandbox.home)],
+    jazzHomes: () => [dataDir, ...listChatSandboxes(dataDir).map((sandbox) => sandbox.home)],
     retentionDays: () => configuredRetentionDays(dataDir),
     repeatEveryMs: TOOL_RESULT_SWEEP_INTERVAL_MS,
     logger: {

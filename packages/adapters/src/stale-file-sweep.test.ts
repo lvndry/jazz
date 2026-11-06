@@ -1,8 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { nodeSweepFileSystem, sweepStaleFiles, type SweepFileSystem } from "./stale-file-sweep";
+import { afterEach, beforeEach, describe, expect, test, mock, spyOn } from "bun:test";
+import { sweepStaleFiles } from "./stale-file-sweep";
+import { SweepDirectory } from "./sweep-directory";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
@@ -18,6 +19,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  mock.restore();
   fs.rmSync(base, { recursive: true, force: true });
 });
 
@@ -68,18 +70,56 @@ describe("sweepStaleFiles", () => {
     expect(result.deletedSymlinks).toBe(1);
   });
 
-  test("refuses a directory that resolves outside the root", async () => {
+  test("refuses a linked root without touching its target", async () => {
     const outside = path.join(base, "outside");
     const outsideFile = writeAged(path.join(outside, "old.txt"), 90 * DAY_MS);
-    fs.mkdirSync(path.join(root, "inner"));
-    const escaping: SweepFileSystem = {
-      ...nodeSweepFileSystem,
-      realpath: async (target) =>
-        target === path.join(root, "inner") ? outside : nodeSweepFileSystem.realpath(target),
-    };
-    const result = await sweep({ fileSystem: escaping });
+    const link = path.join(base, "linked-root");
+    fs.symlinkSync(outside, link);
+    const result = await sweep({ root: link });
     expect(fs.existsSync(outsideFile)).toBe(true);
-    expect(result.failures.map((failure) => failure.operation)).toContain("containment");
+    expect(result.failures[0]?.operation).toBe("containment");
+  });
+
+  test("cannot follow a directory replaced between inspection and descent", async () => {
+    const outside = path.join(base, "outside");
+    const keep = writeAged(path.join(outside, "old.txt"), 90 * DAY_MS);
+    fs.mkdirSync(path.join(root, "inner"));
+    const original = SweepDirectory.prototype.child;
+    spyOn(SweepDirectory.prototype, "child").mockImplementation(function (
+      this: SweepDirectory,
+      name,
+    ) {
+      if (name === "inner") {
+        fs.rmdirSync(path.join(root, "inner"));
+        fs.symlinkSync(outside, path.join(root, "inner"));
+      }
+      return original.call(this, name);
+    });
+    const result = await sweep();
+    expect(fs.existsSync(keep)).toBe(true);
+    expect(result.failures[0]?.operation).toBe("containment");
+  });
+
+  test("unlinks in the opened parent after an ancestor is replaced", async () => {
+    writeAged(path.join(root, "old.txt"), 90 * DAY_MS);
+    const outside = path.join(base, "outside");
+    const keep = writeAged(path.join(outside, "old.txt"), 90 * DAY_MS);
+    const original = SweepDirectory.prototype.remove;
+    spyOn(SweepDirectory.prototype, "remove").mockImplementation(function (
+      this: SweepDirectory,
+      name,
+      directory,
+    ) {
+      if (name === "old.txt") {
+        fs.renameSync(root, path.join(base, "owned"));
+        fs.symlinkSync(outside, root);
+      }
+      return original.call(this, name, directory);
+    });
+    const result = await sweep();
+    expect(fs.existsSync(keep)).toBe(true);
+    expect(fs.existsSync(path.join(base, "owned", "old.txt"))).toBe(false);
+    expect(result.deletedFiles).toBe(1);
   });
 
   test("prunes directories it emptied, keeps non-empty ones and the root", async () => {
@@ -98,16 +138,18 @@ describe("sweepStaleFiles", () => {
   test("collects a per-path failure and keeps sweeping", async () => {
     const stuck = writeAged(path.join(root, "a-stuck.txt"), 40 * DAY_MS);
     const other = writeAged(path.join(root, "b-other.txt"), 40 * DAY_MS);
-    const failing: SweepFileSystem = {
-      ...nodeSweepFileSystem,
-      unlink: async (target) => {
-        if (target === stuck) {
-          throw new Error("EPERM");
-        }
-        await nodeSweepFileSystem.unlink(target);
-      },
-    };
-    const result = await sweep({ fileSystem: failing });
+    const original = SweepDirectory.prototype.remove;
+    spyOn(SweepDirectory.prototype, "remove").mockImplementation(function (
+      this: SweepDirectory,
+      name,
+      directory,
+    ) {
+      if (name === "a-stuck.txt") {
+        throw new Error("EPERM");
+      }
+      return original.call(this, name, directory);
+    });
+    const result = await sweep();
     expect(fs.existsSync(other)).toBe(false);
     expect(result.deletedFiles).toBe(1);
     expect(result.failures).toEqual([{ path: stuck, operation: "unlink", message: "EPERM" }]);
@@ -122,6 +164,17 @@ describe("sweepStaleFiles", () => {
     expect(result.truncated).toBe(true);
     expect(result.deletedFiles).toBe(4);
     expect(fs.readdirSync(root)).toHaveLength(6);
+  });
+
+  test("closes directory streams and handles when the budget stops traversal", async () => {
+    for (let index = 0; index < 4; index++) {
+      writeAged(path.join(root, `f-${index}`), DAY_MS);
+    }
+    const before = fs.readdirSync("/dev/fd").length;
+    for (let index = 0; index < 25; index++) {
+      await sweep({ maxEntries: 1 });
+    }
+    expect(fs.readdirSync("/dev/fd").length).toBeLessThanOrEqual(before + 2);
   });
 
   test("a missing root is not a failure and never throws", async () => {

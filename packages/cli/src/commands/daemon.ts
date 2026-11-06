@@ -427,7 +427,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
       });
 
       scheduleToolResultSweep({
-        jazzHomes: [getJazzHomeDirectory()],
+        jazzHomes: () => [getJazzHomeDirectory()],
         retentionDays: () => toolResultRetentionDays,
         repeatEveryMs: TOOL_RESULT_SWEEP_INTERVAL_MS,
         logger: {

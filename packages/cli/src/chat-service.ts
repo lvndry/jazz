@@ -302,7 +302,7 @@ export class ChatServiceImpl implements ChatService {
       const ephemeral = options?.ephemeral === true;
 
       scheduleToolResultSweep({
-        jazzHomes: [getJazzHomeDirectory()],
+        jazzHomes: () => [getJazzHomeDirectory()],
         retentionDays: () =>
           appConfig.history?.toolResultRetentionDays ?? DEFAULT_TOOL_RESULT_RETENTION_DAYS,
         openConversations: () =>

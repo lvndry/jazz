@@ -484,6 +484,19 @@ retrieves fail the same way. The conversation never depends on a writable disk.
 Offloaded files are kept 30 days (`history.toolResultRetentionDays`, 0 keeps them). A background
 sweep (`tool-result-retention.ts`, using `stale-file-sweep.ts`) deletes older ones from
 conversations that are not open, hold no turn lease and have no log write within the window.
+Cleanup lazily loads descriptor-relative native operations on macOS and Linux. Every component
+of the Jazz home and each directory below it is opened without following symlinks; enumeration
+streams entries and deletion uses the opened parent descriptor. Replacement paths cannot redirect
+it. A mounted directory below the home is skipped. Unsupported platforms or native-load failures
+stop cleanup with a warning, without a pathname deletion fallback. Use the actual directory path
+for a Jazz home whose configured path contains symlink aliases.
+
+The shared entry budget includes discovery of agents and conversations. Protected history that
+cannot be inspected is left alone. Only a successful, complete sweep replaces the private
+`.tool-results-swept-at` stamp directory; failures and truncated scans can retry immediately.
+Scheduled passes rediscover homes, including newly created sandboxes, and never overlap in one
+process. Existing stamp files remain readable until the next complete sweep replaces them.
+
 A retrieve for a swept file gets the same "nothing stored, rerun the tool" answer as a failed write.
 
 A result too long for its context budget is cut when it is first added to the conversation.
