@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test, mock, spyOn } from "bun:test";
-import { sweepStaleFiles } from "./stale-file-sweep";
+import { sweepStaleFiles, MAX_SWEEP_DEPTH } from "./stale-file-sweep";
 import { SweepDirectory } from "./sweep-directory";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -175,6 +175,18 @@ describe("sweepStaleFiles", () => {
       await sweep({ maxEntries: 1 });
     }
     expect(fs.readdirSync("/dev/fd").length).toBeLessThanOrEqual(before + 2);
+  });
+
+  test("bounds descriptor depth and leaves deeper entries untouched", async () => {
+    const nested = path.join(
+      root,
+      ...Array.from({ length: MAX_SWEEP_DEPTH + 2 }, () => "d"),
+      "old.txt",
+    );
+    writeAged(nested, 90 * DAY_MS);
+    const result = await sweep();
+    expect(fs.existsSync(nested)).toBe(true);
+    expect(result.failures[0]?.message).toContain("depth limit");
   });
 
   test("a missing root is not a failure and never throws", async () => {

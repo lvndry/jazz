@@ -512,7 +512,8 @@ it. A mounted directory below the home is skipped. Unsupported platforms or nati
 stop cleanup with a warning, without a pathname deletion fallback. Use the actual directory path
 for a Jazz home whose configured path contains symlink aliases.
 
-The shared entry budget includes discovery of agents and conversations. Protected history that
+The shared entry budget includes discovery of agents and conversations. Traversal stops at
+32 nested result directories to bound open handles and native enumeration buffers. Protected history that
 cannot be inspected is left alone. Only a successful, complete sweep replaces the private
 `.tool-results-swept-at` stamp directory; failures and truncated scans can retry immediately.
 Scheduled passes rediscover homes, including newly created sandboxes, and never overlap in one

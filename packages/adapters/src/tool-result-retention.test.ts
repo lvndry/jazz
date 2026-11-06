@@ -87,6 +87,18 @@ describe("sweepOrphanedToolResults", () => {
     expect(result.conversationsVisited).toBeLessThanOrEqual(3);
   });
 
+  test("does not prune an empty agent directory it did not empty", async () => {
+    writeResult("abandoned", "old.txt", 60 * DAY_MS);
+    const untouched = path.join(home, "work", "z-empty");
+    fs.mkdirSync(untouched);
+    const original = SweepDirectory.prototype.entries;
+    spyOn(SweepDirectory.prototype, "entries").mockImplementation(function* (this: SweepDirectory) {
+      yield* [...original.call(this)].sort();
+    });
+    await sweepOrphanedToolResults({ jazzHome: home, now: NOW, retentionDays: 30 });
+    expect(fs.existsSync(untouched)).toBe(true);
+  });
+
   test("never touches journal.jsonl", async () => {
     writeResult("abandoned", "call_1.txt", 60 * DAY_MS);
     const journal = path.join(home, "work", "agent", "abandoned", "journal.jsonl");

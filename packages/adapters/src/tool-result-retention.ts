@@ -204,6 +204,7 @@ async function runSweep(
           continue;
         }
         agent = work.child(agentName);
+        let removedConversation = false;
         for (const conversationName of agent.entries()) {
           if (!(await sweep.take())) {
             break;
@@ -227,7 +228,8 @@ async function runSweep(
             results.close();
             if (removed && sweep.prune(conversation, TOOL_RESULTS_DIRECTORY_NAME, resultsPath)) {
               conversation.close();
-              sweep.prune(agent, conversationName, conversationPath);
+              removedConversation =
+                sweep.prune(agent, conversationName, conversationPath) || removedConversation;
             }
           } catch (error) {
             sweep.fail(conversationPath, "containment", error);
@@ -240,7 +242,7 @@ async function runSweep(
           }
         }
         agent.close();
-        if (sweep.result().deletedFiles + sweep.result().deletedSymlinks > 0) {
+        if (removedConversation) {
           sweep.prune(work, agentName, agentPath);
         }
       } catch (error) {

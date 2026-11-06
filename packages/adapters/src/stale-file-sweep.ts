@@ -8,6 +8,8 @@ import * as path from "node:path";
 import type { SweepDirectory } from "./sweep-directory";
 
 export const YIELD_EVERY_ENTRIES = 64;
+/** Bounds concurrently open directory handles and native enumeration buffers. */
+export const MAX_SWEEP_DEPTH = 32;
 export interface SweepFailure {
   readonly path: string;
   readonly operation: "lstat" | "readdir" | "unlink" | "rmdir" | "containment";
@@ -91,7 +93,7 @@ export class FileSweep {
     }
   }
   /** Returns whether anything was removed; never removes its own root handle. */
-  async walk(directory: SweepDirectory, target: string): Promise<boolean> {
+  async walk(directory: SweepDirectory, target: string, depth = 0): Promise<boolean> {
     let removed = false;
     try {
       for (const name of directory.entries()) {
@@ -107,6 +109,10 @@ export class FileSweep {
           continue;
         }
         if (stat.isDirectory()) {
+          if (depth >= MAX_SWEEP_DEPTH) {
+            this.fail(childPath, "containment", new Error("Cleanup directory depth limit reached"));
+            continue;
+          }
           let child: SweepDirectory;
           try {
             child = directory.child(name);
@@ -116,7 +122,7 @@ export class FileSweep {
           }
           let changed: boolean;
           try {
-            changed = await this.walk(child, childPath);
+            changed = await this.walk(child, childPath, depth + 1);
           } finally {
             child.close();
           }
