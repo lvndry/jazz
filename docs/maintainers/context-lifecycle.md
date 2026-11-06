@@ -65,6 +65,12 @@ never reached, and the summarizer never ran. The run degraded into exactly the s
 window this design exists to avoid, and, because trimming rewrites the start of the
 message list, it also invalidated the provider's cacheable prefix on every single turn.
 
+What invalidates the provider's cache on Anthropic: a change to the tool set rewrites the
+tools and everything after; a change to the persona or harness rules rewrites the first
+system block; a new day, a preference, `AGENTS.md` or the skills index rewrites only the
+second system block and the messages after it; rewriting an earlier message rewrites from
+that message on. See [design decisions](design-decisions.md) for the breakpoints.
+
 Trimming keeps the working set tidy. Compaction is what saves a run that genuinely has more
 history than fits.
 
@@ -244,6 +250,21 @@ any window: an uncapped 20% of a 1M window would keep 200K tokens and free littl
 compaction, while 20% of a 32K window is less than one large tool result. On windows under
 32K the floor shrinks to a quarter of the window, so the rebuild still lands well under
 the warn rung. The newest message is always kept, even when it alone exceeds the budget.
+
+**The summarize call reuses the conversation's prefix when it can.** The summarizer sub-agent
+is the fallback. For automatic compaction, when the summarizer model equals the run's model,
+the provider is not `claude_code`, models.dev lists a cache-read price, and the whole history
+plus the tool schemas and checkpoint fit the window (`ALIGNED_SUMMARY_OUTPUT_RESERVE_RATIO`),
+`requestAlignedSummary` (`cache-aligned-summary.ts`) sends the run's own request options
+(`buildCompletionOptions`) with `toolChoice: "none"` over the unchanged history plus one final
+instruction message marked ephemeral so it preserves the current turn's reasoning during
+adapter conversion. The ledger's `peekCacheChange` must classify it `none` against the previous
+request, otherwise nothing would hit the cache and the stand-alone path (which chunks oversized
+transcripts) runs. A returned tool call, empty checkpoint or truncated checkpoint is discarded
+and falls back to the stand-alone summarizer. The summary's spend is side
+spend and its hit rate goes through `recordPromptCacheUsage`. `/compact`, `summarize_context`,
+overflow recovery and memory extraction have no previous request to share and always use the
+stand-alone path.
 
 The summary is a fixed checkpoint rather than free-form prose. Every compaction writes:
 

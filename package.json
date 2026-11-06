@@ -69,6 +69,7 @@
     "test:watch": "bun test --watch",
     "bench": "bun bench/run.ts",
     "bench:pr": "bun scripts/pr-perf-lane.ts",
+    "bench:first-turn": "bun scripts/first-turn-cost.ts",
     "docs:config-reference": "bun run scripts/gen-config-reference.ts",
     "docs:check-links": "bun run scripts/check-docs-links.ts",
     "docs:check-metadata": "bun run scripts/check-docs-metadata.ts",

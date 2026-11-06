@@ -5,6 +5,12 @@
   "outputDirectory": "packages/website/dist",
   "trailingSlash": false,
   "cleanUrls": true,
+  "git": {
+    "deploymentEnabled": {
+      "main": true,
+      "**": false
+    }
+  },
   "redirects": [
     {
       "source": "/docs/guide/use-cases",

@@ -17,7 +17,7 @@ Source:
 [`reasoning-parts.ts`](../../packages/adapters/src/llm/reasoning-parts.ts) ·
 [`tool-call-parts.ts`](../../packages/adapters/src/llm/tool-call-parts.ts) ·
 [`llm-error.ts`](../../packages/core/src/utils/llm-error.ts) ·
-[`empty-completion.ts`](../../packages/core/src/agent/execution/empty-completion.ts) ·
+[`completion-validation.ts`](../../packages/core/src/agent/execution/completion-validation.ts) ·
 [`answer-outcome.ts`](../../packages/core/src/agent/run/answer-outcome.ts)
 
 Tests: [`provider-stream-contract.test.ts`](../../packages/adapters/src/llm/provider-stream-contract.test.ts)
@@ -191,7 +191,7 @@ A completion is an empty finish when it has no visible text, no reasoning text, 
 calls, no artifacts, no reasoning tokens and zero completion tokens (a missing usage report
 counts as zero), and its finish reason is neither `content-filter` nor `length`.
 
-Both executors pass every completion through `rejectEmptyCompletion`. An empty finish becomes
+Both executors pass every completion through `validateCompletion`. An empty finish becomes
 an `LLMRequestError` with `emptyResponse: true` and no status code, so it takes the transient
 retry path under the same budget. The rejected response's request count and usage are
 recorded before it is discarded, because it never reaches the agent loop.

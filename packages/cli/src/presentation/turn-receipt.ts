@@ -6,6 +6,7 @@
  * rather than a line after every request.
  */
 
+import { formatRetryWaste, type RetryWaste } from "@jazz/core/agent/metrics/failed-attempts";
 import {
   describeCacheReason,
   formatCacheSummary,
@@ -177,6 +178,17 @@ export function turnTokensPerSecond(turn: TurnTotals): number | undefined {
   return tokens > 0 && durationMs > 0 ? (tokens / durationMs) * 1000 : undefined;
 }
 
+/** What the turn's retried attempts wasted, summed over its steps. */
+export function turnRetryWaste(turn: TurnTotals): RetryWaste {
+  const wastedUSD = sum(turn.steps, (step) => step.wastedUSD);
+  return {
+    retries: sum(turn.steps, (step) => step.retries) ?? 0,
+    wastedUSD,
+    lowerBound: turn.steps.some((step) => step.wasteLowerBound === true),
+    unpriced: false,
+  };
+}
+
 /** The one-row receipt that closes a turn, or undefined when there is nothing to say. */
 export function formatTurnReceipt(turn: TurnTotals): string | undefined {
   const { steps } = turn;
@@ -214,6 +226,10 @@ export function formatTurnReceipt(turn: TurnTotals): string | undefined {
   const cost = sum(steps, (step) => step.costUSD);
   if (cost !== undefined) {
     parts.push(formatCost(cost));
+  }
+  const retryWaste = formatRetryWaste(turnRetryWaste(turn), formatCost);
+  if (retryWaste !== undefined) {
+    parts.push(retryWaste);
   }
   if (turn.finishedAt !== undefined && parts.length > 0) {
     parts.push(formatClockTime(turn.finishedAt));

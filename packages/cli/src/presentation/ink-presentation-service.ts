@@ -5,8 +5,14 @@
  * the Ink UI is active. See cli-renderer.ts for the non-Ink fallback path.
  */
 
+import {
+  addFailedAttemptReceipt,
+  computeRetryWaste,
+  createRetryWasteTally,
+} from "@jazz/core/agent/metrics/failed-attempts";
 import type { CacheMissReason } from "@jazz/core/agent/metrics/prompt-cache";
 import { DEFAULT_DISPLAY_CONFIG } from "@jazz/core/agent/types";
+import { isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
   NotificationServiceTag,
@@ -74,6 +80,7 @@ import {
   EMPTY_TURN,
   formatStepBreakdown,
   formatTurnReceipt,
+  type StepStats,
   type TurnTotals,
 } from "./turn-receipt";
 import { contentFromOutput } from "../ui/document";
@@ -199,6 +206,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private hasStreamedText = false;
   /** Steps of the turn so far; closed into one receipt when the model stops calling tools. */
   private turn: TurnTotals = EMPTY_TURN;
+  /** Failed attempts since the last step; attached to the step that finally succeeds. */
+  private pendingRetries = createRetryWasteTally();
   /** Why the request now streaming differs from the previous one in what providers cache. */
   private pendingCacheReason: CacheMissReason | undefined;
 
@@ -499,7 +508,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
   }
 
-  reset(): Effect.Effect<void, never> {
+  reset(options?: { readonly preserveTurn?: boolean }): Effect.Effect<void, never> {
     return Effect.sync(() => {
       if (!this.documentLease()) {
         this.discardStaleWork();
@@ -508,7 +517,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.acc.activeTools.clear();
       this.acc.isThinking = false;
       this.acc.lastAgentHeaderWritten = false;
-      this.turn = EMPTY_TURN;
+      if (options?.preserveTurn !== true) {
+        this.turn = EMPTY_TURN;
+        this.pendingRetries = createRetryWasteTally();
+      }
       this.acc.lastAppliedTextSequence = -1;
       this.seenLength = 0;
       this.hasStreamedText = false;
@@ -753,6 +765,19 @@ export class InkStreamingRenderer implements StreamingRenderer {
         return;
       }
 
+      if (event.type === "llm_attempt_failed") {
+        addFailedAttemptReceipt(
+          this.pendingRetries,
+          event.usage,
+          event.usageUnknown,
+          event.retried,
+        );
+        if (!event.retried) {
+          this.flushFailedAttemptReceipt();
+        }
+        return;
+      }
+
       // Read before reduceEvent clears the entry on completion; the panel
       // line needs the tool name to format its result summary.
       const completedToolName =
@@ -984,10 +1009,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
         ? undefined
         : event.totalDurationMs - event.metrics.firstTokenLatencyMs;
     const costUSD = this.recordStepCost(usage);
+    const retryStats = this.takeRetryStats();
     const cacheReason = this.pendingCacheReason;
     this.pendingCacheReason = undefined;
     this.turn = addStep(this.turn, {
       durationMs: event.totalDurationMs,
+      ...retryStats,
       ...(usage
         ? {
             promptTokens: usage.promptTokens,
@@ -1044,6 +1071,76 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
   }
 
+  /** End a failed step's receipt now, so its retry spend cannot leak into the next turn. */
+  private flushFailedAttemptReceipt(): void {
+    if (!this.showMetrics) {
+      this.pendingRetries = createRetryWasteTally();
+      return;
+    }
+    const finishedAt = Date.now();
+    const turn = addStep(EMPTY_TURN, { durationMs: 0, ...this.takeRetryStats() });
+    const line = formatTurnReceipt({ ...turn, finishedAt });
+    if (line === undefined) {
+      return;
+    }
+    if (this.streamTarget.kind === "ephemeral") {
+      this.bufferStreamDelta({
+        target: "ephemeral",
+        regionId: this.streamTarget.regionId,
+        delta: `\n${line}`,
+        channel: "note",
+      });
+    } else {
+      store.printOutput({
+        type: "debug",
+        message: { kind: "turn-receipt", steps: turn.steps, finishedAt },
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  /**
+   * The retried attempts since the last step, priced from the usage the provider reported for
+   * them, and the tally cleared. A cold pricing cache leaves the figure unpriced, which the
+   * receipt shows as unknown rather than zero.
+   */
+  private takeRetryStats(): Pick<StepStats, "retries" | "wastedUSD" | "wasteLowerBound"> {
+    const tally = this.pendingRetries;
+    if (tally.failedAttempts === 0) {
+      return {};
+    }
+    this.pendingRetries = createRetryWasteTally();
+    const provider = this.acc.currentProvider;
+    const model = this.acc.currentModel;
+    const pricing = provider && model ? getModelsDevMetadataSync(model, provider) : undefined;
+    const waste = computeRetryWaste(
+      tally,
+      pricing,
+      Boolean(provider && model && isZeroCostLocalModel(provider, model)),
+    );
+    if (waste.wastedUSD !== undefined && waste.wastedUSD > 0) {
+      this.rollCostIntoFooter(waste.wastedUSD);
+    }
+    return {
+      retries: waste.retries,
+      ...(waste.wastedUSD !== undefined ? { wastedUSD: waste.wastedUSD } : {}),
+      ...(waste.lowerBound ? { wasteLowerBound: true } : {}),
+    };
+  }
+
+  /** Add known spend from an accepted request or failed attempt to the shared session footer. */
+  private rollCostIntoFooter(totalCost: number): void {
+    if (!this.documentLease()) {
+      return;
+    }
+    this.acc.cumulativeCostUSD += totalCost;
+    store.addSessionCostUSD(totalCost);
+    const { currentModel: model, currentProvider: provider } = this.acc;
+    if (this.streamTarget.kind === "scrollback" && model && provider) {
+      store.updateRunStats({ model, provider });
+    }
+  }
+
   /**
    * Price one model request and roll it into the footer and session totals.
    * Returns the cost when pricing was available synchronously, so the turn
@@ -1059,24 +1156,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
     const computeCost = (meta: UsageCostPricing | undefined): number | null =>
       computeUsageCostUSD(usage, meta);
-    const rollIntoFooter = (totalCost: number): void => {
-      if (!this.documentLease()) {
-        return;
-      }
-      this.acc.cumulativeCostUSD += totalCost;
-      // Accumulate into the shared session total so sub-agent renderers add
-      // to the footer rather than overwriting it with their own figure.
-      store.addSessionCostUSD(totalCost);
-      // Only the main-agent (scrollback) renderer owns the footer's model/
-      // provider label; sub-agent renderers contribute cost but must not
-      // relabel the footer with their (often different) model.
-      if (this.streamTarget.kind === "scrollback") {
-        store.updateRunStats({ model, provider });
-      }
-    };
 
     if (usage.billedCostUSD !== undefined) {
-      rollIntoFooter(usage.billedCostUSD);
+      this.rollCostIntoFooter(usage.billedCostUSD);
       return usage.billedCostUSD;
     }
 
@@ -1086,14 +1168,14 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (totalCost === null) {
         return undefined;
       }
-      rollIntoFooter(totalCost);
+      this.rollCostIntoFooter(totalCost);
       return totalCost;
     }
     void getModelsDevMetadata(model, provider)
       .then((meta) => {
         const totalCost = computeCost(meta);
         if (totalCost !== null) {
-          rollIntoFooter(totalCost);
+          this.rollCostIntoFooter(totalCost);
         }
       })
       .catch(() => {

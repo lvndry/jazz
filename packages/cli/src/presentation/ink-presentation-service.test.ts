@@ -32,13 +32,13 @@ describe("InkStreamingRenderer", () => {
   let originalPrintOutput: (typeof store)["printOutput"];
   let lastRenderer: InkStreamingRenderer | null = null;
 
-  function createRenderer() {
+  function createRenderer(showMetrics = false) {
     // textBufferMs: 0 disables stream-delta buffering so appendStream calls
     // are synchronous, matching the assertions in this test file. Production
     // uses ~80ms buffering by default.
     const renderer = new InkStreamingRenderer(
       "TestAgent",
-      false,
+      showMetrics,
       {
         showReasoning: true,
         showToolExecution: true,
@@ -90,6 +90,95 @@ describe("InkStreamingRenderer", () => {
     store.setActivity = originalSetActivity;
     store.printOutput = originalPrintOutput;
     store.setCollapseReasoning(true);
+  });
+
+  test("closes a terminal failure's spend receipt without carrying it into the next turn", () => {
+    const renderer = createRenderer(true);
+    emitStreamStart(renderer);
+    const costBefore = store.getRunStatsSnapshot().costUSD ?? 0;
+    Effect.runSync(
+      renderer.handleEvent({
+        type: "llm_attempt_failed",
+        retried: false,
+        usage: { promptTokens: 900, completionTokens: 0, billedCostUSD: 0.25 },
+        usageUnknown: false,
+      }),
+    );
+    const failed = printOutputCalls
+      .map(contentFromOutput)
+      .find((entry) => entry.kind === "turn-receipt");
+    expect(failed?.kind).toBe("turn-receipt");
+    if (failed?.kind !== "turn-receipt") {
+      throw new Error("missing failed receipt");
+    }
+    expect(failed.steps[0]).toMatchObject({ retries: 0, wastedUSD: 0.25 });
+    expect((store.getRunStatsSnapshot().costUSD ?? 0) - costBefore).toBeCloseTo(0.25);
+    expect(formatTurnReceipt(failed)).toContain("failed attempt, wasted $0.25");
+    Effect.runSync(
+      renderer.handleEvent({
+        type: "complete",
+        response: completeResponse("next answer"),
+        totalDurationMs: 100,
+        metrics: { firstTokenLatencyMs: 0 },
+      }),
+    );
+    const receipts = printOutputCalls
+      .map(contentFromOutput)
+      .filter((entry) => entry.kind === "turn-receipt");
+    expect(receipts).toHaveLength(2);
+    const next = receipts[1];
+    if (next?.kind !== "turn-receipt") {
+      throw new Error("missing next receipt");
+    }
+    expect(next.steps[0]?.wastedUSD).toBeUndefined();
+  });
+
+  test("a retry reset preserves the turn's earlier successful steps", () => {
+    const renderer = createRenderer(true);
+    emitStreamStart(renderer);
+    Effect.runSync(
+      renderer.handleEvent({
+        type: "complete",
+        response: {
+          ...completeResponse("checking"),
+          toolCalls: [
+            { id: "read", type: "function", function: { name: "read_file", arguments: "{}" } },
+          ],
+          usage: { promptTokens: 100, completionTokens: 1, totalTokens: 101 },
+        },
+        totalDurationMs: 100,
+        metrics: { firstTokenLatencyMs: 0 },
+      }),
+    );
+    Effect.runSync(renderer.reset({ preserveTurn: true }));
+    Effect.runSync(
+      renderer.handleEvent({
+        type: "llm_attempt_failed",
+        retried: true,
+        usage: { promptTokens: 900, completionTokens: 0, billedCostUSD: 0.25 },
+        usageUnknown: false,
+      }),
+    );
+    Effect.runSync(
+      renderer.handleEvent({
+        type: "complete",
+        response: {
+          ...completeResponse("done"),
+          usage: { promptTokens: 200, completionTokens: 2, totalTokens: 202 },
+        },
+        totalDurationMs: 100,
+        metrics: { firstTokenLatencyMs: 0 },
+      }),
+    );
+    const receipt = printOutputCalls
+      .map(contentFromOutput)
+      .find((entry) => entry.kind === "turn-receipt");
+    if (receipt?.kind !== "turn-receipt") {
+      throw new Error("missing turn receipt");
+    }
+    expect(receipt.steps).toHaveLength(2);
+    expect(receipt.steps.map((step) => step.promptTokens)).toEqual([100, 200]);
+    expect(receipt.steps[1]).toMatchObject({ retries: 1, wastedUSD: 0.25 });
   });
 
   test("an answer the model pauses to think in the middle of stays one block", () => {

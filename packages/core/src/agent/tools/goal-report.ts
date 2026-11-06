@@ -8,6 +8,18 @@
  */
 import { Effect } from "effect";
 import { z } from "zod";
+import {
+  BLOCKED_ROUNDS_REQUIRED,
+  MAX_CONSECUTIVE_BLOCKED_REPORTS,
+  blockedReportCount,
+  blockedRuleInstruction,
+  blockedStopsGoal,
+  blockerKey,
+  blockerRound,
+} from "@/core/agent/goal/goal-blocker";
+import { MAX_BLOCKER_CHARS } from "@/core/agent/goal/goal-evaluation";
+import { CLAIMED_GOAL_STATES } from "@/core/agent/goal/goal-state";
+import { GoalStoreTag } from "@/core/interfaces/goal-store";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { defineTool, makeZodValidator } from "./base-tool";
@@ -15,7 +27,7 @@ import { lastSucceededToolCall, type ToolCallMessage } from "./tool-call-history
 
 export const REPORT_GOAL_CYCLE_TOOL_NAME = "report_goal_cycle";
 
-const reportGoalCycleParameters = z
+const reportGoalCycleFields = z
   .object({
     status: z
       .enum(["continue", "complete", "blocked", "question"])
@@ -27,6 +39,14 @@ const reportGoalCycleParameters = z
       .min(1)
       .max(2000)
       .describe("What this cycle did, or for blocked, what stops the work and why."),
+    blocker: z
+      .string()
+      .min(1)
+      .max(MAX_BLOCKER_CHARS)
+      .optional()
+      .describe(
+        `For blocked (required): a few words naming what stops the work. Use the same words each cycle while the same thing still stands; the goal stops as blocked after ${BLOCKED_ROUNDS_REQUIRED} consecutive cycles report the same blocker, or after ${MAX_CONSECUTIVE_BLOCKED_REPORTS} consecutive blocked reports regardless of wording.`,
+      ),
     nextAction: z
       .string()
       .min(1)
@@ -60,10 +80,24 @@ const reportGoalCycleParameters = z
   })
   .strict();
 
+const reportGoalCycleParameters = z.union([
+  reportGoalCycleFields.extend({
+    status: z.literal("blocked"),
+    blocker: reportGoalCycleFields.shape.blocker
+      .unwrap()
+      .describe(reportGoalCycleFields.shape.blocker.description!),
+  }),
+  reportGoalCycleFields.extend({
+    status: z
+      .enum(["continue", "complete", "question"])
+      .describe("The cycle's disposition when it is not blocked."),
+  }),
+]);
+
 type ReportGoalCycleArgs = z.infer<typeof reportGoalCycleParameters>;
 
-export function createReportGoalCycleTool(): Tool<never> {
-  return defineTool<never, ReportGoalCycleArgs>({
+export function createReportGoalCycleTool(): Tool<GoalStoreTag> {
+  return defineTool<GoalStoreTag, ReportGoalCycleArgs>({
     name: REPORT_GOAL_CYCLE_TOOL_NAME,
     disclosure: "public",
     description:
@@ -72,11 +106,36 @@ export function createReportGoalCycleTool(): Tool<never> {
     riskLevel: "low-risk",
     hidden: false,
     validate: makeZodValidator(reportGoalCycleParameters),
-    handler: () =>
-      Effect.succeed({
-        success: true,
-        result: { recorded: true },
-      } satisfies ToolExecutionResult),
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        if (args.status !== "blocked") {
+          return { success: true, result: { recorded: true } } satisfies ToolExecutionResult;
+        }
+        if (args.blocker === undefined || context.runId === undefined) {
+          return { success: true, result: { recorded: true } } satisfies ToolExecutionResult;
+        }
+        const { runId } = context;
+        const blocker = blockerKey(args.blocker);
+        const goals = yield* GoalStoreTag;
+        const open = (yield* goals.list({ states: CLAIMED_GOAL_STATES })).find(
+          (goal) => goal.cycle?.runId === runId,
+        );
+        const round = open === undefined ? 1 : blockerRound(open, blocker);
+        const reports = open === undefined ? 1 : blockedReportCount(open);
+        return {
+          success: true,
+          result: blockedStopsGoal(round, reports)
+            ? { recorded: true }
+            : { recorded: true, instruction: blockedRuleInstruction(blocker, round) },
+        } satisfies ToolExecutionResult;
+      }).pipe(
+        Effect.catch(() =>
+          Effect.succeed({
+            success: true,
+            result: { recorded: true },
+          } satisfies ToolExecutionResult),
+        ),
+      ),
     createSummary: (result) => (result.success ? "Goal progress reported" : undefined),
   });
 }

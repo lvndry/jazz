@@ -27,6 +27,7 @@ import {
 } from "@jazz/core/agent/goal/goal-record";
 import { CLAIMED_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
 import { addSpend, reachedLimit } from "@jazz/core/agent/goal/goal-usage";
+import type { CancelCause } from "@jazz/core/agent/run/cancel-cause";
 import { runToOutcome, type RunOutcome } from "@jazz/core/agent/run/park-signal";
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
@@ -76,7 +77,7 @@ function endedRun(run: RunRecord | undefined): EndedRun | undefined {
       return { kind: "completed", spend };
     case "failed":
       return run.state.cause === "interrupted"
-        ? { kind: "interrupted", spend }
+        ? { kind: "interrupted", cause: "shutdown", spend }
         : { kind: "failed", error: run.state.error, spend };
     case "canceled":
       return { kind: "canceled", spend };
@@ -275,6 +276,15 @@ export function finishCycle(
       ...(evaluation !== undefined ? { evaluation } : {}),
       ...(runCap !== undefined ? { cappedBy: runCap } : {}),
     });
+    if (evaluation?.kind === "valid" && evaluation.evaluation.status === "blocked") {
+      const logger = yield* LoggerServiceTag;
+      yield* logger.debug("Goal cycle reported blocked", {
+        goalId: goal.goalId,
+        blockerRounds: next.blockerStreak?.rounds,
+        blockedReports: next.blockerStreak?.reports,
+        outcome: next.state.kind,
+      });
+    }
     yield* writeGoal(goal, next, "settle its cycle");
   });
 }
@@ -417,9 +427,13 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string) {
           }),
         );
         if (outcome.kind === "finished" && outcome.response.interrupted === true) {
-          yield* settleInterruptedCycle(goal, runId, outcome.response.messages ?? [], {
-            saveOnto: prior,
-          });
+          yield* settleInterruptedCycle(
+            goal,
+            runId,
+            outcome.response.cancelCause ?? "user",
+            outcome.response.messages ?? [],
+            { saveOnto: prior },
+          );
           return "interrupted" as const;
         }
         yield* settleRunOutcome(goal, runId, outcome, { saveOnto: prior });
@@ -444,6 +458,7 @@ type CycleTranscript = { readonly saveOnto: Conversation | null } | "chat-owned"
 function settleInterruptedCycle(
   goal: GoalRecord,
   runId: string,
+  cause: CancelCause,
   messages: readonly ChatMessage[],
   transcript: CycleTranscript,
 ) {
@@ -459,13 +474,23 @@ function settleInterruptedCycle(
       return;
     }
     const run = yield* runs.get(runId);
+    const logger = yield* LoggerServiceTag;
+    yield* logger.debug("Settling an interrupted goal cycle", {
+      goalId: goal.goalId,
+      runId,
+      cancelCause: cause,
+      stopAfter: cycle.stopAfter ?? null,
+    });
     yield* writeGoal(
       current,
-      settleCycle(
-        { ...current, cycle: { ...cycle, stopAfter: cycle.stopAfter ?? "pause" } },
-        { run: { kind: "interrupted", spend: run === undefined ? NO_REPAIR : runSpend(run) } },
-      ),
-      "pause where the user stopped it",
+      settleCycle(current, {
+        run: {
+          kind: "interrupted",
+          cause,
+          spend: run === undefined ? NO_REPAIR : runSpend(run),
+        },
+      }),
+      "settle the interrupted cycle",
     );
   });
 }
@@ -512,7 +537,13 @@ export function settleChatGoalTurn(
   return Effect.gen(function* () {
     const goals = yield* GoalStoreTag;
     if (outcome.kind === "finished" && outcome.response.interrupted === true) {
-      yield* settleInterruptedCycle(goal, runId, [], "chat-owned");
+      yield* settleInterruptedCycle(
+        goal,
+        runId,
+        outcome.response.cancelCause ?? "user",
+        [],
+        "chat-owned",
+      );
     } else {
       yield* settleRunOutcome(goal, runId, outcome, "chat-owned");
     }
@@ -600,6 +631,12 @@ function settleDeadWorkingRun(goal: GoalRecord, run: RunRecord) {
       return;
     }
     const error = "the process running it stopped";
+    const logger = yield* LoggerServiceTag;
+    yield* logger.debug("Settling a goal cycle whose process stopped", {
+      goalId: goal.goalId,
+      runId: run.runId,
+      cancelCause: "shutdown",
+    });
     yield* runs
       .transition(run.runId, { kind: "failed", cause: "interrupted", error })
       .pipe(Effect.catch(() => Effect.void));

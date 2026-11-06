@@ -24,8 +24,10 @@ import { WakeTriggerServiceTag } from "../../interfaces/wake-trigger-service";
 import { WorkspaceServiceTag } from "../../interfaces/workspace-service";
 import { SkillServiceTag } from "../../skills/skill-service";
 import { LLMRateLimitError, LLMRequestError } from "../../types/errors";
+import type { StreamEvent } from "../../types/streaming";
 import type { RecursiveRunner } from "../context/summarizer";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+import { createRetryWasteTally, SUBSTANTIAL_STREAMED_CHARS } from "../metrics/failed-attempts";
 import { createSubagentSupervisor } from "../subagents/supervisor";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
@@ -137,6 +139,7 @@ describe("executeWithStreaming", () => {
         totalRequests: 0,
         totalPromptTokens: 0,
         totalCompletionTokens: 0,
+        retryWaste: createRetryWasteTally(),
         iterationSummaries: [],
         errors: [],
         metrics: {
@@ -404,6 +407,7 @@ describe("executeWithStreaming", () => {
         totalRequests: 0,
         totalPromptTokens: 0,
         totalCompletionTokens: 0,
+        retryWaste: createRetryWasteTally(),
         iterationSummaries: [],
         errors: [],
         metrics: {
@@ -529,6 +533,7 @@ describe("executeWithStreaming", () => {
         totalRequests: 0,
         totalPromptTokens: 0,
         totalCompletionTokens: 0,
+        retryWaste: createRetryWasteTally(),
         iterationSummaries: [],
         errors: [],
         metrics: {
@@ -640,8 +645,9 @@ function makeStreamingHarness(input: {
   readonly onRetryAnnounced?: () => void;
 }) {
   const interrupt: { current: (() => void) | null } = { current: null };
+  const events: StreamEvent[] = [];
   const renderer = {
-    handleEvent: () => Effect.void,
+    handleEvent: (event: StreamEvent) => Effect.sync(() => void events.push(event)),
     setInterruptHandler: (handler: (() => void) | null) =>
       Effect.sync(() => {
         if (handler !== null) {
@@ -726,6 +732,7 @@ function makeStreamingHarness(input: {
     run,
     program,
     interrupt,
+    events,
     runMetrics: runContext.runMetrics,
     startedAtMs: runContext.runMetrics.startedAt.getTime(),
   };
@@ -842,6 +849,8 @@ describe("executeWithStreaming cancellation", () => {
 
     expect(result.interrupted).toBe(true);
     expect(attempts).toBe(1);
+    expect(harness.runMetrics.llmRetryCount).toBe(0);
+    expect(harness.runMetrics.retryWaste.retryableFailures).toBe(0);
     expect(elapsedMs).toBe(0);
   });
 
@@ -1154,6 +1163,8 @@ describe("executeWithStreaming retries", () => {
 
     await expect(harness.run()).rejects.toThrow("come back in an hour");
     expect(attempts).toBe(1);
+    expect(harness.runMetrics.llmRetryCount).toBe(0);
+    expect(harness.runMetrics.retryWaste.retryableFailures).toBe(0);
   });
 
   it("does not retry a request the provider rejected", async () => {
@@ -1208,7 +1219,10 @@ describe("executeWithStreaming retries", () => {
       expect(result.content).toBe("answer");
       expect(attempts).toBe(2);
       expect(harness.runMetrics.llmRetryCount).toBe(1);
-      expect(harness.runMetrics.totalPromptTokens).toBeGreaterThanOrEqual(700);
+      expect(harness.runMetrics.retryWaste.records).toHaveLength(1);
+      expect(harness.runMetrics.retryWaste.promptTokens).toBe(700);
+      expect(harness.runMetrics.totalPromptTokens).toBe(10);
+      expect(harness.runMetrics.totalRequests).toBe(1);
     });
 
     it("fails clearly once the retry budget is spent on empty finishes", async () => {
@@ -1265,4 +1279,272 @@ describe("executeWithStreaming retries", () => {
       expect(attempts).toBe(1);
     });
   });
+});
+
+describe("executeWithStreaming failed attempt records", () => {
+  const SECRET_TEXT = "the answer begins with a sentence that must never be logged";
+
+  const streamThenFail = (error: LLMRequestError) =>
+    Effect.succeed({
+      stream: Stream.concat(
+        Stream.fromIterable<StreamEvent>([
+          { type: "text_start" },
+          { type: "text_chunk", delta: SECRET_TEXT, accumulated: SECRET_TEXT, sequence: 1 },
+        ]),
+        Stream.fail(error),
+      ),
+      response: Effect.never,
+      cancel: Effect.void,
+    });
+
+  const successfulStream = Effect.succeed({
+    stream: Stream.empty,
+    response: Effect.succeed({
+      id: "ok",
+      model: "gpt-4",
+      content: "answer",
+      finishReason: "stop" as const,
+      usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+    }),
+    cancel: Effect.void,
+  });
+
+  it("records the exhausted attempt without inventing a retry", async () => {
+    let attempts = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 0,
+      llmService: scriptedLLMService(() => {
+        attempts += 1;
+        return streamThenFail(
+          new LLMRequestError({ provider: "openai", message: "reset", statusCode: 502 }),
+        );
+      }),
+    });
+    await expect(harness.run()).rejects.toThrow();
+    expect(attempts).toBe(1);
+    expect(harness.runMetrics.retryWaste.failedAttempts).toBe(1);
+    expect(harness.runMetrics.retryWaste.retryableFailures).toBe(0);
+    expect(harness.runMetrics.llmRetryCount).toBe(0);
+    expect(harness.events.filter((event) => event.type === "llm_attempt_failed")).toMatchObject([
+      { retried: false },
+    ]);
+  });
+
+  it("charges an empty streamed completion as failed usage, never as a completed step", async () => {
+    let attempts = 0;
+    const empty = {
+      id: "empty",
+      model: "gpt-4",
+      content: "",
+      usage: { promptTokens: 900, completionTokens: 0, totalTokens: 900 },
+    };
+    const harness = makeStreamingHarness({
+      maxRetries: 1,
+      llmService: scriptedLLMService(() => {
+        attempts += 1;
+        return attempts === 1
+          ? Effect.succeed({
+              stream: Stream.succeed<StreamEvent>({
+                type: "complete",
+                response: empty,
+                totalDurationMs: 10,
+              }),
+              response: Effect.succeed(empty),
+              cancel: Effect.void,
+            })
+          : successfulStream;
+      }),
+    });
+    await harness.run();
+    expect(
+      harness.events.filter((event) => event.type === "complete" && event.response.id === "empty"),
+    ).toEqual([]);
+    expect(harness.events.filter((event) => event.type === "llm_attempt_failed")).toEqual([
+      { type: "llm_attempt_failed", retried: true, usage: empty.usage, usageUnknown: false },
+    ]);
+    expect(harness.runMetrics.retryWaste.promptTokens).toBe(900);
+  });
+
+  it("records a stream that failed after output as an unknown-usage attempt, without its content", async () => {
+    let attempts = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 3,
+      llmService: scriptedLLMService(() => {
+        attempts += 1;
+        return attempts === 1
+          ? streamThenFail(
+              new LLMRequestError({ provider: "openai", message: "reset", statusCode: 502 }),
+            )
+          : successfulStream;
+      }),
+    });
+
+    await harness.run();
+
+    const tally = harness.runMetrics.retryWaste;
+    expect(tally.records).toHaveLength(1);
+    expect(tally.records[0]).toMatchObject({
+      index: 1,
+      reason: "provider",
+      statusCode: 502,
+      mode: "streaming",
+      model: "gpt-4",
+      streamedChars: SECRET_TEXT.length,
+      toolCallStarted: false,
+    });
+    expect(tally.records[0]?.usage).toBeUndefined();
+    expect(tally.unknownUsageAttempts).toBe(1);
+    expect(tally.retryableFailures).toBe(1);
+    expect(harness.runMetrics.llmRetryCount).toBe(1);
+    expect(JSON.stringify(tally)).not.toContain(SECRET_TEXT);
+    expect(harness.events).toContainEqual({
+      type: "llm_attempt_failed",
+      retried: true,
+      usageUnknown: true,
+    });
+  });
+
+  it("keeps the usage of an empty finish and hands it to the renderer exactly once", async () => {
+    let attempts = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 3,
+      llmService: scriptedLLMService(() => {
+        attempts += 1;
+        return attempts === 1
+          ? Effect.succeed({
+              stream: Stream.empty,
+              response: Effect.succeed({
+                id: "empty",
+                model: "gpt-4",
+                content: "",
+                finishReason: "stop" as const,
+                usage: { promptTokens: 900, completionTokens: 0, totalTokens: 900 },
+              }),
+              cancel: Effect.void,
+            })
+          : successfulStream;
+      }),
+    });
+
+    await harness.run();
+
+    const tally = harness.runMetrics.retryWaste;
+    expect(tally.records[0]).toMatchObject({
+      reason: "empty_response",
+      usage: { promptTokens: 900, completionTokens: 0 },
+    });
+    expect(tally.promptTokens).toBe(900);
+    expect(harness.runMetrics.totalPromptTokens).toBe(5);
+    const failedEvents = harness.events.filter((event) => event.type === "llm_attempt_failed");
+    expect(failedEvents).toHaveLength(1);
+    expect(failedEvents[0]).toMatchObject({ usage: { promptTokens: 900 }, usageUnknown: false });
+  });
+
+  it("treats a failure before any output as billing nothing, and still counts it", async () => {
+    let attempts = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 3,
+      llmService: scriptedLLMService(() => {
+        attempts += 1;
+        return attempts === 1
+          ? Effect.succeed({
+              stream: Stream.fail(
+                new LLMRequestError({ provider: "openai", message: "busy", statusCode: 503 }),
+              ),
+              response: Effect.never,
+              cancel: Effect.void,
+            })
+          : successfulStream;
+      }),
+    });
+
+    await harness.run();
+
+    const tally = harness.runMetrics.retryWaste;
+    expect(tally.retryableFailures).toBe(1);
+    expect(tally.unknownUsageAttempts).toBe(0);
+    expect(tally.records[0]).toMatchObject({ streamedChars: 0, toolCallStarted: false });
+  });
+
+  it("counts a retry after substantial streamed output", async () => {
+    const longText = "x".repeat(SUBSTANTIAL_STREAMED_CHARS);
+    let attempts = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 3,
+      llmService: scriptedLLMService(() => {
+        attempts += 1;
+        return attempts === 1
+          ? Effect.succeed({
+              stream: Stream.concat(
+                Stream.fromIterable<StreamEvent>([
+                  {
+                    type: "text_chunk",
+                    delta: longText,
+                    accumulated: longText,
+                    sequence: 1,
+                  },
+                ]),
+                Stream.fail(
+                  new LLMRequestError({ provider: "openai", message: "reset", statusCode: 502 }),
+                ),
+              ),
+              response: Effect.never,
+              cancel: Effect.void,
+            })
+          : successfulStream;
+      }),
+    });
+
+    await harness.run();
+
+    expect(harness.runMetrics.retryWaste.retriesAfterSubstantialOutput).toBe(1);
+  });
+  it("records an empty finish after the fall back to a plain request exactly once", async () => {
+    let plainCalls = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 6,
+      llmService: scriptedLLMService(
+        () =>
+          Effect.succeed({
+            stream: Stream.fail(
+              new LLMRequestError({ provider: "openai", message: "reset", statusCode: 502 }),
+            ),
+            response: Effect.never,
+            cancel: Effect.void,
+          }),
+        () => {
+          plainCalls += 1;
+          return Effect.succeed({
+            id: "plain",
+            model: "gpt-4",
+            content: plainCalls === 1 ? "" : "answer",
+            finishReason: "stop" as const,
+            usage: {
+              promptTokens: plainCalls === 1 ? 300 : 5,
+              completionTokens: 0,
+              totalTokens: 305,
+            },
+          });
+        },
+      ),
+    });
+
+    const result = await harness.run();
+
+    const tally = harness.runMetrics.retryWaste;
+    expect(result.content).toBe("answer");
+    expect(tally.records.map((record) => record.mode)).toEqual([
+      "streaming",
+      "streaming",
+      "streaming",
+      "non_streaming",
+    ]);
+    expect(tally.records[3]).toMatchObject({
+      reason: "empty_response",
+      usage: { promptTokens: 300 },
+    });
+    expect(tally.promptTokens).toBe(300);
+    expect(harness.runMetrics.totalPromptTokens).toBe(5);
+    expect(harness.runMetrics.totalRequests).toBe(1);
+  }, 30_000);
 });

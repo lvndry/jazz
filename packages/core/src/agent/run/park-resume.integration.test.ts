@@ -27,6 +27,7 @@ import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service"
 import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import type { ChatCompletionResponse } from "@/core/types/chat";
+import type { ToolExecutionContext } from "@/core/types/tools";
 import { AgentRunner } from "../agent-runner";
 import { isRunParkRequested } from "./park-signal";
 import { resumeRun } from "./resume";
@@ -85,6 +86,7 @@ function makeLayers(
   store: InMemoryRunStore,
   firstTurnCalls = [TOOL_CALL],
   gatedRiskLevel: "high-risk" | "low-risk" | "read-only" = "high-risk",
+  followUpCalls?: typeof firstTurnCalls,
 ) {
   // First completion asks for the gated tool; every later one answers in text. A resumed
   // run must therefore reach the *second* response, which it can only do once the parked
@@ -94,7 +96,9 @@ function makeLayers(
     completions += 1;
     return completions === 1
       ? { id: "c1", model: "gpt-4", content: "", toolCalls: firstTurnCalls }
-      : { id: "c2", model: "gpt-4", content: "Done." };
+      : completions === 2 && followUpCalls !== undefined
+        ? { id: "c2", model: "gpt-4", content: "", toolCalls: followUpCalls }
+        : { id: "c3", model: "gpt-4", content: "Done." };
   };
 
   const logger = partialFake<LoggerService>({
@@ -167,24 +171,33 @@ function makeLayers(
     partitionByTier: mock((names: readonly string[]) =>
       Effect.succeed({ eager: names, deferred: [] }),
     ),
-    executeTool: mock((name: string, args: Record<string, unknown>) => {
-      if (name === "danger") {
-        return Effect.succeed({
-          success: true,
-          result: {
-            approvalRequired: true,
-            message: "About to do something gated",
-            executeToolName: "danger_execute",
-            executeArgs: args,
-          },
-        });
-      }
-      executions.push(name);
-      if (typeof args["target"] === "string") {
-        executedTargets.push(args["target"]);
-      }
-      return Effect.succeed({ success: true, result: "did the gated thing" });
-    }),
+    executeTool: mock(
+      (name: string, args: Record<string, unknown>, context: ToolExecutionContext) => {
+        if (name === "danger") {
+          return Effect.succeed({
+            success: true,
+            result: {
+              approvalRequired: true,
+              message: "About to do something gated",
+              executeToolName: "danger_execute",
+              executeArgs: args,
+              writeSnapshot: { key: `proposal-${String(args["target"])}`, version: "original" },
+            },
+          });
+        }
+        if (name === "danger_execute" && followUpCalls === undefined) {
+          expect(context.approvedWriteSnapshot).toEqual({
+            key: `proposal-${String(args["target"])}`,
+            version: "original",
+          });
+        }
+        executions.push(name);
+        if (typeof args["target"] === "string") {
+          executedTargets.push(args["target"]);
+        }
+        return Effect.succeed({ success: true, result: "did the gated thing" });
+      },
+    ),
   });
 
   const llm = partialFake<LLMService>({
@@ -335,6 +348,91 @@ describe("park and resume, through the real loop", () => {
       return;
     }
     expect(isRunParkRequested(exit.value)).toBe(false);
+  });
+});
+
+describe("the lifetime of a resumed approval", () => {
+  it("refuses a pending batch whose duplicate IDs would share one approval", async () => {
+    executions = [];
+    executedTargets = [];
+    const calls = [
+      TOOL_CALL,
+      {
+        ...TOOL_CALL,
+        function: {
+          ...TOOL_CALL.function,
+          arguments: JSON.stringify({ target: "/tmp/not-approved" }),
+        },
+      },
+    ];
+    const layers = makeLayers(new InMemoryRunStore(), [], "high-risk", []);
+    const exit = await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "",
+        conversationId: "duplicate-approval",
+        stream: false,
+        parkWhenUnattended: true,
+        pendingToolCalls: calls,
+        resolvedApprovals: new Map([[TOOL_CALL.id, { approved: true }]]),
+        conversationHistory: [
+          { role: "user", content: "do the gated thing" },
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: calls,
+          },
+        ],
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+    expect(executedTargets).toEqual([]);
+    expect(exit._tag).toBe("Failure");
+  });
+
+  it("cannot approve a later model call that reuses the answered call's id", async () => {
+    executions = [];
+    executedTargets = [];
+    const store = new InMemoryRunStore();
+    const reused = {
+      ...TOOL_CALL,
+      function: {
+        ...TOOL_CALL.function,
+        arguments: JSON.stringify({ target: "/tmp/not-approved" }),
+      },
+    };
+    const layers = makeLayers(store, [TOOL_CALL], "high-risk", [reused]);
+    await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do the gated thing",
+        conversationId: "reused-approval",
+        stream: false,
+        parkWhenUnattended: true,
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+    const first = (await Effect.runPromise(store.list()))[0];
+    if (first?.state.kind !== "input-required") {
+      throw new Error("expected the initial approval");
+    }
+    await Effect.runPromiseExit(
+      resumeRun({
+        runId: first.runId,
+        outcome: { kind: "approval", value: { approved: true } },
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+    expect(executedTargets).toEqual(["/tmp/x"]);
+    const next = (await Effect.runPromise(store.list()))[0];
+    if (next?.state.kind !== "input-required" || next.state.pending.kind !== "tool-approval") {
+      throw new Error("the new request should park for its own approval");
+    }
+    expect(next.state.pending.request.executeArgs).toEqual({ target: "/tmp/not-approved" });
+    await Effect.runPromise(
+      resumeRun({
+        runId: next.runId,
+        outcome: { kind: "approval", value: { approved: true } },
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+    expect(executedTargets).toEqual(["/tmp/x", "/tmp/not-approved"]);
   });
 });
 
@@ -594,7 +692,10 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     await Effect.runPromiseExit(
       resumeRun({
         runId: first.runId,
-        outcome: { kind: "approval", value: { approved: true } },
+        outcome: {
+          kind: "approval",
+          value: { approved: true, writeSnapshot: { key: "forged", version: "forged" } },
+        },
       }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
     );
 
@@ -604,6 +705,10 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     }
     // The second one is where it matters: without this the next resume forgets round one.
     expect(Object.keys(second.state.snapshot.pendingTurnAnswers ?? {})).toEqual([TOOL_CALL.id]);
+    expect(second.state.snapshot.pendingTurnAnswers?.[TOOL_CALL.id]).toMatchObject({
+      approved: true,
+      writeSnapshot: { key: "proposal-/tmp/x", version: "original" },
+    });
   });
 });
 

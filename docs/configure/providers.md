@@ -326,6 +326,13 @@ The Jazz provider ID is `gemini`; its SDK and environment variable retain Google
   remaining attempts use a plain request; a rate limit (429) keeps streaming. Backoff is jittered
   and follows the provider's `Retry-After`; a provider asking for more than two minutes fails the
   call instead of waiting.
+- Retry cost: a retried attempt's output never enters the conversation, but any usage the provider
+  reported for it is priced into the run's cost and the session limit. When a turn retried, its
+  receipt and `/cost` end with `retries: 2, wasted >= $0.03`. The figure is a lower bound: an
+  attempt that streamed output (or stalled mid-generation) without reporting usage may have been
+  billed for it, and an attempt that produced nothing is assumed to have billed nothing. Each
+  attempt also leaves an `llm_retry` telemetry event with its reason, duration, streamed
+  characters, whether a tool call had begun, and reported usage, never the streamed text.
 - "Prompt is too long": Jazz compacts the conversation (or trims it when it cannot compact) and
   retries once. A second rejection fails the run; lower the agent's `llm.maxContextTokens` to match
   what the server really holds.

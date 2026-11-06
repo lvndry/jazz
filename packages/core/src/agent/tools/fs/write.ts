@@ -1,3 +1,8 @@
+/**
+ * Proposes and executes whole-file writes. Approval snapshots bind a tool call, canonical path
+ * and replacement content to the original bytes, including across parked-run process restarts.
+ * Execution checks that binding under the shared file lock before replacing the file atomically.
+ */
 import * as path from "node:path";
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
@@ -353,6 +358,17 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           : `replaces ${pluralLines(lineCount(originalContent))} with ${pluralLines(newLines)}`;
         return {
           message,
+          ...(context.toolCallId !== undefined
+            ? {
+                writeSnapshot: {
+                  key: approvalKey(context.toolCallId, canonicalTarget, args.content),
+                  version:
+                    approvedVersions.get(
+                      approvalKey(context.toolCallId, canonicalTarget, args.content),
+                    ) ?? versionOf(canonicalTarget, current),
+                },
+              }
+            : {}),
           previewDiff: diff,
           impact,
           ...(stateReason !== undefined ? { alwaysAsk: true as const } : {}),
@@ -398,7 +414,15 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
                 ? undefined
                 : approvalKey(context.toolCallId, canonicalTarget, args.content);
             if (key !== undefined) {
-              const approvedVersion = approvedVersions.get(key);
+              const restored = context.approvedWriteSnapshot;
+              const approvedVersion =
+                restored !== undefined
+                  ? restored.key === key
+                    ? restored.version
+                    : undefined
+                  : context.resumedApproval === true
+                    ? undefined
+                    : approvedVersions.get(key);
               approvedVersions.delete(key);
               if (approvedVersion === undefined) {
                 yield* Effect.logDebug(

@@ -84,6 +84,34 @@ ceiling.
   the same pull request. The lane catches large regressions; the paired
   workflow remains the tool for 30% regressions on hot paths.
 
+## First-turn token budget
+
+`bun run bench:first-turn` measures what every request carries before the user's
+first word: the system prompt of the default agent, plus the schemas of the tools
+it declares eagerly. It runs offline in about a second (no provider, no network,
+an empty `JAZZ_HOME`) and the `Performance (PR lane)` workflow runs it on pull requests that match its configured code and benchmark paths.
+
+- The default agent is persona `default` with every selectable tool category
+  granted, no skills, no MCP servers, no AGENTS.md and no stored preferences, in
+  an attended chat run. The prompt comes from `buildSystemPrompt`; tools are
+  partitioned by load tier as a run partitions them, and each eager schema is
+  serialized through the adapter's `buildToolInputSchema`.
+- Figures are token estimates from the `gpt-tokenizer` o200k encoding already
+  used for context accounting. Providers tokenize differently; read the trend,
+  not the absolute number. The prompt includes the environment block, so it moves
+  by a few dozen tokens between machines and days.
+- The output lists the 10 largest schemas, which is where to trim first.
+- `firstTurn` in [budgets.json](budgets.json) is the reviewed baseline: the values
+  measured at the last deliberate change. The ceiling is the baseline plus the
+  headroom constants in [first-turn-budget.ts](../scripts/first-turn-budget.ts)
+  (system prompt 50 tokens, tool schemas 100 tokens, tool count 0).
+- A failure names the part that grew (system prompt, tool schemas or eager tool
+  count) and the excess over its ceiling.
+- The ceiling only goes down. When a trim leaves a part further below its
+  baseline than its headroom, the run prints a note; lower the baseline in the
+  same pull request. Raising a baseline is a deliberate product decision made in
+  review: first trim, shorten descriptions, or make the tool `deferred`.
+
 ## Conventions
 
 - Deterministic corpora only (`corpus.ts`) — no randomness, so runs on the same

@@ -3,6 +3,7 @@ import type { CacheChangedPart, CacheMissReason } from "@/core/agent/metrics/pro
 import type { ChatCompletionResponse } from "./chat";
 import type { LLMError } from "./errors";
 import type { ToolCall, ApprovalOption } from "./tools";
+import type { UsageCostTokens } from "../utils/usage-cost";
 
 /**
  * Streaming LLM types and interfaces
@@ -110,6 +111,19 @@ export type StreamEvent =
 
   // Usage updates (optional, for real-time token tracking)
   | { type: "usage_update"; usage: TokenUsage }
+
+  /**
+   * A failed attempt's receipt, emitted when its retry starts or the step ends. `retried`
+   * distinguishes a real retry from a terminal failure or cancelled backoff. Usage belongs
+   * here because rejected completions never render as successful steps. `usageUnknown`
+   * marks an attempt that may have billed output it never reported.
+   */
+  | {
+      type: "llm_attempt_failed";
+      retried: boolean;
+      usage?: UsageCostTokens;
+      usageUnknown: boolean;
+    }
 
   /**
    * How the request about to be answered differs, in what providers cache, from the run's

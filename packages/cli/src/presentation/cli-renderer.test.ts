@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import chalk from "chalk";
 import { Effect } from "effect";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
@@ -414,5 +414,56 @@ describe("CLIRenderer", () => {
       const result = (renderer2 as any).renderChunk("Normal text\n", 0);
       expect(result).toBe("Normal text\n"); // Should not be colored (code color only inside blocks)
     });
+  });
+});
+
+describe("direct terminal retry receipts", () => {
+  it("prints no receipt for an unretried failure with no reported spend", () => {
+    const output: string[] = [];
+    const write = spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    try {
+      const renderer = new CLIRenderer({
+        displayConfig: { mode: "raw", showReasoning: false, showToolExecution: false },
+        streamingConfig: {},
+        showMetrics: true,
+        agentName: "test",
+      });
+      Effect.runSync(
+        renderer.handleEvent({ type: "llm_attempt_failed", retried: false, usageUnknown: false }),
+      );
+      expect(output).toEqual([]);
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it("shows the failed attempt's billed cost", () => {
+    const output: string[] = [];
+    const write = spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    try {
+      const renderer = new CLIRenderer({
+        displayConfig: { mode: "raw", showReasoning: false, showToolExecution: false },
+        streamingConfig: {},
+        showMetrics: true,
+        agentName: "test",
+      });
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "llm_attempt_failed",
+          retried: true,
+          usage: { promptTokens: 900, completionTokens: 0, billedCostUSD: 0.25 },
+          usageUnknown: false,
+        }),
+      );
+      expect(output.join("")).toContain("retries: 1, wasted $0.25");
+    } finally {
+      write.mockRestore();
+    }
   });
 });

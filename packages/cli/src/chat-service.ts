@@ -30,7 +30,9 @@ import {
 import { moveConversationToAgent } from "@jazz/adapters/history/move-conversation";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
+import { processDetachedCalls } from "@jazz/core/agent/detach/auto-detach";
 import { carryEgressTaint } from "@jazz/core/agent/execution/egress-taint";
+import type { RunSpendReport } from "@jazz/core/agent/metrics/agent-run-metrics";
 import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
 import { createBlackboard } from "@jazz/core/agent/subagents/blackboard";
 import {
@@ -118,6 +120,7 @@ import {
   confirmSessionLimitOverage,
   estimateSessionCostUSD,
   findExceededSessionLimits,
+  addRetryWasteToSession,
 } from "./chat/commands/session-limits";
 import type { CommandContext, CommandResult, SessionLimits } from "./chat/commands/types";
 import {
@@ -132,6 +135,8 @@ import {
   createDetachedResultInbox,
   detachedResultsMessage,
   detachedResultsNotice,
+  pushWhileOpen,
+  stoppedDetachedMessage,
 } from "./chat/detached-results";
 import { inlineMentionedTextFiles } from "./chat/mentioned-files";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
@@ -361,7 +366,7 @@ export class ChatServiceImpl implements ChatService {
       // or ending the session stops them.
       let subagents = yield* createSubagentSupervisor({ outlivesRuns: true });
       let blackboard = createBlackboard();
-      const stopSubagents = Effect.gen(function* () {
+      const stopBackgroundWork = Effect.gen(function* () {
         const live = subagents.liveCount();
         yield* subagents.close();
         if (live > 0) {
@@ -369,8 +374,51 @@ export class ChatServiceImpl implements ChatService {
             `Stopped ${String(live)} sub-agent${live === 1 ? "" : "s"} that ${live === 1 ? "was" : "were"} still working.`,
           );
         }
+        const detachedCommands = processDetachedCalls.running();
+        if (detachedCommands.length > 0) {
+          yield* processDetachedCalls.stopAll();
+          yield* terminal.warn(
+            `Stopped ${String(detachedCommands.length)} background command${detachedCommands.length === 1 ? "" : "s"} that ${detachedCommands.length === 1 ? "was" : "were"} still running: ${detachedCommands.map((entry) => entry.description).join("; ")}`,
+          );
+        }
       });
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
+      /** Detached calls already closed out in a saved history, so leaving twice notes each once. */
+      const closedOutDetachedCalls = new Set<string>();
+      let detachedResults = createDetachedResultInbox();
+      let acceptingDetachedResults = true;
+      /**
+       * Ends the conversation being left honestly: each background command still running is
+       * stopped by the caller next, so its history gets a stopped result in place of the
+       * "still running" placeholder the model was last given.
+       */
+      const closeOutRunningDetached = Effect.gen(function* () {
+        acceptingDetachedResults = false;
+        const finished = detachedResults.take();
+        if (finished.length > 0) {
+          conversationHistory = [
+            ...conversationHistory,
+            { role: "user", content: detachedResultsMessage(finished) },
+          ];
+        }
+        const running = processDetachedCalls
+          .running()
+          .filter((entry) => !closedOutDetachedCalls.has(entry.toolCallId));
+        if (running.length === 0) {
+          return;
+        }
+        for (const entry of running) {
+          closedOutDetachedCalls.add(entry.toolCallId);
+        }
+        conversationHistory = [...conversationHistory, stoppedDetachedMessage(running)];
+        yield* logger.debug(
+          "Closed the history of a conversation with stopped background commands",
+          {
+            conversationId,
+            stopped: running.length,
+          },
+        );
+      });
       let historyCompactedSinceLastTurn = false;
       // The saved transcript this session builds on. Every save names it, so the session can
       // only replace history it has read; a log saved elsewhere since makes the save fork.
@@ -558,7 +606,6 @@ export class ChatServiceImpl implements ChatService {
 
       const fileSystem = yield* FileSystem.FileSystem;
       const fileSystemLayer = Layer.succeed(FileSystem.FileSystem, fileSystem);
-      const detachedResults = createDetachedResultInbox();
       /**
        * What every run this chat starts shares, built fresh per run because the remembered
        * approvals are replaced as the user edits them: the chat's own turns and a goal's cycles
@@ -618,7 +665,21 @@ export class ChatServiceImpl implements ChatService {
             const cancel = store.onceQueuedProse(() => resume(Effect.void));
             return Effect.sync(cancel);
           }),
-        onDetachedToolComplete: detachedResults.push,
+        onDetachedToolComplete: pushWhileOpen(
+          detachedResults,
+          conversationId,
+          () => (acceptingDetachedResults ? conversationId : ""),
+          (result) =>
+            Effect.runSync(
+              logger.debug(
+                "Dropped a background result for a conversation that is no longer open",
+                {
+                  conversationId,
+                  toolName: result.toolName,
+                },
+              ),
+            ),
+        ),
       });
 
       // Load last-used agent from runtime state for sorting /agents and /switch
@@ -896,7 +957,8 @@ export class ChatServiceImpl implements ChatService {
               terminal.warn(`Could not hand paused goals to the daemon: ${error.message}`),
             ),
           );
-          yield* stopSubagents;
+          yield* closeOutRunningDetached;
+          yield* stopBackgroundWork;
           yield* terminal.log(chalk.dim.italic("— fin —"));
 
           // Cleanup: Disconnect all MCP servers and unregister mode handler before exiting
@@ -991,6 +1053,9 @@ export class ChatServiceImpl implements ChatService {
             // A command that reshaped this conversation (`/tree`, `/compact`, `/retry`) is saved
             // with its new history: the revision it returned already describes that history,
             // so saving the old one on top of it would undo the command.
+            if (commandResult.newConversationId !== undefined) {
+              yield* closeOutRunningDetached;
+            }
             const historyAfterCommand =
               commandResult.newConversationId === undefined &&
               commandResult.newHistory !== undefined
@@ -1019,7 +1084,10 @@ export class ChatServiceImpl implements ChatService {
                 yield* pluginRuntime.value.clearConversationOverrides();
                 yield* registerExtensionCommands(agent.id);
               }
-              yield* stopSubagents;
+              yield* stopBackgroundWork;
+              detachedResults = createDetachedResultInbox();
+              acceptingDetachedResults = true;
+              closedOutDetachedCalls.clear();
               subagents = yield* createSubagentSupervisor({ outlivesRuns: true });
               blackboard = createBlackboard();
               yield* attachTo(conversationId);
@@ -1261,6 +1329,7 @@ export class ChatServiceImpl implements ChatService {
           // Set only when the turn fails: its work so far, so "continue" doesn't revert to
           // the pre-turn history.
           let failedTurnMessages: ChatMessage[] | undefined;
+          let turnSpend: RunSpendReport | undefined;
 
           const runnerOptions: AgentRunnerOptions = {
             ...chatTurnOptions(),
@@ -1273,6 +1342,9 @@ export class ChatServiceImpl implements ChatService {
             origin: deliveryTurn?.origin ?? { source: goalTurn === undefined ? "chat" : "goal" },
             // A goal cycle is charged as one run, so its sub-agents end with it.
             ...(goalTurn === undefined ? { subagents, blackboard } : {}),
+            onRunSpend: (spend) => {
+              turnSpend = spend;
+            },
             onFailedTurn: (messages) => {
               failedTurnMessages = [...messages];
             },
@@ -1388,6 +1460,10 @@ export class ChatServiceImpl implements ChatService {
                   conversationId: conversationId || "",
                   messages: failedTurnMessages ?? conversationHistory,
                   content: "",
+                  ...(turnSpend?.usage !== undefined ? { usage: turnSpend.usage } : {}),
+                  ...(turnSpend?.retryWaste !== undefined
+                    ? { retryWaste: turnSpend.retryWaste }
+                    : {}),
                 };
               }),
             ),
@@ -1407,12 +1483,13 @@ export class ChatServiceImpl implements ChatService {
             });
           }
 
-          // Accumulate token usage for /cost (only on full AgentResponse, not error fallback)
+          // A failed turn reports its spend through onRunSpend before the catch restores the loop.
           if ("usage" in response && response.usage) {
             sessionUsage = {
               requests: sessionUsage.requests + (response.usage.requests ?? 0),
               promptTokens: sessionUsage.promptTokens + response.usage.promptTokens,
               completionTokens: sessionUsage.completionTokens + response.usage.completionTokens,
+              ...addRetryWasteToSession(sessionUsage, response.retryWaste),
             };
           }
 
@@ -1594,7 +1671,8 @@ export class ChatServiceImpl implements ChatService {
         }
       }
 
-      yield* stopSubagents;
+      yield* closeOutRunningDetached;
+      yield* stopBackgroundWork;
       yield* emitLifecycle("session-end");
       yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
       if (!ephemeral && sessionTurnCount > 0) {
