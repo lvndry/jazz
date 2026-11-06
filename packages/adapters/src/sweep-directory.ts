@@ -5,10 +5,25 @@
  * Node handles descriptor metadata and timestamps; libc supplies relative opens, unlinking and enumeration.
  * No path-based deletion fallback is provided when native loading fails.
  */
-import { constants, closeSync, fstatSync, futimesSync, type Stats } from "node:fs";
-import { constants as osConstants } from "node:os";
+import {
+  constants,
+  closeSync,
+  fstatSync,
+  fchownSync,
+  futimesSync,
+  readFileSync,
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  rmdirSync,
+  readSync,
+  writeSync,
+  type Stats,
+} from "node:fs";
+import { tmpdir, constants as osConstants } from "node:os";
 import * as path from "node:path";
-import { dlopen, toArrayBuffer, type Pointer } from "bun:ffi";
+import { cc, dlopen, toArrayBuffer, type Pointer } from "bun:ffi";
+import creationSource from "./sweep-openat.c";
 
 const darwin = process.platform === "darwin";
 if (!darwin && process.platform !== "linux") {
@@ -20,7 +35,7 @@ if (process.arch !== "arm64" && process.arch !== "x64") {
 const inodeSuffix = darwin && process.arch === "x64" ? "$INODE64" : "";
 const readdirSymbol = `readdir${inodeSuffix}`;
 const fdopendirSymbol = `fdopendir${inodeSuffix}`;
-const native = dlopen(darwin ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
+const signatures = {
   openat: { args: ["i32", "buffer", "i32"], returns: "i32" },
   mkdirat: { args: ["i32", "buffer", "u32"], returns: "i32" },
   unlinkat: { args: ["i32", "buffer", "i32"], returns: "i32" },
@@ -28,7 +43,55 @@ const native = dlopen(darwin ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
   [readdirSymbol]: { args: ["ptr"], returns: "ptr" },
   closedir: { args: ["ptr"], returns: "i32" },
   [darwin ? "__error" : "__errno_location"]: { args: [], returns: "ptr" },
-} as const);
+} as const;
+const native = (() => {
+  const candidates = darwin
+    ? ["/usr/lib/libSystem.B.dylib"]
+    : [
+        "libc.so.6",
+        `/lib/ld-musl-${process.arch === "arm64" ? "aarch64" : "x86_64"}.so.1`,
+        "libc.so",
+      ];
+  let failure: unknown;
+  for (const candidate of candidates) {
+    try {
+      return dlopen(candidate, signatures);
+    } catch (error) {
+      failure = error;
+    }
+  }
+  throw new Error("No supported native cleanup library", { cause: failure });
+})();
+/** TinyCC needs a real path even when Bun embedded the source in a standalone executable. */
+const creation = (() => {
+  const directory = mkdtempSync(path.join(tmpdir(), "jazz-sweep-native-"));
+  const temporarySource = path.join(directory, "openat.c");
+  try {
+    writeFileSync(temporarySource, readFileSync(creationSource), { flag: "wx", mode: 0o600 });
+    const compiled = cc({
+      source: temporarySource,
+      flags: "-nostdlib",
+      symbols: {
+        jazz_openat_create: { args: ["ptr", "i32", "buffer", "i32"], returns: "i32" },
+      },
+    });
+    return compiled;
+  } finally {
+    try {
+      rmSync(temporarySource, { force: true });
+    } finally {
+      rmdirSync(directory);
+    }
+  }
+})();
+
+const openAtPointer = (() => {
+  const value: unknown = Reflect.get(native.symbols.openat, "ptr");
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error("Cannot resolve the native file-creation entry point");
+  }
+  return value as Pointer;
+})();
 const errnoPointer = native.symbols[darwin ? "__error" : "__errno_location"]!();
 if (errnoPointer === null) {
   throw new Error("Cannot access native errno");
@@ -61,7 +124,25 @@ function segment(name: string): Buffer {
 /** An owned directory handle. Call close in finally; child handles have independent ownership. */
 export class SweepDirectory {
   private closed = false;
-  private constructor(private readonly fd: number) {}
+  private readonly mount: string;
+  private constructor(private readonly fd: number) {
+    try {
+      if (darwin) {
+        this.mount = String(fstatSync(fd).dev);
+      } else {
+        const mount = /^mnt_id:\s*(\d+)$/m.exec(
+          readFileSync(`/proc/self/fdinfo/${fd}`, "utf8"),
+        )?.[1];
+        if (mount === undefined) {
+          throw new Error("Cannot verify cleanup mount identity");
+        }
+        this.mount = mount;
+      }
+    } catch (error) {
+      closeSync(fd);
+      throw error;
+    }
+  }
 
   /** Opens an absolute root without following a link in any component, including the root. */
   static open(this: void, root: string): SweepDirectory {
@@ -91,13 +172,112 @@ export class SweepDirectory {
     }
     const child = new SweepDirectory(fd);
     try {
-      if (!allowMount && fstatSync(fd).dev !== fstatSync(this.fd).dev) {
+      if (!allowMount && child.mount !== this.mount) {
         throw new Error("Cleanup does not cross mounted filesystems");
       }
       return child;
     } catch (error) {
       child.close();
       throw error;
+    }
+  }
+
+  /** Creates a private child exclusively; existing entries are never followed or reclaimed. */
+  createChild(name: string): SweepDirectory {
+    if (native.symbols.mkdirat(this.fd, segment(name), 0o700) !== 0) {
+      throw nativeError("create directory");
+    }
+    const child = this.child(name);
+    try {
+      if (process.getuid?.() === 0) {
+        const owner = fstatSync(this.fd);
+        fchownSync(child.fd, owner.uid, owner.gid);
+      }
+      return child;
+    } catch (error) {
+      child.close();
+      throw error;
+    }
+  }
+
+  /** Whether a name still refers to the exact opened directory, checked under the lease guard. */
+  owns(name: string, child: SweepDirectory): boolean {
+    const fd = native.symbols.openat(this.fd, segment(name), metadataFlags);
+    if (fd < 0) {
+      throw nativeError("inspect lease identity");
+    }
+    try {
+      const actual = fstatSync(fd, { bigint: true });
+      const expected = fstatSync(child.fd, { bigint: true });
+      return actual.dev === expected.dev && actual.ino === expected.ino;
+    } finally {
+      closeSync(fd);
+    }
+  }
+
+  /** Publishes owner metadata only into a newly created inode, without following links. */
+  writeExclusive(name: string, text: string): void {
+    const fd = creation.symbols.jazz_openat_create(
+      openAtPointer,
+      this.fd,
+      segment(name),
+      constants.O_WRONLY |
+        constants.O_CREAT |
+        constants.O_EXCL |
+        constants.O_NOFOLLOW |
+        closeOnExec,
+    );
+    if (fd < 0) {
+      throw nativeError("create lease owner");
+    }
+    try {
+      if (process.getuid?.() === 0) {
+        const owner = fstatSync(this.fd);
+        fchownSync(fd, owner.uid, owner.gid);
+      }
+      const buffer = Buffer.from(text);
+      let offset = 0;
+      while (offset < buffer.length) {
+        const written = writeSync(fd, buffer, offset, buffer.length - offset);
+        if (written === 0) {
+          throw new Error("Cleanup owner write made no progress");
+        }
+        offset += written;
+      }
+    } finally {
+      closeSync(fd);
+    }
+  }
+
+  /** Reads bounded regular-file metadata, refusing links, devices and truncated JSON. */
+  readText(name: string, maxBytes = 4096): string {
+    const fd = native.symbols.openat(
+      this.fd,
+      segment(name),
+      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW | closeOnExec,
+    );
+    if (fd < 0) {
+      throw nativeError("read cleanup metadata");
+    }
+    try {
+      if (!fstatSync(fd).isFile()) {
+        throw new Error("Cleanup metadata is not a regular file");
+      }
+      const buffer = Buffer.alloc(maxBytes + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const read = readSync(fd, buffer, length, buffer.length - length, null);
+        if (read === 0) {
+          break;
+        }
+        length += read;
+      }
+      if (length > maxBytes) {
+        throw new Error("Cleanup metadata exceeds its limit");
+      }
+      return buffer.toString("utf8", 0, length);
+    } finally {
+      closeSync(fd);
     }
   }
 
@@ -181,10 +361,7 @@ export class SweepDirectory {
         }
       }
     }
-    if (native.symbols.mkdirat(this.fd, segment(name), 0o700) !== 0) {
-      throw nativeError("create sweep stamp");
-    }
-    const stamp = this.child(name);
+    const stamp = this.createChild(name);
     try {
       futimesSync(stamp.fd, now / 1000, now / 1000);
     } finally {

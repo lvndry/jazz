@@ -519,6 +519,23 @@ cannot be inspected is left alone. Only a successful, complete sweep replaces th
 Scheduled passes rediscover homes, including newly created sandboxes, and never overlap in one
 process. Existing stamp files remain readable until the next complete sweep replaces them.
 
+Cleanup reads retention policy once at the start of each scheduled pass, before home discovery.
+Invalid or unreadable configuration skips deletion; only absent settings use the default.
+Global and project config access-check failures also stop loading, so an inaccessible file
+cannot silently remove its safety settings.
+The daemon reloads the selected global and project config documents for each pass. Bridges
+stream sandbox homes, and discovery plus cleanup share one run-wide budget.
+
+A sweep holds the existing conversation-turn lease through protection checks and deletion,
+without reclaiming a busy lease. Live or unverifiable chat attachments protect idle sessions
+across processes. Lease metadata and release operations use directory descriptors and the
+shared lock protocol. Root-run bridges preserve the sandbox parent's ownership when creating
+lease metadata. On Linux, mount IDs from `/proc/self/fdinfo` reject same-device bind mounts.
+
+Native cleanup is tested on macOS, Linux/glibc and Linux/musl, including standalone binaries
+with embedded C source. Bun's embedded compiler marshals the variadic `openat` creation mode
+through a fixed-arity wrapper; no external compiler or development headers are required.
+
 A retrieve for a swept file gets the same "nothing stored, rerun the tool" answer as a failed write.
 
 A result too long for its context budget is cut when it is first added to the conversation.

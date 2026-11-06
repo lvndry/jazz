@@ -17,6 +17,7 @@
 
 import { randomBytes } from "node:crypto";
 import * as path from "node:path";
+import { loadConfigFiles } from "@jazz/adapters/config";
 import { runDueGoals } from "@jazz/adapters/goals/goal-worker";
 import { runDueLoops } from "@jazz/adapters/loops/loop-worker";
 import { resolvePeerToken } from "@jazz/adapters/peers/token";
@@ -31,12 +32,13 @@ import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import {
-  DEFAULT_TOOL_RESULT_RETENTION_DAYS,
   scheduleToolResultSweep,
   TOOL_RESULT_SWEEP_INTERVAL_MS,
 } from "@jazz/adapters/tool-result-retention";
+import { retentionDaysFromDocument } from "@jazz/adapters/tool-result-retention-policy";
 import { resolveWebhookSecret, resolveWebhookToken } from "@jazz/adapters/webhooks/token";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
+import { CLIOptionsTag } from "@jazz/core/interfaces/cli-options";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { OneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
@@ -91,7 +93,7 @@ import {
   type ProvisionDaemonTokenResult,
 } from "@jazz/daemon/token";
 import { runDueTriggers } from "@jazz/daemon/trigger-runner";
-import { Effect } from "effect";
+import { Effect, FileSystem, Option } from "effect";
 import {
   backgroundDaemonLogPath,
   spawnBackgroundDaemon,
@@ -344,10 +346,10 @@ export function daemonCommand(options: DaemonCommandOptions) {
     }
 
     const logger = yield* LoggerServiceTag;
-    const daemonConfigService = yield* AgentConfigServiceTag;
-    const startupAppConfig = yield* daemonConfigService.appConfig;
-    const toolResultRetentionDays =
-      startupAppConfig.history?.toolResultRetentionDays ?? DEFAULT_TOOL_RESULT_RETENTION_DAYS;
+    const sweepFileSystem = yield* FileSystem.FileSystem;
+    const sweepConfigPath = Option.getOrUndefined(
+      yield* Effect.serviceOption(CLIOptionsTag),
+    )?.configPath;
     const scheduler = yield* SchedulerServiceTag;
     const runInProcessWorkflows = scheduler.getSchedulerType() === "in-process";
     yield* markInterruptedRuns().pipe(
@@ -429,7 +431,11 @@ export function daemonCommand(options: DaemonCommandOptions) {
 
       scheduleToolResultSweep({
         jazzHomes: () => [getJazzHomeDirectory()],
-        retentionDays: () => toolResultRetentionDays,
+        retentionDays: async () => {
+          const files = await Effect.runPromise(loadConfigFiles(sweepFileSystem, sweepConfigPath));
+          const globalDays = retentionDaysFromDocument(files.global?.document ?? {});
+          return retentionDaysFromDocument(files.local?.document ?? {}, globalDays);
+        },
         repeatEveryMs: TOOL_RESULT_SWEEP_INTERVAL_MS,
         logger: {
           debug: (message, fields) => void Effect.runFork(logger.debug(message, fields)),

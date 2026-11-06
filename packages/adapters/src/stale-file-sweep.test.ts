@@ -189,6 +189,29 @@ describe("sweepStaleFiles", () => {
     expect(result.failures[0]?.message).toContain("depth limit");
   });
 
+  test.skipIf(process.platform !== "linux" || process.env["JAZZ_TEST_BIND_MOUNT"] !== "1")(
+    "refuses a same-device bind mount",
+    async () => {
+      const outside = path.join(base, "outside-bind");
+      const keep = writeAged(path.join(outside, "old.txt"), 90 * DAY_MS);
+      const mount = path.join(root, "mounted");
+      fs.mkdirSync(mount);
+      const created = Bun.spawnSync(["mount", "--bind", outside, mount], { stderr: "pipe" });
+      expect(created.exitCode, created.stderr.toString()).toBe(0);
+      try {
+        expect(fs.statSync(outside).dev).toBe(fs.statSync(root).dev);
+        const result = await sweep();
+        expect(fs.existsSync(keep)).toBe(true);
+        expect(
+          result.failures.some((failure) => failure.message.includes("mounted filesystems")),
+        ).toBe(true);
+      } finally {
+        const removed = Bun.spawnSync(["umount", mount], { stderr: "pipe" });
+        expect(removed.exitCode, removed.stderr.toString()).toBe(0);
+      }
+    },
+  );
+
   test("a missing root is not a failure and never throws", async () => {
     const result = await sweep({ root: path.join(base, "absent") });
     expect(result.failures).toEqual([]);
