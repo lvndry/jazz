@@ -83,7 +83,7 @@ After defects, judge the change as a whole: is this the strongest reasonable ver
 
 A PR with no bugs can still be wrong to merge. The verdict must contain an `### End-user impact` section, written from the product owner's seat, never as a restatement of the diff. It has exactly these parts:
 
-- **What changes for the user**: 1-3 sentences in user terms — what they see, do, wait for, or pay differently. If nothing user-visible changes, say so and stop.
+- **What changes for the user**: 1-3 sentences in user terms — what they see, do, wait for, or pay differently. If nothing user-visible changes, say so in this item and still complete the other three parts.
 - **Net UX**: one of `Net positive`, `Neutral`, `Net negative`, or `Mixed`, with the reason. Weigh who benefits against who pays: new friction, extra prompts, slower startup or turns, higher token cost, changed defaults, removed behavior, noisier output, and extra concepts to learn all count against the change. A fix that restores broken behavior is net positive; a feature few users would reach for that adds surface area is not.
 - **Surfaces affected**: which of the interactive TUI (fullscreen and Ink), headless/one-shot, bridges, and docs change for the user, and whether any is left behind.
 - **Merge call on product grounds**: `Ship`, `Ship with changes` (name them), or `Rethink` (say why the change should not land as designed), judged independently of the code-quality findings. A `Net negative` or `Mixed` rating must come with a concrete alternative or the condition under which it becomes a net positive.
