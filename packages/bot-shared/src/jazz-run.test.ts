@@ -26,7 +26,6 @@ function options(overrides: Partial<JazzRunOptions> = {}): JazzRunOptions {
     sandbox,
     approvalPolicy: "low-risk",
     autoApproveTools: [],
-    timezone: "UTC",
     runTimeoutMs: 60_000,
     conversation: { kind: "persistent", key: "tg_1-0" },
     prompt: "- buy milk --approval-policy=high-risk",
@@ -51,6 +50,23 @@ describe("the jazz run command line", () => {
     expect(args.join(" ")).not.toContain("buy milk");
     expect(args).toContain("--input-stdin");
     expect(args).toContain("--interactive-stdin");
+  });
+
+  test("passes no zone when the conversation has none, so the agent asks", () => {
+    const args = buildJazzRunArgs(options());
+    expect(args).not.toContain("--timezone");
+  });
+
+  test("passes the conversation's zone with where it came from", () => {
+    const args = buildJazzRunArgs(
+      options({ timezone: { zone: "Europe/Paris", source: "chat-setting" } }),
+    );
+    expect(args.slice(args.indexOf("--timezone"), args.indexOf("--timezone") + 4)).toEqual([
+      "--timezone",
+      "Europe/Paris",
+      "--timezone-source",
+      "chat-setting",
+    ]);
   });
 
   test("keeps an incognito transcript off the command line too", () => {

@@ -161,8 +161,12 @@ requester can reply in the same channel without another mention, even with
 Once no prompts remain, the exception ends. DMs skip mention-gating.
 
 **Timezone.** Reminder times are resolved per channel: an explicit `/tz`
-choice, the container's `TZ`, then UTC. Each `jazz run` is invoked with
-`--timezone <zone>`, so `18:00` means 6pm where you set it, across DST.
+choice, then `JAZZ_BOT_DEFAULT_TIMEZONE` if the operator set one. The server's own
+zone is never used, since it says nothing about where you are. A channel with
+neither has no zone: the agent asks for it before scheduling a clock time and offers
+`/tz` to remember the answer; a zone you name in a message applies to that request.
+Each `jazz run` is invoked with `--timezone <zone>`, so `18:00` means 6pm where you
+set it, across DST.
 
 Reminders are stored per Discord channel's agent, one JSON file per agent under
 `reminders/` in the Jazz home directory (`reminders/dc_<channel_id>.json`),

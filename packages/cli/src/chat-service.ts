@@ -639,6 +639,7 @@ export class ChatServiceImpl implements ChatService {
         autoApprovedCommands,
         autoApprovedTools,
         offersShellEscape: true,
+        hostIsUserDevice: true,
         onAutoApproveCommand: (command: string) =>
           Effect.gen(function* () {
             if (!autoApprovedCommands.includes(command)) {

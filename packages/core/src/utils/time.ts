@@ -127,6 +127,14 @@ export function parseDurationMs(spec: string): number | null {
   return totalMs > 0 && leftover === "" ? totalMs : null;
 }
 
+/**
+ * Whether a `when` spec depends on the user's zone. A relative duration ("30m", "2h") is the
+ * same instant everywhere; a clock time, weekday or date is not.
+ */
+export function isClockDependentWhen(spec: string): boolean {
+  return parseDurationMs(spec) === null;
+}
+
 /** Days in `month` (1-12) of `year`, leap years included. */
 function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();

@@ -13,58 +13,91 @@ import {
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { VERY_WIDE_PAYLOAD_MAX_CHARS } from "@/core/utils/tool-result-formatter";
+import { hostTimeZone } from "@/core/utils/user-time-zone";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { resolveToolZone, TIME_ZONE_PARAMETER_DESCRIPTION } from "./user-zone";
 
-const DAYS = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-] as const;
+const getTimeParameters = z
+  .object({
+    timeZone: z.string().min(1).optional().describe(TIME_ZONE_PARAMETER_DESCRIPTION),
+  })
+  .strict();
+
+type GetTimeArgs = z.infer<typeof getTimeParameters>;
 
 /**
  * Create the get_time tool for current date/time awareness.
- * Returns ISO timestamp, local date, day of week, and timezone for scheduling and relative time reasoning.
+ * Returns the instant, and the date and time in the user's zone with where that zone came from.
+ * When the user's zone is not known the result carries the instant in UTC and tells the model
+ * to ask; the host's zone is reported only when the host is the user's own device.
  */
 export function createGetTimeTool(): Tool<never> {
-  return {
+  return defineTool<never, GetTimeArgs>({
     name: "get_time",
     disclosure: "internal",
     description:
-      "Get the current date and time, for a fresh clock in long runs, scheduling or relative times, and the minutes left in this run's time budget when it has one. Today's date is already in the Environment block.",
-    parameters: z.object({}).strict(),
+      "Get the current date and time in the user's time zone, for a fresh clock in long runs, scheduling or relative times, and the minutes left in this run's time budget when it has one. Today's date is already in the Environment block.",
+    parameters: getTimeParameters,
     riskLevel: "read-only",
     egress: false,
     hidden: false,
-    createSummary: undefined,
-    execute: (_args, context) => {
+    validate: makeZodValidator(getTimeParameters),
+    handler: (args, context) => {
       const now = new Date();
       const workTimeLeftMs = context.remainingRunBudget?.().maxDurationMs;
-      const iso = now.toISOString();
-      const dayOfWeek = DAYS[now.getDay()];
-      const localDate = now.toLocaleDateString();
-      const localTime = now.toLocaleTimeString();
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const instant = {
+        iso: now.toISOString(),
+        timestamp: now.getTime(),
+        ...(workTimeLeftMs !== undefined && {
+          workMinutesLeft: Math.floor(workTimeLeftMs / 60_000),
+        }),
+      };
+      const zone = resolveToolZone(context, args.timeZone);
 
+      if (zone.kind === "invalid") {
+        return Effect.succeed({
+          success: false,
+          result: null,
+          error: zone.error,
+        } satisfies ToolExecutionResult);
+      }
+      if (zone.kind === "unknown") {
+        return Effect.succeed({
+          success: true,
+          result: {
+            ...instant,
+            timeZone: { status: "unknown", instruction: zone.instruction },
+          },
+        } satisfies ToolExecutionResult);
+      }
+
+      const localDate = now.toLocaleDateString("en-US", { timeZone: zone.zone });
+      const localTime = now.toLocaleTimeString("en-US", { timeZone: zone.zone });
+      const dayOfWeek = now.toLocaleDateString("en-US", { timeZone: zone.zone, weekday: "long" });
       return Effect.succeed({
         success: true,
         result: {
-          iso,
-          timestamp: now.getTime(),
+          ...instant,
           dayOfWeek,
           localDate,
           localTime,
-          timezone,
-          ...(workTimeLeftMs !== undefined && {
-            workMinutesLeft: Math.floor(workTimeLeftMs / 60_000),
-          }),
+          timeZone: {
+            status: "known",
+            zone: zone.zone,
+            source: zone.source,
+            ...(zone.source === "interactive-host"
+              ? { note: `Taken from this machine (${hostTimeZone()}); state this assumption.` }
+              : {}),
+            ...(zone.source === "explicit-in-message" && context.zoneSettingCommand !== undefined
+              ? {
+                  next: `Offer to remember ${zone.zone}: the user can send ${context.zoneSettingCommand} ${zone.zone}.`,
+                }
+              : {}),
+          },
         },
       } satisfies ToolExecutionResult);
     },
-  };
+  });
 }
 
 /**

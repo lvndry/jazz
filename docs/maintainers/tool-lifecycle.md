@@ -527,9 +527,25 @@ Current tool list: [tool inventory](../tools/index.md).
 - [Security](../../SECURITY.md): the threat model and hardening guidance
 - [Architecture](./architecture.md): package boundaries and extension points
 
+### Tool identities in live streams and saved history
+
+A completed streamed call recovers a missing ID or name only from a unique matching input
+start. Completions may arrive out of order; ambiguous identities fail the step for retry
+before any tool executes.
+
+Loading old history repairs missing call IDs or names in memory, keeping the log untouched.
+Generated IDs avoid existing call and result IDs, and idless results are attached to repaired
+calls that have no identified answer. Malformed nested call structures are rejected at the
+log boundary.
+
 Restored approval, question, file-picker and secret answers apply only to the recorded pending
 batch. Once that batch finishes, fresh model calls require their own answers even if the
 provider reuses an earlier call ID. Resume matches results after the last assistant tool batch,
 so a prior batch's result cannot make a new call look answered.
 
 Tool batches require nonempty names and IDs, with each ID unique inside its batch. A malformed batch is refused before any sibling tool runs, including when resuming an older persisted batch. IDs may recur in later batches, but restored answers apply only to their recorded batch.
+
+An unmatched completed stream call invalidates older pending input starts, so a later blank
+completion cannot inherit their identity. Matching uses indexed candidates with duplicate
+tracking. Historical idless results pair against every unanswered call in batch order, including
+intact calls. Non-streaming identities are checked before saving model-generated files.

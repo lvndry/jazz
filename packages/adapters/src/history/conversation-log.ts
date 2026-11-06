@@ -42,6 +42,11 @@ import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { gzipSync } from "node:zlib";
 import { checkpointTitle } from "@jazz/core/agent/context/checkpoint-title";
+import {
+  repairToolCallIdentities,
+  type ToolCallIdentityRepair,
+} from "@jazz/core/agent/context/tool-call-identity";
+import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { isTerminalOutputKind } from "@jazz/core/interfaces/terminal";
 import { typedText } from "@jazz/core/memory/source-trust";
 import type { ChatMessage } from "@jazz/core/types/message";
@@ -396,6 +401,20 @@ function isRecordObject(value: unknown): value is Record<string, unknown> {
  */
 function isLoggedChatMessage(value: unknown): value is ChatMessage {
   if (!isRecordObject(value) || typeof value["content"] !== "string") {
+    return false;
+  }
+  const calls = value["tool_calls"];
+  if (
+    calls !== undefined &&
+    (!Array.isArray(calls) ||
+      !calls.every(
+        (call: unknown) =>
+          isRecordObject(call) &&
+          call["type"] === "function" &&
+          isRecordObject(call["function"]) &&
+          typeof call["function"]["arguments"] === "string",
+      ))
+  ) {
     return false;
   }
   const role = value["role"];
@@ -759,9 +778,14 @@ function treeEvent(event: ConversationLogEvent): TreeEvent {
   }
 }
 
-/** Folds a log's events into the conversation's current state. */
+/**
+ * Folds a log's events into the conversation's current state. A stored assistant call without
+ * an id or name is repaired in the returned messages only (see `repairToolCallIdentities`);
+ * `onRepair` hears what was changed. The log itself is never rewritten.
+ */
 export function reduceConversationLog(
   events: readonly ConversationLogEvent[],
+  onRepair?: (repair: ToolCallIdentityRepair) => void,
 ): Conversation | null {
   let header: ConversationLogHeader | null = null;
   let lastMessageAt: string | null = null;
@@ -817,9 +841,20 @@ export function reduceConversationLog(
   if (!header) {
     return null;
   }
-  const messages = contextPath(
+  const pathMessages = contextPath(
     buildConversationTree(events.map(treeEvent), header.conversationId),
-  ).messages.map(({ id, message }) => ({ ...message, entryId: id }));
+  ).messages;
+  const repair = repairToolCallIdentities(
+    pathMessages.map(({ message }) => message),
+    (_message, index) => pathMessages[index]?.id ?? String(index),
+  );
+  if (repair.repairedCalls > 0 || repair.pairedResults > 0) {
+    onRepair?.(repair);
+  }
+  const messages = repair.messages.map((message, index) => ({
+    ...message,
+    entryId: pathMessages[index]?.id,
+  })) as ChatMessage[];
   const title = resolveConversationTitle(events, messages);
   return {
     agentId: header.agentId,
@@ -906,6 +941,23 @@ export function parseConversationLog(content: string): ConversationLogEvent[] {
   return parseConversationLogRecords(content.split("\n")).filter((event) => event !== null);
 }
 
+function logToolCallRepair(
+  conversationId: string,
+  repair: ToolCallIdentityRepair,
+): Effect.Effect<void> {
+  return Effect.flatMap(Effect.serviceOption(LoggerServiceTag), (logger) =>
+    Option.match(logger, {
+      onNone: () => Effect.void,
+      onSome: (service) =>
+        service.warn("Repaired tool calls with an empty id or name while loading a conversation", {
+          conversationId,
+          repairedCalls: repair.repairedCalls,
+          pairedResults: repair.pairedResults,
+        }),
+    }),
+  );
+}
+
 /** Reads a whole conversation log and folds it into a conversation. */
 export function readConversationLog(
   agentId: string,
@@ -921,7 +973,14 @@ export function readConversationLog(
     }
     const events = parseConversationLog(content);
     yield* requireReadableLogVersion(events, logPath);
-    return reduceConversationLog(events);
+    let repair: ToolCallIdentityRepair | undefined;
+    const conversation = reduceConversationLog(events, (found) => {
+      repair = found;
+    });
+    if (repair !== undefined) {
+      yield* logToolCallRepair(conversationId, repair);
+    }
+    return conversation;
   });
 }
 
