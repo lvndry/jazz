@@ -2584,7 +2584,6 @@ class AISDKService implements LLMService {
             : (result.text ?? "");
         // Files the model itself produced. Empty for every text-only model, so this costs
         // nothing on the common path.
-        const generatedArtifacts = await saveModelGeneratedFiles(result.files ?? [], responseModel);
         let toolCalls: ChatCompletionResponse["toolCalls"] = undefined;
         let usage: ChatCompletionResponse["usage"] = undefined;
 
@@ -2652,6 +2651,8 @@ class AISDKService implements LLMService {
             toolCalls = filteredToolCalls.map((tc: TypedToolCall<ToolSet>) => toJazzToolCall(tc));
           }
         }
+
+        const generatedArtifacts = await saveModelGeneratedFiles(result.files ?? [], responseModel);
 
         const reasoningParts = extractReasoningParts(result.response.messages, providerName);
 

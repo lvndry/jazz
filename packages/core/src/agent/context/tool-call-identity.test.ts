@@ -18,6 +18,16 @@ describe("repairToolCallIdentities", () => {
     expect(repair.repairedCalls).toBe(0);
   });
 
+  it("pairs a mixed intact and repaired batch's idless results in batch order", () => {
+    const repaired = repairToolCallIdentities([
+      { role: "assistant", content: "", tool_calls: [call("a", "read_file"), call("", "grep")] },
+      { role: "tool", content: "first", tool_call_id: "" },
+      { role: "tool", content: "second", tool_call_id: "" },
+    ]);
+    expect(repaired.messages[1]?.tool_call_id).toBe("a");
+    expect(repaired.messages[2]?.tool_call_id).toBe(repaired.messages[0]?.tool_calls?.[1]?.id);
+  });
+
   it("gives an empty-id call a positional id and pairs the idless result with it", () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "hi" },

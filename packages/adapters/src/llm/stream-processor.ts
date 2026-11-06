@@ -180,6 +180,53 @@ type EmitFunction = (
   effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>,
 ) => void;
 
+/** Indexed pending identities; an unmatched completion invalidates older unattached starts. */
+class ToolInputIdentities {
+  private readonly all = new Set<{ id: string; toolName: string }>();
+  private readonly byId = new Map<string, Set<{ id: string; toolName: string }>>();
+  private readonly byName = new Map<string, Set<{ id: string; toolName: string }>>();
+  add(start: { id: string; toolName: string }): void {
+    this.all.add(start);
+    for (const [index, key] of [
+      [this.byId, start.id],
+      [this.byName, start.toolName],
+    ] as const) {
+      let matches = index.get(key);
+      if (matches === undefined) {
+        matches = new Set();
+        index.set(key, matches);
+      }
+      matches.add(start);
+    }
+  }
+  take(
+    id: string | undefined,
+    name: string | undefined,
+  ): { id: string; toolName: string } | undefined {
+    const matches =
+      id !== undefined ? this.byId.get(id) : name !== undefined ? this.byName.get(name) : this.all;
+    const match = matches?.size === 1 ? matches.values().next().value : undefined;
+    if (match === undefined || (name !== undefined && match.toolName !== name)) {
+      this.all.clear();
+      this.byId.clear();
+      this.byName.clear();
+      return undefined;
+    }
+    this.all.delete(match);
+    for (const [index, key] of [
+      [this.byId, match.id],
+      [this.byName, match.toolName],
+    ] as const) {
+      const entries = index.get(key);
+      entries?.delete(match);
+      if (entries?.size === 0) {
+        index.delete(key);
+      }
+    }
+    return match;
+  }
+}
+
 /**
  * Configuration for stream processor
  */
@@ -249,7 +296,7 @@ interface StreamProcessorState {
   // Tool calls
   collectedToolCalls: ToolCall[];
   /** Identity each `tool-input-start` established, in stream order, for blanked completions. */
-  startedToolInputs: { id: string; toolName: string }[];
+  startedToolInputs: ToolInputIdentities;
   /** Provider-native tool calls waiting for tool-result to arrive with enriched data (e.g. query) */
   pendingNativeToolCalls: Map<string, { toolCall: ToolCall; sequence: number }>;
 
@@ -283,7 +330,7 @@ function createInitialState(): StreamProcessorState {
     reasoningStreamActive: false,
     accumulatedReasoning: "",
     collectedToolCalls: [],
-    startedToolInputs: [],
+    startedToolInputs: new ToolInputIdentities(),
     pendingNativeToolCalls: new Map(),
     firstTokenTime: null,
     firstTextTime: null,
@@ -513,25 +560,17 @@ export class StreamProcessor {
           }
 
           case "tool-input-start": {
-            this.state.startedToolInputs.push({ id: part.id, toolName: part.toolName });
+            this.state.startedToolInputs.add({ id: part.id, toolName: part.toolName });
             break;
           }
 
           case "tool-call": {
             const hasId = isUsableToolCallField(part.toolCallId);
             const hasName = isUsableToolCallField(part.toolName);
-            const candidates = this.state.startedToolInputs.filter(
-              (start) =>
-                (!hasId || start.id === part.toolCallId) &&
-                (!hasName || start.toolName === part.toolName),
+            const established = this.state.startedToolInputs.take(
+              hasId ? part.toolCallId : undefined,
+              hasName ? part.toolName : undefined,
             );
-            const established = candidates.length === 1 ? candidates[0] : undefined;
-            if (established !== undefined) {
-              this.state.startedToolInputs.splice(
-                this.state.startedToolInputs.indexOf(established),
-                1,
-              );
-            }
             const completed = {
               ...part,
               toolCallId: isUsableToolCallField(part.toolCallId)

@@ -996,6 +996,16 @@ describe("StreamProcessor tool call identity", () => {
     }
   });
 
+  it("does not reuse a stale start after an unmatched fully identified completion", async () => {
+    const result = await run([
+      { type: "tool-input-start", id: "a", toolName: "read_file" },
+      { type: "tool-call", toolCallId: "b", toolName: "execute_command", input: {} },
+      { type: "tool-call", toolCallId: "", toolName: "", input: {} },
+      finish,
+    ]).catch((error: unknown) => error);
+    expect(result).toBeInstanceOf(LLMRequestError);
+  });
+
   it("restores each call from its own input start, in order", async () => {
     const response = await run([
       { type: "tool-input-start", id: "call_1", toolName: "read_file" },

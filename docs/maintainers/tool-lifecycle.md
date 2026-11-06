@@ -544,3 +544,8 @@ provider reuses an earlier call ID. Resume matches results after the last assist
 so a prior batch's result cannot make a new call look answered.
 
 Tool batches require nonempty names and IDs, with each ID unique inside its batch. A malformed batch is refused before any sibling tool runs, including when resuming an older persisted batch. IDs may recur in later batches, but restored answers apply only to their recorded batch.
+
+An unmatched completed stream call invalidates older pending input starts, so a later blank
+completion cannot inherit their identity. Matching uses indexed candidates with duplicate
+tracking. Historical idless results pair against every unanswered call in batch order, including
+intact calls. Non-streaming identities are checked before saving model-generated files.

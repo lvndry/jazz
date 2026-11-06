@@ -31,10 +31,10 @@ export function repairedToolCallId(anchor: string, callIndex: number): string {
  * version persisted calls whose identity a gateway had blanked). A call without an id gets
  * `repaired-<anchor>-<callIndex>`, where `anchor` is the message's entry id or its position;
  * a call without a name gets {@link REPAIRED_TOOL_NAME}. The tool results that follow the
- * assistant message and carry no id are paired to the repaired calls in order. A repaired call
+ * assistant message and carry no id are paired to unanswered calls in batch order. A repaired call
  * no result answers stays unanswered, which `closeUnansweredToolCalls` closes before a run.
  *
- * Returns the input untouched when no call needs repair. Never mutates `messages`.
+ * Returns the input untouched when no call or result needs repair. Never mutates `messages`.
  */
 export function repairToolCallIdentities(
   messages: readonly ChatMessage[],
@@ -42,11 +42,12 @@ export function repairToolCallIdentities(
 ): ToolCallIdentityRepair {
   const needsRepair = messages.some(
     (message) =>
-      message.role === "assistant" &&
-      message.tool_calls?.some(
-        (toolCall) =>
-          !isUsableToolCallField(toolCall.id) || !isUsableToolCallField(toolCall.function?.name),
-      ) === true,
+      (message.role === "tool" && !isUsableToolCallField(message.tool_call_id)) ||
+      (message.role === "assistant" &&
+        message.tool_calls?.some(
+          (toolCall) =>
+            !isUsableToolCallField(toolCall.id) || !isUsableToolCallField(toolCall.function?.name),
+        ) === true),
   );
   if (!needsRepair) {
     return { messages, repairedCalls: 0, pairedResults: 0 };
@@ -73,7 +74,6 @@ export function repairToolCallIdentities(
       continue;
     }
     const anchor = anchorOf(message, index);
-    const idlessCalls: { id: string; name: string }[] = [];
     const toolCalls = message.tool_calls.map((toolCall, callIndex) => {
       const hasId = isUsableToolCallField(toolCall.id);
       const hasName = isUsableToolCallField(toolCall.function?.name);
@@ -91,9 +91,6 @@ export function repairToolCallIdentities(
         reserved.add(id);
       }
       const name = hasName ? toolCall.function.name : REPAIRED_TOOL_NAME;
-      if (!hasId || !hasName) {
-        idlessCalls.push({ id, name });
-      }
       return { ...toolCall, id, function: { ...toolCall.function, name } };
     });
     repaired[index] = { ...message, tool_calls: toolCalls };
@@ -109,7 +106,7 @@ export function repairToolCallIdentities(
         answered.add(id);
       }
     }
-    const unmatched = idlessCalls.filter((call) => !answered.has(call.id));
+    const unmatched = toolCalls.filter((call) => !answered.has(call.id));
     let pending = 0;
     for (
       let resultIndex = index + 1;
@@ -126,7 +123,7 @@ export function repairToolCallIdentities(
       }
       pending += 1;
       pairedResults += 1;
-      repaired[resultIndex] = { ...result, tool_call_id: call.id, name: call.name };
+      repaired[resultIndex] = { ...result, tool_call_id: call.id, name: call.function.name };
     }
   }
 
