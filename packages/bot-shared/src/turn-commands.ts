@@ -15,7 +15,7 @@
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
-import { parseTimeZone } from "@jazz/core/utils/user-time-zone";
+import { COMMON_ZONE_CHOICES, lookupZoneByPlace } from "@jazz/core/utils/zone-places";
 import type { AgentFile } from "./agent-file";
 import { formatTokenCount } from "./answer";
 import {
@@ -49,6 +49,7 @@ export const MODEL_PROMPT_ID = "command:model";
 export const PERSONA_PROMPT_ID = "command:persona";
 export const MODE_PROMPT_ID = "command:mode";
 export const REMINDERS_PROMPT_ID = "command:reminders";
+export const TZ_PROMPT_ID = "command:tz";
 
 /** Every command name this module answers, `/stop` included (the runner handles that one). */
 const COMMAND_NAMES: ReadonlySet<string> = new Set([
@@ -85,6 +86,7 @@ const COMMAND_PROMPT_IDS: ReadonlySet<string> = new Set([
   PERSONA_PROMPT_ID,
   MODE_PROMPT_ID,
   REMINDERS_PROMPT_ID,
+  TZ_PROMPT_ID,
 ]);
 
 /**
@@ -224,7 +226,7 @@ export function createCommands(context: CommandContext): Commands {
     plainLine("/mode safe|yolo — whether risky tools stop to ask (yolo is operator-only)"),
     plainLine("/remind <when> <text> — e.g. /remind 30m take pizza out"),
     plainLine("/reminders — list your reminders"),
-    plainLine("/tz Europe/Paris — timezone reminders resolve in"),
+    plainLine("/tz — pick the timezone reminders resolve in (or /tz Paris)"),
     plainLine("/status — model, mode, timezone, today's usage"),
     plainLine("/stop — stop the answer in progress"),
     ...(config.incognitoFile === undefined
@@ -262,7 +264,7 @@ export function createCommands(context: CommandContext): Commands {
       plainLine(`Persona: ${agent.config.persona}`),
       plainLine(`Mode: ${APPROVAL_MODE_LABELS[mode]}`),
       zone === undefined
-        ? line(text("Timezone: not set. Set it with "), code("/tz Europe/Paris"), text("."))
+        ? line(text("Timezone: not set. Set it with "), code("/tz"), text("."))
         : line(
             text("Timezone: "),
             code(zone.zone),
@@ -455,10 +457,18 @@ export function createCommands(context: CommandContext): Commands {
     );
   };
 
+  const applyZone = async (chatId: ChatId, zone: string): Promise<void> => {
+    setTzForChat(config.jazzHome, config.files.timezone, chatId, zone);
+    await context.send(chatId, [
+      line(text("✅ Timezone → "), code(zone)),
+      plainLine(`Local time now: ${formatWhen(Date.now(), zone)}. Reminders use it from now on.`),
+    ]);
+  };
+
   const handleTz = async (chatId: ChatId, args: string): Promise<void> => {
     if (args.length === 0) {
       const current = chatZone(config.jazzHome, config.files.timezone, chatId);
-      await context.send(chatId, [
+      const status: RichText = [
         current === undefined
           ? line(text("🌍 Timezone: not set. I ask before scheduling a clock time."))
           : line(
@@ -469,25 +479,52 @@ export function createCommands(context: CommandContext): Commands {
         ...(current === undefined
           ? []
           : [plainLine(`Local time now: ${formatWhen(Date.now(), current.zone)}`)]),
-        line(text("Change it with "), code("/tz Europe/Paris"), text(" (an IANA name).")),
         ...(config.extraTzHelp === undefined ? [] : [plainLine(config.extraTzHelp)]),
-      ]);
+      ];
+      if (!buttons) {
+        await context.send(chatId, [
+          ...status,
+          line(text("Change it with "), code("/tz Paris"), text(" (your city or country).")),
+        ]);
+        return;
+      }
+      await context.send(
+        chatId,
+        [
+          ...status,
+          line(text("Tap where you are, or send "), code("/tz Paris"), text(" for another city.")),
+        ],
+        {
+          promptId: TZ_PROMPT_ID,
+          choices: COMMON_ZONE_CHOICES.map((choice) => ({
+            id: choice.zone,
+            label: `${choice.zone === current?.zone ? "✅ " : ""}${choice.label}`,
+          })),
+        },
+      );
       return;
     }
-    const parsed = parseTimeZone(args);
-    if (!parsed.ok) {
-      await context.send(chatId, [
-        line(text(`"${args}" is not an IANA timezone. Try `), code("/tz Europe/Paris"), text(".")),
-      ]);
+    const found = lookupZoneByPlace(args);
+    if (found.kind === "found") {
+      await applyZone(chatId, found.zone);
       return;
     }
-    setTzForChat(config.jazzHome, config.files.timezone, chatId, parsed.zone);
-    await context.send(chatId, [
-      line(text("✅ Timezone → "), code(parsed.zone)),
-      plainLine(
-        `Local time now: ${formatWhen(Date.now(), parsed.zone)}. Reminders use it from now on.`,
-      ),
-    ]);
+    await context.send(
+      chatId,
+      found.kind === "ambiguous"
+        ? [
+            plainLine(
+              `More than one place is called "${args}". Send the country too, e.g. /tz Paris, France.`,
+            ),
+          ]
+        : [
+            line(
+              text(`I don't know "${args}". Send your city or country, like `),
+              code("/tz Paris"),
+              text(buttons ? ", or send /tz alone to pick from a list." : "."),
+            ),
+          ],
+    );
   };
 
   const handleReminders = async (chatId: ChatId): Promise<void> => {
@@ -687,6 +724,14 @@ export function createCommands(context: CommandContext): Commands {
           }
           await closePicker(tap);
           await context.send(chatId, [plainLine("✅ Reminder cancelled.")]);
+          return "answered";
+        }
+        case TZ_PROMPT_ID: {
+          if (!COMMON_ZONE_CHOICES.some((zoneChoice) => zoneChoice.zone === choiceId)) {
+            return "expired";
+          }
+          await closePicker(tap);
+          await applyZone(chatId, choiceId);
           return "answered";
         }
         default:

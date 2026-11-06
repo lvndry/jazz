@@ -262,7 +262,7 @@ const SLASH_COMMANDS: readonly SlashCommand[] = [
   {
     name: "tz",
     description: "Show or set your timezone",
-    options: [{ name: "zone", description: "IANA timezone, e.g. Europe/Paris", type: 3 }],
+    options: [{ name: "zone", description: "Your city or country, e.g. Paris", type: 3 }],
   },
   {
     name: "remind",
