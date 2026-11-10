@@ -443,15 +443,18 @@ function rememberUnnamedTopic(address: ChatId): void {
     const oldest = unnamedTopics.values().next().value;
     if (oldest !== undefined) {
       unnamedTopics.delete(oldest);
+      wordsDuringRename.delete(oldest);
     }
   }
   unnamedTopics.add(address);
-  console.log(`[topics] ${address}: opened without a name, will name it from its first message`);
+  console.log(`[topics] ${address}: opened without a name, will name it from its next words`);
 }
 
 /** Name a still-unnamed topic from the message that opened it. Best-effort and not awaited. */
 /** Topics with a rename on its way to Telegram, so a quick second message does not send another. */
 const topicsBeingNamed = new Set<ChatId>();
+/** The latest words that arrived during a rename, to try with if Telegram refuses that rename. */
+const wordsDuringRename = new Map<ChatId, string>();
 
 /**
  * Name a still-unnamed topic from the words of a message in it: its text, or a media caption.
@@ -459,12 +462,16 @@ const topicsBeingNamed = new Set<ChatId>();
  * refused or rate-limited rename is tried again with the next message.
  */
 function nameTopicFrom(bridge: Bridge, address: ChatId, words: string | undefined): void {
-  if (!unnamedTopics.has(address) || topicsBeingNamed.has(address)) {
+  if (!unnamedTopics.has(address)) {
     return;
   }
   // A command says nothing about what the topic is for; wait for the first real message.
   if (words === undefined || words.trim().startsWith("/")) {
     console.log(`[topics] ${address}: no words to name the topic from yet, leaving it unnamed`);
+    return;
+  }
+  if (topicsBeingNamed.has(address)) {
+    wordsDuringRename.set(address, words);
     return;
   }
   const { chatId, topicId } = parseChatAddress(address);
@@ -488,6 +495,12 @@ function nameTopicFrom(bridge: Bridge, address: ChatId, words: string | undefine
     })
     .finally(() => {
       topicsBeingNamed.delete(address);
+      const waiting = wordsDuringRename.get(address);
+      wordsDuringRename.delete(address);
+      // Still unnamed means the rename was refused: try the words that came in meanwhile.
+      if (waiting !== undefined) {
+        nameTopicFrom(bridge, address, waiting);
+      }
     });
 }
 

@@ -290,6 +290,22 @@ export function createCommands(context: CommandContext): Commands {
       ? listModelsForProvider(provider as ProviderName)
       : [];
 
+  /**
+   * Re-read the agent, change it and write it back in one synchronous step. Several
+   * conversations share one agent (a chat's topics), and a copy read before an await can be
+   * stale by the time it is written, wiping a setting another conversation just changed.
+   */
+  const updateAgent = (
+    chatId: ChatId,
+    sandbox: ChatSandbox,
+    change: (agent: AgentFile) => void,
+  ): AgentFile => {
+    const fresh = context.ensureAgent(chatId, sandbox);
+    change(fresh);
+    context.writeAgent(sandbox, fresh);
+    return fresh;
+  };
+
   const handleModel = async (chatId: ChatId, args: string): Promise<void> => {
     const sandbox = context.sandboxFor(chatId);
     const agent = context.ensureAgent(chatId, sandbox);
@@ -307,17 +323,18 @@ export function createCommands(context: CommandContext): Commands {
         return;
       }
       const metadata = await getModelsDevMetadata(parsed.model, parsed.provider);
-      agent.config.llm.provider = parsed.provider;
-      agent.config.llm.model = parsed.model;
-      if (metadata !== undefined) {
-        agent.config.llm.reasoning = reasoningFor(metadata.isReasoningModel === true);
-      }
-      context.writeAgent(sandbox, agent);
+      const updated = updateAgent(chatId, sandbox, (fresh) => {
+        fresh.config.llm.provider = parsed.provider;
+        fresh.config.llm.model = parsed.model;
+        if (metadata !== undefined) {
+          fresh.config.llm.reasoning = reasoningFor(metadata.isReasoningModel === true);
+        }
+      });
       await context.send(chatId, [
         plainLine(`✅ Model → ${parsed.provider}/${parsed.model}`),
         plainLine(
           metadata !== undefined
-            ? `Reasoning: ${agent.config.llm.reasoning}`
+            ? `Reasoning: ${updated.config.llm.reasoning}`
             : "⚠️ Unknown model in the catalog — reasoning setting left unchanged.",
         ),
       ]);
@@ -404,8 +421,9 @@ export function createCommands(context: CommandContext): Commands {
       ]);
       return;
     }
-    agent.config.persona = args;
-    context.writeAgent(sandbox, agent);
+    updateAgent(chatId, sandbox, (fresh) => {
+      fresh.config.persona = args;
+    });
     await context.send(chatId, [plainLine(`✅ Persona → ${args}`)]);
   };
 
@@ -690,13 +708,14 @@ export function createCommands(context: CommandContext): Commands {
           if (chosen === undefined) {
             return "expired";
           }
-          agent.config.llm.model = chosen.id;
-          agent.config.llm.reasoning = reasoningFor(chosen.isReasoningModel);
-          context.writeAgent(sandbox, agent);
+          const updated = updateAgent(chatId, sandbox, (fresh) => {
+            fresh.config.llm.model = chosen.id;
+            fresh.config.llm.reasoning = reasoningFor(chosen.isReasoningModel);
+          });
           await closePicker(tap);
           await context.send(chatId, [
-            plainLine(`✅ Model → ${agent.config.llm.provider}/${chosen.id}`),
-            plainLine(`Reasoning: ${agent.config.llm.reasoning}`),
+            plainLine(`✅ Model → ${updated.config.llm.provider}/${chosen.id}`),
+            plainLine(`Reasoning: ${updated.config.llm.reasoning}`),
           ]);
           return "answered";
         }
@@ -706,9 +725,9 @@ export function createCommands(context: CommandContext): Commands {
           if (!available.includes(choiceId)) {
             return "expired";
           }
-          const agent = context.ensureAgent(chatId, sandbox);
-          agent.config.persona = choiceId;
-          context.writeAgent(sandbox, agent);
+          updateAgent(chatId, sandbox, (fresh) => {
+            fresh.config.persona = choiceId;
+          });
           await closePicker(tap);
           await context.send(chatId, [plainLine(`✅ Persona → ${choiceId}`)]);
           return "answered";
