@@ -85,6 +85,11 @@ export interface Choice {
    * `capabilities.linkButtons` is set; elsewhere the URL goes in the text.
    */
   readonly url?: string;
+  /**
+   * Shown but inert: the option a settled prompt was answered with, left in place as the
+   * record of what was picked.
+   */
+  readonly disabled?: boolean;
 }
 
 /**
@@ -201,6 +206,12 @@ export interface Surface {
 
   /** Best-effort "the agent is working" hint; only called when `typingIndicator` is true. */
   typing?(chatId: ChatId): Promise<void>;
+
+  /**
+   * Mark a message the person sent as seen, without sending one back: a message the run in
+   * flight took in, or one queued behind it. Best-effort, for a surface with reactions.
+   */
+  acknowledge?(chatId: ChatId, ref: MessageRef): Promise<void>;
 
   /**
    * Show a live preview of the message being written, in place of the last one drawn under

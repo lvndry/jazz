@@ -39,6 +39,19 @@ import {
 /** Telegram's hosted Bot API; `TELEGRAM_API_BASE_URL` points a bridge at a self-hosted one. */
 export const DEFAULT_TELEGRAM_API_BASE = "https://api.telegram.org";
 
+/**
+ * Button colours by intent. Primary is green, not Telegram's blue "primary", so Approve reads
+ * as go next to a red Reject, as it does on Discord. A default choice keeps the app's own look.
+ */
+const BUTTON_STYLES: Record<NonNullable<Choice["intent"]>, "success" | "danger" | undefined> = {
+  default: undefined,
+  primary: "success",
+  danger: "danger",
+};
+
+/** What a message the bridge took in mid-run is marked with: it was seen, an answer is coming. */
+const ACKNOWLEDGE_REACTION = "👀";
+
 /** Telegram's hard per-message limit is 4096; the splitter stays under it. */
 const TELEGRAM_MAX_CHARS = 3_500;
 
@@ -192,6 +205,7 @@ export function telegramPieces(body: RichText): MessagePiece[] {
 
 export interface TelegramSurface extends Surface {
   streamDraft(chatId: ChatId, draft: DraftPreview): Promise<boolean>;
+  acknowledge(chatId: ChatId, ref: MessageRef): Promise<void>;
   setChoices(
     chatId: ChatId,
     ref: MessageRef,
@@ -237,16 +251,21 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
     choices: readonly Choice[],
     promptId: string | undefined,
   ): Record<string, unknown> => {
-    const buttons = choices.map((choice) =>
-      // A URL button opens a page instead of calling back, so it carries no
-      // token — Telegram rejects a button that has both.
-      choice.url === undefined
+    // A button takes exactly one action: a disabled one, a page to open, or a token to call
+    // back with. Telegram rejects a button that has two.
+    const buttons = choices.map((choice) => {
+      const style = BUTTON_STYLES[choice.intent ?? "default"];
+      const look = { text: choice.label, ...(style === undefined ? {} : { style }) };
+      if (choice.disabled === true) {
+        return { ...look, disabled: {} };
+      }
+      return choice.url === undefined
         ? {
-            text: choice.label,
+            ...look,
             callback_data: choiceTokens.mint({ promptId: promptId ?? "", choiceId: choice.id }),
           }
-        : { text: choice.label, web_app: { url: choice.url } },
-    );
+        : { ...look, web_app: { url: choice.url } };
+    });
     const rows: (typeof buttons)[] = [];
     for (let index = 0; index < buttons.length; index += 2) {
       rows.push(buttons.slice(index, index + 2));
@@ -408,6 +427,18 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
       }
       return !isRenderingRejection(
         await call("sendMessageDraft", { ...base, text: piece.plain }, true),
+      );
+    },
+
+    async acknowledge(chatId: ChatId, ref: MessageRef): Promise<void> {
+      await call(
+        "setMessageReaction",
+        {
+          chat_id: parseChatAddress(chatId).chatId,
+          message_id: Number.parseInt(ref, 10),
+          reaction: [{ type: "emoji", emoji: ACKNOWLEDGE_REACTION }],
+        },
+        true,
       );
     },
 

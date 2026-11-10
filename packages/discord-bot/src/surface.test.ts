@@ -22,6 +22,15 @@ describe("choiceComponents", () => {
     ]);
   });
 
+  test("a settled prompt's picked option is drawn disabled", () => {
+    const rows = choiceComponents(
+      createChoiceTokens(),
+      [{ id: "approve", label: "Approve", intent: "primary", disabled: true }],
+      "call_1",
+    ) as { components: Record<string, unknown>[] }[];
+    expect(rows[0]?.components[0]).toMatchObject({ label: "Approve", disabled: true });
+  });
+
   test("more than five become a select menu whose values resolve", () => {
     const tokens = createChoiceTokens();
     const choices = Array.from({ length: 8 }, (_, index) => ({

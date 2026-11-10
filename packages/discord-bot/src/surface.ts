@@ -114,7 +114,10 @@ export function choiceComponents(
   }
   const buttons = choices.map((choice) =>
     choice.url === undefined
-      ? button(mint(choice), choice.label, styleFor(choice))
+      ? {
+          ...button(mint(choice), choice.label, styleFor(choice)),
+          ...(choice.disabled === true ? { disabled: true } : {}),
+        }
       : { type: 2, style: BUTTON_LINK, label: choice.label.slice(0, 80), url: choice.url },
   );
   const rows: unknown[] = [];
