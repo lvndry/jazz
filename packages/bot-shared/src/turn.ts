@@ -334,6 +334,8 @@ interface ChatState {
   privateChat?: boolean | undefined;
   /** The draft the run in flight is shown in, so a stop from an older draft is ignored. */
   draftId?: number | undefined;
+  /** Stop was pressed on this run's draft before the run started; cancel it once it has. */
+  stopRequested?: boolean;
   /**
    * Prompts waiting on the person, keyed by the id the agent minted.
    *
@@ -925,6 +927,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
         ? (nextDraftId += 1)
         : undefined;
     state.draftId = draftId;
+    state.stopRequested = false;
     const reporter = createProgressReporter({
       surface,
       chatId,
@@ -976,11 +979,16 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     );
     state.run = run;
     state.requester = message.senderId;
+    if (state.stopRequested) {
+      console.log(`[turn] ${chatId}: carrying out a stop pressed before the run started`);
+      cancel(chatId, undefined);
+    }
 
     const envelope = await run.result;
     state.run = undefined;
     state.requester = undefined;
     state.draftId = undefined;
+    state.stopRequested = false;
     const sentIntoRun = state.sentIntoRun.splice(0);
     const delivered = sentIntoRun.filter(({ id }) => run.delivered(id));
     // A message the run never read (it arrived during the final answer) is answered next. A
@@ -1206,6 +1214,13 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       if (state.draftId !== draftId) {
         console.log(`[turn] ${chatId}: stop for draft ${draftId} ignored, not the run in flight`);
         return "idle";
+      }
+      // The draft shows its stop before the run has started. A stop pressed then is held and
+      // carried out the moment the run exists, instead of finding nothing to cancel.
+      if (state.run === undefined) {
+        state.stopRequested = true;
+        console.log(`[turn] ${chatId}: stop pressed on draft ${draftId} before the run started`);
+        return "cancelled";
       }
       // Only the person a one-to-one draft is shown to can press its stop.
       const outcome = cancel(chatId, undefined);

@@ -50,6 +50,8 @@ let bridge: Bridge;
 let drafts: ({ chatId: string } & DraftPreview)[];
 /** Makes the fake surface turn drafts down, as a Bot API server without them would. */
 let refuseDrafts: boolean;
+/** Every draft request waits on this, so a test can hold the first frame in flight. */
+let draftGate: Promise<void>;
 /** The callback data each drawn button carries, keyed by `<promptId>|<choiceId>`. */
 let buttonData: Map<string, string>;
 
@@ -83,9 +85,10 @@ function fakeSurface(): TelegramSurface {
     },
     setChoices: () => Promise.resolve(),
     typing: () => Promise.resolve(),
-    streamDraft: (chatId, draft) => {
+    streamDraft: async (chatId, draft) => {
       drafts.push({ chatId, ...draft });
-      return Promise.resolve(!refuseDrafts);
+      await draftGate;
+      return refuseDrafts ? "refused" : "shown";
     },
     readChoice: (callbackData) => tokens.read(callbackData),
     call: (method, payload) => {
@@ -202,6 +205,7 @@ beforeEach(() => {
   refusedCalls = new Map();
   drafts = [];
   refuseDrafts = false;
+  draftGate = Promise.resolve();
   buttonData = new Map();
   bridge = createBridge(config(), fakeSurface(), startRun as never);
 });
@@ -574,6 +578,22 @@ describe("drafts", () => {
     const closing = renderRichText(sent.at(-1)?.body ?? []);
     expect(closing).toContain("Half an answer");
     expect(closing).toContain("Cancelled");
+  });
+
+  test("stop pressed while the first draft is still on its way cancels the run once it starts", async () => {
+    let releaseDraft: () => void = () => {};
+    draftGate = new Promise((resolve) => {
+      releaseDraft = resolve;
+    });
+    dispatchMessage(bridge, privately("hi"));
+    await waitUntil(() => drafts.length === 1);
+    expect(runs).toHaveLength(0);
+
+    handleGenerationStopped(bridge, { chat: { id: OWNER }, draft_id: drafts[0]?.id ?? 0 });
+    releaseDraft();
+    await waitUntil(() => !bridge.runner.busy(String(OWNER)));
+    expect(runs).toHaveLength(1);
+    expect(renderRichText(sent.at(-1)?.body ?? [])).toContain("Cancelled");
   });
 
   test("a stop pressed on an earlier run's draft leaves the current run alone", async () => {
