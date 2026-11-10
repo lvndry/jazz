@@ -26,6 +26,7 @@ import {
   type Surface,
   type SurfaceCapabilities,
 } from "@jazz/bot-shared/surface";
+import { destinationOf, parseChatAddress } from "./chat-address";
 import { dispatchTelegramRequest, isRenderingRejection } from "./telegram-dispatch";
 import {
   escapeHtml,
@@ -256,14 +257,14 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
     return typeof result?.message_id === "number" ? result.message_id : undefined;
   };
 
-  const payloadFor = (chatId: ChatId, message: OutgoingMessage) => {
+  /** Everything a message carries besides its text and where it goes. */
+  const optionsFor = (message: OutgoingMessage) => {
     // An empty choice list is meaningful: it is what clears a keyboard from a
     // message that had one, so it must reach Telegram rather than be dropped as
     // "no choices".
     const markup =
       message.choices === undefined ? undefined : keyboardFor(message.choices, message.promptId);
     return {
-      chat_id: Number.parseInt(chatId, 10),
       parse_mode: "HTML" as const,
       link_preview_options: { is_disabled: true },
       ...(markup === undefined ? {} : { reply_markup: markup }),
@@ -281,7 +282,7 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
     readChoice: (callbackData: string): ChoiceRef | undefined => choiceTokens.read(callbackData),
 
     async send(chatId: ChatId, message: OutgoingMessage): Promise<MessageRef | undefined> {
-      const base = payloadFor(chatId, message);
+      const base = { ...destinationOf(chatId), ...optionsFor(message) };
       const pieces = telegramPieces(message.body);
       let lastMessageId: number | undefined;
 
@@ -322,7 +323,7 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
       await call(
         "editMessageReplyMarkup",
         {
-          chat_id: Number.parseInt(chatId, 10),
+          chat_id: parseChatAddress(chatId).chatId,
           message_id: Number.parseInt(ref, 10),
           reply_markup: keyboardFor(choices, promptId),
         },
@@ -334,7 +335,9 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
       await call(
         "editMessageText",
         {
-          ...payloadFor(chatId, message),
+          // A message is edited by its id alone; it already sits in its topic.
+          chat_id: parseChatAddress(chatId).chatId,
+          ...optionsFor(message),
           message_id: Number.parseInt(ref, 10),
           text: renderRichText(message.body),
         },
@@ -345,8 +348,12 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
     },
 
     async sendFile(chatId: ChatId, file: OutgoingFile, caption?: string): Promise<void> {
+      const destination = destinationOf(chatId);
       const form = new FormData();
-      form.append("chat_id", String(Number.parseInt(chatId, 10)));
+      form.append("chat_id", String(destination.chat_id));
+      if (destination.message_thread_id !== undefined) {
+        form.append("message_thread_id", String(destination.message_thread_id));
+      }
       // The bytes the core read from where it confined the file; the path is never reopened.
       form.append("photo", new Blob([file.bytes], { type: "image/png" }), file.filename);
       if (caption !== undefined) {
@@ -355,7 +362,7 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
 
       await dispatchTelegramRequest({
         method: "sendPhoto",
-        chatId: Number.parseInt(chatId, 10),
+        chatId: destination.chat_id,
         send: () =>
           fetch(`${apiBase}/bot${options.botToken}/sendPhoto`, {
             method: "POST",
@@ -367,17 +374,13 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
 
     async deleteReceived(chatId: ChatId, ref: MessageRef): Promise<void> {
       await call("deleteMessage", {
-        chat_id: Number.parseInt(chatId, 10),
+        chat_id: parseChatAddress(chatId).chatId,
         message_id: Number.parseInt(ref, 10),
       });
     },
 
     async typing(chatId: ChatId): Promise<void> {
-      await call(
-        "sendChatAction",
-        { chat_id: Number.parseInt(chatId, 10), action: "typing" },
-        true,
-      );
+      await call("sendChatAction", { ...destinationOf(chatId), action: "typing" }, true);
     },
   };
 }

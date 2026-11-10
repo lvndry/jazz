@@ -39,7 +39,7 @@ import { answerRunFromChat, isRunAnswerCommand } from "@jazz/bot-shared/run-answ
 import { secretsMatch } from "@jazz/bot-shared/secret-compare";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { installShutdown } from "@jazz/bot-shared/shutdown";
-import { code, line, plainLine, text } from "@jazz/bot-shared/surface";
+import { type ChatId, code, line, plainLine, text } from "@jazz/bot-shared/surface";
 import { setTzForChat, isValidTimeZone } from "@jazz/bot-shared/timezone-store";
 import { startToolResultSweep } from "@jazz/bot-shared/tool-result-sweep";
 import {
@@ -52,6 +52,7 @@ import {
 import { parseCommand } from "@jazz/bot-shared/turn-commands";
 import tzlookup from "tz-lookup";
 import { agentIdForChat, chatIdFromAgentId, syncAgentDisplayName } from "./agents";
+import { chatAddressOf, chatScopeOf, parseChatAddress, type TopicFields } from "./chat-address";
 import {
   buildMediaPrompt,
   downloadTelegramFile,
@@ -61,6 +62,7 @@ import {
 } from "./media";
 import { withReplyContext } from "./quotes";
 import { createTelegramSurface, DEFAULT_TELEGRAM_API_BASE, type TelegramSurface } from "./surface";
+import { TOPIC_NAME_LIMIT, topicNameFrom } from "./topic-names";
 
 const STORE_FILES = {
   timezone: "tg-tz.json",
@@ -246,7 +248,7 @@ async function reverseGeocode(
 /** Best-effort: set the chat's timezone from shared coordinates, and tell them. */
 async function maybeSetTzFromLocation(
   bridge: Bridge,
-  chatId: number,
+  address: ChatId,
   latitude: number,
   longitude: number,
 ): Promise<void> {
@@ -259,12 +261,17 @@ async function maybeSetTzFromLocation(
   if (!isValidTimeZone(detected)) {
     return;
   }
-  const previous = setTzForChat(bridge.config.jazzHome, STORE_FILES.timezone, chatId, detected);
+  const previous = setTzForChat(
+    bridge.config.jazzHome,
+    STORE_FILES.timezone,
+    chatScopeOf(address),
+    detected,
+  );
   if (previous === detected) {
     return;
   }
   const hadZone = typeof previous === "string" && isValidTimeZone(previous);
-  await bridge.runner.send(String(chatId), [
+  await bridge.runner.send(address, [
     line(
       text(`🌍 ${hadZone ? "Updated" : "Set"} your timezone to `),
       code(detected),
@@ -277,22 +284,22 @@ async function maybeSetTzFromLocation(
 
 async function handleLocation(
   bridge: Bridge,
-  chatId: number,
+  address: ChatId,
   senderId: string,
   latitude: number,
   longitude: number,
 ): Promise<void> {
-  await maybeSetTzFromLocation(bridge, chatId, latitude, longitude);
-  const address = await reverseGeocode(bridge.config, latitude, longitude);
+  await maybeSetTzFromLocation(bridge, address, latitude, longitude);
+  const streetAddress = await reverseGeocode(bridge.config, latitude, longitude);
   const mapLink = `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=17/${latitude}/${longitude}`;
   const prompt =
     "[The user shared their current location.]\n" +
     `Coordinates: latitude ${latitude}, longitude ${longitude}\n` +
-    (address ? `Approximate address (reverse-geocoded): ${address}\n` : "") +
+    (streetAddress ? `Approximate address (reverse-geocoded): ${streetAddress}\n` : "") +
     `Map: ${mapLink}\n\n` +
     "Tell me briefly where this is (neighborhood and a nearby landmark), then ask what I need — " +
     "directions to a place, the nearest something, etc. Use web search for anything nearby or for routing.";
-  await bridge.runner.handle({ chatId: String(chatId), senderId, text: prompt });
+  await bridge.runner.handle({ chatId: address, senderId, text: prompt });
 }
 
 // --- Commands menu --------------------------------------------------------
@@ -319,7 +326,10 @@ const BOT_COMMANDS: { command: string; description: string }[] = [
 export interface CallbackQuery {
   readonly id?: string;
   readonly data?: string;
-  readonly message?: { readonly message_id?: number; readonly chat?: { readonly id?: number } };
+  readonly message?: TopicFields & {
+    readonly message_id?: number;
+    readonly chat?: { readonly id?: number };
+  };
   readonly from?: { readonly id?: number };
 }
 
@@ -380,6 +390,7 @@ export async function handleCallback(bridge: Bridge, callback: CallbackQuery): P
 
   const senderId = String(tapperId);
   const messageRef = String(messageId);
+  const address = chatAddressOf(chatId, callback.message ?? {});
   const choice = bridge.surface.readChoice(data);
   let outcome: ChoiceOutcome;
   if (choice === undefined) {
@@ -388,7 +399,7 @@ export async function handleCallback(bridge: Bridge, callback: CallbackQuery): P
   } else if (choice.promptId.startsWith(SUGGESTION_PROMPT_PREFIX)) {
     outcome = await handleSuggestionTap(
       bridge,
-      String(chatId),
+      address,
       senderId,
       messageRef,
       choice.promptId.slice(SUGGESTION_PROMPT_PREFIX.length),
@@ -396,7 +407,7 @@ export async function handleCallback(bridge: Bridge, callback: CallbackQuery): P
     );
   } else {
     outcome = await bridge.runner.deliverChoice({
-      chatId: String(chatId),
+      chatId: address,
       promptId: choice.promptId,
       choiceId: choice.choiceId,
       senderId,
@@ -411,9 +422,85 @@ export async function handleCallback(bridge: Bridge, callback: CallbackQuery): P
   });
 }
 
+// --- Topics ---------------------------------------------------------------
+
+/**
+ * Topics a person opened without naming them, waiting for a first message to be named from.
+ * Kept in memory only: a restart in between leaves one topic with Telegram's placeholder name.
+ */
+const unnamedTopics = new Set<ChatId>();
+/** Topics opened and never written in would otherwise stay here for the life of the process. */
+const UNNAMED_TOPICS_LIMIT = 500;
+
+function rememberUnnamedTopic(address: ChatId): void {
+  if (unnamedTopics.size >= UNNAMED_TOPICS_LIMIT) {
+    const oldest = unnamedTopics.values().next().value;
+    if (oldest !== undefined) {
+      unnamedTopics.delete(oldest);
+      wordsDuringRename.delete(oldest);
+    }
+  }
+  unnamedTopics.add(address);
+  console.log(`[topics] ${address}: opened without a name, will name it from its next words`);
+}
+
+/** Name a still-unnamed topic from the message that opened it. Best-effort and not awaited. */
+/** Topics with a rename on its way to Telegram, so a quick second message does not send another. */
+const topicsBeingNamed = new Set<ChatId>();
+/** The latest words that arrived during a rename, to try with if Telegram refuses that rename. */
+const wordsDuringRename = new Map<ChatId, string>();
+
+/**
+ * Name a still-unnamed topic from the words of a message in it: its text, or a media caption.
+ * Best-effort and not awaited. The topic stays unnamed until Telegram confirms the name, so a
+ * refused or rate-limited rename is tried again with the next message.
+ */
+function nameTopicFrom(bridge: Bridge, address: ChatId, words: string | undefined): void {
+  if (!unnamedTopics.has(address)) {
+    return;
+  }
+  // A command says nothing about what the topic is for; wait for the first real message.
+  if (words === undefined || words.trim().startsWith("/")) {
+    console.log(`[topics] ${address}: no words to name the topic from yet, leaving it unnamed`);
+    return;
+  }
+  if (topicsBeingNamed.has(address)) {
+    wordsDuringRename.set(address, words);
+    return;
+  }
+  const { chatId, topicId } = parseChatAddress(address);
+  const name = topicNameFrom(words)?.slice(0, TOPIC_NAME_LIMIT);
+  if (topicId === undefined || name === undefined) {
+    return;
+  }
+  topicsBeingNamed.add(address);
+  void bridge.surface
+    .call("editForumTopic", { chat_id: chatId, message_thread_id: topicId, name }, true)
+    .then((response) => {
+      if ((response as { ok?: boolean } | undefined)?.ok === true) {
+        unnamedTopics.delete(address);
+        console.log(`[topics] ${address}: named`);
+        return;
+      }
+      console.warn(`[topics] ${address}: rename refused, will try again with the next message`);
+    })
+    .catch((error: unknown) => {
+      console.error(`[topics] ${address}: naming failed, will try again: ${String(error)}`);
+    })
+    .finally(() => {
+      topicsBeingNamed.delete(address);
+      const waiting = wordsDuringRename.get(address);
+      wordsDuringRename.delete(address);
+      // Still unnamed means the rename was refused: try the words that came in meanwhile.
+      if (waiting !== undefined) {
+        nameTopicFrom(bridge, address, waiting);
+      }
+    });
+}
+
 // --- Dispatch -------------------------------------------------------------
 
-export interface TelegramMessage extends TelegramMediaFields {
+export interface TelegramMessage extends TelegramMediaFields, TopicFields {
   readonly message_id?: number;
   /** `private` for a one-to-one chat with the bot; `group`, `supergroup` or `channel` otherwise. */
   readonly chat?: { readonly id?: number; readonly type?: string };
@@ -431,6 +518,8 @@ export interface TelegramMessage extends TelegramMediaFields {
   readonly location?: { readonly latitude?: number; readonly longitude?: number };
   /** Caption on a media message — the user's actual request, when they wrote one. */
   readonly caption?: string;
+  /** Service message: this topic was just created. */
+  readonly forum_topic_created?: { readonly is_name_implicit?: boolean };
 }
 
 /**
@@ -446,6 +535,7 @@ async function handleMedia(
   message: TelegramMessage,
   media: ExtractedMedia,
 ): Promise<void> {
+  const address = chatAddressOf(chatId, message);
   const sandbox = ensureChatSandbox(bridge.config.jazzHome, agentIdForChat(chatId));
   const outcome = await downloadTelegramFile(
     bridge.config.apiBase,
@@ -457,13 +547,13 @@ async function handleMedia(
     sandboxOwnership(sandbox),
   );
   if (!outcome.ok) {
-    await bridge.runner.send(String(chatId), [
+    await bridge.runner.send(address, [
       plainLine(`⚠️ I couldn't fetch that file — ${outcome.reason}.`),
     ]);
     return;
   }
   await bridge.runner.handle({
-    chatId: String(chatId),
+    chatId: address,
     senderId,
     text: withReplyContext(
       message,
@@ -486,7 +576,7 @@ export function inboundFrom(message: TelegramMessage): InboundMessage | undefine
   // In a private chat the sender is the chat; elsewhere Telegram always names them.
   const senderId = String(message.from?.id ?? chatId);
   return {
-    chatId: String(chatId),
+    chatId: chatAddressOf(chatId, message),
     senderId,
     // A command is read as typed; a quote only gives prose its context.
     text: text.startsWith("/") ? text : withReplyContext(message, text),
@@ -506,12 +596,19 @@ export function dispatchMessage(bridge: Bridge, message: TelegramMessage | undef
     return;
   }
   const senderId = String(message?.from?.id ?? chatId);
+  const address = chatAddressOf(chatId, message ?? {});
   const latitude = message?.location?.latitude;
   const longitude = message?.location?.longitude;
+
+  if (message?.forum_topic_created?.is_name_implicit === true) {
+    rememberUnnamedTopic(address);
+    return;
+  }
 
   let work: Promise<void> | undefined;
   const inbound = message === undefined ? undefined : inboundFrom(message);
   if (inbound !== undefined) {
+    nameTopicFrom(bridge, address, inbound.ownText ?? inbound.text);
     const parsed = parseCommand(inbound.text);
     work =
       parsed !== undefined && isRunAnswerCommand(parsed.command)
@@ -526,8 +623,8 @@ export function dispatchMessage(bridge: Bridge, message: TelegramMessage | undef
             operatorSettingName: "TELEGRAM_OPERATOR_IDS",
             jazzBinary: bridge.config.jazzBinary,
             onAccepted: (runId) =>
-              bridge.runner.send(String(chatId), [plainLine(`⏳ Answering run ${runId}…`)]),
-          }).then((reply) => bridge.runner.send(String(chatId), [plainLine(reply)]))
+              bridge.runner.send(address, [plainLine(`⏳ Answering run ${runId}…`)]),
+          }).then((reply) => bridge.runner.send(address, [plainLine(reply)]))
         : bridge.runner.handle(inbound);
   } else if (
     typeof latitude === "number" &&
@@ -535,10 +632,11 @@ export function dispatchMessage(bridge: Bridge, message: TelegramMessage | undef
     typeof longitude === "number" &&
     Number.isFinite(longitude)
   ) {
-    work = handleLocation(bridge, chatId, senderId, latitude, longitude);
+    work = handleLocation(bridge, address, senderId, latitude, longitude);
   } else {
     const media = extractMedia(message ?? {});
     if (media !== undefined) {
+      nameTopicFrom(bridge, address, message?.caption);
       work = handleMedia(bridge, chatId, senderId, message ?? {}, media);
     }
   }
@@ -547,12 +645,12 @@ export function dispatchMessage(bridge: Bridge, message: TelegramMessage | undef
   }
 
   work.catch((error) => {
-    console.error(`Handling failed for chat ${chatId}: ${String(error)}`);
+    console.error(`Handling failed for chat ${address}: ${String(error)}`);
     // Guard the notification itself so a failed reply can't become an unhandled rejection.
     void bridge.runner
-      .send(String(chatId), [plainLine("⚠️ Something went wrong handling your message.")])
+      .send(address, [plainLine("⚠️ Something went wrong handling your message.")])
       .catch((replyError) =>
-        console.error(`Failed to notify chat ${chatId}: ${String(replyError)}`),
+        console.error(`Failed to notify chat ${address}: ${String(replyError)}`),
       );
   });
 }
@@ -692,11 +790,21 @@ async function pollLoop(bridge: Bridge): Promise<void> {
   }
 }
 
-/** The bot's own display name, used as the agent name the persona speaks as. */
-async function fetchBotName(surface: TelegramSurface): Promise<string | undefined> {
+interface BotIdentity {
+  /** The bot's own display name, used as the agent name the persona speaks as. */
+  readonly name: string | undefined;
+  /** Whether BotFather's topic mode is on, so a private chat can hold several conversations. */
+  readonly privateTopics: boolean;
+}
+
+async function fetchBotIdentity(surface: TelegramSurface): Promise<BotIdentity> {
   const body = (await surface.call("getMe", {})) as
-    { result?: { first_name?: string; username?: string } } | undefined;
-  return body?.result?.first_name ?? body?.result?.username;
+    | { result?: { first_name?: string; username?: string; has_topics_enabled?: boolean } }
+    | undefined;
+  return {
+    name: body?.result?.first_name ?? body?.result?.username,
+    privateTopics: body?.result?.has_topics_enabled === true,
+  };
 }
 
 /**
@@ -727,7 +835,8 @@ export function createBridge(
     files: STORE_FILES,
     spendOrigin: "telegram",
     incognitoFile: INCOGNITO_FILE,
-    agentIdFor: (chatId) => agentIdForChat(Number.parseInt(chatId, 10)),
+    agentIdFor: (address) => agentIdForChat(parseChatAddress(address).chatId),
+    settingsScopeFor: chatScopeOf,
     operators: config.operatorIds,
     operatorSettingName: "TELEGRAM_OPERATOR_IDS",
     ...(config.webAppBaseUrl === undefined
@@ -754,7 +863,7 @@ export function createBridge(
               surfaceName: surface.name,
               sandbox: ensureChatSandbox(
                 config.jazzHome,
-                agentIdForChat(Number.parseInt(turn.chatId, 10)),
+                agentIdForChat(parseChatAddress(turn.chatId).chatId),
               ),
               question: turn.question,
               answer: turn.answer,
@@ -825,12 +934,12 @@ export async function startBridge(): Promise<void> {
   // Populates Telegram's "/" autocomplete menu. Cheap and idempotent, so it's re-sent on
   // every start rather than only when BOT_COMMANDS changes.
   await bridge.surface.call("setMyCommands", { commands: BOT_COMMANDS });
-  const botName = await fetchBotName(bridge.surface);
-  if (botName !== undefined) {
-    syncAgentDisplayName(config.jazzHome, config.baseAgentId, botName);
+  const bot = await fetchBotIdentity(bridge.surface);
+  if (bot.name !== undefined) {
+    syncAgentDisplayName(config.jazzHome, config.baseAgentId, bot.name);
   }
   console.log(
-    `Telegram → Jazz bridge started as ${botName ?? "an unnamed bot"} (mode="${config.mode}", per-chat agents, policy="${config.approvalPolicy}")`,
+    `Telegram → Jazz bridge started as ${bot.name ?? "an unnamed bot"} (mode="${config.mode}", per-chat agents, policy="${config.approvalPolicy}", private-chat topics ${bot.privateTopics ? "on" : "off"})`,
   );
 
   installShutdown({

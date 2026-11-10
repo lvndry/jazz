@@ -9,8 +9,9 @@ import {
   quote,
   text,
 } from "@jazz/bot-shared/surface";
-import { describe, expect, test } from "bun:test";
-import { renderRichText, telegramPieces } from "./surface";
+import { fakeFetch } from "@jazz/core/test-support/fakes";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createTelegramSurface, renderRichText, telegramPieces } from "./surface";
 
 describe("renderRichText", () => {
   test("maps spans onto Telegram's HTML flavour", () => {
@@ -113,5 +114,63 @@ describe("telegramPieces", () => {
   test("keeps the plain words beside each piece for a rendering fallback", () => {
     const pieces = telegramPieces([markdown("**bold**")]);
     expect(pieces[0]?.plain).toBe("**bold**");
+  });
+});
+
+describe("topics", () => {
+  const realFetch = globalThis.fetch;
+  let requests: { method: string; payload: Record<string, unknown> }[];
+
+  beforeEach(() => {
+    requests = [];
+    globalThis.fetch = fakeFetch((url: string, init: { body: string | FormData }) => {
+      const method = url.slice(url.lastIndexOf("/") + 1);
+      const payload =
+        typeof init.body === "string"
+          ? (JSON.parse(init.body) as Record<string, unknown>)
+          : Object.fromEntries(
+              [...init.body.entries()].filter((entry) => typeof entry[1] === "string"),
+            );
+      requests.push({ method, payload });
+      return Promise.resolve(Response.json({ ok: true, result: { message_id: 31 } }));
+    });
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const surface = () => createTelegramSurface({ botToken: "123:test", apiBase: "http://bot.test" });
+  const only = (method: string) => requests.find((request) => request.method === method)?.payload;
+
+  test("a message, a typing hint and a file all land in the topic", async () => {
+    const telegram = surface();
+    await telegram.send("-100500_42", { body: [plainLine("hello")] });
+    await telegram.typing?.("-100500_42");
+    await telegram.sendFile?.("-100500_42", {
+      path: "/tmp/chart.png",
+      bytes: new Uint8Array([1, 2, 3]),
+      filename: "chart.png",
+    });
+
+    expect(only("sendMessage")).toMatchObject({ chat_id: -100500, message_thread_id: 42 });
+    expect(only("sendChatAction")).toMatchObject({ chat_id: -100500, message_thread_id: 42 });
+    expect(only("sendPhoto")).toMatchObject({ chat_id: "-100500", message_thread_id: "42" });
+  });
+
+  test("a chat without topics is addressed by its id alone", async () => {
+    await surface().send("1001", { body: [plainLine("hello")] });
+    expect(only("sendMessage")).toMatchObject({ chat_id: 1001 });
+    expect(only("sendMessage")).not.toHaveProperty("message_thread_id");
+  });
+
+  test("editing and re-drawing buttons address the message, not the topic", async () => {
+    const telegram = surface();
+    await telegram.edit?.("-100500_42", "31", { body: [plainLine("done")] });
+    await telegram.setChoices("-100500_42", "31", []);
+
+    expect(only("editMessageText")).toMatchObject({ chat_id: -100500, message_id: 31 });
+    expect(only("editMessageText")).not.toHaveProperty("message_thread_id");
+    expect(only("editMessageReplyMarkup")).toMatchObject({ chat_id: -100500, message_id: 31 });
   });
 });

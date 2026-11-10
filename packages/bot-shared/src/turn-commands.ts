@@ -118,6 +118,8 @@ const REMIND_USAGE: RichText = [
 export interface CommandContext {
   readonly config: TurnConfig;
   send(chatId: ChatId, body: RichText, choices?: CommandChoices): Promise<void>;
+  /** The id the conversation's timezone and approval mode are stored under. */
+  settingsScopeFor(chatId: ChatId): string;
   sandboxFor(chatId: ChatId): ChatSandbox;
   ensureAgent(chatId: ChatId, sandbox: ChatSandbox): AgentFile;
   writeAgent(sandbox: ChatSandbox, agent: AgentFile): void;
@@ -246,8 +248,9 @@ export function createCommands(context: CommandContext): Commands {
     const sandbox = context.sandboxFor(chatId);
     const agent = context.ensureAgent(chatId, sandbox);
     const usage = await todayUsage(config.jazzHome, config.spendOrigin);
-    const mode = approvalModeFor(config.jazzHome, config.files.mode, chatId);
-    const zone = chatZone(config.jazzHome, config.files.timezone, chatId);
+    const settingsScope = context.settingsScopeFor(chatId);
+    const mode = approvalModeFor(config.jazzHome, config.files.mode, settingsScope);
+    const zone = chatZone(config.jazzHome, config.files.timezone, settingsScope);
     const incognito =
       config.incognitoFile !== undefined &&
       isIncognito(config.jazzHome, config.incognitoFile, chatId);
@@ -287,6 +290,22 @@ export function createCommands(context: CommandContext): Commands {
       ? listModelsForProvider(provider as ProviderName)
       : [];
 
+  /**
+   * Re-read the agent, change it and write it back in one synchronous step. Several
+   * conversations share one agent (a chat's topics), and a copy read before an await can be
+   * stale by the time it is written, wiping a setting another conversation just changed.
+   */
+  const updateAgent = (
+    chatId: ChatId,
+    sandbox: ChatSandbox,
+    change: (agent: AgentFile) => void,
+  ): AgentFile => {
+    const fresh = context.ensureAgent(chatId, sandbox);
+    change(fresh);
+    context.writeAgent(sandbox, fresh);
+    return fresh;
+  };
+
   const handleModel = async (chatId: ChatId, args: string): Promise<void> => {
     const sandbox = context.sandboxFor(chatId);
     const agent = context.ensureAgent(chatId, sandbox);
@@ -304,17 +323,18 @@ export function createCommands(context: CommandContext): Commands {
         return;
       }
       const metadata = await getModelsDevMetadata(parsed.model, parsed.provider);
-      agent.config.llm.provider = parsed.provider;
-      agent.config.llm.model = parsed.model;
-      if (metadata !== undefined) {
-        agent.config.llm.reasoning = reasoningFor(metadata.isReasoningModel === true);
-      }
-      context.writeAgent(sandbox, agent);
+      const updated = updateAgent(chatId, sandbox, (fresh) => {
+        fresh.config.llm.provider = parsed.provider;
+        fresh.config.llm.model = parsed.model;
+        if (metadata !== undefined) {
+          fresh.config.llm.reasoning = reasoningFor(metadata.isReasoningModel === true);
+        }
+      });
       await context.send(chatId, [
         plainLine(`✅ Model → ${parsed.provider}/${parsed.model}`),
         plainLine(
           metadata !== undefined
-            ? `Reasoning: ${agent.config.llm.reasoning}`
+            ? `Reasoning: ${updated.config.llm.reasoning}`
             : "⚠️ Unknown model in the catalog — reasoning setting left unchanged.",
         ),
       ]);
@@ -401,8 +421,9 @@ export function createCommands(context: CommandContext): Commands {
       ]);
       return;
     }
-    agent.config.persona = args;
-    context.writeAgent(sandbox, agent);
+    updateAgent(chatId, sandbox, (fresh) => {
+      fresh.config.persona = args;
+    });
     await context.send(chatId, [plainLine(`✅ Persona → ${args}`)]);
   };
 
@@ -419,7 +440,7 @@ export function createCommands(context: CommandContext): Commands {
       );
       return false;
     }
-    setApprovalMode(config.jazzHome, config.files.mode, chatId, mode);
+    setApprovalMode(config.jazzHome, config.files.mode, context.settingsScopeFor(chatId), mode);
     await context.send(chatId, [
       plainLine(`✅ Mode → ${APPROVAL_MODE_LABELS[mode]}`),
       plainLine(describeApprovalMode(mode, config.approvalPolicy, markup)),
@@ -435,7 +456,11 @@ export function createCommands(context: CommandContext): Commands {
       await setMode(chatId, message.senderId, requested);
       return;
     }
-    const current = approvalModeFor(config.jazzHome, config.files.mode, chatId);
+    const current = approvalModeFor(
+      config.jazzHome,
+      config.files.mode,
+      context.settingsScopeFor(chatId),
+    );
     await context.send(
       chatId,
       [
@@ -458,7 +483,7 @@ export function createCommands(context: CommandContext): Commands {
   };
 
   const applyZone = async (chatId: ChatId, zone: string): Promise<void> => {
-    setTzForChat(config.jazzHome, config.files.timezone, chatId, zone);
+    setTzForChat(config.jazzHome, config.files.timezone, context.settingsScopeFor(chatId), zone);
     await context.send(chatId, [
       line(text("✅ Timezone → "), code(zone)),
       plainLine(`Local time now: ${formatWhen(Date.now(), zone)}. Reminders use it from now on.`),
@@ -467,7 +492,11 @@ export function createCommands(context: CommandContext): Commands {
 
   const handleTz = async (chatId: ChatId, args: string): Promise<void> => {
     if (args.length === 0) {
-      const current = chatZone(config.jazzHome, config.files.timezone, chatId);
+      const current = chatZone(
+        config.jazzHome,
+        config.files.timezone,
+        context.settingsScopeFor(chatId),
+      );
       const status: RichText = [
         current === undefined
           ? line(text("🌍 Timezone: not set. I ask before scheduling a clock time."))
@@ -529,7 +558,9 @@ export function createCommands(context: CommandContext): Commands {
 
   const handleReminders = async (chatId: ChatId): Promise<void> => {
     const sandbox = context.sandboxFor(chatId);
-    const timezone = chatZone(config.jazzHome, config.files.timezone, chatId)?.zone ?? "UTC";
+    const timezone =
+      chatZone(config.jazzHome, config.files.timezone, context.settingsScopeFor(chatId))?.zone ??
+      "UTC";
     const mine = [...readReminders(sandbox.home, config.agentIdFor(chatId))].sort(
       (left, right) => left.fireAt - right.fireAt,
     );
@@ -670,20 +701,27 @@ export function createCommands(context: CommandContext): Commands {
       switch (tap.promptId) {
         case MODEL_PROMPT_ID: {
           const sandbox = context.sandboxFor(chatId);
-          const agent = context.ensureAgent(chatId, sandbox);
-          const chosen = (await providerModels(agent.config.llm.provider)).find(
-            (model) => model.id === choiceId,
-          );
+          const provider = context.ensureAgent(chatId, sandbox).config.llm.provider;
+          const chosen = (await providerModels(provider)).find((model) => model.id === choiceId);
           if (chosen === undefined) {
             return "expired";
           }
-          agent.config.llm.model = chosen.id;
-          agent.config.llm.reasoning = reasoningFor(chosen.isReasoningModel);
-          context.writeAgent(sandbox, agent);
+          // The picker listed this provider's models. If the provider changed while they were
+          // looked up (another topic ran /model), this model belongs to a provider no longer set.
+          if (context.ensureAgent(chatId, sandbox).config.llm.provider !== provider) {
+            console.log(
+              `[commands] ${chatId}: model picked for ${provider}, provider changed since`,
+            );
+            return "expired";
+          }
+          const updated = updateAgent(chatId, sandbox, (fresh) => {
+            fresh.config.llm.model = chosen.id;
+            fresh.config.llm.reasoning = reasoningFor(chosen.isReasoningModel);
+          });
           await closePicker(tap);
           await context.send(chatId, [
-            plainLine(`✅ Model → ${agent.config.llm.provider}/${chosen.id}`),
-            plainLine(`Reasoning: ${agent.config.llm.reasoning}`),
+            plainLine(`✅ Model → ${updated.config.llm.provider}/${chosen.id}`),
+            plainLine(`Reasoning: ${updated.config.llm.reasoning}`),
           ]);
           return "answered";
         }
@@ -693,9 +731,9 @@ export function createCommands(context: CommandContext): Commands {
           if (!available.includes(choiceId)) {
             return "expired";
           }
-          const agent = context.ensureAgent(chatId, sandbox);
-          agent.config.persona = choiceId;
-          context.writeAgent(sandbox, agent);
+          updateAgent(chatId, sandbox, (fresh) => {
+            fresh.config.persona = choiceId;
+          });
           await closePicker(tap);
           await context.send(chatId, [plainLine(`✅ Persona → ${choiceId}`)]);
           return "answered";
