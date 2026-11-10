@@ -118,6 +118,8 @@ const REMIND_USAGE: RichText = [
 export interface CommandContext {
   readonly config: TurnConfig;
   send(chatId: ChatId, body: RichText, choices?: CommandChoices): Promise<void>;
+  /** The id the conversation's timezone and approval mode are stored under. */
+  settingsScopeFor(chatId: ChatId): string;
   sandboxFor(chatId: ChatId): ChatSandbox;
   ensureAgent(chatId: ChatId, sandbox: ChatSandbox): AgentFile;
   writeAgent(sandbox: ChatSandbox, agent: AgentFile): void;
@@ -246,8 +248,9 @@ export function createCommands(context: CommandContext): Commands {
     const sandbox = context.sandboxFor(chatId);
     const agent = context.ensureAgent(chatId, sandbox);
     const usage = await todayUsage(config.jazzHome, config.spendOrigin);
-    const mode = approvalModeFor(config.jazzHome, config.files.mode, chatId);
-    const zone = chatZone(config.jazzHome, config.files.timezone, chatId);
+    const settingsScope = context.settingsScopeFor(chatId);
+    const mode = approvalModeFor(config.jazzHome, config.files.mode, settingsScope);
+    const zone = chatZone(config.jazzHome, config.files.timezone, settingsScope);
     const incognito =
       config.incognitoFile !== undefined &&
       isIncognito(config.jazzHome, config.incognitoFile, chatId);
@@ -419,7 +422,7 @@ export function createCommands(context: CommandContext): Commands {
       );
       return false;
     }
-    setApprovalMode(config.jazzHome, config.files.mode, chatId, mode);
+    setApprovalMode(config.jazzHome, config.files.mode, context.settingsScopeFor(chatId), mode);
     await context.send(chatId, [
       plainLine(`✅ Mode → ${APPROVAL_MODE_LABELS[mode]}`),
       plainLine(describeApprovalMode(mode, config.approvalPolicy, markup)),
@@ -435,7 +438,11 @@ export function createCommands(context: CommandContext): Commands {
       await setMode(chatId, message.senderId, requested);
       return;
     }
-    const current = approvalModeFor(config.jazzHome, config.files.mode, chatId);
+    const current = approvalModeFor(
+      config.jazzHome,
+      config.files.mode,
+      context.settingsScopeFor(chatId),
+    );
     await context.send(
       chatId,
       [
@@ -458,7 +465,7 @@ export function createCommands(context: CommandContext): Commands {
   };
 
   const applyZone = async (chatId: ChatId, zone: string): Promise<void> => {
-    setTzForChat(config.jazzHome, config.files.timezone, chatId, zone);
+    setTzForChat(config.jazzHome, config.files.timezone, context.settingsScopeFor(chatId), zone);
     await context.send(chatId, [
       line(text("✅ Timezone → "), code(zone)),
       plainLine(`Local time now: ${formatWhen(Date.now(), zone)}. Reminders use it from now on.`),
@@ -467,7 +474,11 @@ export function createCommands(context: CommandContext): Commands {
 
   const handleTz = async (chatId: ChatId, args: string): Promise<void> => {
     if (args.length === 0) {
-      const current = chatZone(config.jazzHome, config.files.timezone, chatId);
+      const current = chatZone(
+        config.jazzHome,
+        config.files.timezone,
+        context.settingsScopeFor(chatId),
+      );
       const status: RichText = [
         current === undefined
           ? line(text("🌍 Timezone: not set. I ask before scheduling a clock time."))
@@ -529,7 +540,9 @@ export function createCommands(context: CommandContext): Commands {
 
   const handleReminders = async (chatId: ChatId): Promise<void> => {
     const sandbox = context.sandboxFor(chatId);
-    const timezone = chatZone(config.jazzHome, config.files.timezone, chatId)?.zone ?? "UTC";
+    const timezone =
+      chatZone(config.jazzHome, config.files.timezone, context.settingsScopeFor(chatId))?.zone ??
+      "UTC";
     const mine = [...readReminders(sandbox.home, config.agentIdFor(chatId))].sort(
       (left, right) => left.fireAt - right.fireAt,
     );

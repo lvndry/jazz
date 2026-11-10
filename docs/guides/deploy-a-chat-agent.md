@@ -82,6 +82,15 @@ If nothing happens: check your chat id is actually on `TELEGRAM_ALLOWED_CHAT_IDS
 `docker compose logs` doesn't show an auth error from Telegram (a copy-pasted token with a
 trailing space is the usual culprit).
 
+### 6. Optional: one conversation per topic
+
+To run several conversations side by side in your DM, open @BotFather → your bot → **Bot
+Settings** and turn on topics in private chats. Each topic you open is then its own
+conversation, with its own history and its own `/new`, and runs alongside the others. A topic
+you open without naming is named after your first message in it. The bridge logs
+`private-chat topics on` at startup once this is set. Forum supergroups work the same way with
+no setting.
+
 ---
 
 ## Discord

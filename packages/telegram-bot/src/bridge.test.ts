@@ -19,6 +19,10 @@ import { renderRichText, type TelegramSurface } from "./surface";
 /** A run the test finishes by hand. */
 interface ManualRun {
   readonly prompt: string;
+  /** The agent the run was started for, which is also whose sandbox it runs in. */
+  readonly agentId: string;
+  /** The persistent conversation's key, or undefined for an incognito run. */
+  readonly conversationKey: string | undefined;
   readonly handlers: JazzRunHandlers;
   readonly decisions: { toolCallId: string; approved: boolean }[];
   finish(envelope?: JazzEnvelope): void;
@@ -31,6 +35,8 @@ const GROUP = -500;
 let dataDir: string;
 let runs: ManualRun[];
 let sent: OutgoingMessage[];
+/** Where each entry of `sent` went, index for index. */
+let sentTo: string[];
 let calls: { method: string; payload: Record<string, unknown> }[];
 let bridge: Bridge;
 /** The callback data each drawn button carries, keyed by `<promptId>|<choiceId>`. */
@@ -49,8 +55,9 @@ function fakeSurface(): TelegramSurface {
       typingIndicator: true,
       maxMessageChars: 3_500,
     },
-    send: (_chatId, message) => {
+    send: (chatId, message) => {
       sent.push(message);
+      sentTo.push(chatId);
       for (const choice of message.choices ?? []) {
         const promptId = message.promptId ?? "";
         buttonData.set(`${promptId}|${choice.id}`, tokens.mint({ promptId, choiceId: choice.id }));
@@ -58,8 +65,9 @@ function fakeSurface(): TelegramSurface {
       return Promise.resolve(String(nextMessageId++));
     },
     // An edit is recorded like a send: the progress bubble closing is one.
-    edit: (_chatId, _ref, message) => {
+    edit: (chatId, _ref, message) => {
       sent.push(message);
+      sentTo.push(chatId);
       return Promise.resolve();
     },
     setChoices: () => Promise.resolve(),
@@ -100,7 +108,14 @@ function config(): BridgeConfig {
   };
 }
 
-function startRun(options: { prompt: string }, handlers: JazzRunHandlers = {}): JazzRun {
+function startRun(
+  options: {
+    prompt: string;
+    agentId: string;
+    conversation: { kind: "persistent"; key: string } | { kind: "ephemeral" };
+  },
+  handlers: JazzRunHandlers = {},
+): JazzRun {
   let settle: (envelope: JazzEnvelope) => void = () => {};
   const result = new Promise<JazzEnvelope>((resolve) => {
     settle = resolve;
@@ -109,6 +124,9 @@ function startRun(options: { prompt: string }, handlers: JazzRunHandlers = {}): 
   let cancelled = false;
   runs.push({
     prompt: options.prompt,
+    agentId: options.agentId,
+    conversationKey:
+      options.conversation.kind === "persistent" ? options.conversation.key : undefined,
     handlers,
     decisions,
     finish: (envelope = { ok: true, answer: `answered: ${options.prompt}`, costUSD: 0 }) =>
@@ -157,6 +175,7 @@ beforeEach(() => {
   );
   runs = [];
   sent = [];
+  sentTo = [];
   calls = [];
   buttonData = new Map();
   bridge = createBridge(config(), fakeSurface(), startRun as never);
@@ -241,6 +260,150 @@ describe("messages", () => {
     const answer = sent.find((message) => message.promptId === "followup");
     expect(renderRichText(answer?.body ?? [])).toContain("<b>bold</b>");
     expect(renderRichText(answer?.body ?? [])).toContain("<code>code</code>");
+  });
+});
+
+describe("topics", () => {
+  const inTopic = (topicId: number, text: string) => ({
+    chat: { id: OWNER, type: "private" },
+    from: { id: OWNER },
+    message_thread_id: topicId,
+    is_topic_message: true,
+    text,
+  });
+  const topicAddress = (topicId: number): string => `${OWNER}_${topicId}`;
+
+  /** Finish every run, including one a queued message starts once the run ahead of it ends. */
+  const settle = async (...topicIds: number[]): Promise<void> => {
+    await waitUntil(() => {
+      for (const run of runs) {
+        run.finish();
+      }
+      return topicIds.every((topicId) => !bridge.runner.busy(topicAddress(topicId)));
+    });
+  };
+
+  test("two topics of one chat are two conversations that run at once in one sandbox", async () => {
+    dispatchMessage(bridge, inTopic(7, "plan the trip"));
+    dispatchMessage(bridge, inTopic(9, "do my taxes"));
+    await waitUntil(() => runs.length === 2);
+
+    expect(runs.map((run) => run.conversationKey).sort()).toEqual([
+      topicAddress(7),
+      topicAddress(9),
+    ]);
+    expect(new Set(runs.map((run) => run.agentId))).toEqual(new Set([`tg_${OWNER}`]));
+    await settle(7, 9);
+  });
+
+  test("everything a topic's run says goes back into that topic", async () => {
+    dispatchMessage(bridge, inTopic(7, "plan the trip"));
+    await waitUntil(() => runs.length === 1);
+    runs[0]?.finish();
+    await waitUntil(() => sent.some((message) => message.promptId === "followup"));
+
+    expect(new Set(sentTo)).toEqual(new Set([topicAddress(7)]));
+    await settle(7);
+  });
+
+  test("a reply chain in a group without topics stays in the group's one conversation", async () => {
+    dispatchMessage(bridge, {
+      chat: { id: GROUP, type: "supergroup" },
+      from: { id: OWNER },
+      message_thread_id: 55,
+      text: "hello",
+    });
+    await waitUntil(() => runs.length === 1);
+    expect(runs[0]?.conversationKey).toBe(String(GROUP));
+  });
+
+  test("/new in one topic leaves the other topic's conversation alone", async () => {
+    dispatchMessage(bridge, inTopic(7, "/new"));
+    await waitUntil(() => sentTo.includes(topicAddress(7)));
+    dispatchMessage(bridge, inTopic(7, "fresh start"));
+    dispatchMessage(bridge, inTopic(9, "carry on"));
+    await waitUntil(() => runs.length === 2);
+
+    const keyFor = (prompt: string) => runs.find((run) => run.prompt === prompt)?.conversationKey;
+    expect(keyFor("fresh start")).toBe(`${topicAddress(7)}-1`);
+    expect(keyFor("carry on")).toBe(topicAddress(9));
+    await settle(7, 9);
+  });
+
+  test("a timezone set in one topic holds in the chat's other topics", async () => {
+    dispatchMessage(bridge, inTopic(7, "/tz Europe/Paris"));
+    await waitUntil(() => sentTo.includes(topicAddress(7)));
+    dispatchMessage(bridge, inTopic(9, "/tz"));
+    await waitUntil(() => sentTo.includes(topicAddress(9)));
+
+    const reply = sent[sentTo.indexOf(topicAddress(9))];
+    expect(renderRichText(reply?.body ?? [])).toContain("Europe/Paris");
+  });
+
+  test("a tapped button answers the prompt of the topic it was drawn in", async () => {
+    dispatchMessage(bridge, inTopic(7, "delete it"));
+    await waitUntil(() => runs.length === 1);
+    runs[0]?.handlers.onApprovalRequired?.({
+      type: "approval_required",
+      toolCallId: "call-1",
+      toolName: "execute_command",
+      message: "Command: rm -rf build\nDescription: clean",
+    });
+    await waitUntil(() => sent.some((message) => message.promptId === "call-1"));
+
+    await handleCallback(bridge, {
+      id: "cb-1",
+      data: button("call-1", "approve"),
+      message: {
+        message_id: 5,
+        chat: { id: OWNER },
+        message_thread_id: 7,
+        is_topic_message: true,
+      },
+      from: { id: OWNER },
+    });
+    expect(runs[0]?.decisions).toEqual([{ toolCallId: "call-1", approved: true }]);
+    await settle(7);
+  });
+
+  test("a topic opened without a name is named from its first message", async () => {
+    dispatchMessage(bridge, {
+      chat: { id: OWNER, type: "private" },
+      from: { id: OWNER },
+      message_thread_id: 21,
+      is_topic_message: true,
+      forum_topic_created: { is_name_implicit: true },
+    });
+    dispatchMessage(bridge, inTopic(21, "/status"));
+    await waitUntil(() => sentTo.includes(topicAddress(21)));
+    expect(calls.some((call) => call.method === "editForumTopic")).toBe(false);
+
+    dispatchMessage(bridge, inTopic(21, "Plan the Lisbon trip"));
+    await waitUntil(() => calls.some((call) => call.method === "editForumTopic"));
+    expect(calls.find((call) => call.method === "editForumTopic")?.payload).toEqual({
+      chat_id: OWNER,
+      message_thread_id: 21,
+      name: "Plan the Lisbon trip",
+    });
+
+    dispatchMessage(bridge, inTopic(21, "and book the flights"));
+    await waitUntil(() => runs.length === 1);
+    expect(calls.filter((call) => call.method === "editForumTopic")).toHaveLength(1);
+    await settle(21);
+  });
+
+  test("a topic the person named themselves keeps its name", async () => {
+    dispatchMessage(bridge, {
+      chat: { id: OWNER, type: "private" },
+      from: { id: OWNER },
+      message_thread_id: 22,
+      is_topic_message: true,
+      forum_topic_created: {},
+    });
+    dispatchMessage(bridge, inTopic(22, "hello"));
+    await waitUntil(() => runs.length === 1);
+    expect(calls.some((call) => call.method === "editForumTopic")).toBe(false);
+    await settle(22);
   });
 });
 

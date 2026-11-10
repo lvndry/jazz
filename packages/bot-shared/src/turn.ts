@@ -124,6 +124,14 @@ export interface TurnConfig {
   /** The agent id a conversation's files live under. */
   readonly agentIdFor: (chatId: ChatId) => string;
   /**
+   * The id a conversation's timezone and approval mode are stored under.
+   *
+   * A surface whose conversations are parts of one chat (Telegram topics) names the chat
+   * here, so a zone or a mode set in one of them holds in all of them. Defaults to the
+   * conversation's own id.
+   */
+  readonly settingsScopeFor?: (chatId: ChatId) => string;
+  /**
    * Senders allowed to widen a conversation's authority: `/mode yolo`, "Always allow".
    *
    * An allowlist admits people to talk to the agent; it does not make each of them the
@@ -489,6 +497,8 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   const send = async (chatId: ChatId, body: RichText): Promise<void> => {
     await surface.send(chatId, { body });
   };
+
+  const settingsScopeFor = (chatId: ChatId): string => config.settingsScopeFor?.(chatId) ?? chatId;
 
   const sandboxFor = (chatId: ChatId): ChatSandbox =>
     ensureChatSandbox(config.jazzHome, config.agentIdFor(chatId));
@@ -875,7 +885,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   const zoneOptionsFor = (
     chatId: ChatId,
   ): Pick<JazzRunOptions, "timezone" | "zoneSettingCommand"> => {
-    const zone = chatZone(config.jazzHome, config.files.timezone, chatId);
+    const zone = chatZone(config.jazzHome, config.files.timezone, settingsScopeFor(chatId));
 
     return {
       ...(zone !== undefined ? { timezone: zone } : {}),
@@ -910,7 +920,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
         approvalPolicy: approvalPolicyFor(
           config.jazzHome,
           config.files.mode,
-          chatId,
+          settingsScopeFor(chatId),
           config.approvalPolicy,
         ),
         autoApproveTools: config.autoApproveTools,
@@ -1053,6 +1063,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   const commands = createCommands({
     config,
     startedAt,
+    settingsScopeFor,
     sandboxFor,
     ensureAgent,
     writeAgent,
