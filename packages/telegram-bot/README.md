@@ -18,7 +18,7 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 - 🔌 **Bring your own model**: OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama, no keys/cost).
 - 🎛️ **Per-person `/model` and `/persona`**: `/model` picks from an inline keyboard of the current provider's models, or `/model openai/gpt-5.2` switches to any other provider Jazz supports outright; each user keeps their own choice.
 - ♻️ **Auto reasoning**: switching model reads its advertised capabilities and enables/disables thinking so non-thinking models don't error.
-- 🛡️ **Approvals you can get through fast**: a tool needing a human sends its own accept/reject message; when a model fires several tool calls at once, every outstanding prompt grows **⚡ Approve all N** / **🚫 Reject all N** so one tap clears the batch. An operator's `/mode yolo` turns approvals off for that chat entirely; `/mode safe` puts them back. In a group, only the person who asked answers their own approvals.
+- 🛡️ **Approvals you can get through fast**: a tool needing a human sends its own accept/reject message, with Approve in green and Reject in red; once answered, the option picked stays on the message, greyed out, as the record of the decision; when a model fires several tool calls at once, every outstanding prompt grows **⚡ Approve all N** / **🚫 Reject all N** so one tap clears the batch. An operator's `/mode yolo` turns approvals off for that chat entirely; `/mode safe` puts them back. In a group, only the person who asked answers their own approvals.
 - 📡 **Live progress**: in your DM, the run shows as a native draft: Telegram's "Thinking…" placeholder, then the tools it calls, then the answer streaming in as it is written. Telegram's own stop button on the draft ends the run and keeps what was already written. In a group, a status bubble updates in real time with the agent's thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔) instead, so one person's answer doesn't stream to everyone. Either way the answer lands as a new message (so it notifies) with a `✅ Done · tools · tokens · $cost` summary. A self-hosted Bot API server without drafts gets the bubble in DMs too.
 - ⏰ **Reminders**: `/remind 30m …` or plain language ("remind me in 2 hours …"), scheduled by the agent itself via a native tool, resolved in your own timezone (`/tz`, or auto-set from a shared location) and delivered even across restarts.
 - 📍 **Location aware**: share a pin to get oriented, find nearby places, and set your timezone automatically.
@@ -81,6 +81,10 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 | `/incognito`            | Keep this conversation in memory only (nothing saved to history or memory) until `/new` or `/incognito` again                                                                                                                                             |
 | `/status`               | Current model, your timezone, approval mode, today's runs/tokens/cost, daily cap, uptime                                                                                                                                                                  |
 | `/help`                 | Usage                                                                                                                                                                                                                                                     |
+
+A message you send while an answer is being written gets a 👀 reaction once it is
+taken into the answer in progress or queued right behind it. When the queue is
+already full, the message is dropped with a warning instead, and gets no reaction.
 
 While a message is processing, the draft's stop button (in a DM) or the progress
 bubble's **⏹ Cancel** button (in a group) kills the run; `/stop` works in both. Each answer gets **contextual follow-up buttons**: a quick

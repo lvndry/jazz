@@ -5,7 +5,7 @@ import { readAgentFile } from "@jazz/bot-shared/agent-file";
 import { ensureChatSandbox } from "@jazz/bot-shared/chat-sandbox";
 import { createChoiceTokens } from "@jazz/bot-shared/choice-tokens";
 import type { JazzEnvelope, JazzEvent, JazzRun, JazzRunHandlers } from "@jazz/bot-shared/jazz-run";
-import type { DraftPreview, OutgoingMessage } from "@jazz/bot-shared/surface";
+import type { Choice, DraftPreview, OutgoingMessage } from "@jazz/bot-shared/surface";
 import { waitUntil } from "@jazz/bot-shared/wait-until";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
@@ -50,6 +50,10 @@ let bridge: Bridge;
 let drafts: ({ chatId: string } & DraftPreview)[];
 /** Makes the fake surface turn drafts down, as a Bot API server without them would. */
 let refuseDrafts: boolean;
+/** Every keyboard redrawn under an already-sent message. */
+let redrawn: { ref: string; choices: readonly Choice[] }[];
+/** Every message marked as seen. */
+let acknowledged: { chatId: string; ref: string }[];
 /** Every draft request waits on this, so a test can hold the first frame in flight. */
 let draftGate: Promise<void>;
 /** The callback data each drawn button carries, keyed by `<promptId>|<choiceId>`. */
@@ -83,7 +87,14 @@ function fakeSurface(): TelegramSurface {
       sentTo.push(chatId);
       return Promise.resolve();
     },
-    setChoices: () => Promise.resolve(),
+    setChoices: (_chatId, ref, choices) => {
+      redrawn.push({ ref, choices });
+      return Promise.resolve();
+    },
+    acknowledge: (chatId, ref) => {
+      acknowledged.push({ chatId, ref });
+      return Promise.resolve();
+    },
     typing: () => Promise.resolve(),
     streamDraft: async (chatId, draft) => {
       drafts.push({ chatId, ...draft });
@@ -205,6 +216,8 @@ beforeEach(() => {
   refusedCalls = new Map();
   drafts = [];
   refuseDrafts = false;
+  redrawn = [];
+  acknowledged = [];
   draftGate = Promise.resolve();
   buttonData = new Map();
   bridge = createBridge(config(), fakeSurface(), startRun as never);
@@ -623,6 +636,21 @@ describe("drafts", () => {
     runs[0]?.finish();
   });
 
+  test("a message sent while a run is going is marked as seen, not answered with a message", async () => {
+    dispatchMessage(bridge, privately("first"));
+    await waitUntil(() => runs.length === 1);
+    const before = sent.length;
+    dispatchMessage(bridge, { ...privately("also this"), message_id: 42 });
+    await waitUntil(() => acknowledged.length === 1);
+
+    expect(acknowledged[0]).toEqual({ chatId: String(OWNER), ref: "42" });
+    expect(sent).toHaveLength(before);
+    // The fake run never reads it, so it is answered by a run of its own afterwards.
+    runs[0]?.finish();
+    await waitUntil(() => runs.length === 2);
+    runs[1]?.finish();
+  });
+
   test("a refused draft switches the run to the progress bubble", async () => {
     refuseDrafts = true;
     dispatchMessage(bridge, privately("hi"));
@@ -675,6 +703,48 @@ describe("buttons", () => {
       from: { id: GROUP_MEMBER },
     });
     expect(runs[0]?.decisions).toEqual([{ toolCallId: "call-2", approved: true }]);
+    runs[0]?.finish();
+  });
+
+  test("an answered approval keeps the option picked, disabled, as the record of it", async () => {
+    dispatchMessage(bridge, { chat: { id: GROUP }, from: { id: GROUP_MEMBER }, text: "status?" });
+    await waitUntil(() => runs.length === 1);
+    runs[0]?.handlers.onApprovalRequired?.(approval("call-1"));
+    await waitUntil(() => sent.some((message) => message.promptId === "call-1"));
+
+    await handleCallback(bridge, {
+      id: "q1",
+      data: button("call-1", "reject"),
+      message: { message_id: 9, chat: { id: GROUP } },
+      from: { id: GROUP_MEMBER },
+    });
+    const settled = redrawn.find((redraw) => redraw.choices.some((choice) => choice.disabled));
+    expect(settled?.choices).toEqual([
+      { id: "reject", label: "❌ Reject", intent: "danger", disabled: true },
+    ]);
+    runs[0]?.finish();
+  });
+
+  test("Reject all leaves every prompt it answered showing Reject", async () => {
+    dispatchMessage(bridge, { chat: { id: GROUP }, from: { id: GROUP_MEMBER }, text: "status?" });
+    await waitUntil(() => runs.length === 1);
+    runs[0]?.handlers.onApprovalRequired?.(approval("call-1"));
+    runs[0]?.handlers.onApprovalRequired?.(approval("call-2"));
+    await waitUntil(
+      () => sent.filter((message) => message.promptId?.startsWith("call-")).length === 2,
+    );
+
+    await handleCallback(bridge, {
+      id: "q1",
+      data: button("call-2", "reject-all"),
+      message: { message_id: 9, chat: { id: GROUP } },
+      from: { id: GROUP_MEMBER },
+    });
+    const settled = redrawn.filter((redraw) => redraw.choices.some((choice) => choice.disabled));
+    expect(settled.map((redraw) => redraw.choices.map((choice) => choice.label))).toEqual([
+      ["❌ Reject"],
+      ["❌ Reject"],
+    ]);
     runs[0]?.finish();
   });
 

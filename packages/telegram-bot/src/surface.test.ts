@@ -183,6 +183,38 @@ describe("topics", () => {
     });
   });
 
+  test("buttons are coloured by intent, and a disabled one carries no action", async () => {
+    await surface().send("1001", {
+      body: [plainLine("Run it?")],
+      promptId: "call-1",
+      choices: [
+        { id: "approve", label: "✅ Approve", intent: "primary" },
+        { id: "reject", label: "❌ Reject", intent: "danger" },
+        { id: "later", label: "Later" },
+        { id: "picked", label: "✅ Approve", disabled: true },
+      ],
+    });
+    const keyboard = (
+      only("sendMessage")?.["reply_markup"] as {
+        inline_keyboard: Record<string, unknown>[][];
+      }
+    ).inline_keyboard.flat();
+
+    expect(keyboard[0]).toMatchObject({ style: "success" });
+    expect(keyboard[1]).toMatchObject({ style: "danger" });
+    expect(keyboard[2]).not.toHaveProperty("style");
+    expect(keyboard[3]).toEqual({ text: "✅ Approve", disabled: {} });
+  });
+
+  test("a message is marked as seen with a reaction on the message itself", async () => {
+    await surface().acknowledge("1001_9", "42");
+    expect(only("setMessageReaction")).toEqual({
+      chat_id: 1001,
+      message_id: 42,
+      reaction: [{ type: "emoji", emoji: "👀" }],
+    });
+  });
+
   test("editing and re-drawing buttons address the message, not the topic", async () => {
     const telegram = surface();
     await telegram.edit?.("-100500_42", "31", { body: [plainLine("done")] });

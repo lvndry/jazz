@@ -316,6 +316,16 @@ function promptId(pending: PendingPrompt): string {
   return pending.kind === "approval" ? pending.toolCallId : pending.requestId;
 }
 
+/**
+ * The buttons a settled prompt keeps: the option it was answered with, disabled, as the record
+ * of the decision. None when the answer was not one of its buttons: typed free text, or a
+ * secret, whose value must never become a label.
+ */
+function pickedChoice(pending: PendingPrompt, choiceId: string): readonly Choice[] {
+  const picked = pending.choices.find((choice) => choice.id === choiceId);
+  return picked === undefined ? [] : [{ ...picked, disabled: true }];
+}
+
 interface ChatState {
   /**
    * Whether this conversation is mid-turn. Set before the first await of
@@ -743,6 +753,20 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     }
   };
 
+  /**
+   * Show that a message sent while a run is going was taken, where the surface can say so
+   * without a message of its own. Not awaited: a reaction is never worth holding up the run.
+   */
+  const acknowledge = (message: InboundMessage, route: string): void => {
+    if (surface.acknowledge === undefined || message.ref === undefined) {
+      return;
+    }
+    console.log(`[turn] ${message.chatId}: mid-run message ${route}, acknowledged`);
+    void surface.acknowledge(message.chatId, message.ref).catch((error: unknown) => {
+      console.error(`Acknowledging a message on ${surface.name} failed: ${String(error)}`);
+    });
+  };
+
   const notifyPendingChange = (chatId: ChatId): void => {
     if (config.onPendingChange === undefined) {
       return;
@@ -785,7 +809,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     } else {
       await state.run?.answerQuestion(pending.requestId, choiceId);
     }
-    await redrawChoices(chatId, pending.messageRef, []);
+    await redrawChoices(chatId, pending.messageRef, pickedChoice(pending, choiceId));
     await refreshApprovalChoices(chatId);
     notifyPendingChange(chatId);
   };
@@ -1159,8 +1183,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     await state.run.approve(
       approvals.map((pending) => ({ toolCallId: pending.toolCallId, approved })),
     );
+    const decision = approved ? APPROVE_CHOICE_ID : REJECT_CHOICE_ID;
     for (const pending of approvals) {
-      await redrawChoices(chatId, pending.messageRef, []);
+      await redrawChoices(chatId, pending.messageRef, pickedChoice(pending, decision));
     }
     notifyPendingChange(chatId);
     return { outcome: "answered", count: approvals.length };
@@ -1336,6 +1361,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
           const id = `message-${messageSequence}`;
           state.sentIntoRun.push({ id, message });
           await state.run.sendMessage(id, message.text);
+          acknowledge(message, "into the run");
           return;
         }
         if (state.queue.length >= limits.maxQueuedMessages) {
@@ -1347,6 +1373,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
           return;
         }
         state.queue.push(message);
+        acknowledge(message, "queued");
         return;
       }
 
