@@ -27,6 +27,32 @@ describe("escapePrices", () => {
       "Run `echo $1` then\n```sh\nexport PRICE=$5\n```\nfor \\$3",
     );
   });
+
+  test("a formula that starts with a digit stays a formula", () => {
+    expect(escapePrices("The formula is $2x + 1$, so")).toBe("The formula is $2x + 1$, so");
+  });
+
+  test("prices around a dash or after a formula are still prices", () => {
+    expect(escapePrices("between $5-$10")).toBe("between \\$5-\\$10");
+    expect(escapePrices("$x$ costs $5")).toBe("$x$ costs \\$5");
+  });
+
+  test("an already escaped price is left alone", () => {
+    expect(escapePrices("it is \\$5")).toBe("it is \\$5");
+  });
+
+  test("a code block closes only on a fence of its own kind and length", () => {
+    const markdown = [
+      "````md",
+      "~~~",
+      "price: $5",
+      "```",
+      "still code $6",
+      "````",
+      "after the block $7",
+    ].join("\n");
+    expect(escapePrices(markdown)).toBe(markdown.replace("$7", "\\$7"));
+  });
 });
 
 describe("escapeRichMarkdown", () => {
@@ -51,7 +77,8 @@ describe("toRichMarkdown", () => {
 
   test("code with backticks in it keeps its fences intact", () => {
     expect(toRichMarkdown([line(code("a`b"))])).toBe("``a`b``");
-    expect(toRichMarkdown([codeBlock("x = ```", "py")])).toBe("~~~py\nx = ```\n~~~");
+    expect(toRichMarkdown([codeBlock("x = ```", "py")])).toBe("````py\nx = ```\n````");
+    expect(toRichMarkdown([codeBlock("~~~\n`````")])).toBe("``````\n~~~\n`````\n``````");
   });
 
   test("a quote is a block quotation of escaped text", () => {
