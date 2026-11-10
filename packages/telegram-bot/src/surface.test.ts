@@ -9,6 +9,7 @@ import {
   quote,
   text,
 } from "@jazz/bot-shared/surface";
+import { fakeFetch } from "@jazz/core/test-support/fakes";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   createTelegramSurface,
@@ -128,7 +129,7 @@ describe("topics", () => {
 
   beforeEach(() => {
     requests = [];
-    globalThis.fetch = ((url: string, init: { body: string | FormData }) => {
+    globalThis.fetch = fakeFetch((url: string, init: { body: string | FormData }) => {
       const method = url.slice(url.lastIndexOf("/") + 1);
       const payload =
         typeof init.body === "string"
@@ -138,7 +139,7 @@ describe("topics", () => {
             );
       requests.push({ method, payload });
       return Promise.resolve(Response.json({ ok: true, result: { message_id: 31 } }));
-    }) as unknown as typeof fetch;
+    });
   });
 
   afterEach(() => {
@@ -232,12 +233,12 @@ describe("streamDraft and rich messages", () => {
 
   /** Answer each request with the next of `replies`, the last one repeating. */
   const replyWith = (...replies: Record<string, unknown>[]): void => {
-    globalThis.fetch = ((url: string, init: { body: string }) => {
+    globalThis.fetch = fakeFetch((url: string, init: { body: string }) => {
       methods.push(url.slice(url.lastIndexOf("/") + 1));
       requests.push(JSON.parse(init.body) as Record<string, unknown>);
       const reply = replies[Math.min(requests.length - 1, replies.length - 1)] ?? { ok: true };
       return Promise.resolve(Response.json(reply, { status: reply["ok"] === true ? 200 : 400 }));
-    }) as unknown as typeof fetch;
+    });
   };
 
   beforeEach(() => {

@@ -450,29 +450,44 @@ function rememberUnnamedTopic(address: ChatId): void {
 }
 
 /** Name a still-unnamed topic from the message that opened it. Best-effort and not awaited. */
-function nameTopicFrom(bridge: Bridge, address: ChatId, messageText: string): void {
-  if (!unnamedTopics.has(address)) {
+/** Topics with a rename on its way to Telegram, so a quick second message does not send another. */
+const topicsBeingNamed = new Set<ChatId>();
+
+/**
+ * Name a still-unnamed topic from the words of a message in it: its text, or a media caption.
+ * Best-effort and not awaited. The topic stays unnamed until Telegram confirms the name, so a
+ * refused or rate-limited rename is tried again with the next message.
+ */
+function nameTopicFrom(bridge: Bridge, address: ChatId, words: string | undefined): void {
+  if (!unnamedTopics.has(address) || topicsBeingNamed.has(address)) {
     return;
   }
   // A command says nothing about what the topic is for; wait for the first real message.
-  if (messageText.startsWith("/")) {
-    console.log(`[topics] ${address}: first message is a command, leaving the topic unnamed`);
+  if (words === undefined || words.trim().startsWith("/")) {
+    console.log(`[topics] ${address}: no words to name the topic from yet, leaving it unnamed`);
     return;
   }
   const { chatId, topicId } = parseChatAddress(address);
-  const name = topicNameFrom(messageText)?.slice(0, TOPIC_NAME_LIMIT);
-  unnamedTopics.delete(address);
+  const name = topicNameFrom(words)?.slice(0, TOPIC_NAME_LIMIT);
   if (topicId === undefined || name === undefined) {
     return;
   }
+  topicsBeingNamed.add(address);
   void bridge.surface
     .call("editForumTopic", { chat_id: chatId, message_thread_id: topicId, name }, true)
     .then((response) => {
-      const named = (response as { ok?: boolean } | undefined)?.ok === true;
-      console.log(`[topics] ${address}: ${named ? "named" : "could not be named"}`);
+      if ((response as { ok?: boolean } | undefined)?.ok === true) {
+        unnamedTopics.delete(address);
+        console.log(`[topics] ${address}: named`);
+        return;
+      }
+      console.warn(`[topics] ${address}: rename refused, will try again with the next message`);
     })
     .catch((error: unknown) => {
-      console.error(`[topics] ${address}: naming failed: ${String(error)}`);
+      console.error(`[topics] ${address}: naming failed, will try again: ${String(error)}`);
+    })
+    .finally(() => {
+      topicsBeingNamed.delete(address);
     });
 }
 
@@ -614,6 +629,7 @@ export function dispatchMessage(bridge: Bridge, message: TelegramMessage | undef
   } else {
     const media = extractMedia(message ?? {});
     if (media !== undefined) {
+      nameTopicFrom(bridge, address, message?.caption);
       work = handleMedia(bridge, chatId, senderId, message ?? {}, media);
     }
   }
