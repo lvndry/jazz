@@ -1,6 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readAgentFile } from "@jazz/bot-shared/agent-file";
+import { ensureChatSandbox } from "@jazz/bot-shared/chat-sandbox";
 import { createChoiceTokens } from "@jazz/bot-shared/choice-tokens";
 import type { JazzEnvelope, JazzEvent, JazzRun, JazzRunHandlers } from "@jazz/bot-shared/jazz-run";
 import type { DraftPreview, OutgoingMessage } from "@jazz/bot-shared/surface";
@@ -437,6 +439,30 @@ describe("topics", () => {
     await Bun.sleep(10);
     expect(renames()).toHaveLength(2);
     await settle(23);
+  });
+
+  test("words that arrive while a refused rename is in flight are tried next", async () => {
+    refusedCalls.set("editForumTopic", 1);
+    openUnnamed(25);
+    dispatchMessage(bridge, inTopic(25, "first words"));
+    dispatchMessage(bridge, inTopic(25, "Plan the Lisbon trip"));
+    await waitUntil(() => renames().length === 2);
+    expect(renames().map((rename) => rename.payload["name"])).toEqual([
+      "first words",
+      "Plan the Lisbon trip",
+    ]);
+    await settle(25);
+  });
+
+  test("/model in one topic and /persona in another both stick", async () => {
+    dispatchMessage(bridge, inTopic(7, "/model openai/gpt-5.2"));
+    dispatchMessage(bridge, inTopic(9, "/persona researcher"));
+    await waitUntil(() => sentTo.includes(topicAddress(7)) && sentTo.includes(topicAddress(9)));
+
+    const sandbox = ensureChatSandbox(dataDir, `tg_${OWNER}`);
+    const agent = readAgentFile(sandbox.home, `tg_${OWNER}`);
+    expect(agent.config.llm.model).toBe("gpt-5.2");
+    expect(agent.config.persona).toBe("researcher");
   });
 
   test("a photo's caption names the topic it opens", async () => {
