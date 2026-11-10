@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createProgressReporter } from "./progress";
+import { createProgressReporter, type ProgressReporterOptions } from "./progress";
 import { nullRunLog } from "./run-log";
 import {
   type ChatId,
+  type DraftOutcome,
   type MessageRef,
   type OutgoingMessage,
   plainLine,
@@ -235,5 +236,85 @@ describe("between events", () => {
       Date.now = realNow;
       await reporter.finish([plainLine("done")]);
     }
+  });
+});
+
+describe("drafts", () => {
+  /** A surface with drafts whose outcome for each frame the test decides. */
+  function draftingSurface(outcomes: (frame: number) => DraftOutcome | Promise<DraftOutcome>) {
+    const { surface, recorded } = fakeSurface();
+    const frames: string[] = [];
+    const drafted: Surface = {
+      ...surface,
+      streamDraft: (_chatId, draft) => {
+        frames.push(renderPlain(draft.body));
+        return Promise.resolve(outcomes(frames.length));
+      },
+    };
+    return { surface: drafted, recorded, frames };
+  }
+
+  const reporterFor = (surface: Surface, overrides: Partial<ProgressReporterOptions> = {}) =>
+    createProgressReporter({
+      surface,
+      chatId: "c1",
+      runLog: nullRunLog(),
+      draft: { id: 7, stoppable: true },
+      editIntervalMs: 0,
+      tickMs: 10,
+      ...overrides,
+    });
+
+  test("an unchanged draft is sent again before it would expire", async () => {
+    const { surface, frames } = draftingSurface(() => "shown");
+    const reporter = reporterFor(surface, { draftKeepaliveMs: 30 });
+    await reporter.start();
+    await Bun.sleep(120);
+    await reporter.finish([plainLine("done")]);
+    expect(frames.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(frames)).toEqual(new Set([""]));
+  });
+
+  test("a first frame that did not get through is retried on the next tick, not left blank", async () => {
+    const { surface, frames, recorded } = draftingSurface((frame) =>
+      frame === 1 ? "skipped" : "shown",
+    );
+    const reporter = reporterFor(surface);
+    await reporter.start();
+    await Bun.sleep(40);
+    await reporter.finish([plainLine("done")]);
+    expect(frames.length).toBeGreaterThanOrEqual(2);
+    expect(recorded).toHaveLength(0);
+  });
+
+  test("a refusal that lands after the run finished opens no bubble under the answer", async () => {
+    let refuseLate: (outcome: DraftOutcome) => void = () => {};
+    const { surface, recorded } = draftingSurface((frame) =>
+      frame === 1
+        ? "shown"
+        : new Promise<DraftOutcome>((resolve) => {
+            refuseLate = resolve;
+          }),
+    );
+    const reporter = reporterFor(surface, { tickMs: 60_000 });
+    await reporter.start();
+    reporter.onEvent({ type: "text_chunk", accumulated: "partial" });
+    await Bun.sleep(10);
+    expect(await reporter.finish([plainLine("done")])).toBe(false);
+    refuseLate("refused");
+    await Bun.sleep(10);
+    expect(recorded).toHaveLength(0);
+  });
+
+  test("the answer already shown in a draft is kept when drafting later falls back", async () => {
+    const { surface } = draftingSurface((frame) => (frame <= 2 ? "shown" : "refused"));
+    const reporter = reporterFor(surface, { tickMs: 60_000 });
+    await reporter.start();
+    reporter.onEvent({ type: "text_chunk", accumulated: "Half an answer" });
+    await Bun.sleep(10);
+    reporter.onEvent({ type: "text_chunk", accumulated: "Half an answer, then more" });
+    await Bun.sleep(10);
+    await reporter.finish([plainLine("stopped")]);
+    expect(reporter.streamedAnswer()).toBe("Half an answer");
   });
 });

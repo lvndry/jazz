@@ -52,7 +52,13 @@ import {
 import { parseCommand } from "@jazz/bot-shared/turn-commands";
 import tzlookup from "tz-lookup";
 import { agentIdForChat, chatIdFromAgentId, syncAgentDisplayName } from "./agents";
-import { chatAddressOf, chatScopeOf, parseChatAddress, type TopicFields } from "./chat-address";
+import {
+  chatAddressOf,
+  chatScopeOf,
+  formatChatAddress,
+  parseChatAddress,
+  type TopicFields,
+} from "./chat-address";
 import {
   buildMediaPrompt,
   downloadTelegramFile,
@@ -83,7 +89,7 @@ const POLL_BACKOFF = { baseMs: 1_000, maxMs: 60_000 } as const;
 const POLL_STALE_AFTER_MS = GETUPDATES_TIMEOUT_SECONDS * 3 * 1000;
 /** Webhook mode has no poll, so it asks Telegram about the webhook this often instead. */
 const WEBHOOK_PROBE_MS = 60_000;
-const ALLOWED_UPDATES = ["message", "callback_query"];
+const ALLOWED_UPDATES = ["message", "callback_query", "stopped_message_generation"];
 
 /**
  * The reasoning log goes out as collapsed, tap-to-expand quotes, so Telegram can carry more
@@ -655,13 +661,43 @@ export function dispatchMessage(bridge: Bridge, message: TelegramMessage | undef
   });
 }
 
+/** The person pressed stop on a draft the bridge was streaming. */
+export interface GenerationStopped {
+  readonly chat?: { readonly id?: number };
+  readonly message_thread_id?: number;
+  readonly draft_id?: number;
+}
+
+export function handleGenerationStopped(bridge: Bridge, stopped: GenerationStopped): void {
+  const chatId = stopped.chat?.id;
+  const draftId = stopped.draft_id;
+  if (typeof chatId !== "number" || typeof draftId !== "number") {
+    return;
+  }
+  if (!bridge.config.allowedChatIds.has(chatId)) {
+    console.warn(`Ignoring a draft stop from non-allowed chat ${chatId}`);
+    return;
+  }
+  // Drafts only exist in private chats, where a thread id always names a topic.
+  const address = formatChatAddress(
+    stopped.message_thread_id === undefined
+      ? { chatId }
+      : { chatId, topicId: stopped.message_thread_id },
+  );
+  bridge.runner.stopGeneration(address, draftId);
+}
+
 interface TelegramUpdate {
   readonly update_id?: number;
   readonly message?: TelegramMessage;
   readonly callback_query?: CallbackQuery;
+  readonly stopped_message_generation?: GenerationStopped;
 }
 
 function dispatchUpdate(bridge: Bridge, update: TelegramUpdate): void {
+  if (update.stopped_message_generation !== undefined) {
+    handleGenerationStopped(bridge, update.stopped_message_generation);
+  }
   if (update.message !== undefined) {
     dispatchMessage(bridge, update.message);
   }

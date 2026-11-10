@@ -16,6 +16,11 @@
  *     runs long, at which point a single short update goes out on a much slower
  *     cadence. A person who texted their assistant does not want eight
  *     notifications about tool calls, but does want to know it is still alive.
+ *
+ * A one-to-one conversation on a surface with native drafts gets a third: the
+ * progress, then the answer as the model writes it, shown as a draft that is never
+ * saved to the chat. The answer message replaces it. A refused draft switches the
+ * run to the edited bubble.
  */
 
 import type { JazzEvent } from "./jazz-run";
@@ -27,8 +32,10 @@ import {
   type Choice,
   code,
   line,
+  markdown,
   type MessageRef,
   plainLine,
+  type DraftOutcome,
   type RichText,
   type Surface,
   text,
@@ -36,6 +43,13 @@ import {
 
 /** How often the edited bubble may be rewritten. Telegram rate-limits edits. */
 const EDIT_MIN_INTERVAL_MS = 2_000;
+
+/**
+ * A draft that is not redrawn disappears: Telegram shows one for 30 seconds
+ * (`sendMessageDraft`). A run waiting on a tool or an approval changes nothing for longer
+ * than that, so the same frame is sent again with this much of the 30 seconds to spare.
+ */
+const DRAFT_KEEPALIVE_MS = 20_000;
 
 /**
  * How long an append-only surface stays quiet before saying it is still
@@ -82,6 +96,13 @@ export interface ProgressReporterOptions {
   readonly editIntervalMs?: number;
   /** How often the display is looked at without an event; a test shortens it. */
   readonly tickMs?: number;
+  /** How long an unchanged draft may stand before it is sent again; a test shortens it. */
+  readonly draftKeepaliveMs?: number;
+  /**
+   * Show the run as a native draft. Set by the caller for a one-to-one conversation;
+   * ignored on a surface without `streamDraft`.
+   */
+  readonly draft?: { readonly id: number; readonly stoppable: boolean };
 }
 
 export interface ProgressReporter {
@@ -104,6 +125,11 @@ export interface ProgressReporter {
    * live display only ever shows a rolling tail of it.
    */
   reasoningLog(): string;
+  /**
+   * The answer as far as the person saw it in the draft, for a run stopped before it was
+   * sent. Empty when the run was not drafted or nothing was written yet.
+   */
+  streamedAnswer(): string;
 }
 
 const WORKING_HEADER = "🤔 Working…";
@@ -119,6 +145,9 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
   const { surface, chatId, runLog } = options;
   const editable = surface.capabilities.editMessages && surface.edit !== undefined;
   const editIntervalMs = options.editIntervalMs ?? EDIT_MIN_INTERVAL_MS;
+  const draft = surface.streamDraft === undefined ? undefined : options.draft;
+  /** Cleared for good when the surface refuses a draft; the run then gets the bubble. */
+  let drafting = draft !== undefined;
 
   const tools: string[] = [];
   const subagents: string[] = [];
@@ -126,6 +155,13 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
   let reasoning = "";
   let writing = false;
   let rounds = 0;
+  /** The model's text in its current response, which the draft shows once there is some. */
+  let answerText = "";
+  /**
+   * The answer as of the last draft frame that reached the screen. Kept when drafting later
+   * stops, since the person already read it.
+   */
+  let shownAnswer = "";
 
   let messageRef: MessageRef | undefined;
   let lastRendered = "";
@@ -178,6 +214,21 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
     return [plainLine(`⏳ Still working (${elapsedMinutes}m) — ${detail}`)];
   };
 
+  /**
+   * What the draft shows: the answer once the model is writing one, otherwise the progress.
+   * Progress with nothing in it yet stays empty, which keeps the platform's own "thinking"
+   * placeholder up instead of a bare header.
+   */
+  const renderDraft = (): RichText => {
+    if (answerText.trim().length > 0) {
+      return [markdown(answerText)];
+    }
+    const progress = render();
+    return progress.length > 1 ? progress : [];
+  };
+
+  const frame = (): RichText => (drafting ? renderDraft() : render());
+
   const choices = options.cancelChoice ? [options.cancelChoice] : undefined;
   let ticker: ReturnType<typeof setInterval> | undefined;
   let trailing: ReturnType<typeof setTimeout> | undefined;
@@ -185,21 +236,27 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
 
   /**
    * Redraw now if the throttle allows, and otherwise once it does: an event that arrives
-   * inside the edit interval would otherwise never be shown when it is the last one.
+   * inside the edit interval would otherwise never be shown when it is the last one. A draft
+   * nothing has changed is still redrawn before it expires.
    */
   const refresh = (): void => {
     if (finished) {
       return;
     }
-    const waitMs = editIntervalMs - (Date.now() - lastSentAt);
+    const sinceLastMs = Date.now() - lastSentAt;
+    if (drafting && sinceLastMs >= (options.draftKeepaliveMs ?? DRAFT_KEEPALIVE_MS)) {
+      void update(frame(), choices, true);
+      return;
+    }
+    const waitMs = editIntervalMs - sinceLastMs;
     if (waitMs <= 0) {
-      void update(render(), choices);
+      void update(frame(), choices);
       return;
     }
     trailing ??= setTimeout(() => {
       trailing = undefined;
       if (!finished) {
-        void update(render(), choices);
+        void update(frame(), choices);
       }
     }, waitMs);
   };
@@ -237,6 +294,13 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
     withChoices: readonly Choice[] | undefined,
     force = false,
   ) => {
+    if (drafting) {
+      // A refusal that lands after the run finished must not open a bubble under the answer.
+      if ((await pushDraft(body, force)) === "refused" && !finished) {
+        await openBubble();
+      }
+      return;
+    }
     if (!editable || messageRef === undefined) {
       return;
     }
@@ -263,6 +327,72 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
     }
   };
 
+  /**
+   * Draw one draft frame. A frame dropped here (one already in flight, or nothing changed)
+   * counts as shown. A `refused` one ends drafting for the run; a `skipped` one is forgotten,
+   * so the next tick sends it again instead of waiting for the content to change.
+   */
+  const pushDraft = async (body: RichText, force: boolean): Promise<DraftOutcome> => {
+    if (draft === undefined || surface.streamDraft === undefined) {
+      return "refused";
+    }
+    if (sending && !force) {
+      return "shown";
+    }
+    const rendered = JSON.stringify(body);
+    if (rendered === lastRendered && !force) {
+      return "shown";
+    }
+    const answerInFrame = answerText.trim().length > 0 ? answerText : undefined;
+    sending = true;
+    lastRendered = rendered;
+    lastSentAt = Date.now();
+    let outcome: DraftOutcome;
+    try {
+      outcome = await surface.streamDraft(chatId, {
+        id: draft.id,
+        body,
+        stoppable: draft.stoppable,
+      });
+    } catch (error) {
+      console.error(`Draft failed on ${surface.name}: ${String(error)}`);
+      outcome = "skipped";
+    } finally {
+      sending = false;
+    }
+    if (outcome === "shown" && answerInFrame !== undefined) {
+      shownAnswer = answerInFrame;
+    }
+    if (outcome === "skipped") {
+      lastRendered = "";
+      lastSentAt = 0;
+      console.log(`[progress] ${chatId}: draft frame did not get through, retrying next tick`);
+    }
+    if (outcome === "refused" && drafting) {
+      drafting = false;
+      console.warn(
+        `[progress] ${chatId}: draft refused on ${surface.name}, using an edited bubble`,
+      );
+    }
+    return outcome;
+  };
+
+  /** Put the progress bubble on screen: at the start, or when a draft was refused mid-run. */
+  const openBubble = async (): Promise<void> => {
+    if (messageRef !== undefined) {
+      return;
+    }
+    const opening = [line(bold(WORKING_HEADER))];
+    messageRef = await surface.send(chatId, {
+      body: opening,
+      ...(editable && choices ? { choices } : {}),
+      ...(options.cancelPromptId === undefined ? {} : { promptId: options.cancelPromptId }),
+      ...(options.replyTo === undefined ? {} : { replyTo: options.replyTo }),
+    });
+    lastRendered = JSON.stringify(opening);
+    lastSentAt = Date.now();
+  };
+
   const quietTick = async () => {
     if (sending) {
       return;
@@ -281,16 +411,14 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
 
   return {
     async start(): Promise<void> {
-      messageRef = await surface.send(chatId, {
-        body: [line(bold(WORKING_HEADER))],
-        ...(editable && choices ? { choices } : {}),
-        ...(options.cancelPromptId === undefined ? {} : { promptId: options.cancelPromptId }),
-        ...(options.replyTo === undefined ? {} : { replyTo: options.replyTo }),
-      });
-      lastRendered = JSON.stringify([line(bold(WORKING_HEADER))]);
-      lastSentAt = Date.now();
+      // A first frame that was only skipped keeps the run drafted: the next tick retries it.
+      const drafted = drafting && (await pushDraft([], true)) !== "refused";
+      console.log(`[progress] ${chatId}: ${drafted ? "drafting" : "progress bubble"}`);
+      if (!drafted) {
+        await openBubble();
+      }
       ticker = setInterval(
-        () => (editable ? refresh() : maybeQuietTick()),
+        () => (drafting || editable ? refresh() : maybeQuietTick()),
         options.tickMs ?? PROGRESS_TICK_MS,
       );
       ticker.unref?.();
@@ -302,6 +430,8 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
         case "tools_detected":
           // One per model response that asked for tools, so one per loop round.
           rounds += 1;
+          // What it wrote before calling tools ("let me check") is not the answer.
+          answerText = "";
           break;
         case "thinking_chunk":
           // Accumulate raw so a lone-space chunk isn't trimmed away (which
@@ -324,12 +454,18 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
           }
           break;
         case "text_start":
+          writing = true;
+          answerText = "";
+          break;
         case "text_chunk":
           writing = true;
+          if (typeof event.accumulated === "string") {
+            answerText = event.accumulated;
+          }
           break;
       }
 
-      if (editable) {
+      if (drafting || editable) {
         refresh();
         return;
       }
@@ -338,7 +474,8 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
 
     async finish(summary: RichText): Promise<boolean> {
       stopTimers();
-      if (!editable || messageRef === undefined) {
+      // A draft is not a message: the summary goes out with the answer, which replaces it.
+      if (drafting || !editable || messageRef === undefined) {
         return false;
       }
       // An empty choice list is what drops the Cancel button from the closed bubble.
@@ -349,5 +486,6 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
     toolsUsed: () => [...new Set(tools)],
     rounds: () => rounds,
     reasoningLog: () => reasoning,
+    streamedAnswer: () => shownAnswer,
   };
 }

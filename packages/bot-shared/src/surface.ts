@@ -129,6 +129,23 @@ export interface OutgoingFile {
   readonly filename: string;
 }
 
+/** One frame of a live draft: what to show, and whether the person may stop the run from it. */
+export interface DraftPreview {
+  /** Names the draft across frames; a frame replaces the last one with the same id. */
+  readonly id: number;
+  /** Empty shows the platform's own "thinking" placeholder. */
+  readonly body: RichText;
+  /** Offer the platform's stop control, which the bridge routes to `stopGeneration`. */
+  readonly stoppable: boolean;
+}
+
+/**
+ * What became of a draft frame. `shown`: it is on screen. `skipped`: it did not get through
+ * this time (a rate limit, the network, a server error), so the next frame should try again.
+ * `refused`: the platform will not take drafts here, so the run switches to an edited message.
+ */
+export type DraftOutcome = "shown" | "skipped" | "refused";
+
 /** A surface-native message identifier, opaque to the core. */
 export type MessageRef = string;
 
@@ -191,6 +208,13 @@ export interface Surface {
 
   /** Best-effort "the agent is working" hint; only called when `typingIndicator` is true. */
   typing?(chatId: ChatId): Promise<void>;
+
+  /**
+   * Show a live preview of the message being written, in place of the last one drawn under
+   * the same `draft.id`. Implemented by a surface with native drafts; only called for a
+   * one-to-one conversation.
+   */
+  streamDraft?(chatId: ChatId, draft: DraftPreview): Promise<DraftOutcome>;
 
   /**
    * Delete a message the person sent, for a platform that lets a bot remove it from their

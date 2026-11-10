@@ -29,6 +29,8 @@ export interface JazzEvent {
   readonly type: string;
   readonly toolName?: string;
   readonly content?: string;
+  /** `text_chunk`: everything the model has written in this response so far. */
+  readonly accumulated?: string;
   readonly approved?: boolean;
   readonly task?: string;
   readonly toolCallId?: string;
