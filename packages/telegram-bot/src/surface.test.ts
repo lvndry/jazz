@@ -9,6 +9,7 @@ import {
   quote,
   text,
 } from "@jazz/bot-shared/surface";
+import { fakeFetch } from "@jazz/core/test-support/fakes";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createTelegramSurface, renderRichText, telegramPieces } from "./surface";
 
@@ -122,7 +123,7 @@ describe("topics", () => {
 
   beforeEach(() => {
     requests = [];
-    globalThis.fetch = ((url: string, init: { body: string | FormData }) => {
+    globalThis.fetch = fakeFetch((url: string, init: { body: string | FormData }) => {
       const method = url.slice(url.lastIndexOf("/") + 1);
       const payload =
         typeof init.body === "string"
@@ -132,7 +133,7 @@ describe("topics", () => {
             );
       requests.push({ method, payload });
       return Promise.resolve(Response.json({ ok: true, result: { message_id: 31 } }));
-    }) as unknown as typeof fetch;
+    });
   });
 
   afterEach(() => {

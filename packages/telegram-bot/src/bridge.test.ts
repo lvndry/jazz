@@ -38,6 +38,8 @@ let sent: OutgoingMessage[];
 /** Where each entry of `sent` went, index for index. */
 let sentTo: string[];
 let calls: { method: string; payload: Record<string, unknown> }[];
+/** How many more times the fake Bot API refuses each method before it accepts it. */
+let refusedCalls: Map<string, number>;
 let bridge: Bridge;
 /** The callback data each drawn button carries, keyed by `<promptId>|<choiceId>`. */
 let buttonData: Map<string, string>;
@@ -75,6 +77,11 @@ function fakeSurface(): TelegramSurface {
     readChoice: (callbackData) => tokens.read(callbackData),
     call: (method, payload) => {
       calls.push({ method, payload });
+      const refusals = refusedCalls.get(method) ?? 0;
+      if (refusals > 0) {
+        refusedCalls.set(method, refusals - 1);
+        return Promise.resolve({ ok: false, error_code: 400 });
+      }
       return Promise.resolve({ ok: true });
     },
   };
@@ -177,6 +184,7 @@ beforeEach(() => {
   sent = [];
   sentTo = [];
   calls = [];
+  refusedCalls = new Map();
   buttonData = new Map();
   bridge = createBridge(config(), fakeSurface(), startRun as never);
 });
@@ -390,6 +398,48 @@ describe("topics", () => {
     await waitUntil(() => runs.length === 1);
     expect(calls.filter((call) => call.method === "editForumTopic")).toHaveLength(1);
     await settle(21);
+  });
+
+  const openUnnamed = (topicId: number): void => {
+    dispatchMessage(bridge, {
+      chat: { id: OWNER, type: "private" },
+      from: { id: OWNER },
+      message_thread_id: topicId,
+      is_topic_message: true,
+      forum_topic_created: { is_name_implicit: true },
+    });
+  };
+  const renames = () => calls.filter((call) => call.method === "editForumTopic");
+
+  test("a rename Telegram refuses is tried again with the next message", async () => {
+    refusedCalls.set("editForumTopic", 1);
+    openUnnamed(23);
+    dispatchMessage(bridge, inTopic(23, "Plan the Lisbon trip"));
+    await waitUntil(() => renames().length === 1);
+    await Bun.sleep(10);
+
+    dispatchMessage(bridge, inTopic(23, "and book the flights"));
+    await waitUntil(() => renames().length === 2);
+    expect(renames()[1]?.payload["name"]).toBe("and book the flights");
+
+    dispatchMessage(bridge, inTopic(23, "thanks"));
+    await Bun.sleep(10);
+    expect(renames()).toHaveLength(2);
+    await settle(23);
+  });
+
+  test("a photo's caption names the topic it opens", async () => {
+    openUnnamed(24);
+    dispatchMessage(bridge, {
+      chat: { id: OWNER, type: "private" },
+      from: { id: OWNER },
+      message_thread_id: 24,
+      is_topic_message: true,
+      photo: [{ file_id: "photo-1" }],
+      caption: "What plant is this?",
+    });
+    await waitUntil(() => renames().length === 1);
+    expect(renames()[0]?.payload["name"]).toBe("What plant is this?");
   });
 
   test("a topic the person named themselves keeps its name", async () => {
