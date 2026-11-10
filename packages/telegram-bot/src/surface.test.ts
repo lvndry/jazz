@@ -225,13 +225,15 @@ describe("topics", () => {
   });
 });
 
-describe("streamDraft", () => {
+describe("streamDraft and rich messages", () => {
   const realFetch = globalThis.fetch;
   let requests: Record<string, unknown>[];
+  let methods: string[];
 
   /** Answer each request with the next of `replies`, the last one repeating. */
   const replyWith = (...replies: Record<string, unknown>[]): void => {
-    globalThis.fetch = ((_url: string, init: { body: string }) => {
+    globalThis.fetch = ((url: string, init: { body: string }) => {
+      methods.push(url.slice(url.lastIndexOf("/") + 1));
       requests.push(JSON.parse(init.body) as Record<string, unknown>);
       const reply = replies[Math.min(requests.length - 1, replies.length - 1)] ?? { ok: true };
       return Promise.resolve(Response.json(reply, { status: reply["ok"] === true ? 200 : 400 }));
@@ -240,6 +242,7 @@ describe("streamDraft", () => {
 
   beforeEach(() => {
     requests = [];
+    methods = [];
     resetTelegramDispatchState();
   });
 
@@ -247,24 +250,88 @@ describe("streamDraft", () => {
     globalThis.fetch = realFetch;
   });
 
+  const telegram = () =>
+    createTelegramSurface({ botToken: "123:test", apiBase: "http://bot.test" });
   const draft = (body: Parameters<TelegramSurface["streamDraft"]>[1]["body"]) =>
-    createTelegramSurface({ botToken: "123:test", apiBase: "http://bot.test" }).streamDraft(
-      "1001",
-      { id: 5, body, stoppable: false },
-    );
+    telegram().streamDraft("1001", { id: 5, body, stoppable: false });
 
-  test("shows the answer as HTML", async () => {
+  const sent = { ok: true, result: { message_id: 8 } };
+  const malformed = { ok: false, error_code: 400, description: "can't parse rich message" };
+  const unknownMethod = { ok: false, error_code: 404, description: "Not Found" };
+
+  test("an answer's draft is a rich draft of the Markdown itself", async () => {
     replyWith({ ok: true, result: true });
-    expect(await draft([markdown("**bold**")])).toBe(true);
-    expect(requests[0]).toMatchObject({ text: "<b>bold</b>", parse_mode: "HTML" });
+    expect(await draft([markdown("| a | b |\n|---|---|\n| 1 | 2 |")])).toBe(true);
+    expect(methods).toEqual(["sendRichMessageDraft"]);
+    expect(requests[0]).toMatchObject({
+      draft_id: 5,
+      rich_message: { markdown: "| a | b |\n|---|---|\n| 1 | 2 |" },
+    });
     expect(requests[0]).not.toHaveProperty("can_stop");
   });
 
-  test("markup Telegram rejects is shown again as plain words", async () => {
-    replyWith({ ok: false, error_code: 400, description: "can't parse entities" }, { ok: true });
+  test("a refused rich draft is drawn as HTML, then as plain words", async () => {
+    replyWith(malformed, malformed, { ok: true, result: true });
     expect(await draft([markdown("**bold**")])).toBe(true);
-    expect(requests[1]).toMatchObject({ text: "**bold**" });
-    expect(requests[1]).not.toHaveProperty("parse_mode");
+    expect(methods).toEqual(["sendRichMessageDraft", "sendMessageDraft", "sendMessageDraft"]);
+    expect(requests[1]).toMatchObject({ text: "<b>bold</b>", parse_mode: "HTML" });
+    expect(requests[2]).toMatchObject({ text: "**bold**" });
+    expect(requests[2]).not.toHaveProperty("parse_mode");
+  });
+
+  test("progress with no prose is drafted as HTML", async () => {
+    replyWith({ ok: true, result: true });
+    await draft([line(bold("🤔 Working…"))]);
+    expect(methods).toEqual(["sendMessageDraft"]);
+  });
+
+  test("an answer goes out as one rich message with its buttons and reply", async () => {
+    replyWith(sent);
+    const ref = await telegram().send("1001_9", {
+      body: [markdown("Total: $5"), plainLine(""), line(bold("✅ Done"), text(" · $0.0100"))],
+      choices: [{ id: "more", label: "🔍 Go deeper" }],
+      promptId: "followup",
+      replyTo: "3",
+    });
+
+    expect(ref).toBe("8");
+    expect(methods).toEqual(["sendRichMessage"]);
+    expect(requests[0]).toMatchObject({
+      chat_id: 1001,
+      message_thread_id: 9,
+      rich_message: { markdown: "Total: \\$5\n\n**✅ Done** · \\$0\\.0100" },
+      reply_parameters: { message_id: 3 },
+    });
+    expect(requests[0]).toHaveProperty("reply_markup");
+    expect(requests[0]).not.toHaveProperty("parse_mode");
+  });
+
+  test("a refused rich message is sent as HTML instead", async () => {
+    replyWith(malformed, sent);
+    expect(await telegram().send("1001", { body: [markdown("**bold**")] })).toBe("8");
+    expect(methods).toEqual(["sendRichMessage", "sendMessage"]);
+    expect(requests[1]).toMatchObject({ text: "<b>bold</b>", parse_mode: "HTML" });
+  });
+
+  test("a server without rich messages is only asked once", async () => {
+    replyWith(unknownMethod, sent, sent);
+    const surface = telegram();
+    await surface.send("1001", { body: [markdown("one")] });
+    await surface.send("1001", { body: [markdown("two")] });
+    expect(methods).toEqual(["sendRichMessage", "sendMessage", "sendMessage"]);
+  });
+
+  test("bridge text with no prose keeps the HTML path", async () => {
+    replyWith(sent);
+    await telegram().send("1001", { body: [plainLine("⏹ Cancelled")] });
+    expect(methods).toEqual(["sendMessage"]);
+  });
+
+  test("an answer past the rich limit is split and sent as HTML", async () => {
+    replyWith(sent);
+    await telegram().send("1001", { body: [markdown("word ".repeat(7_000))] });
+    expect(methods.every((method) => method === "sendMessage")).toBe(true);
+    expect(methods.length).toBeGreaterThan(1);
   });
 
   test("a draft Telegram turns down is reported as refused", async () => {

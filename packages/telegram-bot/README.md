@@ -25,7 +25,8 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 - 📊 **Compositions**: the agent can compose a polished visualization, form, or small interactive tool via `create_composition` and deliver it as either a chat image (no tap) or a tappable Telegram Web App button.
 - 🎙️ **Send voice notes, photos, video and files**: a voice message or round video message is listened to and acted on; a photo, sticker, GIF, video or PDF is read. Needs a model with that input modality (Gemini for audio and video, most models for images), and the bot says so plainly when the current model can't.
 - 🗂️ **One conversation per topic**: in a forum supergroup, or in your DM once topics are turned on for the bot in @BotFather, each topic has its own history, its own `/new` and its own run queue, so "trip planning" and "taxes" run side by side. A topic opened without a name is named after its first message. Your timezone, approval mode, model and persona apply across all of a chat's topics.
-- 💬 **Per-chat memory**, ✍️ **Markdown rendering** (with plain-text fallback), 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
+- ✍️ **Answers as rich messages**: tables, headings, task lists, footnotes and formulas render natively, in the draft as it streams and in the answer. A price like `$5` stays a price instead of opening a formula. An answer Telegram won't take as a rich message, or one over 30,000 characters, goes out as ordinary formatted messages, then as plain text if even that is refused.
+- 💬 **Per-chat memory**, 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
 
 ## Requirements
 

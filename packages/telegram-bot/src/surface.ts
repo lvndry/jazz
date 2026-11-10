@@ -28,6 +28,7 @@ import {
   type SurfaceCapabilities,
 } from "@jazz/bot-shared/surface";
 import { destinationOf, parseChatAddress } from "./chat-address";
+import { RICH_MESSAGE_MAX_CHARS, toRichMarkdown } from "./rich-markdown";
 import { dispatchTelegramRequest, isRenderingRejection } from "./telegram-dispatch";
 import {
   escapeHtml,
@@ -51,6 +52,14 @@ const BUTTON_STYLES: Record<NonNullable<Choice["intent"]>, "success" | "danger" 
 
 /** What a message the bridge took in mid-run is marked with: it was seen, an answer is coming. */
 const ACKNOWLEDGE_REACTION = "👀";
+
+/** What the Bot API answers for a method it does not have. */
+const METHOD_NOT_FOUND = 404;
+
+/** Whether a body carries model prose, which is what goes out as a rich message. */
+function carriesProse(body: RichText): boolean {
+  return body.some((block) => block.kind === "markdown");
+}
 
 /** Telegram's hard per-message limit is 4096; the splitter stays under it. */
 const TELEGRAM_MAX_CHARS = 3_500;
@@ -279,20 +288,101 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
   };
 
   /** Everything a message carries besides its text and where it goes. */
-  const optionsFor = (message: OutgoingMessage) => {
+  /** The keyboard under a message and the message it replies to, whatever its format. */
+  const attachmentsFor = (message: OutgoingMessage) => {
     // An empty choice list is meaningful: it is what clears a keyboard from a
     // message that had one, so it must reach Telegram rather than be dropped as
     // "no choices".
     const markup =
       message.choices === undefined ? undefined : keyboardFor(message.choices, message.promptId);
     return {
-      parse_mode: "HTML" as const,
-      link_preview_options: { is_disabled: true },
       ...(markup === undefined ? {} : { reply_markup: markup }),
       ...(message.replyTo === undefined
         ? {}
         : { reply_parameters: { message_id: Number.parseInt(message.replyTo, 10) } }),
     };
+  };
+
+  const optionsFor = (message: OutgoingMessage) => ({
+    parse_mode: "HTML" as const,
+    link_preview_options: { is_disabled: true },
+    ...attachmentsFor(message),
+  });
+
+  /**
+   * Cleared when the Bot API server answers that it has no rich messages (a self-hosted one
+   * older than 10.1), so later answers go straight to the HTML path instead of failing first.
+   */
+  let richMessagesAvailable = true;
+
+  /** Whether a refused rich call means the server lacks the method, not that this text was bad. */
+  const noteRichRefusal = (response: unknown, method: string): void => {
+    if ((response as { error_code?: number } | undefined)?.error_code === METHOD_NOT_FOUND) {
+      richMessagesAvailable = false;
+      console.warn(`[telegram] ${method} is not available on this Bot API server; using HTML`);
+    }
+  };
+
+  /** Send one body as HTML messages, plain words where Telegram rejects the markup. */
+  const sendHtml = async (
+    base: Record<string, unknown>,
+    body: RichText,
+  ): Promise<number | undefined> => {
+    const pieces = telegramPieces(body);
+    let lastMessageId: number | undefined;
+    for (const [index, piece] of pieces.entries()) {
+      // The keyboard belongs on the last chunk only: a person scrolling a
+      // split answer should find the buttons at the end of it, not halfway.
+      const isLast = index === pieces.length - 1;
+      const payload = {
+        ...base,
+        text: piece.html,
+        ...(isLast ? {} : { reply_markup: undefined }),
+      };
+      const sent = await call("sendMessage", payload);
+
+      if (isRenderingRejection(sent)) {
+        // Telegram rejected markup this bridge produced from model prose.
+        // Falling back to the same words without tags is better than dropping
+        // an answer the agent already paid to compute.
+        const plain = await call("sendMessage", {
+          ...payload,
+          text: piece.plain,
+          parse_mode: undefined,
+        });
+        lastMessageId = messageIdOf(plain) ?? lastMessageId;
+        continue;
+      }
+      lastMessageId = messageIdOf(sent) ?? lastMessageId;
+    }
+    return lastMessageId;
+  };
+
+  /**
+   * Send model prose as one rich message, so its tables, headings and lists render. Resolves
+   * undefined, having sent nothing, when the body is past a rich message's limit or Telegram
+   * refuses it; the body then goes the HTML way, which splits it.
+   */
+  const sendRich = async (
+    chatId: ChatId,
+    message: OutgoingMessage,
+  ): Promise<{ readonly messageId: number | undefined } | undefined> => {
+    const document = toRichMarkdown(message.body);
+    if (document.length > RICH_MESSAGE_MAX_CHARS) {
+      console.log(`[telegram] ${chatId}: answer past the rich-message limit, sending it as HTML`);
+      return undefined;
+    }
+    const sent = await call("sendRichMessage", {
+      ...destinationOf(chatId),
+      rich_message: { markdown: document },
+      ...attachmentsFor(message),
+    });
+    if (isRenderingRejection(sent)) {
+      noteRichRefusal(sent, "sendRichMessage");
+      console.warn(`[telegram] ${chatId}: rich message refused, sending the answer as HTML`);
+      return undefined;
+    }
+    return { messageId: messageIdOf(sent) };
   };
 
   return {
@@ -303,35 +393,14 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
     readChoice: (callbackData: string): ChoiceRef | undefined => choiceTokens.read(callbackData),
 
     async send(chatId: ChatId, message: OutgoingMessage): Promise<MessageRef | undefined> {
-      const base = { ...destinationOf(chatId), ...optionsFor(message) };
-      const pieces = telegramPieces(message.body);
-      let lastMessageId: number | undefined;
-
-      for (const [index, piece] of pieces.entries()) {
-        // The keyboard belongs on the last chunk only: a person scrolling a
-        // split answer should find the buttons at the end of it, not halfway.
-        const isLast = index === pieces.length - 1;
-        const payload = {
-          ...base,
-          text: piece.html,
-          ...(isLast ? {} : { reply_markup: undefined }),
-        };
-        const sent = await call("sendMessage", payload);
-
-        if (isRenderingRejection(sent)) {
-          // Telegram rejected markup this bridge produced from model prose.
-          // Falling back to the same words without tags is better than dropping
-          // an answer the agent already paid to compute.
-          const plain = await call("sendMessage", {
-            ...payload,
-            text: piece.plain,
-            parse_mode: undefined,
-          });
-          lastMessageId = messageIdOf(plain) ?? lastMessageId;
-          continue;
-        }
-        lastMessageId = messageIdOf(sent) ?? lastMessageId;
-      }
+      const rich =
+        richMessagesAvailable && carriesProse(message.body)
+          ? await sendRich(chatId, message)
+          : undefined;
+      const lastMessageId =
+        rich === undefined
+          ? await sendHtml({ ...destinationOf(chatId), ...optionsFor(message) }, message.body)
+          : rich.messageId;
       return lastMessageId === undefined ? undefined : String(lastMessageId);
     },
 
@@ -406,12 +475,30 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
      * frame and keep the draft; only Telegram turning the call down counts as refused.
      */
     async streamDraft(chatId: ChatId, draft: DraftPreview): Promise<boolean> {
-      const piece = telegramPieces(draft.body).at(-1);
       const base = {
         ...destinationOf(chatId),
         draft_id: draft.id,
         ...(draft.stoppable ? { can_stop: true } : {}),
       };
+      // The answer is drafted the way it will be sent, so a table does not jump into place
+      // at the end. Refused, the frame is drawn the HTML way below.
+      const document = carriesProse(draft.body) ? toRichMarkdown(draft.body) : undefined;
+      if (
+        richMessagesAvailable &&
+        document !== undefined &&
+        document.length <= RICH_MESSAGE_MAX_CHARS
+      ) {
+        const sent = await call(
+          "sendRichMessageDraft",
+          { ...base, rich_message: { markdown: document } },
+          true,
+        );
+        if (!isRenderingRejection(sent)) {
+          return true;
+        }
+        noteRichRefusal(sent, "sendRichMessageDraft");
+      }
+      const piece = telegramPieces(draft.body).at(-1);
       const sent = await call(
         "sendMessageDraft",
         piece === undefined
