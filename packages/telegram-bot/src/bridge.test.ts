@@ -26,6 +26,8 @@ interface ManualRun {
   readonly agentId: string;
   /** The persistent conversation's key, or undefined for an incognito run. */
   readonly conversationKey: string | undefined;
+  /** The approval policy the run was started with, which the chat's `/mode` decides. */
+  readonly approvalPolicy: string;
   readonly handlers: JazzRunHandlers;
   readonly decisions: { toolCallId: string; approved: boolean }[];
   finish(envelope?: JazzEnvelope): void;
@@ -131,6 +133,7 @@ function startRun(
     prompt: string;
     agentId: string;
     conversation: { kind: "persistent"; key: string } | { kind: "ephemeral" };
+    approvalPolicy: string;
   },
   handlers: JazzRunHandlers = {},
 ): JazzRun {
@@ -145,6 +148,7 @@ function startRun(
     agentId: options.agentId,
     conversationKey:
       options.conversation.kind === "persistent" ? options.conversation.key : undefined,
+    approvalPolicy: options.approvalPolicy,
     handlers,
     decisions,
     finish: (envelope = { ok: true, answer: `answered: ${options.prompt}`, costUSD: 0 }) =>
@@ -359,6 +363,22 @@ describe("topics", () => {
 
     const reply = sent[sentTo.indexOf(topicAddress(9))];
     expect(renderRichText(reply?.body ?? [])).toContain("Europe/Paris");
+  });
+
+  test("/mode set in one topic decides the approval policy of runs in the others", async () => {
+    dispatchMessage(bridge, inTopic(9, "before"));
+    await waitUntil(() => runs.length === 1);
+    const defaultPolicy = runs[0]?.approvalPolicy;
+    await settle(9);
+
+    dispatchMessage(bridge, inTopic(7, "/mode yolo"));
+    await waitUntil(() => sentTo.includes(topicAddress(7)));
+    dispatchMessage(bridge, inTopic(9, "after"));
+    await waitUntil(() => runs.length === 2);
+
+    expect(defaultPolicy).toBe("low-risk");
+    expect(runs[1]?.approvalPolicy).toBe("high-risk");
+    await settle(9);
   });
 
   test("a tapped button answers the prompt of the topic it was drawn in", async () => {

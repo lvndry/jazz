@@ -701,11 +701,17 @@ export function createCommands(context: CommandContext): Commands {
       switch (tap.promptId) {
         case MODEL_PROMPT_ID: {
           const sandbox = context.sandboxFor(chatId);
-          const agent = context.ensureAgent(chatId, sandbox);
-          const chosen = (await providerModels(agent.config.llm.provider)).find(
-            (model) => model.id === choiceId,
-          );
+          const provider = context.ensureAgent(chatId, sandbox).config.llm.provider;
+          const chosen = (await providerModels(provider)).find((model) => model.id === choiceId);
           if (chosen === undefined) {
+            return "expired";
+          }
+          // The picker listed this provider's models. If the provider changed while they were
+          // looked up (another topic ran /model), this model belongs to a provider no longer set.
+          if (context.ensureAgent(chatId, sandbox).config.llm.provider !== provider) {
+            console.log(
+              `[commands] ${chatId}: model picked for ${provider}, provider changed since`,
+            );
             return "expired";
           }
           const updated = updateAgent(chatId, sandbox, (fresh) => {
