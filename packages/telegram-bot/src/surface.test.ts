@@ -10,7 +10,13 @@ import {
   text,
 } from "@jazz/bot-shared/surface";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createTelegramSurface, renderRichText, telegramPieces } from "./surface";
+import {
+  createTelegramSurface,
+  renderRichText,
+  type TelegramSurface,
+  telegramPieces,
+} from "./surface";
+import { resetTelegramDispatchState } from "./telegram-dispatch";
 
 describe("renderRichText", () => {
   test("maps spans onto Telegram's HTML flavour", () => {
@@ -163,6 +169,19 @@ describe("topics", () => {
     expect(only("sendMessage")).not.toHaveProperty("message_thread_id");
   });
 
+  test("a draft goes to the topic, offers stop, and starts as the thinking placeholder", async () => {
+    const shown = await surface().streamDraft("1001_9", { id: 77, body: [], stoppable: true });
+
+    expect(shown).toBe(true);
+    expect(only("sendMessageDraft")).toEqual({
+      chat_id: 1001,
+      message_thread_id: 9,
+      draft_id: 77,
+      can_stop: true,
+      text: "",
+    });
+  });
+
   test("editing and re-drawing buttons address the message, not the topic", async () => {
     const telegram = surface();
     await telegram.edit?.("-100500_42", "31", { body: [plainLine("done")] });
@@ -171,5 +190,58 @@ describe("topics", () => {
     expect(only("editMessageText")).toMatchObject({ chat_id: -100500, message_id: 31 });
     expect(only("editMessageText")).not.toHaveProperty("message_thread_id");
     expect(only("editMessageReplyMarkup")).toMatchObject({ chat_id: -100500, message_id: 31 });
+  });
+});
+
+describe("streamDraft", () => {
+  const realFetch = globalThis.fetch;
+  let requests: Record<string, unknown>[];
+
+  /** Answer each request with the next of `replies`, the last one repeating. */
+  const replyWith = (...replies: Record<string, unknown>[]): void => {
+    globalThis.fetch = ((_url: string, init: { body: string }) => {
+      requests.push(JSON.parse(init.body) as Record<string, unknown>);
+      const reply = replies[Math.min(requests.length - 1, replies.length - 1)] ?? { ok: true };
+      return Promise.resolve(Response.json(reply, { status: reply["ok"] === true ? 200 : 400 }));
+    }) as unknown as typeof fetch;
+  };
+
+  beforeEach(() => {
+    requests = [];
+    resetTelegramDispatchState();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const draft = (body: Parameters<TelegramSurface["streamDraft"]>[1]["body"]) =>
+    createTelegramSurface({ botToken: "123:test", apiBase: "http://bot.test" }).streamDraft(
+      "1001",
+      { id: 5, body, stoppable: false },
+    );
+
+  test("shows the answer as HTML", async () => {
+    replyWith({ ok: true, result: true });
+    expect(await draft([markdown("**bold**")])).toBe(true);
+    expect(requests[0]).toMatchObject({ text: "<b>bold</b>", parse_mode: "HTML" });
+    expect(requests[0]).not.toHaveProperty("can_stop");
+  });
+
+  test("markup Telegram rejects is shown again as plain words", async () => {
+    replyWith({ ok: false, error_code: 400, description: "can't parse entities" }, { ok: true });
+    expect(await draft([markdown("**bold**")])).toBe(true);
+    expect(requests[1]).toMatchObject({ text: "**bold**" });
+    expect(requests[1]).not.toHaveProperty("parse_mode");
+  });
+
+  test("a draft Telegram turns down is reported as refused", async () => {
+    replyWith({ ok: false, error_code: 404, description: "Not Found" });
+    expect(await draft([])).toBe(false);
+  });
+
+  test("a rate-limited frame is skipped, not reported as refused", async () => {
+    replyWith({ ok: false, error_code: 429, parameters: { retry_after: 1 } });
+    expect(await draft([markdown("hi")])).toBe(true);
   });
 });

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChoiceTokens } from "@jazz/bot-shared/choice-tokens";
 import type { JazzEnvelope, JazzEvent, JazzRun, JazzRunHandlers } from "@jazz/bot-shared/jazz-run";
-import type { OutgoingMessage } from "@jazz/bot-shared/surface";
+import type { DraftPreview, OutgoingMessage } from "@jazz/bot-shared/surface";
 import { waitUntil } from "@jazz/bot-shared/wait-until";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
@@ -12,6 +12,7 @@ import {
   createBridge,
   dispatchMessage,
   handleCallback,
+  handleGenerationStopped,
   inboundFrom,
 } from "./bridge";
 import { renderRichText, type TelegramSurface } from "./surface";
@@ -39,6 +40,10 @@ let sent: OutgoingMessage[];
 let sentTo: string[];
 let calls: { method: string; payload: Record<string, unknown> }[];
 let bridge: Bridge;
+/** Every draft frame the fake surface was asked to show. */
+let drafts: ({ chatId: string } & DraftPreview)[];
+/** Makes the fake surface turn drafts down, as a Bot API server without them would. */
+let refuseDrafts: boolean;
 /** The callback data each drawn button carries, keyed by `<promptId>|<choiceId>`. */
 let buttonData: Map<string, string>;
 
@@ -72,6 +77,10 @@ function fakeSurface(): TelegramSurface {
     },
     setChoices: () => Promise.resolve(),
     typing: () => Promise.resolve(),
+    streamDraft: (chatId, draft) => {
+      drafts.push({ chatId, ...draft });
+      return Promise.resolve(!refuseDrafts);
+    },
     readChoice: (callbackData) => tokens.read(callbackData),
     call: (method, payload) => {
       calls.push({ method, payload });
@@ -177,6 +186,8 @@ beforeEach(() => {
   sent = [];
   sentTo = [];
   calls = [];
+  drafts = [];
+  refuseDrafts = false;
   buttonData = new Map();
   bridge = createBridge(config(), fakeSurface(), startRun as never);
 });
@@ -404,6 +415,109 @@ describe("topics", () => {
     await waitUntil(() => runs.length === 1);
     expect(calls.some((call) => call.method === "editForumTopic")).toBe(false);
     await settle(22);
+  });
+});
+
+describe("drafts", () => {
+  const privately = (text: string) => ({
+    chat: { id: OWNER, type: "private" },
+    from: { id: OWNER },
+    text,
+  });
+  const writing = (accumulated: string): JazzEvent => ({
+    type: "text_chunk",
+    accumulated,
+  });
+  const lastDraftText = (): string => renderRichText(drafts.at(-1)?.body ?? []);
+
+  test("a private chat's run is a stoppable draft, with no progress bubble", async () => {
+    dispatchMessage(bridge, privately("hi"));
+    await waitUntil(() => runs.length === 1);
+
+    expect(drafts[0]).toMatchObject({ chatId: String(OWNER), body: [], stoppable: true });
+    expect(sent.some((message) => message.promptId === "run:cancel")).toBe(false);
+    runs[0]?.finish();
+  });
+
+  test("the answer streams into the draft, then lands as a message carrying the summary", async () => {
+    dispatchMessage(bridge, privately("hi"));
+    await waitUntil(() => runs.length === 1);
+    runs[0]?.handlers.onEvent?.(writing("Hello **there**"));
+    await waitUntil(() => lastDraftText().includes("<b>there</b>"));
+
+    runs[0]?.finish({ ok: true, answer: "Hello **there**", costUSD: 0 });
+    await waitUntil(() => sent.some((message) => message.promptId === "followup"));
+    const answer = renderRichText(
+      sent.find((message) => message.promptId === "followup")?.body ?? [],
+    );
+    expect(answer).toContain("<b>there</b>");
+    expect(answer).toContain("Done");
+  });
+
+  test("text written before calling tools leaves the draft once the tools are called", async () => {
+    dispatchMessage(bridge, privately("hi"));
+    await waitUntil(() => runs.length === 1);
+    runs[0]?.handlers.onEvent?.(writing("Let me check."));
+    await waitUntil(() => lastDraftText().includes("Let me check."));
+    runs[0]?.handlers.onEvent?.({ type: "tools_detected" });
+    runs[0]?.handlers.onEvent?.({ type: "tool_execution_start", toolName: "web_search" });
+    await waitUntil(() => lastDraftText().includes("web_search"));
+    expect(lastDraftText()).not.toContain("Let me check.");
+    runs[0]?.finish();
+  });
+
+  test("stop on the draft cancels the run and keeps what was written", async () => {
+    dispatchMessage(bridge, privately("hi"));
+    await waitUntil(() => runs.length === 1);
+    runs[0]?.handlers.onEvent?.(writing("Half an answer"));
+    await waitUntil(() => lastDraftText().includes("Half an answer"));
+
+    const draftId = drafts[0]?.id ?? 0;
+    handleGenerationStopped(bridge, { chat: { id: OWNER }, draft_id: draftId });
+    await waitUntil(() => !bridge.runner.busy(String(OWNER)));
+    const closing = renderRichText(sent.at(-1)?.body ?? []);
+    expect(closing).toContain("Half an answer");
+    expect(closing).toContain("Cancelled");
+  });
+
+  test("a stop pressed on an earlier run's draft leaves the current run alone", async () => {
+    dispatchMessage(bridge, privately("first"));
+    await waitUntil(() => runs.length === 1);
+    const firstDraft = drafts[0]?.id ?? 0;
+    runs[0]?.finish();
+    await waitUntil(() => !bridge.runner.busy(String(OWNER)));
+
+    dispatchMessage(bridge, privately("second"));
+    await waitUntil(() => runs.length === 2);
+    handleGenerationStopped(bridge, { chat: { id: OWNER }, draft_id: firstDraft });
+    await Bun.sleep(10);
+    expect(bridge.runner.busy(String(OWNER))).toBe(true);
+    runs[1]?.finish();
+  });
+
+  test("a group keeps the edited progress bubble, since a draft there would show to everyone", async () => {
+    dispatchMessage(bridge, {
+      chat: { id: GROUP, type: "group" },
+      from: { id: OWNER },
+      text: "hi",
+    });
+    await waitUntil(() => runs.length === 1);
+    expect(drafts).toHaveLength(0);
+    expect(sent.some((message) => message.promptId === "run:cancel")).toBe(true);
+    runs[0]?.finish();
+  });
+
+  test("a refused draft switches the run to the progress bubble", async () => {
+    refuseDrafts = true;
+    dispatchMessage(bridge, privately("hi"));
+    await waitUntil(() => runs.length === 1);
+    expect(drafts).toHaveLength(1);
+    expect(sent.some((message) => message.promptId === "run:cancel")).toBe(true);
+
+    runs[0]?.handlers.onEvent?.(writing("more"));
+    await Bun.sleep(10);
+    expect(drafts).toHaveLength(1);
+    runs[0]?.finish();
   });
 });
 

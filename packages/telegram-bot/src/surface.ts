@@ -18,6 +18,7 @@ import { type ChoiceRef, createChoiceTokens } from "@jazz/bot-shared/choice-toke
 import {
   type ChatId,
   type Choice,
+  type DraftPreview,
   type MessageRef,
   type OutgoingFile,
   type OutgoingMessage,
@@ -190,6 +191,7 @@ export function telegramPieces(body: RichText): MessagePiece[] {
 }
 
 export interface TelegramSurface extends Surface {
+  streamDraft(chatId: ChatId, draft: DraftPreview): Promise<boolean>;
   setChoices(
     chatId: ChatId,
     ref: MessageRef,
@@ -377,6 +379,36 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
         chat_id: parseChatAddress(chatId).chatId,
         message_id: Number.parseInt(ref, 10),
       });
+    },
+
+    /**
+     * A draft shows the last piece of what would be sent, so a long answer keeps moving at
+     * the bottom instead of freezing at the limit. Rate limits and network failures skip the
+     * frame and keep the draft; only Telegram turning the call down counts as refused.
+     */
+    async streamDraft(chatId: ChatId, draft: DraftPreview): Promise<boolean> {
+      const piece = telegramPieces(draft.body).at(-1);
+      const base = {
+        ...destinationOf(chatId),
+        draft_id: draft.id,
+        ...(draft.stoppable ? { can_stop: true } : {}),
+      };
+      const sent = await call(
+        "sendMessageDraft",
+        piece === undefined
+          ? { ...base, text: "" }
+          : { ...base, text: piece.html, parse_mode: "HTML" },
+        true,
+      );
+      if (!isRenderingRejection(sent)) {
+        return true;
+      }
+      if (piece === undefined) {
+        return false;
+      }
+      return !isRenderingRejection(
+        await call("sendMessageDraft", { ...base, text: piece.plain }, true),
+      );
     },
 
     async typing(chatId: ChatId): Promise<void> {

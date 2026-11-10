@@ -265,6 +265,11 @@ function isStopCommand(text: string): boolean {
 /** What the ⏹ Cancel button under the progress display answers. */
 export const CANCEL_PROMPT_ID = "run:cancel";
 const CANCEL_CHOICE: Choice = { id: "cancel", label: "⏹ Cancel", intent: "danger" };
+/**
+ * Draft ids start at a random point below this. Telegram's `draft_id` is a non-zero 32-bit
+ * integer; half its range leaves a long-running process room to count up.
+ */
+const DRAFT_ID_SPACE = 2 ** 30;
 
 /**
  * A prompt waiting on the person. Button surfaces address it by id; a typed reply is
@@ -327,6 +332,8 @@ interface ChatState {
    * never changes, so a tapped follow-up, which carries no kind of its own, keeps it.
    */
   privateChat?: boolean | undefined;
+  /** The draft the run in flight is shown in, so a stop from an older draft is ignored. */
+  draftId?: number | undefined;
   /**
    * Prompts waiting on the person, keyed by the id the agent minted.
    *
@@ -419,6 +426,11 @@ export interface TurnRunner {
    */
   cancel(chatId: ChatId, senderId: SenderId | undefined): CancelOutcome;
   /**
+   * The person pressed stop on a draft. Cancels the run in flight only when it is the one
+   * shown in `draftId`; a stop that arrives after that run ended is `idle`.
+   */
+  stopGeneration(chatId: ChatId, draftId: number): CancelOutcome;
+  /**
    * Whether `senderId` has a prompt waiting that a typed reply answers.
    *
    * A group that only admits messages addressed to the bot has to let the requester's plain
@@ -447,6 +459,11 @@ export interface TurnRunner {
 export function createTurnRunner(config: TurnConfig): TurnRunner {
   const { surface } = config;
   const states = new Map<ChatId, ChatState>();
+  /**
+   * The last draft id handed out. Starts at a random point so a stop pressed on a draft from
+   * before a restart, still queued at Telegram, does not match a run of this process.
+   */
+  let nextDraftId = Math.floor(Math.random() * DRAFT_ID_SPACE);
   const startedAt = Date.now();
   const buttons = surface.capabilities.buttons;
   const canRedrawChoices =
@@ -902,12 +919,19 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     runLog: ReturnType<typeof createRunLog>,
   ): Promise<void> => {
     const { chatId, text: prompt } = message;
+    // Drafts are one-to-one: shown in a group, they would preview one person's answer to all.
+    const draftId =
+      surface.streamDraft !== undefined && state.privateChat === true
+        ? (nextDraftId += 1)
+        : undefined;
+    state.draftId = draftId;
     const reporter = createProgressReporter({
       surface,
       chatId,
       runLog,
       ...(buttons ? { cancelChoice: CANCEL_CHOICE, cancelPromptId: CANCEL_PROMPT_ID } : {}),
       replyTo: message.replyTo,
+      ...(draftId === undefined ? {} : { draft: { id: draftId, stoppable: buttons } }),
     });
     await reporter.start();
 
@@ -956,6 +980,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     const envelope = await run.result;
     state.run = undefined;
     state.requester = undefined;
+    state.draftId = undefined;
     const sentIntoRun = state.sentIntoRun.splice(0);
     const delivered = sentIntoRun.filter(({ id }) => run.delivered(id));
     // A message the run never read (it arrived during the final answer) is answered next. A
@@ -985,7 +1010,12 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     if (!envelope.ok) {
       const failure = run.cancelled() ? cancelledSummary() : failedSummary(envelope.error);
       if (!(await reporter.finish(failure))) {
-        await send(chatId, failure);
+        // A draft vanishes with the run, so what the person watched being written is kept.
+        const streamed = reporter.streamedAnswer().trim();
+        await send(
+          chatId,
+          streamed.length > 0 ? [markdown(streamed), plainLine(""), ...failure] : failure,
+        );
       }
       return;
     }
@@ -1171,6 +1201,17 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     busy: (chatId) => stateFor(chatId).busy,
     send,
     cancel,
+    stopGeneration: (chatId, draftId) => {
+      const state = stateFor(chatId);
+      if (state.draftId !== draftId) {
+        console.log(`[turn] ${chatId}: stop for draft ${draftId} ignored, not the run in flight`);
+        return "idle";
+      }
+      // Only the person a one-to-one draft is shown to can press its stop.
+      const outcome = cancel(chatId, undefined);
+      console.log(`[turn] ${chatId}: stop pressed on draft ${draftId}: ${outcome}`);
+      return outcome;
+    },
     deliverAllApprovals,
 
     async deliverChoice(tap: ChoiceTap): Promise<ChoiceOutcome> {
