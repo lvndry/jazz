@@ -35,9 +35,17 @@ export interface TopicFields {
  * conversation per reply chain.
  */
 export function topicIdOf(message: TopicFields): number | undefined {
-  return message.is_topic_message === true && typeof message.message_thread_id === "number"
-    ? message.message_thread_id
-    : undefined;
+  const threadId = message.message_thread_id;
+  if (message.is_topic_message !== true || threadId === undefined) {
+    return undefined;
+  }
+  // Telegram's thread ids are positive integers. Anything else would build an address no
+  // reply can be sent to, so the message is treated as outside any topic instead.
+  if (!Number.isSafeInteger(threadId) || threadId <= 0) {
+    console.warn(`[topics] ignoring a malformed topic id: ${String(threadId)}`);
+    return undefined;
+  }
+  return threadId;
 }
 
 export function formatChatAddress(address: ChatAddress): ChatId {

@@ -87,8 +87,9 @@ trailing space is the usual culprit).
 To run several conversations side by side in your DM, open @BotFather → your bot → **Bot
 Settings** and turn on topics in private chats. Each topic you open is then its own
 conversation, with its own history and its own `/new`, and runs alongside the others. A topic
-you open without naming is named after the first text or caption you send in it, unless the
-bridge restarts in between. Topics share the chat's files, memory, model and settings, and
+you open without naming gets a name from the first text or caption you send in it. That is
+best-effort: if Telegram refuses the rename it is tried again with your next message, and a
+bridge restart in between leaves Telegram's placeholder name. Topics share the chat's files, memory, model and settings, and
 reminders set in a topic arrive in the chat's main thread. The bridge logs
 `private-chat topics on` at startup once this is set. Forum supergroups work the same way with
 no setting.

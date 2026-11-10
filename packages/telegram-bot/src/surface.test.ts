@@ -171,9 +171,9 @@ describe("topics", () => {
   });
 
   test("a draft goes to the topic, offers stop, and starts as the thinking placeholder", async () => {
-    const shown = await surface().streamDraft("1001_9", { id: 77, body: [], stoppable: true });
+    const outcome = await surface().streamDraft("1001_9", { id: 77, body: [], stoppable: true });
 
-    expect(shown).toBe(true);
+    expect(outcome).toBe("shown");
     expect(only("sendMessageDraft")).toEqual({
       chat_id: 1001,
       message_thread_id: 9,
@@ -262,7 +262,7 @@ describe("streamDraft and rich messages", () => {
 
   test("an answer's draft is a rich draft of the Markdown itself", async () => {
     replyWith({ ok: true, result: true });
-    expect(await draft([markdown("| a | b |\n|---|---|\n| 1 | 2 |")])).toBe(true);
+    expect(await draft([markdown("| a | b |\n|---|---|\n| 1 | 2 |")])).toBe("shown");
     expect(methods).toEqual(["sendRichMessageDraft"]);
     expect(requests[0]).toMatchObject({
       draft_id: 5,
@@ -273,7 +273,7 @@ describe("streamDraft and rich messages", () => {
 
   test("a refused rich draft is drawn as HTML, then as plain words", async () => {
     replyWith(malformed, malformed, { ok: true, result: true });
-    expect(await draft([markdown("**bold**")])).toBe(true);
+    expect(await draft([markdown("**bold**")])).toBe("shown");
     expect(methods).toEqual(["sendRichMessageDraft", "sendMessageDraft", "sendMessageDraft"]);
     expect(requests[1]).toMatchObject({ text: "<b>bold</b>", parse_mode: "HTML" });
     expect(requests[2]).toMatchObject({ text: "**bold**" });
@@ -337,11 +337,27 @@ describe("streamDraft and rich messages", () => {
 
   test("a draft Telegram turns down is reported as refused", async () => {
     replyWith({ ok: false, error_code: 404, description: "Not Found" });
-    expect(await draft([])).toBe(false);
+    expect(await draft([])).toBe("refused");
   });
 
   test("a rate-limited frame is skipped, not reported as refused", async () => {
     replyWith({ ok: false, error_code: 429, parameters: { retry_after: 1 } });
-    expect(await draft([markdown("hi")])).toBe(true);
+    expect(await draft([markdown("hi")])).toBe("skipped");
+  });
+
+  test("a server error is skipped, not taken as Telegram refusing drafts", async () => {
+    replyWith({ ok: false, error_code: 502, description: "Bad Gateway" });
+    expect(await draft([])).toBe("skipped");
+  });
+
+  test("a long answer's HTML draft renders only its tail, cut at a paragraph", async () => {
+    replyWith(unknownMethod, { ok: true, result: true });
+    const early = `${"early words ".repeat(400)}`;
+    const late = "the latest paragraph";
+    await draft([markdown(`${early}\n\n${"middle ".repeat(400)}\n\n${late}`)]);
+    expect(methods).toEqual(["sendRichMessageDraft", "sendMessageDraft"]);
+    const shown = String(requests[1]?.["text"]);
+    expect(shown.endsWith(late)).toBe(true);
+    expect(shown).not.toContain("early words");
   });
 });

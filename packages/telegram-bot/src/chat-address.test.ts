@@ -20,6 +20,13 @@ describe("topicIdOf", () => {
   test("a message outside any topic has none", () => {
     expect(topicIdOf({})).toBeUndefined();
   });
+
+  test("a topic id that is not a positive integer is treated as no topic, so replies still land", () => {
+    for (const malformed of [1.5, 0, -3, Number.NaN, 2 ** 60]) {
+      expect(topicIdOf({ message_thread_id: malformed, is_topic_message: true })).toBeUndefined();
+    }
+    expect(chatAddressOf(1001, { message_thread_id: 1.5, is_topic_message: true })).toBe("1001");
+  });
 });
 
 describe("chat addresses", () => {

@@ -18,7 +18,9 @@ import { type ChoiceRef, createChoiceTokens } from "@jazz/bot-shared/choice-toke
 import {
   type ChatId,
   type Choice,
+  type DraftOutcome,
   type DraftPreview,
+  markdown,
   type MessageRef,
   type OutgoingFile,
   type OutgoingMessage,
@@ -52,6 +54,41 @@ const BUTTON_STYLES: Record<NonNullable<Choice["intent"]>, "success" | "danger" 
 
 /** What a message the bridge took in mid-run is marked with: it was seen, an answer is coming. */
 const ACKNOWLEDGE_REACTION = "👀";
+/** The Bot API's own errors start here; a request below it was refused for what it asked. */
+const SERVER_ERROR = 500;
+const TOO_MANY_REQUESTS = 429;
+
+/**
+ * What a `sendMessageDraft` response means for the run. No response (the network, or a
+ * cooldown the dispatcher is sitting out), a rate limit or a server error is `skipped` and
+ * tried again; only a client error says Telegram will not take this draft.
+ */
+export function draftOutcomeOf(response: unknown): DraftOutcome {
+  const body = response as { ok?: boolean; error_code?: number } | undefined;
+  if (body?.ok === true) {
+    return "shown";
+  }
+  const code = body?.error_code;
+  if (code === undefined || code === TOO_MANY_REQUESTS || code >= SERVER_ERROR) {
+    return "skipped";
+  }
+  return "refused";
+}
+
+/**
+ * The part of a draft worth rendering. A draft shows only its last message's worth, so a long
+ * answer is cut to about that much before conversion, at a paragraph break, rather than
+ * converting the whole answer again on every frame.
+ */
+function draftTail(body: RichText): RichText {
+  const only = body.length === 1 ? body[0] : undefined;
+  if (only?.kind !== "markdown" || only.text.length <= TELEGRAM_MAX_CHARS) {
+    return body;
+  }
+  const window = only.text.slice(-TELEGRAM_MAX_CHARS);
+  const paragraph = window.indexOf("\n\n");
+  return [markdown(paragraph === -1 ? window : window.slice(paragraph + 2))];
+}
 
 /** What the Bot API answers for a method it does not have. */
 const METHOD_NOT_FOUND = 404;
@@ -213,8 +250,8 @@ export function telegramPieces(body: RichText): MessagePiece[] {
 }
 
 export interface TelegramSurface extends Surface {
-  streamDraft(chatId: ChatId, draft: DraftPreview): Promise<boolean>;
   acknowledge(chatId: ChatId, ref: MessageRef): Promise<void>;
+  streamDraft(chatId: ChatId, draft: DraftPreview): Promise<DraftOutcome>;
   setChoices(
     chatId: ChatId,
     ref: MessageRef,
@@ -474,7 +511,7 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
      * the bottom instead of freezing at the limit. Rate limits and network failures skip the
      * frame and keep the draft; only Telegram turning the call down counts as refused.
      */
-    async streamDraft(chatId: ChatId, draft: DraftPreview): Promise<boolean> {
+    async streamDraft(chatId: ChatId, draft: DraftPreview): Promise<DraftOutcome> {
       const base = {
         ...destinationOf(chatId),
         draft_id: draft.id,
@@ -482,39 +519,35 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
       };
       // The answer is drafted the way it will be sent, so a table does not jump into place
       // at the end. Refused, the frame is drawn the HTML way below.
-      const document = carriesProse(draft.body) ? toRichMarkdown(draft.body) : undefined;
-      if (
-        richMessagesAvailable &&
-        document !== undefined &&
-        document.length <= RICH_MESSAGE_MAX_CHARS
-      ) {
+      const document =
+        richMessagesAvailable && carriesProse(draft.body) ? toRichMarkdown(draft.body) : undefined;
+      if (document !== undefined && document.length <= RICH_MESSAGE_MAX_CHARS) {
         const sent = await call(
           "sendRichMessageDraft",
           { ...base, rich_message: { markdown: document } },
           true,
         );
-        if (!isRenderingRejection(sent)) {
-          return true;
+        const richOutcome = draftOutcomeOf(sent);
+        if (richOutcome !== "refused") {
+          return richOutcome;
         }
         noteRichRefusal(sent, "sendRichMessageDraft");
       }
-      const piece = telegramPieces(draft.body).at(-1);
-      const sent = await call(
-        "sendMessageDraft",
-        piece === undefined
-          ? { ...base, text: "" }
-          : { ...base, text: piece.html, parse_mode: "HTML" },
-        true,
+      const piece = telegramPieces(draftTail(draft.body)).at(-1);
+      const outcome = draftOutcomeOf(
+        await call(
+          "sendMessageDraft",
+          piece === undefined
+            ? { ...base, text: "" }
+            : { ...base, text: piece.html, parse_mode: "HTML" },
+          true,
+        ),
       );
-      if (!isRenderingRejection(sent)) {
-        return true;
+      // Refused with markup in it, the same words may still go through without it.
+      if (outcome !== "refused" || piece === undefined) {
+        return outcome;
       }
-      if (piece === undefined) {
-        return false;
-      }
-      return !isRenderingRejection(
-        await call("sendMessageDraft", { ...base, text: piece.plain }, true),
-      );
+      return draftOutcomeOf(await call("sendMessageDraft", { ...base, text: piece.plain }, true));
     },
 
     async acknowledge(chatId: ChatId, ref: MessageRef): Promise<void> {
