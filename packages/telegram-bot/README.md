@@ -83,8 +83,9 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 | `/status`               | Current model, your timezone, approval mode, today's runs/tokens/cost, daily cap, uptime                                                                                                                                                                  |
 | `/help`                 | Usage                                                                                                                                                                                                                                                     |
 
-A message you send while an answer is being written gets a 👀 reaction: it was
-either taken into the answer in progress or queued right behind it.
+A message you send while an answer is being written gets a 👀 reaction once it is
+taken into the answer in progress or queued right behind it. When the queue is
+already full, the message is dropped with a warning instead, and gets no reaction.
 
 While a message is processing, the draft's stop button (in a DM) or the progress
 bubble's **⏹ Cancel** button (in a group) kills the run; `/stop` works in both. Each answer gets **contextual follow-up buttons**: a quick
