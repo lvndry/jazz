@@ -164,6 +164,8 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
   let shownAnswer = "";
 
   let messageRef: MessageRef | undefined;
+  /** The progress bubble being sent, so finishing waits for it and closes it. */
+  let bubbleOpening: Promise<void> | undefined;
   let lastRendered = "";
   let lastSentAt = 0;
   let sending = false;
@@ -378,19 +380,22 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
   };
 
   /** Put the progress bubble on screen: at the start, or when a draft was refused mid-run. */
-  const openBubble = async (): Promise<void> => {
+  const openBubble = (): Promise<void> => {
     if (messageRef !== undefined) {
-      return;
+      return Promise.resolve();
     }
-    const opening = [line(bold(WORKING_HEADER))];
-    messageRef = await surface.send(chatId, {
-      body: opening,
-      ...(editable && choices ? { choices } : {}),
-      ...(options.cancelPromptId === undefined ? {} : { promptId: options.cancelPromptId }),
-      ...(options.replyTo === undefined ? {} : { replyTo: options.replyTo }),
-    });
-    lastRendered = JSON.stringify(opening);
-    lastSentAt = Date.now();
+    bubbleOpening ??= (async () => {
+      const opening = [line(bold(WORKING_HEADER))];
+      messageRef = await surface.send(chatId, {
+        body: opening,
+        ...(editable && choices ? { choices } : {}),
+        ...(options.cancelPromptId === undefined ? {} : { promptId: options.cancelPromptId }),
+        ...(options.replyTo === undefined ? {} : { replyTo: options.replyTo }),
+      });
+      lastRendered = JSON.stringify(opening);
+      lastSentAt = Date.now();
+    })();
+    return bubbleOpening;
   };
 
   const quietTick = async () => {
@@ -474,6 +479,9 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
 
     async finish(summary: RichText): Promise<boolean> {
       stopTimers();
+      // A bubble a refused draft started opening just before the run ended is closed too,
+      // rather than left on screen saying it is still working.
+      await bubbleOpening?.catch(() => undefined);
       // A draft is not a message: the summary goes out with the answer, which replaces it.
       if (drafting || !editable || messageRef === undefined) {
         return false;

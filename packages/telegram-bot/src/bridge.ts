@@ -68,7 +68,7 @@ import {
 } from "./media";
 import { withReplyContext } from "./quotes";
 import { createTelegramSurface, DEFAULT_TELEGRAM_API_BASE, type TelegramSurface } from "./surface";
-import { TOPIC_NAME_LIMIT, topicNameFrom } from "./topic-names";
+import { topicNameFrom } from "./topic-names";
 
 const STORE_FILES = {
   timezone: "tg-tz.json",
@@ -475,7 +475,7 @@ function nameTopicFrom(bridge: Bridge, address: ChatId, words: string | undefine
     return;
   }
   const { chatId, topicId } = parseChatAddress(address);
-  const name = topicNameFrom(words)?.slice(0, TOPIC_NAME_LIMIT);
+  const name = topicNameFrom(words);
   if (topicId === undefined || name === undefined) {
     return;
   }

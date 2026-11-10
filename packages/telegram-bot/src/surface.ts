@@ -80,15 +80,21 @@ export function draftOutcomeOf(response: unknown): DraftOutcome {
  * answer is cut to about that much before conversion, at a paragraph break, rather than
  * converting the whole answer again on every frame.
  */
-function draftTail(body: RichText): RichText {
+function draftTail(body: RichText, limit: number): RichText {
   const only = body.length === 1 ? body[0] : undefined;
-  if (only?.kind !== "markdown" || only.text.length <= TELEGRAM_MAX_CHARS) {
+  if (only?.kind !== "markdown" || only.text.length <= limit) {
     return body;
   }
-  const window = only.text.slice(-TELEGRAM_MAX_CHARS);
+  const window = only.text.slice(-limit);
   const paragraph = window.indexOf("\n\n");
   return [markdown(paragraph === -1 ? window : window.slice(paragraph + 2))];
 }
+
+/**
+ * How much of a long answer a rich draft shows, before escaping. Below the rich limit by a
+ * margin, because escaping prices and bridge text adds characters after this cut.
+ */
+const RICH_DRAFT_WINDOW_CHARS = RICH_MESSAGE_MAX_CHARS - 2_000;
 
 /** What the Bot API answers for a method it does not have. */
 const METHOD_NOT_FOUND = 404;
@@ -518,9 +524,13 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
         ...(draft.stoppable ? { can_stop: true } : {}),
       };
       // The answer is drafted the way it will be sent, so a table does not jump into place
-      // at the end. Refused, the frame is drawn the HTML way below.
+      // at the end. Past the rich limit the draft keeps a rolling window of that size, so it
+      // neither shrinks nor converts the whole answer again on every frame. Refused, the frame
+      // is drawn the HTML way below.
       const document =
-        richMessagesAvailable && carriesProse(draft.body) ? toRichMarkdown(draft.body) : undefined;
+        richMessagesAvailable && carriesProse(draft.body)
+          ? toRichMarkdown(draftTail(draft.body, RICH_DRAFT_WINDOW_CHARS))
+          : undefined;
       if (document !== undefined && document.length <= RICH_MESSAGE_MAX_CHARS) {
         const sent = await call(
           "sendRichMessageDraft",
@@ -533,7 +543,7 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
         }
         noteRichRefusal(sent, "sendRichMessageDraft");
       }
-      const piece = telegramPieces(draftTail(draft.body)).at(-1);
+      const piece = telegramPieces(draftTail(draft.body, TELEGRAM_MAX_CHARS)).at(-1);
       const outcome = draftOutcomeOf(
         await call(
           "sendMessageDraft",
