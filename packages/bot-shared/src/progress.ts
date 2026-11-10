@@ -35,6 +35,7 @@ import {
   markdown,
   type MessageRef,
   plainLine,
+  type DraftOutcome,
   type RichText,
   type Surface,
   text,
@@ -95,6 +96,8 @@ export interface ProgressReporterOptions {
   readonly editIntervalMs?: number;
   /** How often the display is looked at without an event; a test shortens it. */
   readonly tickMs?: number;
+  /** How long an unchanged draft may stand before it is sent again; a test shortens it. */
+  readonly draftKeepaliveMs?: number;
   /**
    * Show the run as a native draft. Set by the caller for a one-to-one conversation;
    * ignored on a surface without `streamDraft`.
@@ -154,6 +157,11 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
   let rounds = 0;
   /** The model's text in its current response, which the draft shows once there is some. */
   let answerText = "";
+  /**
+   * The answer as of the last draft frame that reached the screen. Kept when drafting later
+   * stops, since the person already read it.
+   */
+  let shownAnswer = "";
 
   let messageRef: MessageRef | undefined;
   let lastRendered = "";
@@ -236,7 +244,7 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
       return;
     }
     const sinceLastMs = Date.now() - lastSentAt;
-    if (drafting && sinceLastMs >= DRAFT_KEEPALIVE_MS) {
+    if (drafting && sinceLastMs >= (options.draftKeepaliveMs ?? DRAFT_KEEPALIVE_MS)) {
       void update(frame(), choices, true);
       return;
     }
@@ -287,7 +295,8 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
     force = false,
   ) => {
     if (drafting) {
-      if (!(await pushDraft(body, force))) {
+      // A refusal that lands after the run finished must not open a bubble under the answer.
+      if ((await pushDraft(body, force)) === "refused" && !finished) {
         await openBubble();
       }
       return;
@@ -319,39 +328,53 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
   };
 
   /**
-   * Draw one draft frame. Resolves false once the surface refused it, after which the run is
-   * no longer drafted. A skipped frame (in flight, or unchanged) counts as shown.
+   * Draw one draft frame. A frame dropped here (one already in flight, or nothing changed)
+   * counts as shown. A `refused` one ends drafting for the run; a `skipped` one is forgotten,
+   * so the next tick sends it again instead of waiting for the content to change.
    */
-  const pushDraft = async (body: RichText, force: boolean): Promise<boolean> => {
+  const pushDraft = async (body: RichText, force: boolean): Promise<DraftOutcome> => {
     if (draft === undefined || surface.streamDraft === undefined) {
-      return false;
+      return "refused";
     }
     if (sending && !force) {
-      return true;
+      return "shown";
     }
     const rendered = JSON.stringify(body);
     if (rendered === lastRendered && !force) {
-      return true;
+      return "shown";
     }
+    const answerInFrame = answerText.trim().length > 0 ? answerText : undefined;
     sending = true;
     lastRendered = rendered;
     lastSentAt = Date.now();
-    let shown: boolean;
+    let outcome: DraftOutcome;
     try {
-      shown = await surface.streamDraft(chatId, { id: draft.id, body, stoppable: draft.stoppable });
+      outcome = await surface.streamDraft(chatId, {
+        id: draft.id,
+        body,
+        stoppable: draft.stoppable,
+      });
     } catch (error) {
       console.error(`Draft failed on ${surface.name}: ${String(error)}`);
-      shown = false;
+      outcome = "skipped";
     } finally {
       sending = false;
     }
-    if (!shown && drafting) {
+    if (outcome === "shown" && answerInFrame !== undefined) {
+      shownAnswer = answerInFrame;
+    }
+    if (outcome === "skipped") {
+      lastRendered = "";
+      lastSentAt = 0;
+      console.log(`[progress] ${chatId}: draft frame did not get through, retrying next tick`);
+    }
+    if (outcome === "refused" && drafting) {
       drafting = false;
       console.warn(
         `[progress] ${chatId}: draft refused on ${surface.name}, using an edited bubble`,
       );
     }
-    return shown;
+    return outcome;
   };
 
   /** Put the progress bubble on screen: at the start, or when a draft was refused mid-run. */
@@ -388,7 +411,8 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
 
   return {
     async start(): Promise<void> {
-      const drafted = drafting && (await pushDraft([], true));
+      // A first frame that was only skipped keeps the run drafted: the next tick retries it.
+      const drafted = drafting && (await pushDraft([], true)) !== "refused";
       console.log(`[progress] ${chatId}: ${drafted ? "drafting" : "progress bubble"}`);
       if (!drafted) {
         await openBubble();
@@ -462,6 +486,6 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
     toolsUsed: () => [...new Set(tools)],
     rounds: () => rounds,
     reasoningLog: () => reasoning,
-    streamedAnswer: () => (drafting ? answerText : ""),
+    streamedAnswer: () => shownAnswer,
   };
 }

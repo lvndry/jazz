@@ -144,6 +144,13 @@ export interface DraftPreview {
   readonly stoppable: boolean;
 }
 
+/**
+ * What became of a draft frame. `shown`: it is on screen. `skipped`: it did not get through
+ * this time (a rate limit, the network, a server error), so the next frame should try again.
+ * `refused`: the platform will not take drafts here, so the run switches to an edited message.
+ */
+export type DraftOutcome = "shown" | "skipped" | "refused";
+
 /** A surface-native message identifier, opaque to the core. */
 export type MessageRef = string;
 
@@ -217,11 +224,8 @@ export interface Surface {
    * Show a live preview of the message being written, in place of the last one drawn under
    * the same `draft.id`. Implemented by a surface with native drafts; only called for a
    * one-to-one conversation.
-   *
-   * Resolves false when the platform refused it, so the caller can switch to an edited
-   * message for the rest of the run.
    */
-  streamDraft?(chatId: ChatId, draft: DraftPreview): Promise<boolean>;
+  streamDraft?(chatId: ChatId, draft: DraftPreview): Promise<DraftOutcome>;
 
   /**
    * Delete a message the person sent, for a platform that lets a bot remove it from their

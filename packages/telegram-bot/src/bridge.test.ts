@@ -26,6 +26,8 @@ interface ManualRun {
   readonly agentId: string;
   /** The persistent conversation's key, or undefined for an incognito run. */
   readonly conversationKey: string | undefined;
+  /** The approval policy the run was started with, which the chat's `/mode` decides. */
+  readonly approvalPolicy: string;
   readonly handlers: JazzRunHandlers;
   readonly decisions: { toolCallId: string; approved: boolean }[];
   finish(envelope?: JazzEnvelope): void;
@@ -52,6 +54,8 @@ let refuseDrafts: boolean;
 let redrawn: { ref: string; choices: readonly Choice[] }[];
 /** Every message marked as seen. */
 let acknowledged: { chatId: string; ref: string }[];
+/** Every draft request waits on this, so a test can hold the first frame in flight. */
+let draftGate: Promise<void>;
 /** The callback data each drawn button carries, keyed by `<promptId>|<choiceId>`. */
 let buttonData: Map<string, string>;
 
@@ -92,9 +96,10 @@ function fakeSurface(): TelegramSurface {
       return Promise.resolve();
     },
     typing: () => Promise.resolve(),
-    streamDraft: (chatId, draft) => {
+    streamDraft: async (chatId, draft) => {
       drafts.push({ chatId, ...draft });
-      return Promise.resolve(!refuseDrafts);
+      await draftGate;
+      return refuseDrafts ? "refused" : "shown";
     },
     readChoice: (callbackData) => tokens.read(callbackData),
     call: (method, payload) => {
@@ -142,6 +147,7 @@ function startRun(
     prompt: string;
     agentId: string;
     conversation: { kind: "persistent"; key: string } | { kind: "ephemeral" };
+    approvalPolicy: string;
   },
   handlers: JazzRunHandlers = {},
 ): JazzRun {
@@ -156,6 +162,7 @@ function startRun(
     agentId: options.agentId,
     conversationKey:
       options.conversation.kind === "persistent" ? options.conversation.key : undefined,
+    approvalPolicy: options.approvalPolicy,
     handlers,
     decisions,
     finish: (envelope = { ok: true, answer: `answered: ${options.prompt}`, costUSD: 0 }) =>
@@ -211,6 +218,7 @@ beforeEach(() => {
   refuseDrafts = false;
   redrawn = [];
   acknowledged = [];
+  draftGate = Promise.resolve();
   buttonData = new Map();
   bridge = createBridge(config(), fakeSurface(), startRun as never);
 });
@@ -372,6 +380,22 @@ describe("topics", () => {
 
     const reply = sent[sentTo.indexOf(topicAddress(9))];
     expect(renderRichText(reply?.body ?? [])).toContain("Europe/Paris");
+  });
+
+  test("/mode set in one topic decides the approval policy of runs in the others", async () => {
+    dispatchMessage(bridge, inTopic(9, "before"));
+    await waitUntil(() => runs.length === 1);
+    const defaultPolicy = runs[0]?.approvalPolicy;
+    await settle(9);
+
+    dispatchMessage(bridge, inTopic(7, "/mode yolo"));
+    await waitUntil(() => sentTo.includes(topicAddress(7)));
+    dispatchMessage(bridge, inTopic(9, "after"));
+    await waitUntil(() => runs.length === 2);
+
+    expect(defaultPolicy).toBe("low-risk");
+    expect(runs[1]?.approvalPolicy).toBe("high-risk");
+    await settle(9);
   });
 
   test("a tapped button answers the prompt of the topic it was drawn in", async () => {
@@ -567,6 +591,22 @@ describe("drafts", () => {
     const closing = renderRichText(sent.at(-1)?.body ?? []);
     expect(closing).toContain("Half an answer");
     expect(closing).toContain("Cancelled");
+  });
+
+  test("stop pressed while the first draft is still on its way cancels the run once it starts", async () => {
+    let releaseDraft: () => void = () => {};
+    draftGate = new Promise((resolve) => {
+      releaseDraft = resolve;
+    });
+    dispatchMessage(bridge, privately("hi"));
+    await waitUntil(() => drafts.length === 1);
+    expect(runs).toHaveLength(0);
+
+    handleGenerationStopped(bridge, { chat: { id: OWNER }, draft_id: drafts[0]?.id ?? 0 });
+    releaseDraft();
+    await waitUntil(() => !bridge.runner.busy(String(OWNER)));
+    expect(runs).toHaveLength(1);
+    expect(renderRichText(sent.at(-1)?.body ?? [])).toContain("Cancelled");
   });
 
   test("a stop pressed on an earlier run's draft leaves the current run alone", async () => {

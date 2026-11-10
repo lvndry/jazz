@@ -171,9 +171,9 @@ describe("topics", () => {
   });
 
   test("a draft goes to the topic, offers stop, and starts as the thinking placeholder", async () => {
-    const shown = await surface().streamDraft("1001_9", { id: 77, body: [], stoppable: true });
+    const outcome = await surface().streamDraft("1001_9", { id: 77, body: [], stoppable: true });
 
-    expect(shown).toBe(true);
+    expect(outcome).toBe("shown");
     expect(only("sendMessageDraft")).toEqual({
       chat_id: 1001,
       message_thread_id: 9,
@@ -256,25 +256,40 @@ describe("streamDraft", () => {
 
   test("shows the answer as HTML", async () => {
     replyWith({ ok: true, result: true });
-    expect(await draft([markdown("**bold**")])).toBe(true);
+    expect(await draft([markdown("**bold**")])).toBe("shown");
     expect(requests[0]).toMatchObject({ text: "<b>bold</b>", parse_mode: "HTML" });
     expect(requests[0]).not.toHaveProperty("can_stop");
   });
 
   test("markup Telegram rejects is shown again as plain words", async () => {
     replyWith({ ok: false, error_code: 400, description: "can't parse entities" }, { ok: true });
-    expect(await draft([markdown("**bold**")])).toBe(true);
+    expect(await draft([markdown("**bold**")])).toBe("shown");
     expect(requests[1]).toMatchObject({ text: "**bold**" });
     expect(requests[1]).not.toHaveProperty("parse_mode");
   });
 
   test("a draft Telegram turns down is reported as refused", async () => {
     replyWith({ ok: false, error_code: 404, description: "Not Found" });
-    expect(await draft([])).toBe(false);
+    expect(await draft([])).toBe("refused");
   });
 
   test("a rate-limited frame is skipped, not reported as refused", async () => {
     replyWith({ ok: false, error_code: 429, parameters: { retry_after: 1 } });
-    expect(await draft([markdown("hi")])).toBe(true);
+    expect(await draft([markdown("hi")])).toBe("skipped");
+  });
+
+  test("a server error is skipped, not taken as Telegram refusing drafts", async () => {
+    replyWith({ ok: false, error_code: 502, description: "Bad Gateway" });
+    expect(await draft([])).toBe("skipped");
+  });
+
+  test("a long answer's draft renders only its tail, cut at a paragraph", async () => {
+    replyWith({ ok: true, result: true });
+    const early = `${"early words ".repeat(400)}`;
+    const late = "the latest paragraph";
+    await draft([markdown(`${early}\n\n${"middle ".repeat(400)}\n\n${late}`)]);
+    const shown = String(requests[0]?.["text"]);
+    expect(shown.endsWith(late)).toBe(true);
+    expect(shown).not.toContain("early words");
   });
 });
