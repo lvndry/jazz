@@ -287,6 +287,33 @@ describe("drafts", () => {
     expect(recorded).toHaveLength(0);
   });
 
+  test("a bubble still being opened when the run finishes is closed with the summary", async () => {
+    const { surface: drafted, recorded } = draftingSurface((frame) =>
+      frame === 1 ? "shown" : "refused",
+    );
+    let releaseSend: () => void = () => {};
+    const sendGate = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
+    const surface: Surface = {
+      ...drafted,
+      send: async (chatId, message) => {
+        await sendGate;
+        return drafted.send(chatId, message);
+      },
+    };
+    const reporter = reporterFor(surface, { tickMs: 60_000 });
+    await reporter.start();
+    reporter.onEvent({ type: "text_chunk", accumulated: "partial" });
+    await Bun.sleep(10);
+
+    const finishing = reporter.finish([plainLine("✅ Done")]);
+    releaseSend();
+    expect(await finishing).toBe(true);
+    expect(recorded.map((entry) => entry.kind)).toEqual(["send", "edit"]);
+    expect(recorded.at(-1)?.text).toBe("✅ Done");
+  });
+
   test("a refusal that lands after the run finished opens no bubble under the answer", async () => {
     let refuseLate: (outcome: DraftOutcome) => void = () => {};
     const { surface, recorded } = draftingSurface((frame) =>

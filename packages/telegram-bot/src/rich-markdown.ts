@@ -63,6 +63,10 @@ function formulaCloser(row: string, open: number): number | undefined {
     return undefined;
   }
   for (let index = open + 1; index < row.length; index += 1) {
+    // An inline formula does not run past the end of its line.
+    if (row[index] === "\n") {
+      return undefined;
+    }
     if (row[index] === "\\") {
       index += 1;
       continue;
@@ -75,7 +79,34 @@ function formulaCloser(row: string, open: number): number | undefined {
   return undefined;
 }
 
-/** One line of prose with each price's dollar escaped and every formula left whole. */
+/**
+ * Where the code span opened by the backtick run at `open` ends (just past its closing run), or
+ * undefined when it is never closed. As in CommonMark, only a run of exactly the same length
+ * closes it, and it may continue onto the next lines of the paragraph.
+ */
+function codeSpanEnd(text: string, open: number, runLength: number): number | undefined {
+  let index = open + runLength;
+  while (index < text.length) {
+    const next = text.indexOf("`", index);
+    if (next === -1) {
+      return undefined;
+    }
+    let end = next;
+    while (text[end] === "`") {
+      end += 1;
+    }
+    if (end - next === runLength) {
+      return end;
+    }
+    index = end;
+  }
+  return undefined;
+}
+
+/**
+ * Prose, possibly several lines of it, with each price's dollar escaped. Formulas and code spans
+ * are copied as written, since a backslash added inside either would show.
+ */
 function escapePricesInProse(row: string): string {
   let escaped = "";
   let index = 0;
@@ -84,6 +115,16 @@ function escapePricesInProse(row: string): string {
     if (character === "\\") {
       escaped += row.slice(index, index + 2);
       index += 2;
+      continue;
+    }
+    if (character === "`") {
+      let runEnd = index;
+      while (row[runEnd] === "`") {
+        runEnd += 1;
+      }
+      const spanEnd = codeSpanEnd(row, index, runEnd - index) ?? runEnd;
+      escaped += row.slice(index, spanEnd);
+      index = spanEnd;
       continue;
     }
     if (character !== "$") {
@@ -117,31 +158,40 @@ function escapePricesInProse(row: string): string {
  */
 export function escapePrices(markdown: string): string {
   let openFence: { readonly character: string; readonly length: number } | undefined;
-  return markdown
-    .split("\n")
-    .map((row) => {
-      if (openFence !== undefined) {
-        const closing = FENCE_ONLY.exec(row)?.[1];
-        if (
-          closing !== undefined &&
-          closing[0] === openFence.character &&
-          closing.length >= openFence.length
-        ) {
-          openFence = undefined;
-        }
-        return row;
+  const output: string[] = [];
+  // Prose lines are escaped together, so a code span that continues onto the next line is
+  // still recognised as code.
+  let prose: string[] = [];
+  const flushProse = (): void => {
+    if (prose.length > 0) {
+      output.push(escapePricesInProse(prose.join("\n")));
+      prose = [];
+    }
+  };
+  for (const row of markdown.split("\n")) {
+    if (openFence !== undefined) {
+      const closing = FENCE_ONLY.exec(row)?.[1];
+      if (
+        closing !== undefined &&
+        closing[0] === openFence.character &&
+        closing.length >= openFence.length
+      ) {
+        openFence = undefined;
       }
-      const opening = FENCE_OPENER.exec(row)?.[1];
-      if (opening !== undefined) {
-        openFence = { character: opening[0] ?? "`", length: opening.length };
-        return row;
-      }
-      return row
-        .split(/(`+[^`]*`+)/)
-        .map((part, index) => (index % 2 === 1 ? part : escapePricesInProse(part)))
-        .join("");
-    })
-    .join("\n");
+      output.push(row);
+      continue;
+    }
+    const opening = FENCE_OPENER.exec(row)?.[1];
+    if (opening !== undefined) {
+      flushProse();
+      openFence = { character: opening[0] ?? "`", length: opening.length };
+      output.push(row);
+      continue;
+    }
+    prose.push(row);
+  }
+  flushProse();
+  return output.join("\n");
 }
 
 /** A backtick fence longer than any backtick run in the code, so no line of it can close it. */

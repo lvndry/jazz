@@ -37,6 +37,16 @@ describe("escapePrices", () => {
     expect(escapePrices("$x$ costs $5")).toBe("$x$ costs \\$5");
   });
 
+  test("a code span closes only on a backtick run of its own length, even across lines", () => {
+    expect(escapePrices("Use ``a` $5`` here, for $6")).toBe("Use ``a` $5`` here, for \\$6");
+    expect(escapePrices("Run `echo\n$5` now")).toBe("Run `echo\n$5` now");
+    expect(escapePrices("a lone ` then $5")).toBe("a lone ` then \\$5");
+  });
+
+  test("a formula does not reach onto the next line", () => {
+    expect(escapePrices("costs $5\nnot$ a formula")).toBe("costs \\$5\nnot$ a formula");
+  });
+
   test("an already escaped price is left alone", () => {
     expect(escapePrices("it is \\$5")).toBe("it is \\$5");
   });

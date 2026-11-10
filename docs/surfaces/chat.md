@@ -57,11 +57,24 @@ Follow the [Telegram setup](../guides/deploy-a-chat-agent.md#telegram) to create
 set its token and allowed chat ids, and start the container. Message the bot directly;
 it shows tool activity and reasoning while the run works.
 
+How a run shows depends on where you ask:
+
+- **In a direct message**, the run is a Telegram draft. You see Telegram's "Thinking…"
+  placeholder, then the tools the agent uses, then the answer as it is written. Telegram's own
+  stop button on the draft ends the run and keeps what was already written.
+- **In a group**, a status message is edited as the run works and carries a ⏹ Cancel button.
+  A draft would show one person's answer to everyone, so groups don't get one.
+
+Either way the answer arrives as a new message with a short summary of tools and cost under it.
+Answers are sent as Telegram rich messages, so tables, headings, task lists and formulas render.
+In a forum group, or in your direct messages once topics are on for the bot in @BotFather, each
+topic is its own conversation.
+
 | You want to        | Send or choose                                                                                                 |
 | ------------------ | -------------------------------------------------------------------------------------------------------------- |
 | Change model       | `/model` for a picker, or `/model provider/model` after configuring that provider                              |
 | Change behavior    | `/persona`                                                                                                     |
-| Stop a run         | `/stop` or the stop button                                                                                     |
+| Stop a run         | `/stop`, the draft's stop button in a direct message, or ⏹ Cancel in a group                                   |
 | Approve a tool     | Accept or reject its approval message; batch buttons answer several at once                                    |
 | Set a reminder     | `/remind 30m check the deploy`                                                                                 |
 | Set your time zone | `/tz` (tap your place, or `/tz Paris`); until then the agent asks where you are before scheduling a clock time |
@@ -140,14 +153,14 @@ Formulas inside code are left as written.
 Jazz does not ship adapters for Slack or Google Chat. A custom adapter must handle
 the platform's authentication, conversation IDs, formatting, and acknowledgement deadlines:
 
-| Concern              | Telegram                          | Discord                                           | Slack                                 | Google Chat            |
-| -------------------- | --------------------------------- | ------------------------------------------------- | ------------------------------------- | ---------------------- |
-| **Inbound**          | `getUpdates` long-poll or webhook | Gateway websocket                                 | Events API webhook (or Socket Mode)   | Chat app webhook       |
-| **Conversation key** | `chat_id`                         | DM channel id, or thread id                       | `channel + thread_ts`                 | `space + thread name`  |
-| **Reply formatting** | Markdown / HTML                   | Markdown (close to standard)                      | `mrkdwn` (`*bold*`, no `#` headings)  | app card or plain text |
-| **Live progress**    | edit the status message           | edit the status message                           | `chat.update` on a placeholder        | update the card        |
-| **Ack deadline**     | none                              | **3 s** for interactions                          | **3 s**: ack, then reply async        | **30 s**               |
-| **Authorization**    | chat-id allowlist                 | user / channel / guild allowlist + mention-gating | verify signing secret, then allowlist | verify bearer token    |
+| Concern              | Telegram                                 | Discord                                           | Slack                                 | Google Chat            |
+| -------------------- | ---------------------------------------- | ------------------------------------------------- | ------------------------------------- | ---------------------- |
+| **Inbound**          | `getUpdates` long-poll or webhook        | Gateway websocket                                 | Events API webhook (or Socket Mode)   | Chat app webhook       |
+| **Conversation key** | `chat_id`                                | DM channel id, or thread id                       | `channel + thread_ts`                 | `space + thread name`  |
+| **Reply formatting** | Markdown / HTML                          | Markdown (close to standard)                      | `mrkdwn` (`*bold*`, no `#` headings)  | app card or plain text |
+| **Live progress**    | draft in a DM, edited message in a group | edit the status message                           | `chat.update` on a placeholder        | update the card        |
+| **Ack deadline**     | none                                     | **3 s** for interactions                          | **3 s**: ack, then reply async        | **30 s**               |
+| **Authorization**    | chat-id allowlist                        | user / channel / guild allowlist + mention-gating | verify signing secret, then allowlist | verify bearer token    |
 
 Two things to get right, both platform-side:
 

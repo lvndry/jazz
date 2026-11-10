@@ -350,6 +350,22 @@ describe("streamDraft and rich messages", () => {
     expect(await draft([])).toBe("skipped");
   });
 
+  test("a draft past the rich limit stays a rich draft of a full-size rolling window", async () => {
+    replyWith({ ok: true, result: true });
+    const paragraph = `${"word ".repeat(200)}\n\n`;
+    const justUnder = paragraph.repeat(25);
+    const pastLimit = `${paragraph.repeat(40)}the latest paragraph`;
+    await draft([markdown(justUnder)]);
+    await draft([markdown(pastLimit)]);
+
+    expect(methods).toEqual(["sendRichMessageDraft", "sendRichMessageDraft"]);
+    const before = (requests[0]?.["rich_message"] as { markdown: string }).markdown;
+    const after = (requests[1]?.["rich_message"] as { markdown: string }).markdown;
+    expect(after.endsWith("the latest paragraph")).toBe(true);
+    expect(after.length).toBeGreaterThan(before.length);
+    expect(after.length).toBeLessThanOrEqual(30_000);
+  });
+
   test("a long answer's HTML draft renders only its tail, cut at a paragraph", async () => {
     replyWith(unknownMethod, { ok: true, result: true });
     const early = `${"early words ".repeat(400)}`;
