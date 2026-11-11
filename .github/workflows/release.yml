@@ -124,6 +124,9 @@ jobs:
 
       - name: Generate release notes
         id: generate-notes
+        # Notes written by Jazz are optional: when ChatGPT is unavailable or
+        # rate limited, the release falls back to GitHub's generated notes.
+        continue-on-error: true
         env:
           JAZZ_CHATGPT_CREDENTIAL: ${{ secrets.JAZZ_CHATGPT_CREDENTIAL }}
           JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
@@ -131,7 +134,7 @@ jobs:
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           if [ -z "${JAZZ_CHATGPT_CREDENTIAL:-}" ]; then
-            echo "::error::Add the copied ChatGPT credential bundle as the JAZZ_CHATGPT_CREDENTIAL Actions secret. See .github/jazz/README.md."
+            echo "::warning::JAZZ_CHATGPT_CREDENTIAL is not set, so the release uses GitHub's generated notes. See .github/jazz/README.md."
             exit 1
           fi
           set +e
@@ -172,7 +175,9 @@ jobs:
           github-token: ${{ secrets.RELEASE_PAT }}
           script: |
             const fs = require('fs');
-            const output = fs.readFileSync('/tmp/jazz-release-notes.txt', 'utf8');
+            const output = fs.existsSync('/tmp/jazz-release-notes.txt')
+              ? fs.readFileSync('/tmp/jazz-release-notes.txt', 'utf8')
+              : '';
 
             // Prefer the agent's four-backtick fence; fall back to a
             // last-occurrence scan of the three-backtick form so inner
