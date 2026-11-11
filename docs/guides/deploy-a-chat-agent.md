@@ -82,17 +82,19 @@ If nothing happens: check your chat id is actually on `TELEGRAM_ALLOWED_CHAT_IDS
 `docker compose logs` doesn't show an auth error from Telegram (a copy-pasted token with a
 trailing space is the usual culprit).
 
-### 6. Optional: one conversation per topic
+### 6. Recommended: one conversation per thread
 
 To run several conversations side by side in your DM, open @BotFather → your bot → **Bot
-Settings** and turn on topics in private chats. Each topic you open is then its own
-conversation, with its own history and its own `/new`, and runs alongside the others. A topic
+Settings** and turn on **Threaded Mode**. It is flipped once per bot, then applies to every DM
+with the bot, and takes effect without restarting the bridge. A message sent from the chat's main screen starts a new thread,
+and messages sent inside a thread continue that thread's conversation. Each thread has its own
+history and its own `/new`, and runs alongside the others. A topic
 you open without naming gets a name from the first text or caption you send in it. That is
 best-effort: if Telegram refuses the rename it is tried again with your next message, and a
 bridge restart in between leaves Telegram's placeholder name. Topics share the chat's files, memory, model and settings, and
-reminders set in a topic arrive in the chat's main thread. The bridge logs
-`private-chat topics on` at startup once this is set. Forum supergroups work the same way with
-no setting.
+reminders set in a topic arrive in the chat's main thread. At startup the bridge logs
+`private-chat topics on`, or a hint to turn Threaded Mode on when it is off. Forum supergroups
+work the same way with no setting.
 
 ---
 

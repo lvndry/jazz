@@ -829,18 +829,63 @@ async function pollLoop(bridge: Bridge): Promise<void> {
 interface BotIdentity {
   /** The bot's own display name, used as the agent name the persona speaks as. */
   readonly name: string | undefined;
-  /** Whether BotFather's topic mode is on, so a private chat can hold several conversations. */
-  readonly privateTopics: boolean;
+  /**
+   * Whether BotFather's Threaded Mode is on, so a private chat can hold several conversations;
+   * undefined when `getMe` could not be read.
+   */
+  readonly privateTopics: boolean | undefined;
+}
+
+type GetMeBody =
+  | {
+      result?: {
+        id?: number;
+        first_name?: string;
+        username?: string;
+        has_topics_enabled?: boolean;
+      } | null;
+    }
+  | undefined;
+
+/**
+ * Threaded Mode as `getMe` reports it. Telegram leaves `has_topics_enabled` out when the mode is
+ * off, so a missing field means off only when a result came back; no result (the call failed) is
+ * unknown.
+ */
+export function threadedModeOf(body: GetMeBody): boolean | undefined {
+  // The body is unchecked JSON. Only a result shaped like getMe's User (an object with a numeric
+  // id) can say the mode is off by leaving the field out; anything else, or a flag that is not a
+  // boolean, says nothing about it.
+  const result = body?.result;
+  if (
+    typeof result !== "object" ||
+    result === null ||
+    Array.isArray(result) ||
+    typeof result.id !== "number"
+  ) {
+    return undefined;
+  }
+  const flag: unknown = result.has_topics_enabled;
+  if (flag === undefined) {
+    return false;
+  }
+  return typeof flag === "boolean" ? flag : undefined;
 }
 
 async function fetchBotIdentity(surface: TelegramSurface): Promise<BotIdentity> {
-  const body = (await surface.call("getMe", {})) as
-    | { result?: { first_name?: string; username?: string; has_topics_enabled?: boolean } }
-    | undefined;
+  const body = (await surface.call("getMe", {})) as GetMeBody;
   return {
     name: body?.result?.first_name ?? body?.result?.username,
-    privateTopics: body?.result?.has_topics_enabled === true,
+    privateTopics: threadedModeOf(body),
   };
+}
+
+/** How the startup line names Threaded Mode's state. */
+function describeThreadedMode(privateTopics: boolean | undefined): string {
+  if (privateTopics === undefined) {
+    return "unknown (getMe failed)";
+  }
+  return privateTopics ? "on" : "off";
 }
 
 /**
@@ -975,8 +1020,14 @@ export async function startBridge(): Promise<void> {
     syncAgentDisplayName(config.jazzHome, config.baseAgentId, bot.name);
   }
   console.log(
-    `Telegram → Jazz bridge started as ${bot.name ?? "an unnamed bot"} (mode="${config.mode}", per-chat agents, policy="${config.approvalPolicy}", private-chat topics ${bot.privateTopics ? "on" : "off"})`,
+    `Telegram → Jazz bridge started as ${bot.name ?? "an unnamed bot"} (mode="${config.mode}", per-chat agents, policy="${config.approvalPolicy}", private-chat topics ${describeThreadedMode(bot.privateTopics)})`,
   );
+  // Only when Telegram said the mode is off: a failed lookup says nothing about it.
+  if (bot.privateTopics === false) {
+    console.log(
+      "Tip: turn on Threaded Mode in @BotFather (your bot → Bot Settings) to give each DM thread its own conversation; no restart needed.",
+    );
+  }
 
   installShutdown({
     runner: bridge.runner,

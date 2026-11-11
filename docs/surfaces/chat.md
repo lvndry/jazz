@@ -67,7 +67,7 @@ How a run shows depends on where you ask:
 
 Either way the answer arrives as a new message with a short summary of tools and cost under it.
 Answers are sent as Telegram rich messages, so tables, headings, task lists and formulas render.
-In a forum group, or in your direct messages once topics are on for the bot in @BotFather, each
+In a forum group, or in your direct messages once **Threaded Mode** is on for the bot in @BotFather, each
 topic is its own conversation.
 
 | You want to        | Send or choose                                                                                                 |

@@ -7,6 +7,7 @@ import { createChoiceTokens } from "@jazz/bot-shared/choice-tokens";
 import type { JazzEnvelope, JazzEvent, JazzRun, JazzRunHandlers } from "@jazz/bot-shared/jazz-run";
 import type { Choice, DraftPreview, OutgoingMessage } from "@jazz/bot-shared/surface";
 import { waitUntil } from "@jazz/bot-shared/wait-until";
+import { invalidInput } from "@jazz/core/test-support/fakes";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   type Bridge,
@@ -16,6 +17,7 @@ import {
   handleCallback,
   handleGenerationStopped,
   inboundFrom,
+  threadedModeOf,
 } from "./bridge";
 import { renderRichText, type TelegramSurface } from "./surface";
 
@@ -229,6 +231,36 @@ afterEach(async () => {
   }
   await waitUntil(() => !bridge.runner.busy(String(OWNER)) && !bridge.runner.busy(String(GROUP)));
   rmSync(dataDir, { recursive: true, force: true });
+});
+
+describe("threadedModeOf", () => {
+  const malformed = (body: unknown) =>
+    threadedModeOf(invalidInput<Parameters<typeof threadedModeOf>[0]>(body));
+
+  test("on only when Telegram says so", () => {
+    expect(threadedModeOf({ result: { id: 7, has_topics_enabled: true } })).toBe(true);
+  });
+
+  test("a result without the field is off: Telegram leaves it out when the mode is off", () => {
+    expect(threadedModeOf({ result: { id: 7, first_name: "jazzy" } })).toBe(false);
+  });
+
+  test("no result is unknown, so a failed getMe never tells the operator to turn the mode on", () => {
+    expect(threadedModeOf(undefined)).toBeUndefined();
+    expect(threadedModeOf({})).toBeUndefined();
+  });
+
+  test("a result that is not getMe's User is unknown, not off and not a crash at startup", () => {
+    expect(threadedModeOf({ result: null })).toBeUndefined();
+    expect(malformed({ result: "jazzy" })).toBeUndefined();
+    expect(malformed({ result: [] })).toBeUndefined();
+    expect(threadedModeOf({ result: { first_name: "jazzy" } })).toBeUndefined();
+  });
+
+  test("a flag that is not a boolean is unknown", () => {
+    expect(malformed({ result: { id: 7, has_topics_enabled: "yes" } })).toBeUndefined();
+    expect(malformed({ result: { id: 7, has_topics_enabled: 1 } })).toBeUndefined();
+  });
 });
 
 describe("messages", () => {
