@@ -977,6 +977,11 @@ export async function startBridge(): Promise<void> {
   console.log(
     `Telegram → Jazz bridge started as ${bot.name ?? "an unnamed bot"} (mode="${config.mode}", per-chat agents, policy="${config.approvalPolicy}", private-chat topics ${bot.privateTopics ? "on" : "off"})`,
   );
+  if (!bot.privateTopics) {
+    console.log(
+      "Tip: turn on Threaded Mode in @BotFather (your bot → Bot Settings) to give each DM thread its own conversation. Telegram has no API for it; no restart needed.",
+    );
+  }
 
   installShutdown({
     runner: bridge.runner,
