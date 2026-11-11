@@ -1,5 +1,19 @@
 /**
  * Keyring storage for the ChatGPT sign-in, and the refresh path every model request goes through.
+ *
+ * Two modes, chosen once at startup from the environment:
+ *
+ * - Sign-in (the default): the full credential lives in the keyring (bootstrapped from
+ *   `JAZZ_CHATGPT_CREDENTIAL` in CI) and is refreshed under a cross-process lock when the access
+ *   token nears expiry. `JAZZ_CHATGPT_CREDENTIAL_OUTPUT` receives every rotated credential.
+ * - Access token only: `JAZZ_CHATGPT_ACCESS_TOKEN` holds a bare access token that another process
+ *   keeps fresh. Jazz uses it until it expires or the server refuses it, and never refreshes,
+ *   stores or rotates anything, so many runs can share one token while a single place owns the
+ *   single-use refresh token.
+ *
+ * `getChatGPTCredential` serves model requests in both modes. Its `minValidityMs` option asks for a
+ * token that stays valid that long, which `jazz config refresh-chatgpt` uses to renew a credential
+ * well ahead of the runs that will borrow its access token.
  */
 
 import { CHATGPT_SIGN_IN_HINT } from "@jazz/core/constants/provider-env-vars";
@@ -16,8 +30,10 @@ import {
   keyringSet,
 } from "@/adapters/secrets/keyring";
 import {
+  type ChatGPTAccess,
   type ChatGPTCredential,
   ChatGPTTokenRejectedError,
+  readAccessTokenClaims,
   refreshChatGPTCredential,
 } from "./oauth";
 
@@ -31,11 +47,15 @@ function registerCredentialSecrets(credential: ChatGPTCredential | undefined): v
   registerRuntimeSecret(REFRESH_REDACTION_NAME, credential?.refresh ?? "");
 }
 
-/** CI bootstrap input and refresh output are captured once, then removed from child environments. */
+export const CHATGPT_ACCESS_TOKEN_ENV_VAR = "JAZZ_CHATGPT_ACCESS_TOKEN";
+
+/** CI inputs and the refresh output are captured once, then removed from child environments. */
 let bootstrapCredentialRaw = process.env["JAZZ_CHATGPT_CREDENTIAL"];
 delete process.env["JAZZ_CHATGPT_CREDENTIAL"];
 const credentialOutputPath = process.env["JAZZ_CHATGPT_CREDENTIAL_OUTPUT"];
 delete process.env["JAZZ_CHATGPT_CREDENTIAL_OUTPUT"];
+const accessTokenRaw = process.env[CHATGPT_ACCESS_TOKEN_ENV_VAR];
+delete process.env[CHATGPT_ACCESS_TOKEN_ENV_VAR];
 
 /**
  * Refresh this long before the access token expires, so a request that starts just before expiry
@@ -60,6 +80,20 @@ export class ChatGPTSignInRequiredError extends Error {
       detail ? `${CHATGPT_SIGN_IN_REQUIRED_MESSAGE} (${detail})` : CHATGPT_SIGN_IN_REQUIRED_MESSAGE,
     );
     this.name = "ChatGPTSignInRequiredError";
+  }
+}
+
+/**
+ * The access token from `JAZZ_CHATGPT_ACCESS_TOKEN` cannot serve a request: it expired, the server
+ * refused it, or it is not a ChatGPT access token. Jazz never refreshes such a token, so the only
+ * remedy is a new run with a fresh one.
+ */
+export class ChatGPTAccessTokenAuthenticationError extends Error {
+  constructor(detail: string) {
+    super(
+      `ChatGPT authentication failed: ${detail} Jazz never refreshes a token given in ${CHATGPT_ACCESS_TOKEN_ENV_VAR}; start the run again with a fresh one.`,
+    );
+    this.name = "ChatGPTAccessTokenAuthenticationError";
   }
 }
 
@@ -141,13 +175,20 @@ export interface ChatGPTCredentialStore {
   /** Sign out. Waits for any refresh in flight, so it cannot be undone. */
   readonly clear: () => Promise<void>;
   /**
-   * A usable credential for the next request, refreshing it when it is close to expiry.
+   * A usable access token for the next request, refreshing it when it is close to expiry.
    * Concurrent callers in one process share a single refresh.
    *
    * @param options.rejectedAccess - An access token the server just refused; refresh even if it
    *   looks fresh.
+   * @param options.minValidityMs - How long the returned token must stay valid. Defaults to a
+   *   few minutes in sign-in mode and to zero for a bare access token.
    */
-  readonly get: (options?: { readonly rejectedAccess?: string }) => Promise<ChatGPTCredential>;
+  readonly get: (options?: GetChatGPTAccessOptions) => Promise<ChatGPTAccess>;
+}
+
+export interface GetChatGPTAccessOptions {
+  readonly rejectedAccess?: string;
+  readonly minValidityMs?: number;
 }
 
 /**
@@ -174,8 +215,8 @@ export function createChatGPTCredentialStore(dependencies: {
    */
   let generation = 0;
 
-  const isFresh = (credential: ChatGPTCredential): boolean =>
-    credential.expires - REFRESH_MARGIN_MS > Date.now();
+  const isFresh = (credential: ChatGPTCredential, marginMs: number): boolean =>
+    credential.expires - marginMs > Date.now();
 
   const load = async (): Promise<ChatGPTCredential | undefined> =>
     parseCredential(await storage.read());
@@ -192,13 +233,16 @@ export function createChatGPTCredentialStore(dependencies: {
     return withFileLock(lockPath(), operation, { maxWaitMs: LOCK_WAIT_DEADLINE_MS });
   }
 
-  const refreshUnderLock = (rejectedAccess: string | undefined): Promise<ChatGPTCredential> =>
+  const refreshUnderLock = (
+    rejectedAccess: string | undefined,
+    marginMs: number,
+  ): Promise<ChatGPTCredential> =>
     locked(async () => {
       const stored = await load();
       if (stored === undefined) {
         throw new ChatGPTSignInRequiredError();
       }
-      if (isFresh(stored) && stored.access !== rejectedAccess) {
+      if (isFresh(stored, marginMs) && stored.access !== rejectedAccess) {
         return stored;
       }
       let refreshed: ChatGPTCredential;
@@ -242,19 +286,24 @@ export function createChatGPTCredentialStore(dependencies: {
       }),
     get: async (options) => {
       const rejectedAccess = options?.rejectedAccess;
-      if (memoized !== undefined && isFresh(memoized) && memoized.access !== rejectedAccess) {
+      const marginMs = Math.max(options?.minValidityMs ?? 0, REFRESH_MARGIN_MS);
+      if (
+        memoized !== undefined &&
+        isFresh(memoized, marginMs) &&
+        memoized.access !== rejectedAccess
+      ) {
         return memoized;
       }
       if (memoized === undefined && rejectedAccess === undefined) {
         const stored = await load();
-        if (stored !== undefined && isFresh(stored)) {
+        if (stored !== undefined && isFresh(stored, marginMs)) {
           memoized = stored;
           return stored;
         }
       }
       if (pendingRefresh === undefined) {
         const startedAt = generation;
-        pendingRefresh = refreshUnderLock(rejectedAccess).then(
+        pendingRefresh = refreshUnderLock(rejectedAccess, marginMs).then(
           (credential) => {
             if (generation === startedAt) {
               memoized = credential;
@@ -273,19 +322,97 @@ export function createChatGPTCredentialStore(dependencies: {
   };
 }
 
-const defaultStore = createChatGPTCredentialStore({
-  storage: keyringStorage,
-  refresh: refreshChatGPTCredential,
-  lockPath: getChatGptCredentialLockPath,
-  ...(credentialOutputPath === undefined
-    ? {}
-    : {
-        onRefresh: (credential: ChatGPTCredential) =>
-          writeFileDurably(credentialOutputPath, `${JSON.stringify(credential)}\n`, {
-            mode: 0o600,
-          }),
-      }),
-});
+/** A store whose every call fails with `error`, for a configuration Jazz cannot act on. */
+function unavailableStore(error: Error): ChatGPTCredentialStore {
+  const fail = (): Promise<never> => Promise.reject(error);
+  return { load: fail, save: fail, clear: fail, get: fail };
+}
+
+/**
+ * A store that serves one access token handed in from outside and never refreshes it. The
+ * token's own `exp` and account claims say how long it lasts and whom it acts for.
+ *
+ * @param now - The clock, for tests.
+ */
+export function createAccessTokenStore(
+  accessToken: string,
+  now: () => number = Date.now,
+): ChatGPTCredentialStore {
+  const claims = readAccessTokenClaims(accessToken);
+  if (claims.accountId === undefined || claims.expires === undefined) {
+    return unavailableStore(
+      new ChatGPTAccessTokenAuthenticationError(
+        `${CHATGPT_ACCESS_TOKEN_ENV_VAR} is not a ChatGPT access token with an account and an expiry.`,
+      ),
+    );
+  }
+  const access: ChatGPTAccess = {
+    access: accessToken,
+    expires: claims.expires,
+    accountId: claims.accountId,
+    ...(claims.plan !== undefined ? { plan: claims.plan } : {}),
+  };
+  const signInUnavailable = (): Promise<never> =>
+    Promise.reject(
+      new Error(
+        `Jazz was started with ${CHATGPT_ACCESS_TOKEN_ENV_VAR}, so it cannot sign in, sign out or read a stored ChatGPT sign-in.`,
+      ),
+    );
+  return {
+    load: signInUnavailable,
+    save: signInUnavailable,
+    clear: signInUnavailable,
+    get: (options) => {
+      if (options?.rejectedAccess === accessToken) {
+        return Promise.reject(
+          new ChatGPTAccessTokenAuthenticationError("ChatGPT refused the access token."),
+        );
+      }
+      const minValidityMs = options?.minValidityMs ?? 0;
+      if (access.expires - minValidityMs <= now()) {
+        const expiry = new Date(access.expires).toISOString();
+        return Promise.reject(
+          new ChatGPTAccessTokenAuthenticationError(
+            minValidityMs > 0
+              ? `the access token expires at ${expiry}, sooner than the ${Math.ceil(minValidityMs / 60_000)} minutes asked for.`
+              : `the access token expired at ${expiry}.`,
+          ),
+        );
+      }
+      return Promise.resolve(access);
+    },
+  };
+}
+
+function createDefaultStore(): ChatGPTCredentialStore {
+  if (accessTokenRaw !== undefined && accessTokenRaw.trim() !== "") {
+    if (bootstrapCredentialRaw !== undefined) {
+      return unavailableStore(
+        new Error(
+          `Set either ${CHATGPT_ACCESS_TOKEN_ENV_VAR} or JAZZ_CHATGPT_CREDENTIAL, not both: one run either owns the sign-in or borrows its access token.`,
+        ),
+      );
+    }
+    const accessToken = accessTokenRaw.trim();
+    registerRuntimeSecret(ACCESS_REDACTION_NAME, accessToken);
+    return createAccessTokenStore(accessToken);
+  }
+  return createChatGPTCredentialStore({
+    storage: keyringStorage,
+    refresh: refreshChatGPTCredential,
+    lockPath: getChatGptCredentialLockPath,
+    ...(credentialOutputPath === undefined
+      ? {}
+      : {
+          onRefresh: (credential: ChatGPTCredential) =>
+            writeFileDurably(credentialOutputPath, `${JSON.stringify(credential)}\n`, {
+              mode: 0o600,
+            }),
+        }),
+  });
+}
+
+const defaultStore = createDefaultStore();
 
 export const loadChatGPTCredential = defaultStore.load;
 export const saveChatGPTCredential = defaultStore.save;

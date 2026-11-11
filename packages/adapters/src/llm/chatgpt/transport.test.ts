@@ -3,6 +3,7 @@ import { generateText, jsonSchema, streamText } from "ai";
 import { describe, expect, it } from "bun:test";
 import { getProviderNativeWebSearchTool, toCoreMessages } from "../ai-sdk-service";
 import { extractReasoningParts } from "../reasoning-parts";
+import { ChatGPTAccessTokenAuthenticationError, createAccessTokenStore } from "./credentials";
 import type { ChatGPTCredential } from "./oauth";
 import {
   CHATGPT_CODEX_BASE_URL,
@@ -235,6 +236,28 @@ describe("createChatGPTFetch", () => {
     expect(headers.get("chatgpt-account-id")).toBe("account-1");
     expect(headers.get("originator")).toBe("jazz");
     expect(headers.get("accept")).toBe("text/event-stream");
+  });
+
+  it("fails without refreshing when the backend rejects a borrowed access token", async () => {
+    const backend = fakeBackend(() => new Response("revoked", { status: 401 }));
+    const encode = (value: unknown): string =>
+      Buffer.from(JSON.stringify(value)).toString("base64url");
+    const borrowedToken = `${encode({ alg: "RS256" })}.${encode({
+      exp: (Date.now() + 3_600_000) / 1000,
+      "https://api.openai.com/auth": { chatgpt_account_id: "account-1" },
+    })}.signature`;
+    const chatgptFetch = createChatGPTFetch({
+      baseFetch: backend.fetch,
+      getCredential: createAccessTokenStore(borrowedToken).get,
+    });
+
+    await expect(
+      chatgptFetch(`${CHATGPT_CODEX_BASE_URL}/responses`, {
+        method: "POST",
+        body: JSON.stringify({ stream: true, input: [] }),
+      }),
+    ).rejects.toBeInstanceOf(ChatGPTAccessTokenAuthenticationError);
+    expect(backend.requests).toHaveLength(1);
   });
 
   it("refreshes once and retries when the backend rejects the token", async () => {

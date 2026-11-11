@@ -23,6 +23,17 @@ describe("readAccessTokenClaims", () => {
     expect(readAccessTokenClaims(token).accountId).toBe("acc~~~");
   });
 
+  it("reads the expiry claim in epoch milliseconds", () => {
+    const token = accessToken({
+      exp: 1_763_200_000,
+      "https://api.openai.com/auth": { chatgpt_account_id: "account-1" },
+    });
+    expect(readAccessTokenClaims(token)).toEqual({
+      accountId: "account-1",
+      expires: 1_763_200_000_000,
+    });
+  });
+
   it("returns nothing for a login without a ChatGPT account or a malformed token", () => {
     expect(readAccessTokenClaims(accessToken({ sub: "user" }))).toEqual({});
     expect(readAccessTokenClaims("not-a-jwt")).toEqual({});

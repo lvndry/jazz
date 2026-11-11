@@ -256,7 +256,9 @@ The `chatgpt` provider uses an OAuth bundle rather than an API key. Hosted workf
 the copied bundle in `JAZZ_CHATGPT_CREDENTIAL`; Jazz captures and removes that variable before
 starting agent child processes, then stores the credential through the normal keyring/file
 backend. When `JAZZ_CHATGPT_CREDENTIAL_OUTPUT` is configured, a successful refresh writes the
-rotated bundle to that path with mode `0600` so the workflow can persist it.
+rotated bundle to that path with mode `0600` so the workflow can persist it. A run given only
+`JAZZ_CHATGPT_ACCESS_TOKEN` holds no refresh token at all: Jazz removes that variable the same
+way, never stores or refreshes the token, and fails with an authentication error once it expires.
 
 Secrets resolved from the environment or the keyring are never written back into the config
 file. To check what is on disk:
