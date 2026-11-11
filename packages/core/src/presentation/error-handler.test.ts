@@ -1,7 +1,9 @@
 /** Verifies actionable error output and cancellation behavior across CLI surfaces. */
 
 import { describe, expect, it, vi } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Cause, Effect, Layer } from "effect";
+import { invalidInput } from "@/core/test-support/fakes";
+import type { JazzError } from "@/core/types/errors";
 import { formatError, handleError, isUserCancellation } from "./error-handler";
 import { PresentationServiceTag, type PresentationService } from "../interfaces/presentation";
 import {
@@ -14,6 +16,13 @@ import {
 } from "../types/errors";
 
 describe("Error Handler", () => {
+  it("formats Effect's own timeout error, which shares the tag but has no fields, without undefined", () => {
+    const formatted = formatError(invalidInput<JazzError>(new Cause.TimeoutError()));
+
+    expect(formatted).toContain("An operation timed out");
+    expect(formatted).not.toContain("undefined");
+  });
+
   it("points missing plugins directly to installation without generic troubleshooting", () => {
     const formatted = formatError(
       new PluginNotInstalledError({ pluginId: "com.jazz.plugins.lsp" }),

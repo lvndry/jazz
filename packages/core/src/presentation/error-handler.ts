@@ -8,6 +8,7 @@ import { apiKeyHint } from "@/core/constants/provider-env-vars";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { JazzError } from "@/core/types/errors";
+import { formatDuration } from "@/core/utils/duration";
 import { toError } from "@/core/utils/errors";
 
 /** Where Jazz writes its logs, for "check the logs" hints. */
@@ -290,9 +291,15 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
     }
 
     case "TimeoutError": {
+      // Effect's own timeout error shares this tag but carries neither field, so a timeout raised
+      // by a bare Effect.timeout still reads as a sentence instead of "undefined".
+      const operation =
+        typeof error.operation === "string" ? `"${error.operation}"` : "An operation";
+      const after =
+        typeof error.timeout === "number" ? ` after ${formatDuration(error.timeout)}` : "";
       return {
         title: "Operation Timeout",
-        message: `Operation "${error.operation}" timed out after ${error.timeout}ms`,
+        message: `${operation} timed out${after}`,
         suggestion: error.suggestion || "Increase timeout or optimize the operation",
         recovery: [
           "Increase operation timeout",

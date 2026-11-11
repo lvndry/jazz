@@ -4,12 +4,12 @@
  * a delegated run's region when the presentation surface can inspect one.
  */
 
-import { Cause, Duration, Effect, Ref } from "effect";
+import { Effect, Ref } from "effect";
 import {
   makeUserVisibleLlmRetrySchedule,
   withLongRunningLlmNotice,
 } from "@/core/agent/execution/llm-retry-present";
-import { DEFAULT_MAX_LLM_RETRIES, LLM_TIMEOUT_SECONDS } from "@/core/constants/agent";
+import { DEFAULT_MAX_LLM_RETRIES } from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -18,7 +18,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { ConversationMessages } from "@/core/types";
 import type { ToolHost } from "@/core/types/chat";
-import { LLMRateLimitError } from "@/core/types/errors";
+import { LLMRateLimitError, TimeoutError } from "@/core/types/errors";
 import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/model-capabilities";
 import type { DisplayConfig } from "@/core/types/output";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
@@ -27,6 +27,7 @@ import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
 import { buildCompletionOptions } from "./completion-request";
 import { validateCompletion } from "./completion-validation";
+import { withModelStepTimeout } from "./model-step-timeout";
 import type { RecursiveRunner } from "../context/summarizer";
 import {
   emitLLMRetry,
@@ -200,9 +201,9 @@ export function executeWithoutStreaming(
             ),
             batchRetrySchedule,
           ).pipe(
-            Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
+            withModelStepTimeout(agent.name),
             Effect.tapError((error) =>
-              Cause.isTimeoutError(error)
+              error instanceof TimeoutError
                 ? showAgentStatus(
                     `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
                     "warning",
