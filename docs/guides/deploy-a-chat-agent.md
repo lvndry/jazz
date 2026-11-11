@@ -85,9 +85,8 @@ trailing space is the usual culprit).
 ### 6. Recommended: one conversation per thread
 
 To run several conversations side by side in your DM, open @BotFather → your bot → **Bot
-Settings** and turn on **Threaded Mode**. Telegram offers no API for this, so it is one switch
-in BotFather, flipped once per bot; it then applies to every DM with the bot, and takes effect
-without restarting the bridge. A message sent from the chat's main screen starts a new thread,
+Settings** and turn on **Threaded Mode**. It is flipped once per bot, then applies to every DM
+with the bot, and takes effect without restarting the bridge. A message sent from the chat's main screen starts a new thread,
 and messages sent inside a thread continue that thread's conversation. Each thread has its own
 history and its own `/new`, and runs alongside the others. A topic
 you open without naming gets a name from the first text or caption you send in it. That is

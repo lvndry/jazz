@@ -979,7 +979,7 @@ export async function startBridge(): Promise<void> {
   );
   if (!bot.privateTopics) {
     console.log(
-      "Tip: turn on Threaded Mode in @BotFather (your bot → Bot Settings) to give each DM thread its own conversation. Telegram has no API for it; no restart needed.",
+      "Tip: turn on Threaded Mode in @BotFather (your bot → Bot Settings) to give each DM thread its own conversation; no restart needed.",
     );
   }
 
