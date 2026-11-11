@@ -790,6 +790,20 @@ function registerConfigCommands(program: Command): void {
     });
 
   configCommand
+    .command("refresh-chatgpt")
+    .description(
+      "Refresh the ChatGPT sign-in when its access token would expire within the given minutes, then check it works",
+    )
+    .requiredOption(
+      "--min-valid-minutes <minutes>",
+      "Refresh unless the access token stays valid at least this long",
+    )
+    .action(async (options: { minValidMinutes: string }) => {
+      const { runRefreshChatGPTCommand } = await import("@jazz/cli/commands/refresh-chatgpt");
+      await runRefreshChatGPTCommand(options.minValidMinutes);
+    });
+
+  configCommand
     .command("get <key>")
     .description("Get a configuration value (secrets redacted unless --reveal)")
     .option("--reveal", "Print secret values in full")

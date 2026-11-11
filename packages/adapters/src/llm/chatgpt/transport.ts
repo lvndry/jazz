@@ -12,7 +12,7 @@ import {
   type ReasoningControlSurface,
 } from "@jazz/core/types/model-capabilities";
 import { getChatGPTCredential } from "./credentials";
-import { CHATGPT_ORIGINATOR, type ChatGPTCredential } from "./oauth";
+import { CHATGPT_ORIGINATOR, type ChatGPTAccess } from "./oauth";
 import { logDebug } from "../../logger";
 
 export const CHATGPT_BACKEND_BASE_URL = "https://chatgpt.com/backend-api";
@@ -202,7 +202,7 @@ function requestUrl(input: RequestInfo | URL): string {
 
 function withChatGPTHeaders(
   headersInit: HeadersInit | undefined,
-  credential: ChatGPTCredential,
+  credential: ChatGPTAccess,
 ): Headers {
   const headers = new Headers(headersInit);
   headers.set("authorization", `Bearer ${credential.access}`);
@@ -236,7 +236,7 @@ export function createChatGPTFetch(options?: {
       }
     }
 
-    const send = (credential: ChatGPTCredential): Promise<Response> => {
+    const send = (credential: ChatGPTAccess): Promise<Response> => {
       const headers = withChatGPTHeaders(init?.headers, credential);
       if (isResponsesCall) {
         headers.set("OpenAI-Beta", "responses=experimental");

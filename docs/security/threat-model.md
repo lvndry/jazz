@@ -129,6 +129,10 @@ redaction. Hosted runs can bootstrap them from `JAZZ_CHATGPT_CREDENTIAL`; Jazz r
 environment variable before starting child processes and stores the bundle through its normal
 private credential backend. A configured `JAZZ_CHATGPT_CREDENTIAL_OUTPUT` receives the rotated
 bundle after refresh, so only a trusted workflow should read or persist that file.
+`JAZZ_CHATGPT_ACCESS_TOKEN` gives a run only an access token, removed from the environment the
+same way and registered for redaction. Such a run has no refresh token to leak or rotate: a
+stolen access token stops working when it expires, while a stolen refresh token keeps the
+sign-in until it is used or revoked.
 
 ### Memory writes
 

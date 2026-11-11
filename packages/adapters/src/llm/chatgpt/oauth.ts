@@ -37,13 +37,18 @@ const AUTH_CLAIM = "https://api.openai.com/auth";
 /** Sent as `originator` so OpenAI can attribute traffic to Jazz. */
 export const CHATGPT_ORIGINATOR = "jazz";
 
-export interface ChatGPTCredential {
+/** What a model request needs: the access token and the account it acts for. */
+export interface ChatGPTAccess {
   readonly access: string;
-  readonly refresh: string;
   /** Access-token expiry, epoch milliseconds. */
   readonly expires: number;
   readonly accountId: string;
   readonly plan?: string;
+}
+
+/** A full sign-in: the access token plus the single-use refresh token that renews it. */
+export interface ChatGPTCredential extends ChatGPTAccess {
+  readonly refresh: string;
 }
 
 interface TokenResponse {
@@ -65,9 +70,11 @@ function createPkcePair(): { verifier: string; challenge: string } {
 interface AccessTokenClaims {
   readonly accountId?: string;
   readonly plan?: string;
+  /** The `exp` claim, epoch milliseconds. */
+  readonly expires?: number;
 }
 
-/** Read the ChatGPT account and plan from an access token without verifying it. */
+/** Read the ChatGPT account, plan and expiry from an access token without verifying it. */
 export function readAccessTokenClaims(accessToken: string): AccessTokenClaims {
   const payload = accessToken.split(".")[1];
   if (payload === undefined) {
@@ -80,11 +87,15 @@ export function readAccessTokenClaims(accessToken: string): AccessTokenClaims {
     >;
     const auth = claims[AUTH_CLAIM] as
       { chatgpt_account_id?: unknown; chatgpt_plan_type?: unknown } | undefined;
+    const expiresAt = claims["exp"];
     return {
       ...(typeof auth?.chatgpt_account_id === "string" && auth.chatgpt_account_id.length > 0
         ? { accountId: auth.chatgpt_account_id }
         : {}),
       ...(typeof auth?.chatgpt_plan_type === "string" ? { plan: auth.chatgpt_plan_type } : {}),
+      ...(typeof expiresAt === "number" && Number.isFinite(expiresAt)
+        ? { expires: expiresAt * 1000 }
+        : {}),
     };
   } catch {
     return {};
