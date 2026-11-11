@@ -829,7 +829,7 @@ async function pollLoop(bridge: Bridge): Promise<void> {
 interface BotIdentity {
   /** The bot's own display name, used as the agent name the persona speaks as. */
   readonly name: string | undefined;
-  /** Whether BotFather's topic mode is on, so a private chat can hold several conversations. */
+  /** Whether BotFather's Threaded Mode is on, so a private chat can hold several conversations. */
   readonly privateTopics: boolean;
 }
 

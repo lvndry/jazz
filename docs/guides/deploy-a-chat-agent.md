@@ -85,7 +85,8 @@ trailing space is the usual culprit).
 ### 6. Optional: one conversation per topic
 
 To run several conversations side by side in your DM, open @BotFather → your bot → **Bot
-Settings** and turn on topics in private chats. Each topic you open is then its own
+Settings** and turn on **Threaded Mode** (topics in private chats), then restart the bridge,
+which reads the setting when it starts. Each topic you open is then its own
 conversation, with its own history and its own `/new`, and runs alongside the others. A topic
 you open without naming gets a name from the first text or caption you send in it. That is
 best-effort: if Telegram refuses the rename it is tried again with your next message, and a
