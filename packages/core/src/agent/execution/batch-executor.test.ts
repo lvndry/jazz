@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { Effect, FileSystem, Layer } from "effect";
+import { Duration, Effect, Exit, Fiber, FileSystem, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import { OneShotPresentationService } from "@/core/presentation/oneshot-presentation-service";
 import { SkillServiceTag } from "@/core/skills/skill-service";
 import { partialFake } from "@/core/test-support/fakes";
 import { executeWithoutStreaming } from "./batch-executor";
-import { DEFAULT_MAX_ITERATIONS } from "../../constants/agent";
+import { DEFAULT_MAX_ITERATIONS, LLM_TIMEOUT_SECONDS } from "../../constants/agent";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
 import { GoalStoreTag } from "../../interfaces/goal-store";
@@ -23,6 +24,7 @@ import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import { WakeTriggerServiceTag } from "../../interfaces/wake-trigger-service";
 import { WorkspaceServiceTag } from "../../interfaces/workspace-service";
 import type { ChatCompletionResponse } from "../../types/chat";
+import { LLMRequestError, TimeoutError } from "../../types/errors";
 import type { StreamEvent } from "../../types/streaming";
 import type { RecursiveRunner } from "../context/summarizer";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
@@ -359,6 +361,62 @@ describe("executeWithoutStreaming tool event emission", () => {
     expect(presentationService.answers).toEqual([
       { content: "There are 2 entries.", regionId: "child-region" },
     ]);
+  });
+});
+
+describe("executeWithoutStreaming step timeout", () => {
+  /** Long enough that one attempt fits inside the step limit, but two do not. */
+  const ATTEMPT_DURATION = Duration.seconds(500);
+  /** How far the test clock moves per step; the real-time pause after each lets new timers register. */
+  const CLOCK_STEP = Duration.seconds(10);
+
+  it("bounds the whole step, retries included, and fails naming the agent and the limit", async () => {
+    let calls = 0;
+    const llmService = partialFake<LLMService>({
+      ...makeLLMService(),
+      createChatCompletion: () =>
+        Effect.sync(() => {
+          calls += 1;
+        }).pipe(
+          Effect.andThen(Effect.sleep(ATTEMPT_DURATION)),
+          Effect.andThen(
+            Effect.fail(new LLMRequestError({ provider: "openai", message: "overloaded" })),
+          ),
+        ),
+    });
+    const runContext = { ...makeRunContext(), maxRetries: 3 };
+    const presentationService = new OneShotPresentationService(DEFAULT_DISPLAY_CONFIG, new Set());
+
+    const exit = await Effect.gen(function* () {
+      const run = yield* executeWithoutStreaming(
+        makeOptions(),
+        runContext,
+        DEFAULT_DISPLAY_CONFIG,
+        false,
+        runRecursive,
+      ).pipe(
+        Effect.provide(buildLayer(presentationService, undefined, llmService)),
+        Effect.forkChild,
+      );
+      const stepsPastTheLimit = Math.ceil(
+        (LLM_TIMEOUT_SECONDS + 100) / Duration.toSeconds(CLOCK_STEP),
+      );
+      for (let step = 0; step < stepsPastTheLimit; step += 1) {
+        yield* TestClock.adjust(CLOCK_STEP);
+        yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 1)));
+      }
+      return yield* Fiber.await(run);
+    }).pipe(Effect.provide(TestClock.layer()), Effect.runPromise);
+
+    // A timeout inside the retry would let each 500s attempt finish and the retries run out on
+    // the provider error instead.
+    const reason = Exit.isFailure(exit) ? exit.cause.reasons[0] : undefined;
+    const failure = reason?._tag === "Fail" ? reason.error : undefined;
+    if (!(failure instanceof TimeoutError)) {
+      throw new Error(`expected the step to time out, got ${String(failure)}`);
+    }
+    expect(failure.operation).toBe("test-agent's model step (including retries)");
+    expect(calls).toBe(2);
   });
 });
 
