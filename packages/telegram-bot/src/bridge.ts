@@ -837,7 +837,8 @@ interface BotIdentity {
 }
 
 type GetMeBody =
-  { result?: { first_name?: string; username?: string; has_topics_enabled?: boolean } } | undefined;
+  | { result?: { first_name?: string; username?: string; has_topics_enabled?: boolean } | null }
+  | undefined;
 
 /**
  * Threaded Mode as `getMe` reports it. Telegram leaves `has_topics_enabled` out when the mode is
@@ -845,10 +846,12 @@ type GetMeBody =
  * unknown.
  */
 export function threadedModeOf(body: GetMeBody): boolean | undefined {
-  if (body?.result === undefined) {
+  // The body is unchecked JSON: a null or non-object result says nothing about the mode.
+  const result = body?.result;
+  if (typeof result !== "object" || result === null) {
     return undefined;
   }
-  return body.result.has_topics_enabled === true;
+  return result.has_topics_enabled === true;
 }
 
 async function fetchBotIdentity(surface: TelegramSurface): Promise<BotIdentity> {

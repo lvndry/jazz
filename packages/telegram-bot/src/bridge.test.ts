@@ -7,6 +7,7 @@ import { createChoiceTokens } from "@jazz/bot-shared/choice-tokens";
 import type { JazzEnvelope, JazzEvent, JazzRun, JazzRunHandlers } from "@jazz/bot-shared/jazz-run";
 import type { Choice, DraftPreview, OutgoingMessage } from "@jazz/bot-shared/surface";
 import { waitUntil } from "@jazz/bot-shared/wait-until";
+import { invalidInput } from "@jazz/core/test-support/fakes";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   type Bridge,
@@ -244,6 +245,13 @@ describe("threadedModeOf", () => {
   test("no result is unknown, so a failed getMe never tells the operator to turn the mode on", () => {
     expect(threadedModeOf(undefined)).toBeUndefined();
     expect(threadedModeOf({})).toBeUndefined();
+  });
+
+  test("a null or non-object result is unknown too, not a crash at startup", () => {
+    expect(threadedModeOf({ result: null })).toBeUndefined();
+    expect(
+      threadedModeOf(invalidInput<Parameters<typeof threadedModeOf>[0]>({ result: "jazzy" })),
+    ).toBeUndefined();
   });
 });
 
