@@ -16,6 +16,7 @@ import {
   handleCallback,
   handleGenerationStopped,
   inboundFrom,
+  threadedModeOf,
 } from "./bridge";
 import { renderRichText, type TelegramSurface } from "./surface";
 
@@ -229,6 +230,21 @@ afterEach(async () => {
   }
   await waitUntil(() => !bridge.runner.busy(String(OWNER)) && !bridge.runner.busy(String(GROUP)));
   rmSync(dataDir, { recursive: true, force: true });
+});
+
+describe("threadedModeOf", () => {
+  test("on only when Telegram says so", () => {
+    expect(threadedModeOf({ result: { has_topics_enabled: true } })).toBe(true);
+  });
+
+  test("a result without the field is off: Telegram leaves it out when the mode is off", () => {
+    expect(threadedModeOf({ result: { first_name: "jazzy" } })).toBe(false);
+  });
+
+  test("no result is unknown, so a failed getMe never tells the operator to turn the mode on", () => {
+    expect(threadedModeOf(undefined)).toBeUndefined();
+    expect(threadedModeOf({})).toBeUndefined();
+  });
 });
 
 describe("messages", () => {
