@@ -837,7 +837,14 @@ interface BotIdentity {
 }
 
 type GetMeBody =
-  | { result?: { first_name?: string; username?: string; has_topics_enabled?: boolean } | null }
+  | {
+      result?: {
+        id?: number;
+        first_name?: string;
+        username?: string;
+        has_topics_enabled?: boolean;
+      } | null;
+    }
   | undefined;
 
 /**
@@ -846,12 +853,23 @@ type GetMeBody =
  * unknown.
  */
 export function threadedModeOf(body: GetMeBody): boolean | undefined {
-  // The body is unchecked JSON: a null or non-object result says nothing about the mode.
+  // The body is unchecked JSON. Only a result shaped like getMe's User (an object with a numeric
+  // id) can say the mode is off by leaving the field out; anything else, or a flag that is not a
+  // boolean, says nothing about it.
   const result = body?.result;
-  if (typeof result !== "object" || result === null) {
+  if (
+    typeof result !== "object" ||
+    result === null ||
+    Array.isArray(result) ||
+    typeof result.id !== "number"
+  ) {
     return undefined;
   }
-  return result.has_topics_enabled === true;
+  const flag: unknown = result.has_topics_enabled;
+  if (flag === undefined) {
+    return false;
+  }
+  return typeof flag === "boolean" ? flag : undefined;
 }
 
 async function fetchBotIdentity(surface: TelegramSurface): Promise<BotIdentity> {

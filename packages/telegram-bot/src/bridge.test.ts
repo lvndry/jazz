@@ -234,12 +234,15 @@ afterEach(async () => {
 });
 
 describe("threadedModeOf", () => {
+  const malformed = (body: unknown) =>
+    threadedModeOf(invalidInput<Parameters<typeof threadedModeOf>[0]>(body));
+
   test("on only when Telegram says so", () => {
-    expect(threadedModeOf({ result: { has_topics_enabled: true } })).toBe(true);
+    expect(threadedModeOf({ result: { id: 7, has_topics_enabled: true } })).toBe(true);
   });
 
   test("a result without the field is off: Telegram leaves it out when the mode is off", () => {
-    expect(threadedModeOf({ result: { first_name: "jazzy" } })).toBe(false);
+    expect(threadedModeOf({ result: { id: 7, first_name: "jazzy" } })).toBe(false);
   });
 
   test("no result is unknown, so a failed getMe never tells the operator to turn the mode on", () => {
@@ -247,11 +250,16 @@ describe("threadedModeOf", () => {
     expect(threadedModeOf({})).toBeUndefined();
   });
 
-  test("a null or non-object result is unknown too, not a crash at startup", () => {
+  test("a result that is not getMe's User is unknown, not off and not a crash at startup", () => {
     expect(threadedModeOf({ result: null })).toBeUndefined();
-    expect(
-      threadedModeOf(invalidInput<Parameters<typeof threadedModeOf>[0]>({ result: "jazzy" })),
-    ).toBeUndefined();
+    expect(malformed({ result: "jazzy" })).toBeUndefined();
+    expect(malformed({ result: [] })).toBeUndefined();
+    expect(threadedModeOf({ result: { first_name: "jazzy" } })).toBeUndefined();
+  });
+
+  test("a flag that is not a boolean is unknown", () => {
+    expect(malformed({ result: { id: 7, has_topics_enabled: "yes" } })).toBeUndefined();
+    expect(malformed({ result: { id: 7, has_topics_enabled: 1 } })).toBeUndefined();
   });
 });
 
