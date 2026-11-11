@@ -4,7 +4,7 @@ import { TestClock } from "effect/testing";
 import { partialFake } from "@/core/test-support/fakes";
 import { executeWithStreaming } from "./streaming-executor";
 import { ToolExecutor } from "./tool-executor";
-import { DEFAULT_MAX_ITERATIONS } from "../../constants/agent";
+import { DEFAULT_MAX_ITERATIONS, LLM_TIMEOUT_SECONDS } from "../../constants/agent";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
 import { GoalStoreTag } from "../../interfaces/goal-store";
@@ -23,7 +23,7 @@ import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import { WakeTriggerServiceTag } from "../../interfaces/wake-trigger-service";
 import { WorkspaceServiceTag } from "../../interfaces/workspace-service";
 import { SkillServiceTag } from "../../skills/skill-service";
-import { LLMRateLimitError, LLMRequestError } from "../../types/errors";
+import { LLMRateLimitError, LLMRequestError, TimeoutError } from "../../types/errors";
 import type { StreamEvent } from "../../types/streaming";
 import type { RecursiveRunner } from "../context/summarizer";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
@@ -1278,6 +1278,55 @@ describe("executeWithStreaming retries", () => {
 
       expect(attempts).toBe(1);
     });
+  });
+});
+
+describe("executeWithStreaming step timeout", () => {
+  /** Longer than half the step limit, so the limit falls during the second attempt. */
+  const ATTEMPT_MS = 500_000;
+  /** How far both clocks move per step; the real-time pause after each lets new timers register. */
+  const CLOCK_STEP_MS = 10_000;
+
+  it("bounds the whole step, retries included, and fails naming the agent and the limit", async () => {
+    let attempts = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 3,
+      llmService: scriptedLLMService(() =>
+        Effect.sync(() => {
+          attempts += 1;
+          return {
+            stream: Stream.fromEffect(
+              Effect.sleep(ATTEMPT_MS).pipe(
+                Effect.andThen(
+                  Effect.fail(new LLMRequestError({ provider: "openai", message: "overloaded" })),
+                ),
+              ),
+            ),
+            response: Effect.never,
+            cancel: Effect.void,
+          };
+        }),
+      ),
+    });
+    const drive = Effect.gen(function* () {
+      const steps = Math.ceil((LLM_TIMEOUT_SECONDS * 1000 + ATTEMPT_MS) / CLOCK_STEP_MS);
+      for (let step = 0; step < steps; step += 1) {
+        yield* moveClocksTo((yield* Clock.currentTimeMillis) + CLOCK_STEP_MS);
+        yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 1)));
+      }
+    });
+
+    // A timeout inside the retry would let each attempt finish and the retries run out on the
+    // provider error instead.
+    const failure = await runOnTestClock(harness, drive).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    if (!(failure instanceof TimeoutError)) {
+      throw new Error(`expected the step to time out, got ${String(failure)}`);
+    }
+    expect(failure.operation).toBe("test-agent's model step (including retries)");
+    expect(attempts).toBe(2);
   });
 });
 
