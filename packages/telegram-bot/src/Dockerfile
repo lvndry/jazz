@@ -24,9 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Himalaya has no Debian package; install the upstream binary the same way
-# the email skill's own install fallback does.
-RUN curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh \
+# Himalaya has no Debian package. Use its release-tagged installer so changes
+# on upstream master cannot break image builds; it still downloads the latest binary.
+RUN curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/v2.2.1/install.sh \
     | PREFIX=/usr/local sh
 
 # Debian's vdirsyncer package doesn't pull aiohttp-oauthlib, so its

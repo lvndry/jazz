@@ -74,6 +74,10 @@ docker compose up -d --build
 docker compose logs -f          # expect "Polling Telegram for updates…"
 ```
 
+The Telegram image installs Himalaya for email using its `v2.2.1` release-tagged
+installer, avoiding changes on upstream `master`. The installer downloads the latest
+Himalaya binary when the image's install layer is rebuilt.
+
 ### 5. Talk to it
 
 Message your bot on Telegram. It shows a "typing…" indicator, then the agent's reply.
