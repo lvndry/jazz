@@ -175,6 +175,17 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
     note: "In fullscreen, press down from an empty composer to reach the same list; Enter on a wait opens its checks.",
   },
   {
+    name: "subagents",
+    type: "subagents",
+    description: "List this session's sub-agents, including earlier turns, or show one's log",
+    usage: "[list|show <number>]",
+    forms: [
+      { form: "/subagents list", meaning: "Every sub-agent this session ran, oldest first" },
+      { form: "/subagents show <number>", meaning: "A sub-agent's brief and everything it did" },
+    ],
+    note: "The list under the composer starts over each turn; this keeps the earlier ones. The 50 most recent finished sub-agents are kept.",
+  },
+  {
     name: "memory",
     type: "memory",
     description:

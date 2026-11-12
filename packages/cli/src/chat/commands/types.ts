@@ -52,6 +52,7 @@ export type CommandType =
   | "goal"
   | "loop"
   | "waits"
+  | "subagents"
   | "learn"
   | "runSkill"
   | "runMcpPrompt"

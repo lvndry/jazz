@@ -1016,6 +1016,7 @@ with `/switch <agent>` to use the updated tool selection.
 | `/help [command]`                                                                    | Show available commands and shortcuts.                                                                        |
 | `/loop <every> <prompt>\|cron\|list\|approve\|reject\|answer\|pause\|resume\|cancel` | Rerun a prompt on a schedule in the background. See [Loops in chat](#loops-in-chat).                          |
 | `/waits [list\|show <number>\|cancel <number>]`                                      | List what is waiting in the background, show a wait's checks, or cancel one.                                  |
+| `/subagents [list\|show <number>]`                                                   | List this session's sub-agents, including earlier turns, or show one's log.                                   |
 | `/memory [forget <path> \| review \| accept <id> \| reject <id>]`                    | Show what this agent has remembered about you, forget one file, or review waiting suggestions and lessons.    |
 | `/learn`                                                                             | Learn from the conversation so far and tidy memory, then keep or drop every change. Also `/reflect`.          |
 | `/limit [turns\|usd\|tokens <value>\|clear]`                                         | Set a session turn, cost, or token limit (applied immediately).                                               |

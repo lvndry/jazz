@@ -179,6 +179,7 @@ import {
   SESSION_LIMIT_FIELD,
   type SessionLimitMetric,
 } from "./session-limits";
+import { handleSubagentsCommand } from "./subagents";
 import type {
   CommandContext,
   CommandResult,
@@ -254,6 +255,9 @@ export function handleSpecialCommand(
 
       case "waits":
         return yield* handleWaitsCommand(context, command.args);
+
+      case "subagents":
+        return yield* handleSubagentsCommand(command.args);
 
       case "learn":
         return yield* handleLearnCommand(context);

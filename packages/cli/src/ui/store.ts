@@ -71,6 +71,9 @@ const EMPTY_STREAM = "";
 const EMPTY_OUTPUT_ENTRIES: readonly OutputEntryWithId[] = [];
 const EMPTY_REGIONS: readonly EphemeralRegion[] = [];
 const EMPTY_SUBAGENT_RUNS: readonly SubagentRun[] = [];
+
+/** Finished runs kept for `/subagents`; the oldest go first. Each holds up to 1,000 log entries. */
+export const MAX_FINISHED_SUBAGENT_RUNS = 50;
 const EMPTY_CONNECTORS: ReadonlyMap<string, ConnectorStatus> = new Map();
 const EMPTY_RUN_STATS: RunStats = {};
 const EMPTY_BACKGROUND_ITEMS: readonly BackgroundItem[] = [];
@@ -344,7 +347,7 @@ export interface EphemeralSnapshot {
 }
 
 export interface SubagentsSnapshot {
-  /** This turn's sub-agents in spawn order, finished ones included. */
+  /** This turn's sub-agents in spawn order, finished ones included, plus any still running from earlier turns. */
   readonly runs: readonly SubagentRun[];
 }
 
@@ -584,6 +587,8 @@ export class UIStore {
   private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
   private ephemeralIdCounter = 0;
   private subagentRuns: Map<EphemeralRegionId, SubagentRun> = new Map();
+  /** Finished runs a new turn took off the list; they stay in `subagentRuns` for `/subagents`. */
+  private readonly delistedSubagentRunIds = new Set<EphemeralRegionId>();
   // A run may synchronously spawn nested runs. Interrupting only the top-most
   // callback leaves the parent waiting for (and potentially respawning) a child.
   // Keep the stack for scoped cleanup, but dispatch an interrupt to every active
@@ -986,10 +991,8 @@ export class UIStore {
    * otherwise bring its old countdown back on the next send.
    */
   setChatBusy = (busy: boolean): void => {
-    // A new turn starts the list over. Finished sub-agents stay readable between
-    // turns, but the list is "this run's sub-agents", not the session's.
     if (busy && !this.session.getSnapshot().chatBusy) {
-      this.pruneFinishedSubagentRuns();
+      this.delistFinishedSubagentRuns();
     }
     const snapshot = this.session.getSnapshot();
     patchSlice(this.session, {
@@ -1444,25 +1447,43 @@ export class UIStore {
     return true;
   };
 
+  /** The list shows this turn's runs; a new turn delists the finished ones, which `/subagents` still reads. */
   private publishSubagentRuns(): void {
-    const runs =
-      this.subagentRuns.size === 0 ? EMPTY_SUBAGENT_RUNS : Array.from(this.subagentRuns.values());
-    patchSlice(this.subagents, { runs });
+    this.evictOldestFinishedSubagentRuns();
+    const visible = Array.from(this.subagentRuns.values()).filter(
+      (run) => !this.delistedSubagentRunIds.has(run.id),
+    );
+    patchSlice(this.subagents, { runs: visible.length === 0 ? EMPTY_SUBAGENT_RUNS : visible });
   }
 
-  private pruneFinishedSubagentRuns(): void {
-    let pruned = false;
-    for (const [id, run] of this.subagentRuns) {
-      if (run.status === "running") {
-        continue;
+  private delistFinishedSubagentRuns(): void {
+    let delisted = false;
+    for (const run of this.subagentRuns.values()) {
+      if (run.status !== "running" && !this.delistedSubagentRunIds.has(run.id)) {
+        this.delistedSubagentRunIds.add(run.id);
+        delisted = true;
       }
-      this.subagentRuns.delete(id);
-      pruned = true;
     }
-    if (pruned) {
+    if (delisted) {
       this.publishSubagentRuns();
     }
   }
+
+  private evictOldestFinishedSubagentRuns(): void {
+    const finished = Array.from(this.subagentRuns.values()).filter(
+      (run) => run.status !== "running",
+    );
+    for (const run of finished.slice(
+      0,
+      Math.max(0, finished.length - MAX_FINISHED_SUBAGENT_RUNS),
+    )) {
+      this.subagentRuns.delete(run.id);
+      this.delistedSubagentRunIds.delete(run.id);
+    }
+  }
+
+  /** Every run of this session, running and finished, in spawn order. */
+  getAllSubagentRuns = (): readonly SubagentRun[] => Array.from(this.subagentRuns.values());
 
   /**
    * A message still pending when the sub-agent ends never reached it: the loop only
@@ -1730,6 +1751,7 @@ export class UIStore {
     this.subagentCancels.clear();
     this.publishEphemeralRegions();
     this.subagentRuns.clear();
+    this.delistedSubagentRunIds.clear();
     this.publishSubagentRuns();
     this.setExpandableReasoning(null);
   }
