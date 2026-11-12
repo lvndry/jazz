@@ -132,13 +132,16 @@ function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
 }
 
 /** Minimal presentation layer: /compact drives a live region, so the handler needs one. */
-function mockPresentationLayer(): Layer.Layer<PresentationService> {
+function mockPresentationLayer(
+  overrides: Partial<PresentationService> = {},
+): Layer.Layer<PresentationService> {
   return Layer.succeed(
     PresentationServiceTag,
     partialFake<PresentationService>({
       openEphemeralRegion: () => Effect.succeed("region-test"),
       appendEphemeralRegion: () => Effect.void,
       collapseEphemeralRegion: () => Effect.void,
+      ...overrides,
     }),
   );
 }
@@ -1251,7 +1254,10 @@ describe("handleSpecialCommand /compact", () => {
     sessionStartedAt: new Date(),
   };
 
-  function runCompact(terminal: PartialMembers<TerminalService> = {}): Promise<CommandResult> {
+  function runCompact(
+    terminal: PartialMembers<TerminalService> = {},
+    presentation: Partial<PresentationService> = {},
+  ): Promise<CommandResult> {
     const mockTerminal: PartialMembers<TerminalService> = {
       info: mock(() => Effect.void),
       success: mock(() => Effect.void),
@@ -1266,10 +1272,45 @@ describe("handleSpecialCommand /compact", () => {
     );
     return Effect.runPromise(
       handleSpecialCommand({ type: "compact", args: [] }, context).pipe(
-        Effect.provide(Layer.mergeAll(terminalLayer, mockPresentationLayer())),
+        Effect.provide(Layer.mergeAll(terminalLayer, mockPresentationLayer(presentation))),
       ) as Effect.Effect<CommandResult, unknown, never>,
     );
   }
+
+  test("animates the compaction spinner and keeps the current phase across refreshes", async () => {
+    const frames: string[] = [];
+    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
+      (_history, _agent, _conversationId, _window, onPhase) =>
+        Effect.gen(function* () {
+          if (onPhase) {
+            yield* onPhase({ phase: "summarize-start", messageCount: 4 });
+          }
+          yield* Effect.sleep(450);
+          return undefined;
+        }),
+    );
+    try {
+      await runCompact(
+        {},
+        {
+          replaceEphemeralRegion: (_regionId, text) =>
+            Effect.sync(() => {
+              frames.push(text);
+            }),
+        },
+      );
+
+      expect(frames.length).toBeGreaterThanOrEqual(4);
+      for (const frame of frames.slice(1)) {
+        expect(frame).toContain("Summarizing 4 older messages…");
+        expect(frame).toEndWith("% context");
+      }
+      const marks = frames.map((frame) => frame.split("\n").at(-1)?.charAt(0));
+      expect(new Set(marks).size).toBeGreaterThan(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 
   test("replaces the history with the compacted one, recent messages included", async () => {
     const compacted: ConversationMessages = [

@@ -2030,6 +2030,7 @@ function runIteration(
       allowMemoryExtraction,
       deps.context.egressTaint,
       {
+        trigger: "automatic",
         tools: deps.tools,
         cacheScope: { ...promptCacheScope(deps), emit: undefined },
         pricing: deps.modelMetadata,

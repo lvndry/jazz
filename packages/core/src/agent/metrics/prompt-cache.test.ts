@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { z } from "zod";
+import type { ToolDefinition } from "@/core/types/tools";
 import {
   addToCacheTally,
   cacheHitRate,
@@ -10,6 +12,9 @@ import {
   fingerprintRequest,
   formatCacheSummary,
   lastCacheObservation,
+  lastRequestTools,
+  isCachedHistoryPrefix,
+  isCompletedRequestPrefix,
   normalizeCacheUsage,
   observeRequest,
   recordCacheUsage,
@@ -285,6 +290,84 @@ describe("formatCacheSummary", () => {
 describe("ledger", () => {
   beforeEach(() => {
     resetCacheLedger();
+  });
+
+  test("remembers only completed request checkpoints and bounds their lifetime", () => {
+    const first = fingerprintRequest(request());
+    observeRequest("checkpoints", first);
+    expect(isCompletedRequestPrefix("checkpoints", first)).toBe(false);
+    recordCacheUsage("checkpoints", { promptTokens: 100 });
+    expect(isCompletedRequestPrefix("checkpoints", first)).toBe(true);
+    for (let index = 0; index < 32; index++) {
+      const next = fingerprintRequest(
+        request({
+          messages: [
+            { role: "system", content: "persona" },
+            { role: "user", content: `step ${index}` },
+          ],
+        }),
+      );
+      observeRequest("checkpoints", next);
+      recordCacheUsage("checkpoints", { promptTokens: 100 });
+    }
+    expect(isCompletedRequestPrefix("checkpoints", first)).toBe(false);
+    resetCacheLedger();
+    expect(isCompletedRequestPrefix("checkpoints", first)).toBe(false);
+  });
+
+  test("accepts a leading history prefix but rejects changed messages and headers", () => {
+    const full = request({
+      messages: [
+        { role: "system", content: "rules" },
+        { role: "user", content: "old" },
+        { role: "assistant", content: "answer" },
+        { role: "user", content: "recent" },
+      ],
+    });
+    observeRequest("prefix", fingerprintRequest(full));
+    const prefix = request({ messages: full.messages.slice(0, 3) });
+    expect(isCachedHistoryPrefix("prefix", fingerprintRequest(prefix))).toBe(true);
+    expect(isCachedHistoryPrefix("missing", fingerprintRequest(prefix))).toBe(false);
+    for (const changed of [
+      { ...prefix, model: "other" },
+      { ...prefix, provider: "other" },
+      { ...prefix, tools: [] },
+      {
+        ...prefix,
+        messages: [{ role: "system", content: "changed" }, ...prefix.messages.slice(1)],
+      },
+      { ...prefix, messages: [prefix.messages[0]!, { role: "user", content: "rewritten" }] },
+    ]) {
+      expect(isCachedHistoryPrefix("prefix", fingerprintRequest(changed))).toBe(false);
+    }
+  });
+
+  test("snapshots offered schemas and drops them when the observation is replaced or evicted", () => {
+    const tools: ToolDefinition[] = [
+      {
+        type: "function",
+        function: {
+          name: "read_file",
+          description: "Read a file",
+          parameters: z.object({ path: z.string() }),
+        },
+      },
+    ];
+    const fingerprint = fingerprintRequest(request());
+    observeRequest("original", fingerprint, tools);
+    tools.length = 0;
+    expect(lastRequestTools("original")).toHaveLength(1);
+
+    observeRequest("original", fingerprint);
+    expect(lastRequestTools("original")).toBeUndefined();
+    observeRequest("original", fingerprint, []);
+    for (let index = 0; index < 65; index++) {
+      observeRequest(`other-${index}`, fingerprint, []);
+    }
+    expect(lastRequestTools("original")).toBeUndefined();
+    expect(lastRequestTools("other-64")).toEqual([]);
+    resetCacheLedger();
+    expect(lastRequestTools("other-64")).toBeUndefined();
   });
 
   test("classifies against the conversation's previous request and records usage", () => {

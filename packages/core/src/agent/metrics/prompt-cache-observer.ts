@@ -1,3 +1,8 @@
+/**
+ * Classify each outgoing request and attach provider cache usage to its observation.
+ * The bounded ledger keeps hashes and offered schemas for later manual compaction;
+ * logs and stream events contain only hashes, counts, reasons and cache rates.
+ */
 import { Effect } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { StreamEvent } from "@/core/types/streaming";
@@ -43,7 +48,7 @@ export function observePromptCache(
       tools: tools.map(toolFingerprintInput),
       messages,
     });
-    const change = observeRequest(scope.conversationKey, fingerprint);
+    const change = observeRequest(scope.conversationKey, fingerprint, tools);
     scope.pendingReason = change.reason;
     yield* scope.logger.debug("Prompt cache prefix classified", {
       conversationId: scope.runMetrics.conversationId,

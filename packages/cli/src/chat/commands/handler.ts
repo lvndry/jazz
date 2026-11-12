@@ -1416,17 +1416,20 @@ function handleCompactCommand(
     const phaseLines: string[] = [];
     let reclaimedPercent = 0;
     let drainStartedAt: number | undefined;
-    const renderRegion = (): Effect.Effect<void> => {
-      if (replaceRegion === undefined) {
-        return Effect.void;
-      }
-      const drainElapsedMs = drainStartedAt === undefined ? 0 : Date.now() - drainStartedAt;
-      const meter = renderCompactionMeter(
-        drainedPercent(meterPlan, drainElapsedMs, reclaimedPercent),
-        glyphs,
-      );
-      return replaceRegion(regionId, [...phaseLines, meter].join("\n"));
-    };
+    const renderRegion = (): Effect.Effect<void> =>
+      Effect.suspend(() => {
+        if (replaceRegion === undefined) {
+          return Effect.void;
+        }
+        const drainElapsedMs = drainStartedAt === undefined ? 0 : Date.now() - drainStartedAt;
+        const meter = renderCompactionMeter(
+          drainedPercent(meterPlan, drainElapsedMs, reclaimedPercent),
+          glyphs,
+        );
+        const tick = Math.floor((Date.now() - startedAt) / METER_FRAME_INTERVAL_MS);
+        const spinner = glyphs.spinnerFrames[tick % glyphs.spinnerFrames.length];
+        return replaceRegion(regionId, [...phaseLines, `${spinner} ${meter} context`].join("\n"));
+      });
     let firstAppend = true;
     const onPhase: CompactionProgressObserver = (event) =>
       Effect.suspend(() => {

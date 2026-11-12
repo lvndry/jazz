@@ -262,9 +262,29 @@ adapter conversion. The ledger's `peekCacheChange` must classify it `none` again
 request, otherwise nothing would hit the cache and the stand-alone path (which chunks oversized
 transcripts) runs. A returned tool call, empty checkpoint or truncated checkpoint is discarded
 and falls back to the stand-alone summarizer. The summary's spend is side
-spend and its hit rate goes through `recordPromptCacheUsage`. `/compact`, `summarize_context`,
-overflow recovery and memory extraction have no previous request to share and always use the
-stand-alone path.
+spend and its hit rate goes through `recordPromptCacheUsage`.
+
+Manual `/compact` also supplies alignment after a turn in the same process. The cache ledger
+retains only the last offered schemas with its fingerprints, bounded to 64 conversations;
+it does not retain another transcript or the previous run's metrics. `compactHistory` creates
+fresh metrics and reuses those schemas. A local provider without published cache pricing can
+qualify through a positive cache hit already reported in this conversation. Manual requests
+can use `summaryRequestPrefix`: the older messages through outstanding tool results, but only
+at a boundary matching a previously completed request. The ledger retains at most 32 such
+checkpoint hashes per conversation, not their transcripts. Otherwise the full matching request
+is used. Hybrid backends may need saved recurrent-state checkpoints rather than an arbitrary
+text prefix; see [vLLM's hybrid cache rules](https://docs.vllm.ai/en/latest/features/automatic_prefix_caching/#hybrid-mamba-models).
+Remembering a completed request does not guarantee that the backend still retains it.
+The fingerprint
+guard permits a shorter leading prefix, never a changed header or an edit inside that prefix.
+The final instruction starts a new turn only when the removed tail contained the latest real
+user turn, preserving the adapter's original reasoning projection. Attachment histories fall
+back because shortening can change which attachments are inlined. Model, capacity and response
+checks still apply. A plugin pruning pass that rewrites results invalidates alignment. A cold process or
+evicted observation falls back to the standalone summarizer. Manual aligned calls emit their
+token usage because no active parent run will emit it. The agent's reasoning setting is
+preserved. `summarize_context`, overflow recovery and memory extraction still use the standalone
+path.
 
 The summary is a fixed checkpoint rather than free-form prose. Every compaction writes:
 

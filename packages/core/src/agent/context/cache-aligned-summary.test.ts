@@ -1,3 +1,8 @@
+/**
+ * Replay the loop's cache observations around compaction with a recording LLM service.
+ * Verify request-prefix reuse, summary-specific options, fallback behavior and accounting
+ * without contacting a provider or mutating the parent agent's settings.
+ */
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { z } from "zod";
@@ -22,12 +27,18 @@ import {
   fingerprintRequest,
   lastCacheObservation,
   promptCacheKey,
+  recordCacheUsage,
   resetCacheLedger,
   toolFingerprintInput,
 } from "../metrics/prompt-cache";
 import { observePromptCache } from "../metrics/prompt-cache-observer";
 import type { AgentResponse } from "../types";
-import { Summarizer, type CompactionOutcome, type RecursiveRunner } from "./summarizer";
+import {
+  Summarizer,
+  summaryRequestPrefix,
+  type CompactionOutcome,
+  type RecursiveRunner,
+} from "./summarizer";
 
 const PROVIDER = "openai" as const;
 const MODEL = "gpt-4";
@@ -120,11 +131,13 @@ interface Harness {
   readonly metrics: AgentRunMetrics;
   readonly conversationKey: string;
   readonly previousMessages: ConversationMessages;
+  readonly history: ConversationMessages;
   readonly tools: ToolDefinition[];
   compact(options: {
     readonly agent?: Agent;
     readonly pricing?: typeof PRICING | undefined;
     readonly respond?: () => Effect.Effect<ChatCompletionResponse, LLMRequestError>;
+    readonly trigger?: "automatic" | "manual";
   }): Promise<CompactionOutcome | undefined>;
 }
 
@@ -177,6 +190,7 @@ async function makeHarness(tools = makeTools()): Promise<Harness> {
     metrics,
     conversationKey,
     previousMessages,
+    history,
     tools,
     async compact(options) {
       const { agent: agentOverride, respond } = options;
@@ -219,7 +233,7 @@ async function makeHarness(tools = makeTools()): Promise<Harness> {
           undefined,
           undefined,
           undefined,
-          { tools, cacheScope: scope, pricing },
+          { trigger: options.trigger ?? "automatic", tools, cacheScope: scope, pricing },
         ).pipe(Effect.provide(layer)) as Effect.Effect<CompactionOutcome | undefined, Error, never>,
       );
     },
@@ -229,6 +243,21 @@ async function makeHarness(tools = makeTools()): Promise<Harness> {
 describe("cache-aligned compaction summary", () => {
   beforeEach(() => {
     resetCacheLedger();
+  });
+
+  it("preserves the conversation's reasoning setting for the summary", async () => {
+    const harness = await makeHarness();
+    const base = makeAgent();
+    const agent: Agent = {
+      ...base,
+      config: { ...base.config, llm: { ...base.config.llm, reasoning: "high" } },
+    };
+
+    await harness.compact({ agent });
+
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.requests[0]?.reasoning).toBe("high");
+    expect(agent.config.llm.reasoning).toBe("high");
   });
 
   it("sends the summary as an append to the previous request, with the same tools and system prompt", async () => {
@@ -329,6 +358,71 @@ describe("cache-aligned compaction summary", () => {
     const harness = await makeHarness();
 
     await harness.compact({ pricing: undefined });
+
+    expect(harness.requests).toHaveLength(0);
+    expect(harness.runnerInputs).toHaveLength(1);
+  });
+
+  it("reuses an unpriced provider's prefix after it reports actual cache reads", async () => {
+    const harness = await makeHarness();
+    recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 4500 });
+
+    await harness.compact({ pricing: undefined, trigger: "manual" });
+
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.runnerInputs).toHaveLength(0);
+    expect(harness.metrics.sideCostUnknown).toBe(true);
+    expect(harness.requests[0]?.messages).toHaveLength(harness.history.length + 1);
+  });
+
+  it("shortens a manual request only to a completed earlier request boundary", async () => {
+    const harness = await makeHarness();
+    const prefix = summaryRequestPrefix(
+      harness.history,
+      Summarizer.splitMessages(harness.history, CONTEXT_WINDOW_TOKENS, {
+        provider: PROVIDER,
+        modelId: MODEL,
+      }).messagesToSummarize,
+    );
+    if (!prefix) {
+      throw new Error("Missing prefix fixture");
+    }
+    const scope = {
+      logger,
+      runMetrics: harness.metrics,
+      conversationKey: harness.conversationKey,
+      provider: PROVIDER,
+      model: MODEL,
+      emit: undefined,
+    };
+    await Effect.runPromise(observePromptCache(scope, harness.tools, prefix.history));
+    recordCacheUsage(harness.conversationKey, { promptTokens: 1000 });
+    await Effect.runPromise(observePromptCache(scope, harness.tools, harness.previousMessages));
+    recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 4500 });
+
+    await harness.compact({ trigger: "manual" });
+
+    expect(harness.runnerInputs).toHaveLength(0);
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.requests[0]?.messages.slice(0, -1)).toEqual(prefix.history);
+    expect(harness.requests[0]?.messages.length).toBeLessThan(harness.history.length);
+  });
+
+  it("does not infer caching support from zero cache reads", async () => {
+    const harness = await makeHarness();
+    recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 0 });
+
+    await harness.compact({ pricing: undefined });
+
+    expect(harness.requests).toHaveLength(0);
+    expect(harness.runnerInputs).toHaveLength(1);
+  });
+
+  it("keeps automatic compaction's existing pricing requirement", async () => {
+    const harness = await makeHarness();
+    recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 4500 });
+
+    await harness.compact({ pricing: undefined, trigger: "automatic" });
 
     expect(harness.requests).toHaveLength(0);
     expect(harness.runnerInputs).toHaveLength(1);
