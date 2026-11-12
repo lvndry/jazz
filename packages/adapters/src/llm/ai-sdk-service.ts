@@ -122,6 +122,7 @@ import shortUUID from "short-uuid";
 import { createMinimax } from "vercel-minimax-ai-provider";
 import { createZhipu } from "zhipu-ai-provider";
 import { z } from "zod";
+import { normalizeAnthropicToolSchema } from "./anthropic-tool-schema";
 import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
 import {
   CHATGPT_CODEX_BASE_URL,
@@ -1969,7 +1970,8 @@ export function buildProviderOptions(
  * argument shape depends on a `command` field) converts to `{ oneOf: [...] }` with no
  * top-level `type`, which providers like Anthropic reject outright, so it is converted
  * manually and patched with a `type`. Every other Zod schema goes through the AI SDK's
- * own `zodSchema` conversion and keeps its validator.
+ * own `zodSchema` conversion and keeps its validator. Anthropic requests additionally
+ * normalize legacy tuple keywords to draft 2020-12 after compaction.
  */
 export function buildToolInputSchema(
   toolDef: {
@@ -1980,18 +1982,25 @@ export function buildToolInputSchema(
     };
   },
   onRelaxed?: (toolName: string, relaxations: readonly ArgumentRelaxation[]) => void,
+  providerName?: ProviderName,
 ) {
+  function providerSchema(schema: unknown): JSONSchema7 {
+    const compacted = compactToolJsonSchema(schema);
+    return (
+      providerName === "anthropic" ? normalizeAnthropicToolSchema(compacted) : compacted
+    ) as JSONSchema7;
+  }
   const advertisedJsonSchema = toolDef.function.jsonSchema;
   if (advertisedJsonSchema !== undefined) {
-    return jsonSchema(() => compactToolJsonSchema(advertisedJsonSchema) as JSONSchema7);
+    return jsonSchema(() => providerSchema(advertisedJsonSchema));
   }
   if (toolDef.function.parameters instanceof z.ZodUnion) {
     return jsonSchema(
-      compactToolJsonSchema(
+      providerSchema(
         ensureObjectSchemaType(
           z.toJSONSchema(toolDef.function.parameters) as Record<string, unknown>,
         ),
-      ) as JSONSchema7,
+      ),
     );
   }
   const converted = zodSchema(toolDef.function.parameters);
@@ -2013,8 +2022,8 @@ export function buildToolInputSchema(
     () => {
       const convertedJsonSchema = converted.jsonSchema;
       return isPromiseLike(convertedJsonSchema)
-        ? convertedJsonSchema.then((resolved) => compactToolJsonSchema(resolved) as JSONSchema7)
-        : (compactToolJsonSchema(convertedJsonSchema) as JSONSchema7);
+        ? convertedJsonSchema.then((resolved) => providerSchema(resolved))
+        : providerSchema(convertedJsonSchema);
     },
     validate !== undefined ? { validate } : {},
   );
@@ -2326,17 +2335,21 @@ class AISDKService implements LLMService {
     for (const toolDef of requestedTools) {
       tools[toolDef.function.name] = tool({
         description: toolDef.function.description,
-        inputSchema: buildToolInputSchema(toolDef, (toolName, relaxations) => {
-          for (const relaxation of relaxations) {
-            Effect.runFork(
-              this.logger.debug("tool argument relaxed", {
-                tool: toolName,
-                field: relaxation.field,
-                reason: relaxation.reason,
-              }),
-            );
-          }
-        }),
+        inputSchema: buildToolInputSchema(
+          toolDef,
+          (toolName, relaxations) => {
+            for (const relaxation of relaxations) {
+              Effect.runFork(
+                this.logger.debug("tool argument relaxed", {
+                  tool: toolName,
+                  field: relaxation.field,
+                  reason: relaxation.reason,
+                }),
+              );
+            }
+          },
+          providerName,
+        ),
       });
     }
 
