@@ -5,11 +5,11 @@ import * as path from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { createDetachSnapshot, importDetachSnapshot, verifyDetachSnapshot } from "./snapshot";
 import {
   EMPTY_CONVERSATION_REVISION,
   loadConversation,
 } from "../history/conversation-history-service";
+import { createDetachSnapshot, importDetachSnapshot, verifyDetachSnapshot } from "./snapshot";
 
 let root: string;
 let previousHome: string | undefined;

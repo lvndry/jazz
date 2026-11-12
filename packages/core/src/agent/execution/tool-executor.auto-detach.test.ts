@@ -5,7 +5,6 @@
  */
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { ToolExecutor } from "./tool-executor";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import type { AgentConfigService } from "../../interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
@@ -21,6 +20,7 @@ import type { ToolCall, ToolExecutionContext } from "../../types/tools";
 import { createDetachedCallTracker, type AutoDetachPolicy } from "../detach/auto-detach";
 import type { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import type { DetachedToolResult } from "../types";
+import { ToolExecutor } from "./tool-executor";
 
 const SHORT_THRESHOLD_MS = 30;
 const SLOW_COMMAND_MS = 200;

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "ink";
+import { buildHome } from "../../commands/home-surface";
+import { InkHome } from "../InkHome";
 import {
   HOME_COMMANDS,
   briefDetail,
@@ -15,8 +17,6 @@ import {
   type HomeModel,
   type HomeState,
 } from "./home-view";
-import { buildHome } from "../../commands/home-surface";
-import { InkHome } from "../InkHome";
 
 const HOME: HomeModel = {
   version: "0.14.2",

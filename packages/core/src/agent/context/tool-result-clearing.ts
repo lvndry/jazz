@@ -1,7 +1,7 @@
 import type { ChatMessage } from "@/core/types/message";
+import { messageCarriesEgressTaint } from "../execution/egress-taint";
 import { CONTEXT_CLEAR_TARGET_RATIO } from "./context-window-manager";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./token-counter";
-import { messageCarriesEgressTaint } from "../execution/egress-taint";
 
 /**
  * Reclaim context by replacing stale tool output with a pointer, the cheapest

@@ -5,14 +5,6 @@
  */
 import chalk from "chalk";
 import { getGlyphs, type GlyphSet } from "../glyphs";
-import { parseMarkdown, type MarkdownBlock } from "./parse";
-import {
-  markdownRoleColor,
-  sameMarkdownStyle,
-  type MarkdownSpan,
-  type MarkdownSyntax,
-} from "./spans";
-import { layoutTable } from "./table";
 import { highlightFenceLines, type SyntaxSpan } from "../text/syntax-spans";
 import {
   sliceTerminalCells,
@@ -22,6 +14,14 @@ import {
 } from "../text/terminal-cells";
 import { wrapStyledSpans } from "../text/wrap";
 import { THEME } from "../theme";
+import { parseMarkdown, type MarkdownBlock } from "./parse";
+import {
+  markdownRoleColor,
+  sameMarkdownStyle,
+  type MarkdownSpan,
+  type MarkdownSyntax,
+} from "./spans";
+import { layoutTable } from "./table";
 
 export interface AnsiMarkdownOptions {
   /** Cells available for prose, tables, and code. */

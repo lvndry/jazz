@@ -8,6 +8,14 @@ import type { RunState } from "@jazz/core/agent/run/run-state";
 import { getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
 import { Effect, FileSystem } from "effect";
+import {
+  carryConversationBatches,
+  claimBatchFanIn,
+  JobQueueServiceImpl,
+  releaseCarriedBatches,
+} from "../job-queue-service";
+import { FileGoalStore } from "../storage/goal-store";
+import { FileRunStore } from "../storage/run-store";
 import { loadConversation, loadHistory, saveConversation } from "./conversation-history-service";
 import { holdConversationTurn } from "./conversation-lease";
 import {
@@ -18,14 +26,6 @@ import {
 } from "./conversation-log";
 import { ConversationInUseError } from "./delete-conversation";
 import { archivedWorkStateDirectory, moveConversationToAgent } from "./move-conversation";
-import {
-  carryConversationBatches,
-  claimBatchFanIn,
-  JobQueueServiceImpl,
-  releaseCarriedBatches,
-} from "../job-queue-service";
-import { FileGoalStore } from "../storage/goal-store";
-import { FileRunStore } from "../storage/run-store";
 
 const FROM_AGENT_ID = "move-from-agent";
 const TO_AGENT_ID = "move-to-agent";

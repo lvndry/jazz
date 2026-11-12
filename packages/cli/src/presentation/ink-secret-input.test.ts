@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { InkPresentationService } from "./ink-presentation-service";
 import { store } from "../ui/store";
+import { InkPresentationService } from "./ink-presentation-service";
 
 const SECRET = "typed-in-the-prompt-42";
 

@@ -3,6 +3,7 @@ import { LLMRequestError } from "@jazz/core/types/errors";
 import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { describe, expect, it, mock } from "bun:test";
 import { Chunk, Effect } from "effect";
+import { partialFake } from "../test-support/fakes";
 import { selectParser } from "./reasoning";
 import {
   isContentStreamPart,
@@ -11,7 +12,6 @@ import {
   StreamProcessor,
   withIdleTimeout,
 } from "./stream-processor";
-import { partialFake } from "../test-support/fakes";
 
 describe("StreamProcessor", () => {
   const logged: string[] = [];

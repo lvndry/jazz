@@ -3,9 +3,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { createEgressTaint } from "../execution/egress-taint";
 import { appendJournalEntry } from "./work-journal";
 import { buildWorkStatePreamble } from "./work-state-preamble";
-import { createEgressTaint } from "../execution/egress-taint";
 
 const modelHint = { provider: "openai", modelId: "gpt-4o" };
 const runEffect = <A>(effect: Effect.Effect<A, never, never>): Promise<A> =>

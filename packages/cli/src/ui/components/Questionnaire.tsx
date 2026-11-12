@@ -1,7 +1,6 @@
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
 import { Box, Text } from "ink";
 import React, { useMemo } from "react";
-import { TextInput } from "./TextInput";
 import { getGlyphs } from "../glyphs";
 import { useInputHandler, InputPriority, InputResults } from "../hooks/use-input-service";
 import {
@@ -13,6 +12,7 @@ import {
 } from "../models/question";
 import { usePicker, type PickerChoice } from "../prompt-core";
 import { THEME } from "../theme";
+import { TextInput } from "./TextInput";
 
 interface QuestionnaireProps {
   suggestions: readonly Suggestion[];

@@ -5,12 +5,12 @@
  */
 
 import { getGlyphs } from "../glyphs";
-import type { Block } from "./types";
 import {
   describeBackgroundTiming,
   waitReport,
   type BackgroundItem,
 } from "../models/background-work";
+import type { Block } from "./types";
 
 export function waitBlocks(item: BackgroundItem, now: number): Block[] {
   const heading = [item.description, "watching", describeBackgroundTiming(item, now)].join(

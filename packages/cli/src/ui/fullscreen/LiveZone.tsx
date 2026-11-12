@@ -37,14 +37,6 @@ import { TextAttributes } from "@opentui/core";
 import { memo, useEffect, useState, type ReactNode } from "react";
 import type { TodoSnapshotItem } from "../activity-state";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
-import { useThemeRevision } from "./theme-revision";
-import {
-  LIVE_ZONE_MAX_ROWS,
-  type LiveModel,
-  type LiveTool,
-  type StepLine,
-  type Viewport,
-} from "./types";
 import { retryBandHeight, type RetryBand } from "../models/retry";
 import { planProgress, planWindow, todoLine } from "../models/todo";
 import { formatElapsed } from "../text/format";
@@ -56,6 +48,14 @@ import {
   wrapTerminalCells,
 } from "../text/terminal-cells";
 import { MOTION, THEME } from "../theme";
+import { useThemeRevision } from "./theme-revision";
+import {
+  LIVE_ZONE_MAX_ROWS,
+  type LiveModel,
+  type LiveTool,
+  type StepLine,
+  type Viewport,
+} from "./types";
 
 /** Truncation marker. ASCII, because every monospace font has had it since 1970. */
 export interface LiveSegment {

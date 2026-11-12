@@ -1,8 +1,8 @@
 /** Exercises the durable presentation boundary against corrupt and UI-only data. */
 import { describe, expect, test } from "bun:test";
+import type { ReportRow } from "../interfaces/terminal";
 import type { PresentationContent, PresentationEntry } from "./presentation-content";
 import { presentationEntrySchema } from "./presentation-content-schema";
-import type { ReportRow } from "../interfaces/terminal";
 
 /** Every optional field made required, recursively, so a fixture must name each one. */
 type Complete<T> = T extends readonly (infer Item)[]

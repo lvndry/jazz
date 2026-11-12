@@ -39,6 +39,15 @@ import {
 } from "@jazz/core/utils/provider-model";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
+import { commitTheme } from "../chat/commands/handler";
+import { refreshChatGPTSignIn, signInToChatGPT, signOutOfChatGPT } from "../setup/chatgpt-sign-in";
+import { isValidServerAddress } from "../setup/local-provider-url";
+import { writeClipboard } from "../ui/fullscreen/clipboard";
+import { activeKeymapMode } from "../ui/keymaps";
+import { configuredProviderNames } from "../ui/models/configured-providers";
+import { store, type ActiveMenuOption } from "../ui/store";
+import { THEME } from "../ui/theme";
+import { pickThemeInteractively } from "../ui/theme-picker-prompt";
 import {
   confirmAndDeleteAgent,
   localHostUrlFor,
@@ -61,15 +70,6 @@ import {
   parseSpendLimitInput,
   SPEND_LIMIT_SETTINGS,
 } from "./spend-limits";
-import { commitTheme } from "../chat/commands/handler";
-import { refreshChatGPTSignIn, signInToChatGPT, signOutOfChatGPT } from "../setup/chatgpt-sign-in";
-import { isValidServerAddress } from "../setup/local-provider-url";
-import { writeClipboard } from "../ui/fullscreen/clipboard";
-import { activeKeymapMode } from "../ui/keymaps";
-import { configuredProviderNames } from "../ui/models/configured-providers";
-import { store, type ActiveMenuOption } from "../ui/store";
-import { THEME } from "../ui/theme";
-import { pickThemeInteractively } from "../ui/theme-picker-prompt";
 
 /**
  * Menu actions for the settings wizard

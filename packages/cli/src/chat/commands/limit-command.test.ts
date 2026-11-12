@@ -10,8 +10,8 @@ import * as actualModelsDev from "@jazz/core/utils/models-dev";
 import type { ModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { afterAll, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
-import type { CommandContext, CommandResult } from "./types";
 import { partialFake, type PartialMembers } from "../../test-support/partial-fake";
+import type { CommandContext, CommandResult } from "./types";
 
 mock.module("@jazz/core/utils/models-dev", () => ({
   getModelsDevMetadata: () =>

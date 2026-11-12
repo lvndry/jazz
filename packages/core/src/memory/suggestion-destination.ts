@@ -1,5 +1,5 @@
-import { ALWAYS_SEGMENT, buildMemoryEntryPath } from "./entry-path";
 import type { LessonProposalInput, MemorySuggestion } from "../interfaces/memory-suggestion";
+import { ALWAYS_SEGMENT, buildMemoryEntryPath } from "./entry-path";
 
 /** Where a lesson is saved once accepted, shown to the person before they accept it. */
 export function lessonDestinationPath(

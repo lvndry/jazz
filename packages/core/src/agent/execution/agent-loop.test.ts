@@ -16,24 +16,6 @@ import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/typ
 import type { DisplayConfig } from "@/core/types/output";
 import { clearModelsDevCache } from "@/core/utils/models-dev";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
-import {
-  buildBudgetPressureMessage,
-  buildCostBudgetPressureMessage,
-  buildPostClearMessage,
-  buildPostCompactionMessage,
-  buildTimeBudgetPressureMessage,
-  buildTokenBudgetPressureMessage,
-  dedupeToolCalls,
-  detectMeltdown,
-  executeAgentLoop,
-  MELTDOWN_WINDOW_SIZE,
-  type CompletionStrategy,
-  type TrackedToolCall,
-} from "./agent-loop";
-import { buildContextPressureMessage } from "./agent-loop";
-import { makeDefaultObserver } from "./agent-loop-observer";
-import { createEgressTaint, detachedResultMessage } from "./egress-taint";
-import { ToolExecutor } from "./tool-executor";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
 import { GoalStoreTag } from "../../interfaces/goal-store";
@@ -61,6 +43,24 @@ import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import { createRetryWasteTally } from "../metrics/failed-attempts";
 import { createSubagentSupervisor } from "../subagents/supervisor";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
+import { buildContextPressureMessage } from "./agent-loop";
+import {
+  buildBudgetPressureMessage,
+  buildCostBudgetPressureMessage,
+  buildPostClearMessage,
+  buildPostCompactionMessage,
+  buildTimeBudgetPressureMessage,
+  buildTokenBudgetPressureMessage,
+  dedupeToolCalls,
+  detectMeltdown,
+  executeAgentLoop,
+  MELTDOWN_WINDOW_SIZE,
+  type CompletionStrategy,
+  type TrackedToolCall,
+} from "./agent-loop";
+import { makeDefaultObserver } from "./agent-loop-observer";
+import { createEgressTaint, detachedResultMessage } from "./egress-taint";
+import { ToolExecutor } from "./tool-executor";
 
 // Shared mocks
 const mockLogger = {

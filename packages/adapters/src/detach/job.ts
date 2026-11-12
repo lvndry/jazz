@@ -26,13 +26,13 @@ import { writeFileDurably } from "@jazz/core/utils/durable-file";
 import { withFileLock } from "@jazz/core/utils/file-lock";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
-import { appendDetachEvent, DetachEventRecorder, recordingPresentationService } from "./events";
 import {
   conversationRevision,
   loadConversation,
   saveConversation,
 } from "../history/conversation-history-service";
 import { detectKeyringBackend, keyringGet } from "../secrets/keyring";
+import { appendDetachEvent, DetachEventRecorder, recordingPresentationService } from "./events";
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const MAX_MESSAGE_CHARS = 20_000;

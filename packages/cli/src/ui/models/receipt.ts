@@ -8,11 +8,11 @@
 import type { ReceiptDiffPreview } from "@jazz/core/types/presentation-content";
 import { fileMutationDiffText, isDiffReceiptTool } from "@jazz/core/utils/tool-formatter";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
-import { declinedOutcome, failureOutcome } from "./failure";
-import { isRejectedResult, receiptOutcome } from "./receipt-outcome";
 import type { GlyphSet } from "../glyphs";
 import { formatPreciseDuration } from "../text/format";
 import type { RoleSegment, TextRole } from "../text/roles";
+import { declinedOutcome, failureOutcome } from "./failure";
+import { isRejectedResult, receiptOutcome } from "./receipt-outcome";
 
 export type { ReceiptDiffPreview } from "@jazz/core/types/presentation-content";
 export type ToolReceipt = import("@jazz/core/types/presentation-content").ToolReceiptFacts;

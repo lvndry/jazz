@@ -29,9 +29,6 @@
 
 import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
-import { OVERLAY_Z_INDEX } from "./centered";
-import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
-import { onAccent } from "./Question";
 import { getGlyphs } from "../../glyphs";
 import {
   approvalAccount,
@@ -55,6 +52,9 @@ import {
   type ApprovalOverlay,
   type Viewport,
 } from "../types";
+import { OVERLAY_Z_INDEX } from "./centered";
+import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
+import { onAccent } from "./Question";
 
 /** The legend under the band starts where the band's text does. */
 const LEGEND_INDENT = BAND_CHROME_COLUMNS - 1;

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { buildHome, firstRunActions } from "./home-surface";
 import {
   START_COMMAND,
   openConversationValue,
   parseOpenConversationValue,
 } from "../ui/models/home-view";
+import { buildHome, firstRunActions } from "./home-surface";
 
 describe("buildHome", () => {
   const agents = [

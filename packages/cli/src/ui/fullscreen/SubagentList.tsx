@@ -17,10 +17,10 @@
 
 import { memo, useEffect, useState, type ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../glyphs";
-import { alignRow, type LiveRow, type LiveSegment } from "./LiveZone";
-import { useThemeRevision } from "./theme-revision";
 import { formatElapsed } from "../text/format";
 import { MOTION, THEME } from "../theme";
+import { alignRow, type LiveRow, type LiveSegment } from "./LiveZone";
+import { useThemeRevision } from "./theme-revision";
 import type { SubagentListItem, SubagentListModel, Viewport } from "./types";
 
 /**

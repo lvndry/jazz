@@ -7,13 +7,13 @@ import type { NotifyTarget } from "@jazz/core/types/notify";
 import { DELIVERY_RETRY_INITIAL_MS, type DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
+import { partialFake } from "../test-support/fakes";
 import {
   type DrainOptions,
   drainNotifyOutbox,
   listOutbox,
   retryStoppedNotifications,
 } from "./outbox-drain";
-import { partialFake } from "../test-support/fakes";
 
 const homes: string[] = [];
 

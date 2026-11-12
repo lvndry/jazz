@@ -1,11 +1,11 @@
 import { Box, Text, useInput } from "ink";
 import React, { useMemo } from "react";
-import { ChoiceMeta, PickerRowPreview } from "./PromptParts";
 import { getGlyphs } from "../glyphs";
 import { originalValuesFromPicker, toPickerChoices, usePicker } from "../prompt-core";
 import { pickerWindowStart } from "../text/picker-window";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
+import { ChoiceMeta, PickerRowPreview } from "./PromptParts";
 
 interface ScrollableMultiSelectProps<T = unknown> {
   readonly options: readonly Choice<T>[];

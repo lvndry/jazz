@@ -5,13 +5,13 @@ import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import { z } from "zod";
 import { partialFake } from "@/core/test-support/fakes";
-import { misfireLogPath } from "./misfire-log";
-import { createToolRegistryLayer } from "./tool-registry";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import { type Tool, type ToolRequirements } from "../../interfaces/tool-registry";
 import type { ToolExecutionResult } from "../../types/tools";
+import { misfireLogPath } from "./misfire-log";
+import { createToolRegistryLayer } from "./tool-registry";
 
 describe("ToolRegistry", () => {
   const testLayer = createToolRegistryLayer();

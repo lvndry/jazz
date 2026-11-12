@@ -5,8 +5,6 @@
  */
 import type { PresentationContent, PresentationEntry } from "@jazz/core/types/presentation-content";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
-import { foldTurn } from "./turn-fold";
-import type { Block } from "./types";
 import { formatTurnReceipt } from "../../presentation/turn-receipt";
 import {
   contentFromOutput,
@@ -17,6 +15,8 @@ import {
 } from "../document";
 import type { EphemeralRegion, PresentationSnapshot } from "../store";
 import type { OutputEntry } from "../types";
+import { foldTurn } from "./turn-fold";
+import type { Block } from "./types";
 
 /** The view state a block shows besides its entry. */
 interface BlockView {

@@ -2,8 +2,8 @@ import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { ensureLocalProviderBaseUrl } from "./local-provider-url";
 import { partialFake } from "../test-support/partial-fake";
+import { ensureLocalProviderBaseUrl } from "./local-provider-url";
 
 function configService(options: {
   readonly appConfig: Record<string, unknown>;

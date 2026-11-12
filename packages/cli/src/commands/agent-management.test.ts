@@ -6,8 +6,8 @@ import { CLIError } from "@jazz/core/types/errors";
 import { type Agent } from "@jazz/core/types/index";
 import { describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
-import { listAgentsCommand, deleteAgentCommand } from "./agent-management";
 import { partialFake } from "../test-support/partial-fake";
+import { listAgentsCommand, deleteAgentCommand } from "./agent-management";
 
 const testAgent = {
   id: "a1",

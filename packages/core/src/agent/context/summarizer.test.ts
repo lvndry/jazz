@@ -1,6 +1,17 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { invalidInput, partialFake } from "@/core/test-support/fakes";
+import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
+import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
+import { PresentationServiceTag, type PresentationService } from "../../interfaces/presentation";
+import type { Agent, AgentConfig, AppConfig } from "../../types";
+import { LLMRequestError } from "../../types/errors";
+import type { ChatMessage, ConversationMessages } from "../../types/message";
+import { frameUntrusted, UNTRUSTED_DATA_INSTRUCTION } from "../../utils/untrusted-content";
+import { createEgressTaint, taintedEgressNeedsApproval } from "../execution/egress-taint";
+import { collectUnlockedToolNames } from "../tools/unlocked-tools";
+import type { AgentResponse } from "../types";
 import type { ReduceToolResultsFn } from "./advised-tool-clearing";
 import {
   chunkForSummarizer,
@@ -18,17 +29,6 @@ import {
 import { DEFAULT_TOKEN_COUNTER } from "./token-counter";
 import { clearToolResults } from "./tool-result-clearing";
 import { readJournal } from "./work-journal";
-import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
-import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
-import { PresentationServiceTag, type PresentationService } from "../../interfaces/presentation";
-import type { Agent, AgentConfig, AppConfig } from "../../types";
-import { LLMRequestError } from "../../types/errors";
-import type { ChatMessage, ConversationMessages } from "../../types/message";
-import { frameUntrusted, UNTRUSTED_DATA_INSTRUCTION } from "../../utils/untrusted-content";
-import { createEgressTaint, taintedEgressNeedsApproval } from "../execution/egress-taint";
-import { collectUnlockedToolNames } from "../tools/unlocked-tools";
-import type { AgentResponse } from "../types";
 
 // Helper to create a mock agent
 function createMockAgent(overrides: Partial<Agent> = {}): Agent {

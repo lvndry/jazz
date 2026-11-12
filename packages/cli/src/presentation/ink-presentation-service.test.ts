@@ -5,8 +5,6 @@ import chalk from "chalk";
 import { Effect, Fiber } from "effect";
 import { renderToString } from "ink";
 import React from "react";
-import { InkPresentationService, InkStreamingRenderer } from "./ink-presentation-service";
-import { formatTurnReceipt } from "./turn-receipt";
 import type { ActivityState } from "../ui/activity-state";
 import { ApprovalView } from "../ui/ApprovalView";
 import { contentFromOutput } from "../ui/document";
@@ -15,6 +13,8 @@ import { OutputEntryView } from "../ui/OutputEntryView";
 import { store } from "../ui/store";
 import { formatClockTime } from "../ui/text/format";
 import type { OutputEntry, PromptState } from "../ui/types";
+import { InkPresentationService, InkStreamingRenderer } from "./ink-presentation-service";
+import { formatTurnReceipt } from "./turn-receipt";
 
 function completeResponse(content: string): ChatCompletionResponse {
   return { id: "test", model: "test", content, toolCalls: [] };

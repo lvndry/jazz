@@ -16,6 +16,7 @@ import { createAccumulator, reduceEvent } from "@/cli/presentation/activity-redu
 import { InkPresentationService } from "@/cli/presentation/ink-presentation-service";
 import { InkTerminalService } from "@jazz/cli/terminal";
 import packageJson from "../../../../../package.json";
+import { partialFake } from "../../test-support/partial-fake";
 import { getGlyphs } from "../glyphs";
 import { hydrateTranscriptFromHistory } from "../hydrate-transcript";
 import { markdownToAnsi } from "../markdown/ansi";
@@ -26,7 +27,6 @@ import { pickThemeInteractively } from "../theme-picker-prompt";
 import { APPROVAL_ARM_MS, flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
 import { frameWhen, renderForTest, updateForTest } from "./test-helpers";
 import { LIVE_ZONE_MAX_ROWS } from "./types";
-import { partialFake } from "../../test-support/partial-fake";
 
 /**
  * Paints the frame after a simulated key.

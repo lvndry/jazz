@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createTar, createTarGzip } from "nanotar";
+import { fakeFetch } from "../test-support/fakes";
 import {
   copySourceTree,
   DEFAULT_TARBALL_LIMITS,
@@ -17,7 +18,6 @@ import { parsePluginManifest } from "./manifest-schema";
 import { PluginModuleLoader } from "./module-loader";
 import { PluginRegistryServiceImpl } from "./plugin-registry-service";
 import { ALL_AGENTS } from "./state-store";
-import { fakeFetch } from "../test-support/fakes";
 
 const SOURCE_MANIFEST = {
   schemaVersion: 1,

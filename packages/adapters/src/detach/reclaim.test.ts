@@ -9,14 +9,6 @@ import { createEgressTaint } from "@jazz/core/agent/execution/egress-taint";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import {
-  applyDetachResult,
-  createDetachSnapshot,
-  importDetachSnapshot,
-  withHandedOffEgressTaint,
-  withoutRemoteMemorySources,
-  withRemoteTurnsInUiTranscript,
-} from "./snapshot";
-import {
   conversationRevision,
   EMPTY_CONVERSATION_REVISION,
   loadConversation,
@@ -24,6 +16,14 @@ import {
   type Conversation,
   type ConversationRevision,
 } from "../history/conversation-history-service";
+import {
+  applyDetachResult,
+  createDetachSnapshot,
+  importDetachSnapshot,
+  withHandedOffEgressTaint,
+  withoutRemoteMemorySources,
+  withRemoteTurnsInUiTranscript,
+} from "./snapshot";
 
 let root: string;
 let previousHome: string | undefined;

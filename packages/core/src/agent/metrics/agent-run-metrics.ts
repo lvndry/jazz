@@ -24,6 +24,7 @@ import {
   isUsageCostIncomplete,
   type UsageCostPricing,
 } from "@/core/utils/usage-cost";
+import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 import {
   addFailedAttempt,
   computeRetryWaste,
@@ -41,7 +42,6 @@ import {
   type CacheMissReason,
   type CacheTally,
 } from "./prompt-cache";
-import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 
 export interface AgentRunMetricsContext {
   readonly agent: Agent;

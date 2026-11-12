@@ -48,9 +48,9 @@ import type {
 } from "@modelcontextprotocol/client";
 import type { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Effect, Layer } from "effect";
+import packageJson from "../../../../package.json";
 import { toElicitationFields } from "./elicitation-schema";
 import { createStoredTokenProvider, InteractiveAuthRequiredError } from "./oauth";
-import packageJson from "../../../../package.json";
 
 /** The MCP client SDK pieces a connection needs. */
 interface McpClientSdk {

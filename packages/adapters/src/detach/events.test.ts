@@ -12,6 +12,7 @@ import type { PresentationService, StreamingRenderer } from "@jazz/core/interfac
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { partialFake } from "../test-support/fakes";
 import {
   DetachEventRecorder,
   detachEventLogPath,
@@ -20,7 +21,6 @@ import {
   readDetachEventLines,
   recordingPresentationService,
 } from "./events";
-import { partialFake } from "../test-support/fakes";
 
 describe("detach event log", () => {
   let home: string;

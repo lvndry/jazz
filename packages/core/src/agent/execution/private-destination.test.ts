@@ -12,15 +12,15 @@ import type {
   ToolExecutionContext,
   ToolExecutionResult,
 } from "@/core/types/tools";
+import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+import { isRunParkRequested } from "../run/park-signal";
+import { testConfigLayer } from "../test-config";
+import { silentLogger } from "../test-logger";
 import {
   privateDestinationNeedsApproval,
   unlistedPrivateAddressesFor,
 } from "./private-destination";
 import { ToolExecutor } from "./tool-executor";
-import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
-import { isRunParkRequested } from "../run/park-signal";
-import { testConfigLayer } from "../test-config";
-import { silentLogger } from "../test-logger";
 
 const PRIVATE_URL = "http://192.168.1.50:8123/api/states";
 

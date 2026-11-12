@@ -1,7 +1,7 @@
-import type { TableAlign } from "./parse";
-import { sameMarkdownStyle, type MarkdownSpan } from "./spans";
 import { terminalCellWidth, terminalSegmentsWidth } from "../text/terminal-cells";
 import { wrapStyledSpans } from "../text/wrap";
+import type { TableAlign } from "./parse";
+import { sameMarkdownStyle, type MarkdownSpan } from "./spans";
 
 /** Cells between columns. A table is scanned, so its chrome is whitespace. */
 const COLUMN_GAP = 2;

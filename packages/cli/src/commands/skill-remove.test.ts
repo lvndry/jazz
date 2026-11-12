@@ -14,8 +14,8 @@ import { join } from "node:path";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
-import { removeSkillCommand } from "./skill-remove";
 import { partialFake } from "../test-support/partial-fake";
+import { removeSkillCommand } from "./skill-remove";
 
 let jazzHome: string;
 let originalJazzHome: string | undefined;

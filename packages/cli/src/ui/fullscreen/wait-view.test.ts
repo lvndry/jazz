@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { opensWaitView, waitBlocks, waitRowHints } from "./wait-view";
 import type { BackgroundItem } from "../models/background-work";
+import { opensWaitView, waitBlocks, waitRowHints } from "./wait-view";
 
 const WATCH: BackgroundItem = {
   batchId: "batch-1",

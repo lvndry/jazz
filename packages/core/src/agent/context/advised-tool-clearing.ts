@@ -13,9 +13,9 @@ import type {
   CompactToolsInput,
   CompactToolsOutcome,
 } from "@/core/types/plugin";
+import { messageCarriesEgressTaint } from "../execution/egress-taint";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./token-counter";
 import { MIN_CLEARABLE_RESULT_TOKENS, placeholderFor } from "./tool-result-clearing";
-import { messageCarriesEgressTaint } from "../execution/egress-taint";
 
 const PREVIEW_HEAD = 320;
 const PREVIEW_TAIL = 140;

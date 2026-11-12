@@ -7,8 +7,8 @@ import {
   isStandaloneBinary,
 } from "@jazz/core/utils/runtime";
 import { Effect } from "effect";
-import { installBinaryUpdate } from "./update-binary";
 import packageJson from "../../../../package.json";
+import { installBinaryUpdate } from "./update-binary";
 
 /**
  * CLI command for updating Jazz to the latest version

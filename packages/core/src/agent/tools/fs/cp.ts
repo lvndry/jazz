@@ -10,11 +10,11 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
+import { buildKeyFromContext } from "../context-utils";
 import { replacePathAtomically } from "./atomic-replace";
 import { describeFootprint, measureFootprint } from "./footprint";
-import { overwriteRiskLevel } from "./utils";
-import { buildKeyFromContext } from "../context-utils";
 import { jazzStateApproval } from "./jazz-state-approval";
+import { overwriteRiskLevel } from "./utils";
 
 /**
  * Copy files and directories tool.

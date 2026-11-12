@@ -23,11 +23,6 @@ import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/mod
 import type { DisplayConfig } from "@/core/types/output";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
 import type { UsageCostTokens } from "@/core/utils/usage-cost";
-import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
-import { makeDefaultObserver } from "./agent-loop-observer";
-import { buildCompletionOptions } from "./completion-request";
-import { validateCompletion } from "./completion-validation";
-import { withModelStepTimeout } from "./model-step-timeout";
 import type { RecursiveRunner } from "../context/summarizer";
 import {
   emitLLMRetry,
@@ -35,6 +30,11 @@ import {
   recordAttemptRetried,
 } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
+import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
+import { makeDefaultObserver } from "./agent-loop-observer";
+import { buildCompletionOptions } from "./completion-request";
+import { validateCompletion } from "./completion-validation";
+import { withModelStepTimeout } from "./model-step-timeout";
 
 /**
  * Non-streaming implementation that waits for complete LLM responses before rendering.

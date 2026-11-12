@@ -26,9 +26,9 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
-import { writeFileAtomically } from "./atomic-replace";
 import { buildKeyFromContext } from "../context-utils";
 import { toolKnownSecrets } from "../tool-secrets";
+import { writeFileAtomically } from "./atomic-replace";
 import { fileSnapshot } from "./file-snapshot";
 import {
   decodeFileBytes,

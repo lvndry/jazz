@@ -22,12 +22,6 @@ import {
 import { computeUsageCostUSD } from "@jazz/core/utils/usage-cost";
 import chalk from "chalk";
 import { Effect } from "effect";
-import { formatToolResult as formatToolResultShared } from "./format-utils";
-import { createTheme, detectColorProfile } from "./output-theme";
-import type { OutputWriter } from "./output-writer";
-import { TerminalWriter } from "./output-writer";
-import { ThinkingRenderer } from "./thinking-renderer";
-import { formatRequestCache } from "./turn-receipt";
 import { getGlyphs } from "../ui/glyphs";
 import { markdownToAnsi } from "../ui/markdown/ansi";
 import {
@@ -40,6 +34,12 @@ import {
 import { formatCost, formatPreciseDuration } from "../ui/text/format";
 import { paintRole, paintSegments } from "../ui/text/roles";
 import { CHALK_THEME } from "../ui/theme";
+import { formatToolResult as formatToolResultShared } from "./format-utils";
+import { createTheme, detectColorProfile } from "./output-theme";
+import type { OutputWriter } from "./output-writer";
+import { TerminalWriter } from "./output-writer";
+import { ThinkingRenderer } from "./thinking-renderer";
+import { formatRequestCache } from "./turn-receipt";
 
 /**
  * Get terminal width, with fallback to 80

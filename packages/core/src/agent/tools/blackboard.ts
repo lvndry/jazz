@@ -7,12 +7,12 @@ import { z } from "zod";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { DEFAULT_TOOL_RESULT_MAX_CHARS } from "@/core/utils/tool-result-formatter";
-import { defineTool, makeZodValidator } from "./base-tool";
 import {
   MAX_BLACKBOARD_POST_CHARS,
   type BlackboardEntry,
   type BlackboardRead,
 } from "../subagents/blackboard";
+import { defineTool, makeZodValidator } from "./base-tool";
 
 const MAX_TOPIC_CHARS = 80;
 

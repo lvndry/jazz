@@ -5,8 +5,8 @@ import { LLMConfigurationError } from "@jazz/core/types/errors";
 import type { LLMProvider } from "@jazz/core/types/llm";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { promptForAgentInfo, suggestAgentName } from "./create-agent";
 import { partialFake } from "../test-support/partial-fake";
+import { promptForAgentInfo, suggestAgentName } from "./create-agent";
 
 function terminal(options: {
   readonly ask: TerminalService["ask"];

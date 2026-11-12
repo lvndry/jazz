@@ -14,8 +14,17 @@
 import { RGBA, TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/core";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { getGlyphs } from "../../glyphs";
 import { approvalConsequence, approvalTag, approvalTitle } from "../../models/approval";
+import { THEME } from "../../theme";
 import { renderForTest } from "../test-helpers";
+import {
+  MIN_HEIGHT,
+  MIN_WIDTH,
+  type ApprovalOverlay,
+  type SearchOverlay,
+  type Viewport,
+} from "../types";
 import {
   approvalBodyRows,
   approvalFieldNeedsExpand,
@@ -25,15 +34,6 @@ import {
 } from "./Approval";
 import { onAccent } from "./Question";
 import { Search, searchResultRows } from "./Search";
-import { getGlyphs } from "../../glyphs";
-import { THEME } from "../../theme";
-import {
-  MIN_HEIGHT,
-  MIN_WIDTH,
-  type ApprovalOverlay,
-  type SearchOverlay,
-  type Viewport,
-} from "../types";
 
 const WIDE: Viewport = { width: 120, height: 34 };
 const NARROW: Viewport = { width: 70, height: 18 };

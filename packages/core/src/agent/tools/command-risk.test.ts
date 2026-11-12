@@ -7,6 +7,7 @@ import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import { LLMRequestError } from "@/core/types/errors";
+import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import {
   classifyCommandRisk,
   findDeterministicHighRisk,
@@ -16,7 +17,6 @@ import {
   riskFromPluginDistribution,
   shouldClassifyExecuteCommand,
 } from "./command-risk";
-import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 
 describe("shouldClassifyExecuteCommand", () => {
   it("runs for an unknown risk under the tiers a verdict could change", () => {

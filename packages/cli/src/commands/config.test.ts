@@ -4,13 +4,13 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import { ConfigurationValidationError } from "@jazz/core/types/errors";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer } from "effect";
+import { partialFake } from "../test-support/partial-fake";
 import {
   getConfigCommand,
   listConfigCommand,
   setConfigCommand,
   unknownAgentCapWarning,
 } from "./config";
-import { partialFake } from "../test-support/partial-fake";
 
 /**
  * `jazz config set` receives every value as a shell string, but most of

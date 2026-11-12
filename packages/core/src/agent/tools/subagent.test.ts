@@ -18,11 +18,11 @@ import type { ChatMessage } from "@/core/types/message";
 import type { ToolExecutionResult, UntrustedProvenance } from "@/core/types/tools";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
 import { AgentRunner } from "../agent-runner";
-import { createSubagentTools } from "./subagent";
 import { createEgressTaint } from "../execution/egress-taint";
 import type { RunCost, RunSpendReport } from "../metrics/agent-run-metrics";
 import { createSubagentSupervisor } from "../subagents/supervisor";
 import type { AgentRunnerOptions } from "../types";
+import { createSubagentTools } from "./subagent";
 
 interface PanelCalls {
   readonly opens: Array<{ kind: EphemeralRegionKind; label: string }>;

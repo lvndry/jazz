@@ -16,8 +16,6 @@
 import { formatCompactCount } from "@jazz/core/utils/string";
 import { memo, type ReactNode } from "react";
 import { getGlyphs } from "../glyphs";
-import { useThemeRevision } from "./theme-revision";
-import type { FooterModel, Viewport } from "./types";
 import { formatCost, formatElapsed } from "../text/format";
 import {
   fitTerminalSegments,
@@ -25,6 +23,8 @@ import {
   terminalSegmentsWidth,
 } from "../text/terminal-cells";
 import { THEME } from "../theme";
+import { useThemeRevision } from "./theme-revision";
+import type { FooterModel, Viewport } from "./types";
 
 export interface FooterSegment {
   readonly text: string;

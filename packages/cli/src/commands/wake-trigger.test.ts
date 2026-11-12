@@ -16,9 +16,9 @@ import type { Agent } from "@jazz/core/types/agent";
 import { readStateFile, writeStateFile } from "@jazz/core/utils/state-file";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
-import { fireWakeTriggerCommand } from "./wake-trigger";
 import { partialFake } from "../test-support/partial-fake";
 import { runWithoutServices } from "../test-support/run-without-services";
+import { fireWakeTriggerCommand } from "./wake-trigger";
 
 const agent: Agent = {
   id: "test-agent",

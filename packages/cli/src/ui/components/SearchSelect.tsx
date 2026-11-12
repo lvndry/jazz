@@ -1,7 +1,6 @@
 import type { Effect } from "effect";
 import { Box, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChoiceMeta, PickerRowPreview } from "./PromptParts";
 import { getGlyphs } from "../glyphs";
 import { useTextInput } from "../hooks/use-input-service";
 import {
@@ -22,6 +21,7 @@ import {
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../text/picker-window";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
+import { ChoiceMeta, PickerRowPreview } from "./PromptParts";
 
 interface SearchSelectProps<T = unknown> {
   readonly options: readonly Choice<T>[];

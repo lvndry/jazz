@@ -1,6 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, jsonSchema, streamText } from "ai";
 import { describe, expect, it } from "bun:test";
+import { fakeFetch } from "../../test-support/fakes";
 import { getProviderNativeWebSearchTool, toCoreMessages } from "../ai-sdk-service";
 import { extractReasoningParts } from "../reasoning-parts";
 import { ChatGPTAccessTokenAuthenticationError, createAccessTokenStore } from "./credentials";
@@ -13,7 +14,6 @@ import {
   fetchChatGPTModels,
   rewriteCodexRequestBody,
 } from "./transport";
-import { fakeFetch } from "../../test-support/fakes";
 
 const credential: ChatGPTCredential = {
   access: "access-1",

@@ -32,8 +32,8 @@ import type {
 } from "@/core/types/tools";
 import type { RunDeadline } from "@/core/utils/run-deadline";
 import type { UserZoneSource } from "@/core/utils/user-time-zone";
-import type { UserInputAttachmentResolution } from "./agent-prompt";
 import type { Agent } from "../types";
+import type { UserInputAttachmentResolution } from "./agent-prompt";
 import type { ReduceToolResultsFn } from "./context/advised-tool-clearing";
 import type { MemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import type { createAgentRunMetrics, RunSpendReport } from "./metrics/agent-run-metrics";

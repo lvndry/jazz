@@ -3,6 +3,10 @@ import { tmpdir } from "os";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Fiber, FileSystem, Layer } from "effect";
+import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
+import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
+import { TerminalServiceTag, type TerminalService } from "../../interfaces/terminal";
+import type { Agent, ToolExecutionContext, ToolExecutionResult } from "../../types";
 import { spawnOutputTruncationNotice } from "./capped-output";
 import {
   createShellCommandTools,
@@ -11,10 +15,6 @@ import {
   matchForbiddenCommand,
 } from "./shell";
 import { createToolRegistryLayer } from "./tool-registry";
-import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
-import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
-import { TerminalServiceTag, type TerminalService } from "../../interfaces/terminal";
-import type { Agent, ToolExecutionContext, ToolExecutionResult } from "../../types";
 
 describe("Shell Tools", () => {
   const createTestLayer = (logs?: string[]) => {

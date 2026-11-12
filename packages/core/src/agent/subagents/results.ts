@@ -8,8 +8,8 @@
  */
 
 import type { UntrustedProvenance } from "@/core/types/tools";
-import type { SubagentSnapshot } from "./supervisor";
 import { writeToolResult } from "../context/tool-result-offload";
+import type { SubagentSnapshot } from "./supervisor";
 
 export interface FinishedSubagent {
   readonly id: string;

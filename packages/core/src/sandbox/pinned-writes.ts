@@ -26,9 +26,9 @@ import { Effect } from "effect";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ToolExecutionContext } from "@/core/types/tools";
+import { buildKeyFromContext } from "../agent/tools/context-utils";
 import { fsWriteDeniedMessage, writePolicyFor } from "./runtime-policy";
 import { pinTargets, recheckPins } from "./write-pin";
-import { buildKeyFromContext } from "../agent/tools/context-utils";
 
 export type RefusedWrite = {
   readonly success: false;

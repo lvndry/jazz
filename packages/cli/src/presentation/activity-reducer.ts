@@ -16,16 +16,16 @@
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { fileMutationDiffPreview, isDiffReceiptTool } from "@jazz/core/utils/tool-formatter";
+import type { ActiveTool, ActivityState, TodoSnapshotItem } from "../ui/activity-state";
+import { getGlyphs } from "../ui/glyphs";
+import { toolReceipt } from "../ui/models/receipt";
+import type { OutputEntry } from "../ui/types";
 import {
   compactToolArguments,
   formatToolArguments,
   formatToolDisplayName,
   formatToolResult,
 } from "./format-utils";
-import type { ActiveTool, ActivityState, TodoSnapshotItem } from "../ui/activity-state";
-import { getGlyphs } from "../ui/glyphs";
-import { toolReceipt } from "../ui/models/receipt";
-import type { OutputEntry } from "../ui/types";
 
 /**
  * Playful gerund-form labels shown while waiting for the model's first stream

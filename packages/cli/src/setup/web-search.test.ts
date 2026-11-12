@@ -4,8 +4,8 @@ import type { LLMService } from "@jazz/core/interfaces/llm";
 import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { configureWebSearch } from "./web-search";
 import { partialFake } from "../test-support/partial-fake";
+import { configureWebSearch } from "./web-search";
 
 function stubTerminal(overrides: {
   readonly select: TerminalService["select"];

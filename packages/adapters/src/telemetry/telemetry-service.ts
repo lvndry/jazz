@@ -23,12 +23,12 @@ import { TelemetryError } from "@jazz/core/types/errors";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import { sampleProcessResources } from "@jazz/core/utils/process-resources";
 import { Effect, Layer } from "effect";
+import packageJson from "../../../../package.json";
 import { FileTelemetrySink } from "./file-sink";
 import type { OtlpMetricsSink } from "./metrics";
 import { resolveOtlpConfig } from "./otlp-config";
 import { OtlpTelemetrySink } from "./otlp-sink";
 import { isEventReader, type TelemetrySink } from "./sink";
-import packageJson from "../../../../package.json";
 
 // ── Constants ───────────────────────────────────────────────────────
 

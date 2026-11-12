@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { type Agent } from "@jazz/core/types/index";
 import { describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, type FileSystem, Option } from "effect";
-import { FileStorageService } from "./file";
 import { partialFake } from "../test-support/fakes";
+import { FileStorageService } from "./file";
 
 // Mock FileSystem
 const mockFS = partialFake<FileSystem.FileSystem>({

@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { clearServerAuth, createStoredTokenProvider, hasStoredAuth } from "./oauth";
 import metadataDocument from "../../../../oauth-client-metadata.json";
+import { clearServerAuth, createStoredTokenProvider, hasStoredAuth } from "./oauth";
 
 /**
  * The published document and the client's own behaviour have to agree: an

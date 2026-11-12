@@ -24,9 +24,6 @@
 
 import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
-import { OVERLAY_Z_INDEX } from "./centered";
-import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
-import { stepperSegments, type QuestionStep } from "./stepper";
 import { getGlyphs } from "../../glyphs";
 import { concealValue, maskSecret, maskSecretCaret } from "../../mask-secret";
 import {
@@ -39,6 +36,9 @@ import {
 } from "../../text/terminal-cells";
 import { THEME } from "../../theme";
 import type { Viewport } from "../types";
+import { OVERLAY_Z_INDEX } from "./centered";
+import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
+import { stepperSegments, type QuestionStep } from "./stepper";
 
 /** Border, blank, input, blank, error. */
 const FIXED_CARD_ROWS = 6;

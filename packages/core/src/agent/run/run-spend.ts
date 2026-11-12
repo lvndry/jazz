@@ -12,8 +12,8 @@ import type { Agent } from "@/core/types";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import type { UsageCostTokens } from "@/core/utils/usage-cost";
 import { computeUsageCostUSD, isUsageCostIncomplete } from "@/core/utils/usage-cost";
-import type { RunRecord } from "./run-record";
 import type { RunSpendReport } from "../metrics/agent-run-metrics";
+import type { RunRecord } from "./run-record";
 
 /**
  * Distinguish unavailable remote pricing from providers that run on the user's machine.

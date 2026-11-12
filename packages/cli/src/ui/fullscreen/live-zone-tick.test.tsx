@@ -2,13 +2,13 @@
 
 import { describe, expect, it } from "bun:test";
 import React, { memo, useRef } from "react";
-import { renderForTest } from "./test-helpers";
 import { MOTION } from "../theme";
 import { App } from "./App";
 import { Header } from "./Header";
 import { Input } from "./Input";
 import { LiveZone } from "./LiveZone";
 import { sampleView } from "./sample";
+import { renderForTest } from "./test-helpers";
 import { createLayoutFixture } from "./testing/layout-fixture";
 import type { HeaderModel, InputModel, ViewModel, Viewport } from "./types";
 

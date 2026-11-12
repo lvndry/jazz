@@ -59,6 +59,14 @@ import { isRecord } from "@/core/utils/is-record";
 import { isCommandCoveredByAllowlist } from "@/core/utils/shell";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
+import {
+  emitToolInvocation,
+  recordToolError,
+  recordToolInvocation,
+  telemetryErrorCategory,
+  type createAgentRunMetrics,
+} from "../metrics/agent-run-metrics";
+import type { DetachedToolResult } from "../types";
 import { taintedEgressApprovalMessage, taintedEgressNeedsApproval } from "./egress-taint";
 import { earlierCallsOnSamePaths, resolveMutatedPaths } from "./path-mutation-order";
 import {
@@ -69,14 +77,6 @@ import {
 } from "./private-destination";
 import type { ToolBatchLedger } from "./tool-batch-ledger";
 import { toolCallIdentityError } from "./tool-call-identity";
-import {
-  emitToolInvocation,
-  recordToolError,
-  recordToolInvocation,
-  telemetryErrorCategory,
-  type createAgentRunMetrics,
-} from "../metrics/agent-run-metrics";
-import type { DetachedToolResult } from "../types";
 
 /**
  * Display metadata for tools whose behavior depends on a configured backend.

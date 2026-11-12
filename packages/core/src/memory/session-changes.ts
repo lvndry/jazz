@@ -3,8 +3,8 @@
  * and the curation step what the session did to the store.
  */
 
-import { storedClaimText } from "./source-trust";
 import type { MemoryEntrySnapshot } from "../interfaces/memory-service";
+import { storedClaimText } from "./source-trust";
 
 /** One entry as a snapshot saw it: what it says first, and a hash that changes on any edit. */
 export interface MemoryEntryState {

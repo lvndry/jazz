@@ -26,9 +26,9 @@ import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import { getWorkspaceDirectory } from "@/core/utils/paths";
+import { buildKeyFromContext } from "../agent/tools/context-utils";
 import { findRepositoryRoots } from "./repository-roots";
 import { buildWritePolicy, firstUnwritablePath, type WritePolicy } from "./write-policy";
-import { buildKeyFromContext } from "../agent/tools/context-utils";
 
 export function writePolicyFor(sessionCwd: string): WritePolicy {
   return buildWritePolicy({

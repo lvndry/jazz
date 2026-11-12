@@ -2,8 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import type { Agent } from "@/core/types";
 import type { EgressTaint, ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
-import { createBlackboardTools, fitBlackboardRead } from "./blackboard";
 import { createBlackboard, type Blackboard } from "../subagents/blackboard";
+import { createBlackboardTools, fitBlackboardRead } from "./blackboard";
 
 const childAgent = { id: "child", name: "doc 2" } as Agent;
 

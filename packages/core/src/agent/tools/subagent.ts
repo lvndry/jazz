@@ -29,8 +29,6 @@ import { toError } from "@/core/utils/errors";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { DEFAULT_TOOL_RESULT_MAX_CHARS } from "@/core/utils/tool-result-formatter";
 import { AgentRunner } from "../agent-runner";
-import { defineTool, makeZodValidator } from "./base-tool";
-import { childRunAuthority } from "./child-run-authority";
 import { resolveEffectiveContextWindow } from "../context/effective-context-window";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import type { RunSpendReport } from "../metrics/agent-run-metrics";
@@ -43,6 +41,8 @@ import {
 } from "../subagents/supervisor";
 import { createSubagentWorkDigest, type SubagentWorkDigest } from "../subagents/work-digest";
 import type { AgentResponse } from "../types";
+import { defineTool, makeZodValidator } from "./base-tool";
+import { childRunAuthority } from "./child-run-authority";
 
 // ─── Constants ───────────────────────────────────────────────────────
 

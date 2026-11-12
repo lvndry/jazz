@@ -15,8 +15,6 @@
 
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useEffect, useRef, type ReactNode } from "react";
-import { OVERLAY_Z_INDEX } from "./centered";
-import { BAND_CHROME_COLUMNS, bandStyle, OVERLAY_MAX_WIDTH } from "./overlay-frame";
 import { COMMAND_PANEL_HINT, commandPanelRows } from "../../command-panel";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { roleStyle } from "../../text/roles";
@@ -24,6 +22,8 @@ import { clipTerminalCells, terminalCellWidth } from "../../text/terminal-cells"
 import { THEME } from "../../theme";
 import { useThemeRevision } from "../theme-revision";
 import type { CommandPanelOverlay, Viewport } from "../types";
+import { OVERLAY_Z_INDEX } from "./centered";
+import { BAND_CHROME_COLUMNS, bandStyle, OVERLAY_MAX_WIDTH } from "./overlay-frame";
 
 /** The title row and the blank row under it. */
 const TITLE_ROWS = 2;

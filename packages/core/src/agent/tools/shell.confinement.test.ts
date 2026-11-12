@@ -7,10 +7,10 @@ import { Effect, FileSystem, Layer } from "effect";
 import { getConfinementStatus, type ConfinementStatus } from "@/core/sandbox/backend";
 import { shellEscalationLedger } from "@/core/sandbox/escalation";
 import { createSanitizedEnv } from "@/core/utils/env";
-import { createShellCommandTools, runShellCommand } from "./shell";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
 import type { ToolExecutionContext } from "../../types";
+import { createShellCommandTools, runShellCommand } from "./shell";
 
 const hostStatus = getConfinementStatus();
 const itConfined = hostStatus.level === "full" ? it : it.skip;

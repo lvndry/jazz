@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { interruptSummary, interruptSummaryLines, type ReceiptFacts } from "./interrupt";
 import { createLayoutFixture } from "../fullscreen/testing/layout-fixture";
+import { interruptSummary, interruptSummaryLines, type ReceiptFacts } from "./interrupt";
 
 const { rows: layoutRows } = createLayoutFixture();
 

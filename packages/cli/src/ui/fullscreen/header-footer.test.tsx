@@ -19,14 +19,14 @@
 import type { CapturedFrame, CapturedSpan } from "@opentui/core";
 import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
-import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
+import { terminalCellWidth } from "../text/terminal-cells";
 import { setThemeVariant, THEME } from "../theme";
 import { Footer, formatUsage } from "./Footer";
 import { Header, headerGroups, meterFilledCells } from "./Header";
 import { hintsFor } from "./keymap";
+import { renderForTest } from "./test-helpers";
 import type { Connector, FooterModel, HeaderModel } from "./types";
-import { terminalCellWidth } from "../text/terminal-cells";
 
 beforeAll(() => {
   process.env["JAZZ_UI_GLYPHS"] = "unicode";

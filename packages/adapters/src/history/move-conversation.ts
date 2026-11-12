@@ -16,6 +16,12 @@ import { getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { withLock } from "@jazz/core/utils/storage";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import { Effect, FileSystem } from "effect";
+import {
+  carryConversationBatches,
+  JobQueueServiceImpl,
+  releaseCarriedBatches,
+  returnCarriedBatches,
+} from "../job-queue-service";
 import { ConversationBusyError, withConversationTurn } from "./conversation-lease";
 import {
   agentConversationLockPath,
@@ -25,12 +31,6 @@ import {
   moveConversationLog,
 } from "./conversation-log";
 import { ConversationInUseError, conversationUse } from "./delete-conversation";
-import {
-  carryConversationBatches,
-  JobQueueServiceImpl,
-  releaseCarriedBatches,
-  returnCarriedBatches,
-} from "../job-queue-service";
 
 /** Where a conversation's work state is kept once a newer copy replaces it, beside its archived log. */
 export function archivedWorkStateDirectory(agentId: string, conversationId: string): string {

@@ -1,9 +1,9 @@
 import { latexToUnicode } from "@jazz/core/utils/latex-to-unicode";
 import { matchDisplayMath } from "@jazz/core/utils/math-markdown";
 import { getGlyphs, type GlyphSet } from "../glyphs";
+import { terminalCellWidth } from "../text/terminal-cells";
 import { parseInlineMarkdown } from "./inline";
 import type { MarkdownRole, MarkdownSpan, MarkdownSyntax } from "./spans";
-import { terminalCellWidth } from "../text/terminal-cells";
 
 export type TableAlign = "left" | "right" | "center";
 

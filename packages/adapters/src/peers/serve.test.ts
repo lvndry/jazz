@@ -8,8 +8,8 @@ import type { Agent } from "@jazz/core/types/agent";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect } from "effect";
-import { extractClarificationQuestion, servePeerRequest } from "./serve";
 import { partialFake } from "../test-support/fakes";
+import { extractClarificationQuestion, servePeerRequest } from "./serve";
 
 // `servePeerRequest` appends to the peer ledger through the production path; the ledger lives
 // under `$JAZZ_HOME/peers`, so without a temp home every run writes its fixtures into the

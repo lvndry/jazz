@@ -12,7 +12,6 @@ import { isDiffReceiptTool } from "@jazz/core/utils/tool-formatter";
 import { runsInShell } from "@/cli/chat/commands/parser";
 import { spaceReasoningSections } from "../../presentation/format-utils";
 import { type GlyphSet } from "../glyphs";
-import { measureFor, type Block, type StoppedBlock, type ToolReceiptBlock } from "./types";
 import { parseMarkdown, type MarkdownBlock } from "../markdown/parse";
 import { markdownRoleColor, type MarkdownSpan } from "../markdown/spans";
 import { layoutTable } from "../markdown/table";
@@ -40,6 +39,7 @@ import {
 import { wrapStyledSpans } from "../text/wrap";
 import { THEME as CURRENT_THEME, type ThemeColors } from "../theme";
 import { foldedThoughtLine, thoughtLabel } from "../turn-thought";
+import { measureFor, type Block, type StoppedBlock, type ToolReceiptBlock } from "./types";
 import type { RowSource, ViewportRowIndex } from "./viewport-controller";
 
 export interface Segment {

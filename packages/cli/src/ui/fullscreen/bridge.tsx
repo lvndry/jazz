@@ -26,65 +26,8 @@ import {
   resolveFilePickerPath,
   scanFilePickerEntries,
 } from "../file-picker-files";
-import { hostForModel } from "../local-model-hosts";
-import { App, type KeyChord } from "./App";
-import { flattenPaste, normalizePaste, readClipboard } from "./clipboard";
-import {
-  commit,
-  composerFromText,
-  deleteBackward,
-  deleteForward,
-  deleteRange,
-  DOWN,
-  EMPTY_COMPOSER,
-  EMPTY_HISTORY,
-  insertText,
-  moveCaret,
-  moveCaretVertical,
-  redo,
-  selectAll,
-  typeCharacter,
-  UP,
-  type ComposerHistory,
-  undo,
-} from "./composer-edit";
-import { wrapCommandIndex } from "./Input";
-import {
-  isBackgroundChord,
-  isComposerNewline,
-  isCtrlLetter,
-  isForceSendChord,
-  isInterruptChord,
-  isRedoChord,
-  isSelectAllChord,
-  isUndoChord,
-  type KeyAction,
-} from "./keymap";
-import { TODO_WINDOW_ROWS } from "./LiveZone";
-import { commandPanelLayout } from "./overlays/CommandPanel";
-import { subagentBlocks, subagentListItem } from "./subagent-view";
-import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
 import { getGlyphs } from "../glyphs";
-import { themePickerTarget } from "./theme-picker-keys";
-import { createFullscreenTranscript, shareUnchangedBlocks } from "./transcript-projection";
-import {
-  LIVE_ZONE_MAX_ROWS,
-  type ApprovalChoice,
-  type ApprovalOverlay,
-  type Block,
-  type FooterModel,
-  type HeaderModel,
-  type InputModel,
-  type LiveModel,
-  type LiveTool,
-  type Overlay,
-  type StepLine,
-  type SubagentListModel,
-  type ThemePickerModel,
-  type ThemePickerRow,
-  type ViewModel,
-} from "./types";
-import { opensWaitView, waitBlocks, waitRowHints } from "./wait-view";
+import { hostForModel } from "../local-model-hosts";
 import { agentDetailsBodyHeight, agentDetailsRows } from "../models/agent-details";
 import { approvalFacts, diffLanguage } from "../models/approval";
 import { approvalTitle } from "../models/approval";
@@ -134,6 +77,41 @@ import { compactWorkingDirectory } from "../text/working-directory";
 import { previewTheme } from "../theme";
 import type { Choice, PromptState } from "../types";
 import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
+import { App, type KeyChord } from "./App";
+import { flattenPaste, normalizePaste, readClipboard } from "./clipboard";
+import {
+  commit,
+  composerFromText,
+  deleteBackward,
+  deleteForward,
+  deleteRange,
+  DOWN,
+  EMPTY_COMPOSER,
+  EMPTY_HISTORY,
+  insertText,
+  moveCaret,
+  moveCaretVertical,
+  redo,
+  selectAll,
+  typeCharacter,
+  UP,
+  type ComposerHistory,
+  undo,
+} from "./composer-edit";
+import { wrapCommandIndex } from "./Input";
+import {
+  isBackgroundChord,
+  isComposerNewline,
+  isCtrlLetter,
+  isForceSendChord,
+  isInterruptChord,
+  isRedoChord,
+  isSelectAllChord,
+  isUndoChord,
+  type KeyAction,
+} from "./keymap";
+import { TODO_WINDOW_ROWS } from "./LiveZone";
+import { commandPanelLayout } from "./overlays/CommandPanel";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel, QuestionTagTone } from "./overlays/Question";
 import type { QuestionStep } from "./overlays/stepper";
@@ -143,6 +121,28 @@ import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
 import { MenuScreen } from "./screens/Menu";
 import { SkillBrowser } from "./screens/SkillBrowser";
+import { subagentBlocks, subagentListItem } from "./subagent-view";
+import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
+import { themePickerTarget } from "./theme-picker-keys";
+import { createFullscreenTranscript, shareUnchangedBlocks } from "./transcript-projection";
+import {
+  LIVE_ZONE_MAX_ROWS,
+  type ApprovalChoice,
+  type ApprovalOverlay,
+  type Block,
+  type FooterModel,
+  type HeaderModel,
+  type InputModel,
+  type LiveModel,
+  type LiveTool,
+  type Overlay,
+  type StepLine,
+  type SubagentListModel,
+  type ThemePickerModel,
+  type ThemePickerRow,
+  type ViewModel,
+} from "./types";
+import { opensWaitView, waitBlocks, waitRowHints } from "./wait-view";
 
 /** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
 const SUBAGENT_NOTICE_MS = 2500;

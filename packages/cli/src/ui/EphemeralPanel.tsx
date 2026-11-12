@@ -1,14 +1,14 @@
 import { Box, Text } from "ink";
 import React, { useEffect, useState } from "react";
-import { PreWrappedText } from "./components/PreWrappedText";
-import { getGlyphs } from "./glyphs";
-import type { EphemeralRegion } from "./store";
-import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
 import { wrapToWidth } from "../presentation/markdown-formatter";
 import { getTerminalWidth } from "../utils/string-utils";
+import { PreWrappedText } from "./components/PreWrappedText";
+import { getGlyphs } from "./glyphs";
 import { markdownToAnsi } from "./markdown/ansi";
+import type { EphemeralRegion } from "./store";
 import { formatPreciseDuration } from "./text/format";
+import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 
 function elapsed(startedAt: number): string {
   return formatPreciseDuration(Date.now() - startedAt);

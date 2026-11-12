@@ -46,8 +46,6 @@ import { runsInShell } from "@/cli/chat/commands/parser";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import type { QueueEntry } from "../message-queue";
 import { matchedSpan, plainDescription, suggestionOrigin } from "../suggestion-menu";
-import { useThemeRevision } from "./theme-revision";
-import { COMPACT_HEIGHT, type InputModel, type Viewport } from "./types";
 import { pickerWindow, wrapIndex } from "../text/picker-window";
 import {
   clipTerminalCells,
@@ -58,6 +56,8 @@ import {
   wrapTerminalCells,
 } from "../text/terminal-cells";
 import { THEME } from "../theme";
+import { useThemeRevision } from "./theme-revision";
+import { COMPACT_HEIGHT, type InputModel, type Viewport } from "./types";
 
 /**
  * The composer grows to six rows and then scrolls inside itself. Past six rows

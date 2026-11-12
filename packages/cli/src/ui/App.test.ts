@@ -1,10 +1,10 @@
 /** Exercises the live Ink stream's rendered text, wrapping, speaker rail, and reasoning styling. */
 import { describe, expect, test } from "bun:test";
 import chalk from "chalk";
-import { renderPendingStream } from "./App";
-import { getGlyphs } from "./glyphs";
 import { createStreamSplitScanner } from "../presentation/markdown-split";
 import { stripAnsiCodes } from "../utils/string-utils";
+import { renderPendingStream } from "./App";
+import { getGlyphs } from "./glyphs";
 import { terminalCellWidth } from "./text/terminal-cells";
 
 function pendingStream(rawTail: string, kind: "response" | "reasoning" = "response") {

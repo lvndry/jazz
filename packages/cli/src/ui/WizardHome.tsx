@@ -4,9 +4,9 @@
 import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import React, { useState, useEffect } from "react";
+import packageJson from "../../../../package.json";
 import { getGlyphs } from "./glyphs";
 import { THEME } from "./theme";
-import packageJson from "../../../../package.json";
 
 /**
  * Menu option for the wizard

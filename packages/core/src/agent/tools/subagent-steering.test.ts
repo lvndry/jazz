@@ -15,12 +15,12 @@ import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
-import { createSubagentTools } from "./subagent";
 import { AgentRunner } from "../agent-runner";
 import { createBlackboard } from "../subagents/blackboard";
 import { createSubagentSupervisor, type SubagentSupervisor } from "../subagents/supervisor";
 import { silentLogger } from "../test-logger";
 import type { AgentRunnerOptions } from "../types";
+import { createSubagentTools } from "./subagent";
 
 const parentAgent: Agent = {
   id: "parent",

@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "bun:test";
 import { Cause, Effect, Layer } from "effect";
 import { invalidInput } from "@/core/test-support/fakes";
 import type { JazzError } from "@/core/types/errors";
-import { formatError, handleError, isUserCancellation } from "./error-handler";
 import { PresentationServiceTag, type PresentationService } from "../interfaces/presentation";
 import {
   PluginNotInstalledError,
@@ -14,6 +13,7 @@ import {
   GenerationInterruptedError,
   ValidationError,
 } from "../types/errors";
+import { formatError, handleError, isUserCancellation } from "./error-handler";
 
 describe("Error Handler", () => {
   it("formats Effect's own timeout error, which shares the tag but has no fields, without undefined", () => {

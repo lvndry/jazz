@@ -4,9 +4,9 @@
 
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { describe, expect, it } from "bun:test";
+import { filterSkills, skillDetailRows } from "../../skill-browser";
 import { renderForTest } from "../test-helpers";
 import { SkillBrowser } from "./SkillBrowser";
-import { filterSkills, skillDetailRows } from "../../skill-browser";
 
 const skills: readonly SkillMetadata[] = Array.from({ length: 35 }, (_, index) => ({
   name: `skill-${String(index).padStart(2, "0")}`,
