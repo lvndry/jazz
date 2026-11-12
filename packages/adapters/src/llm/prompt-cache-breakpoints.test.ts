@@ -2,14 +2,18 @@
  * Request-assembly tests for prompt-cache breakpoints. The Anthropic cases drive the real
  * `@ai-sdk/anthropic` serializer against a stub transport and read the wire body, because the
  * breakpoint rules (which tools and system blocks carry one, the limit of 4) live in that
- * package rather than in Jazz.
+ * package rather than in Jazz. The same transport verifies tuple schema dialect conversion
+ * for memory and scratchpad tools before Anthropic receives the request.
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createViewMemoryTool } from "@jazz/core/agent/tools/memory";
+import { createViewWorkspaceTool } from "@jazz/core/agent/tools/workspace";
 import type { ProviderName } from "@jazz/core/constants/models";
 import { generateText, jsonSchema, tool, type ModelMessage, type ToolSet } from "ai";
 import { describe, expect, it } from "bun:test";
+import { z } from "zod";
 import { fakeFetch, partialFake } from "../test-support/fakes";
-import { applyToolsCacheBreakpoint, toCoreMessages } from "./ai-sdk-service";
+import { applyToolsCacheBreakpoint, buildToolInputSchema, toCoreMessages } from "./ai-sdk-service";
 import fixture from "./fixtures/system-prompt-requests.json";
 
 const MAX_ANTHROPIC_CACHE_BREAKPOINTS = 4;
@@ -18,7 +22,7 @@ const STABLE_TEXT = "Persona and rules.";
 const LIVE_TEXT = "\n\nEnvironment: Date: 2026-03-01";
 
 interface WireBody {
-  tools?: Array<{ name: string; cache_control?: unknown }>;
+  tools?: Array<{ name: string; input_schema?: unknown; cache_control?: unknown }>;
   system?: Array<{ text: string; cache_control?: unknown }>;
   messages: Array<{ role: string; content: Array<{ text?: string; cache_control?: unknown }> }>;
 }
@@ -232,5 +236,76 @@ describe("providers other than Anthropic", () => {
     for (const provider of ["openrouter", "ai_gateway", "openai", "ollama", "claude_code"]) {
       expect(applyToolsCacheBreakpoint(tools, provider)).toBe(tools);
     }
+  });
+});
+
+describe("Anthropic tool tuple schemas", () => {
+  it("serializes memory and scratchpad ranges as draft 2020-12 and retains validation", async () => {
+    const tools: ToolSet = {};
+    for (const definition of [createViewMemoryTool(), createViewWorkspaceTool()]) {
+      const inputSchema = buildToolInputSchema({ function: definition }, undefined, "anthropic");
+      tools[definition.name] = tool({ description: definition.description, inputSchema });
+      expect((await inputSchema.validate?.({ view_range: [1, -1] }))?.success).toBe(true);
+      expect((await inputSchema.validate?.({ view_range: [1] }))?.success).toBe(false);
+      expect((await inputSchema.validate?.({ view_range: [1, "bad"] }))?.success).toBe(false);
+      const unchanged = await buildToolInputSchema({ function: definition }, undefined, "openai")
+        .jsonSchema;
+      expect(unchanged).toMatchObject({
+        properties: { view_range: { items: [{ type: "integer" }, { type: "integer" }] } },
+      });
+    }
+    const body = await sendToAnthropic([{ role: "user", content: "hello" }], tools);
+    expect(body.tools).toHaveLength(2);
+    for (const advertised of body.tools ?? []) {
+      expect(advertised.input_schema).toMatchObject({
+        type: "object",
+        properties: {
+          view_range: {
+            type: "array",
+            prefixItems: [{ type: "integer" }, { type: "integer" }],
+            items: false,
+            minItems: 2,
+            maxItems: 2,
+          },
+        },
+      });
+    }
+  });
+
+  it("also normalizes raw MCP schemas and top-level Zod unions", async () => {
+    const tuple = z.tuple([z.string(), z.number()]);
+    const parameters = z.object({ coordinates: tuple });
+    const raw = {
+      type: "object",
+      properties: {
+        coordinates: {
+          type: "array",
+          items: [{ type: "string" }, { type: "number" }],
+          additionalItems: false,
+        },
+      },
+    };
+    const built = buildToolInputSchema(
+      { function: { parameters, jsonSchema: raw } },
+      undefined,
+      "anthropic",
+    );
+    expect(await built.jsonSchema).toMatchObject({
+      properties: {
+        coordinates: { prefixItems: [{ type: "string" }, { type: "number" }], items: false },
+      },
+    });
+    expect(raw.properties.coordinates.items).toHaveLength(2);
+    const union = z.discriminatedUnion("command", [
+      z.object({ command: z.literal("read"), range: tuple }),
+      z.object({ command: z.literal("write"), range: tuple }),
+    ]);
+    expect(
+      await buildToolInputSchema({ function: { parameters: union } }, undefined, "anthropic")
+        .jsonSchema,
+    ).toMatchObject({
+      type: "object",
+      properties: { range: { prefixItems: [{ type: "string" }, { type: "number" }] } },
+    });
   });
 });

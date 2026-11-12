@@ -94,6 +94,19 @@ Cache reads are part of `promptTokens`. Cost code relies on this: `usage-cost.ts
 package that reports `inputTokens` excluding cached tokens would be over-discounted. Jazz does
 not detect that case.
 
+## Tool input schemas
+
+Anthropic requires JSON Schema draft 2020-12 for tool inputs. Jazz converts legacy tuple
+schemas from the SDK or MCP (`items: [...]`, with optional `additionalItems`) to
+`prefixItems: [...]` and `items` at the Anthropic request boundary. Nested tuples and array
+bounds are preserved. Other providers retain their existing schemas, and local argument
+validation continues to use the original tool schema.
+
+Source: [`anthropic-tool-schema.ts`](../../packages/adapters/src/llm/anthropic-tool-schema.ts).
+The wire-format regression in
+[`prompt-cache-breakpoints.test.ts`](../../packages/adapters/src/llm/prompt-cache-breakpoints.test.ts)
+exercises memory and scratchpad line ranges through the Anthropic SDK serializer.
+
 ## Tool-call arguments
 
 The SDK assembles streamed argument deltas and parses them. Jazz receives the parsed `input`
