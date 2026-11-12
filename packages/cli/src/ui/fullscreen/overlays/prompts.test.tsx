@@ -14,13 +14,13 @@
 import { TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/core";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { getGlyphs } from "../../glyphs";
+import { THEME } from "../../theme";
 import { renderForTest } from "../test-helpers";
+import { MIN_HEIGHT, MIN_WIDTH, type Viewport } from "../types";
 import { FilePicker, type FilePickerModel } from "./FilePicker";
 import { onAccent, Question, type QuestionModel } from "./Question";
 import { TextPrompt, type TextPromptModel } from "./TextPrompt";
-import { getGlyphs } from "../../glyphs";
-import { THEME } from "../../theme";
-import { MIN_HEIGHT, MIN_WIDTH, type Viewport } from "../types";
 
 const WIDE: Viewport = { width: 120, height: 34 };
 const MEDIUM: Viewport = { width: 80, height: 24 };

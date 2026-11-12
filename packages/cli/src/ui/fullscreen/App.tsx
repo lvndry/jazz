@@ -29,6 +29,7 @@ import React, {
   useLayoutEffect,
 } from "react";
 import { getGlyphs } from "../glyphs";
+import { clipTerminalCells } from "../text/terminal-cells";
 import { groundPaint, THEME } from "../theme";
 import { useAutoScrollOnDrag } from "./auto-scroll-selection";
 import {
@@ -79,7 +80,6 @@ import {
   type Viewport,
 } from "./types";
 import { useViewportController } from "./viewport-controller";
-import { clipTerminalCells } from "../text/terminal-cells";
 
 /**
  * The shell: five stacked regions and a floating overlay layer.

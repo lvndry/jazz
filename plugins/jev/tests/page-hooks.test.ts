@@ -11,8 +11,8 @@ import type {
   RouteSnapshotOutcome,
 } from "@jazz/plugin-sdk";
 import { afterEach, describe, expect, it } from "bun:test";
-import { fakeFetch, HookRegistry } from "./host-fakes";
 import plugin, { JEV_BASE_URL, JEV_MODEL } from "../src/index";
+import { fakeFetch, HookRegistry } from "./host-fakes";
 
 const originalFetch = globalThis.fetch;
 

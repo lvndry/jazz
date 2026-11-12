@@ -11,9 +11,9 @@
  */
 
 import type { TodoSnapshotItem } from "../activity-state";
+import { formatPreciseDuration } from "../text/format";
 import { actionClass } from "./approval";
 import { foldedLine } from "./operation-fold";
-import { formatPreciseDuration } from "../text/format";
 
 /** Rows each list shows before the rest collapse into `+N more`. */
 export const INTERRUPT_LIST_ROWS = 3;

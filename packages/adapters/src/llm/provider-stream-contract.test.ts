@@ -6,13 +6,13 @@ import { LLMRequestError, type LLMError } from "@jazz/core/types/errors";
 import { convertToLLMError, isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { describe, expect, it } from "bun:test";
 import { Chunk, Effect } from "effect";
+import { partialFake } from "../test-support/fakes";
 import {
   PROVIDER_STREAM_CASES,
   type CompletedExpectation,
   type ProviderStreamCase,
 } from "./provider-stream-fixtures";
 import { StreamProcessor } from "./stream-processor";
-import { partialFake } from "../test-support/fakes";
 
 const silentLogger = partialFake<LoggerService>({
   debug: () => Effect.void,

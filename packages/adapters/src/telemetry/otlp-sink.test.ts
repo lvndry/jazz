@@ -4,9 +4,9 @@ import path from "node:path";
 import type { TelemetryEvent } from "@jazz/core/interfaces/telemetry";
 import { serve } from "bun";
 import { describe, expect, it } from "bun:test";
+import { fakeFetch } from "../test-support/fakes";
 import type { ResolvedOtlpConfig } from "./otlp-config";
 import { OtlpTelemetrySink } from "./otlp-sink";
-import { fakeFetch } from "../test-support/fakes";
 
 const EVENT: TelemetryEvent = {
   id: "event-1",

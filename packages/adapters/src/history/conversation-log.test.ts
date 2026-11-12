@@ -8,6 +8,7 @@ import { presentationEntrySchema } from "@jazz/core/types/presentation-content-s
 import { stateFileMode } from "@jazz/core/utils/private-mode";
 import { describe, test, expect, beforeEach, afterEach, setSystemTime } from "bun:test";
 import { Effect, type FileSystem } from "effect";
+import { invalidInput } from "../test-support/fakes";
 import {
   collapseSupersededUiEvents,
   ConversationChangedError,
@@ -29,7 +30,6 @@ import {
   UNTITLED_CONVERSATION_TITLE,
 } from "./conversation-log";
 import { legacyMessageId } from "./conversation-tree";
-import { invalidInput } from "../test-support/fakes";
 
 /** Messages as a reader sees them, without the log ids the reader stamps on them. */
 function withoutEntryIds(messages: readonly ChatMessage[] | undefined) {

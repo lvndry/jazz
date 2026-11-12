@@ -14,25 +14,6 @@ import {
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
 import { partialFake, standIn } from "@/core/test-support/fakes";
-import {
-  AgentRunner,
-  createNestedRunExecutor,
-  renderSkillRoutingAdvisory,
-  resolveDelegationLimits,
-  resolveOllamaRunningContextWindow,
-  resolveSglangServerModel,
-  resolveVllmServerModel,
-  runContextBoundary,
-  runRecordBoundary,
-} from "./agent-runner";
-import { createEgressTaint } from "./execution/egress-taint";
-import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
-import { createSubagentSupervisor } from "./subagents/supervisor";
-import { createSearchToolsTool } from "./tools/search-tools";
-import { createSubagentTools } from "./tools/subagent";
-import { createToolRegistryLayer } from "./tools/tool-registry";
-import { createWebSearchTool } from "./tools/web-search";
-import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
 import type { FileSystemContextService } from "../interfaces/fs";
@@ -59,6 +40,25 @@ import type { SkillService } from "../skills/skill-service";
 import { SkillServiceTag } from "../skills/skill-service";
 import type { Agent } from "../types/agent";
 import type { ChatMessage } from "../types/message";
+import {
+  AgentRunner,
+  createNestedRunExecutor,
+  renderSkillRoutingAdvisory,
+  resolveDelegationLimits,
+  resolveOllamaRunningContextWindow,
+  resolveSglangServerModel,
+  resolveVllmServerModel,
+  runContextBoundary,
+  runRecordBoundary,
+} from "./agent-runner";
+import { createEgressTaint } from "./execution/egress-taint";
+import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
+import { createSubagentSupervisor } from "./subagents/supervisor";
+import { createSearchToolsTool } from "./tools/search-tools";
+import { createSubagentTools } from "./tools/subagent";
+import { createToolRegistryLayer } from "./tools/tool-registry";
+import { createWebSearchTool } from "./tools/web-search";
+import type { AgentRunnerOptions } from "./types";
 
 describe("renderSkillRoutingAdvisory", () => {
   it("renders only a live-roster winner that beats no-skill", () => {

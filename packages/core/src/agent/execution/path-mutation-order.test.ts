@@ -7,11 +7,11 @@ import { PresentationServiceTag, type PresentationService } from "@/core/interfa
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import { partialFake, withoutServices } from "@/core/test-support/fakes";
 import type { ToolCall } from "@/core/types/tools";
+import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+import { silentLogger } from "../test-logger";
 import { earlierCallsOnSamePaths, resolveMutatedPaths } from "./path-mutation-order";
 import { ToolBatchLedger } from "./tool-batch-ledger";
 import { ToolExecutor } from "./tool-executor";
-import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
-import { silentLogger } from "../test-logger";
 
 describe("resolveMutatedPaths", () => {
   const context = { agentId: "agent-1", conversationId: "c" };

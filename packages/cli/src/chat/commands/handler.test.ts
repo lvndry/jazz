@@ -66,12 +66,12 @@ import { getGlyphs } from "@/cli/ui/glyphs";
 import { forceSendQueue } from "@/cli/ui/queue-force-send";
 import { reportPlainText } from "@/cli/ui/report-layout";
 import { store } from "@/cli/ui/store";
+import { partialFake, type PartialMembers } from "../../test-support/partial-fake";
 import * as chatGoal from "./goal";
 import * as commandHandlers from "./handler";
 import { handleSpecialCommand } from "./handler";
 import * as chatLoop from "./loop";
 import type { CommandContext, CommandResult } from "./types";
-import { partialFake, type PartialMembers } from "../../test-support/partial-fake";
 
 let tmpDir = "";
 

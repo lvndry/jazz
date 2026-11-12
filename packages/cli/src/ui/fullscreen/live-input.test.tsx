@@ -14,11 +14,13 @@
 import { RGBA } from "@opentui/core";
 import { describe, expect, it } from "bun:test";
 import React from "react";
-import { renderForTest } from "./test-helpers";
+import type { TodoSnapshotItem } from "../activity-state";
 import { getGlyphs } from "../glyphs";
+import { terminalCellWidth } from "../text/terminal-cells";
 import { THEME } from "../theme";
 import { Input, inputRows, MAX_VISIBLE_QUEUED, wrapCells, wrapCommandIndex } from "./Input";
 import { liveRows, LiveZone } from "./LiveZone";
+import { renderForTest } from "./test-helpers";
 import {
   COMPACT_HEIGHT,
   LIVE_ZONE_MAX_ROWS,
@@ -27,8 +29,6 @@ import {
   type LiveModel,
   type LiveTool,
 } from "./types";
-import type { TodoSnapshotItem } from "../activity-state";
-import { terminalCellWidth } from "../text/terminal-cells";
 
 const WIDTH = 120;
 // Tall enough to hold the live band at its cap (LIVE_ZONE_MAX_ROWS) plus the

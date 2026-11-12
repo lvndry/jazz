@@ -1,7 +1,7 @@
 /** Provider key probes distinguish invalid credentials from endpoint permissions. */
 import { describe, expect, it } from "bun:test";
-import { checkApiKey } from "./api-key-check";
 import { fakeFetch } from "../test-support/fakes";
+import { checkApiKey } from "./api-key-check";
 
 function answering(status: number): typeof fetch {
   return fakeFetch(async () => new Response("{}", { status }));

@@ -10,13 +10,13 @@ import {
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect, type FileSystem } from "effect";
+import { UIStore } from "../ui/store";
 import {
   persistConversationIfNeeded,
   shouldPersistConversation,
   shouldSaveTurn,
   type PersistConversationInput,
 } from "./persist-conversation";
-import { UIStore } from "../ui/store";
 
 let tmpDir: string;
 

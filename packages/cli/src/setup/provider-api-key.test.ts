@@ -5,8 +5,8 @@ import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import type { AppConfig } from "@jazz/core/types/config";
 import { describe, expect, it, mock } from "bun:test";
 import { Effect } from "effect";
-import { ensureProviderApiKey } from "./provider-api-key";
 import { partialFake } from "../test-support/partial-fake";
+import { ensureProviderApiKey } from "./provider-api-key";
 
 function setup(answers: readonly (string | undefined)[], config: Partial<AppConfig> = {}) {
   const pending = [...answers];

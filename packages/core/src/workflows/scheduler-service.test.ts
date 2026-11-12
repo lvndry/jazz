@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { getJazzHomeDirectory } from "@/core/utils/paths";
+import { isValidCronExpression } from "../utils/cron";
 import {
   DEFAULT_SCHEDULE_LABEL,
   deriveScheduleLabel,
@@ -15,7 +16,6 @@ import {
   SchedulerServiceTag,
   type ScheduledWorkflow,
 } from "./scheduler-service";
-import { isValidCronExpression } from "../utils/cron";
 
 // Re-implement parseCronField for testing since it's not exported
 function parseCronField(value: string, fieldName: string): number | undefined {

@@ -13,12 +13,6 @@ import { stoppedToolCallResult } from "@jazz/core/agent/execution/tool-batch-led
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { z } from "zod";
-import type { GoldenFixture } from "./fixture";
-import approvalParkResume from "./fixtures/approval-park-resume.json";
-import emptyFinishRetry from "./fixtures/empty-finish-retry.json";
-import interruptedBatch from "./fixtures/interrupted-batch.json";
-import plainAnswer from "./fixtures/plain-answer.json";
-import toolCallResult from "./fixtures/tool-call-result.json";
 import {
   createGoldenSession,
   type GoldenRunExit,
@@ -34,6 +28,12 @@ import {
   toolResultsOf,
   unansweredToolCallIds,
 } from "../../test-support/golden/transcript";
+import type { GoldenFixture } from "./fixture";
+import approvalParkResume from "./fixtures/approval-park-resume.json";
+import emptyFinishRetry from "./fixtures/empty-finish-retry.json";
+import interruptedBatch from "./fixtures/interrupted-batch.json";
+import plainAnswer from "./fixtures/plain-answer.json";
+import toolCallResult from "./fixtures/tool-call-result.json";
 
 const lookupNote: ScenarioTool = {
   name: "lookup_note",

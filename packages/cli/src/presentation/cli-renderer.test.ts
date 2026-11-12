@@ -1,9 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import chalk from "chalk";
 import { Effect } from "effect";
-import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { viewAs } from "../test-support/view-as";
 import { codeColor, THEME } from "../ui/theme";
+import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 
 // The shared markdown parser's bullets, task marks and the horizontal rule read from the
 // glyph set; force Unicode (jazz's default) rather than leaving this to the process's own

@@ -13,7 +13,6 @@
 import { RGBA, TextAttributes } from "@opentui/core";
 import { describe, expect, it } from "bun:test";
 import React, { useState } from "react";
-import { renderForTest, updateForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
 import { applyTheme, initializeTheme, setCanvasMode, THEME } from "../theme";
 import { App } from "./App";
@@ -25,6 +24,7 @@ import {
   sampleSearchView,
   sampleView,
 } from "./sample";
+import { renderForTest, updateForTest } from "./test-helpers";
 import { MIN_HEIGHT, MIN_WIDTH, type Block, type ViewModel } from "./types";
 
 const WIDTH = 120;

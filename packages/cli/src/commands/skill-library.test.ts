@@ -9,8 +9,8 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import type { RegistrySkillDownload } from "@jazz/core/types/skill-registry";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
-import { filterSkillEntries, addSkillCommand, isValidSkillName } from "./skill-library";
 import { partialFake } from "../test-support/partial-fake";
+import { filterSkillEntries, addSkillCommand, isValidSkillName } from "./skill-library";
 
 /** Command-level regressions for confirmation, path safety, and exact writes. */
 

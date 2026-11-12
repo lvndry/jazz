@@ -10,6 +10,8 @@ import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect, FileSystem } from "effect";
+import { getLogsDirectory } from "../logger";
+import { FileGoalStore } from "../storage/goal-store";
 import { saveConversation } from "./conversation-history-service";
 import { holdConversationTurn } from "./conversation-lease";
 import {
@@ -18,8 +20,6 @@ import {
   EMPTY_CONVERSATION_REVISION,
 } from "./conversation-log";
 import { ConversationInUseError, deleteConversation } from "./delete-conversation";
-import { getLogsDirectory } from "../logger";
-import { FileGoalStore } from "../storage/goal-store";
 
 const AGENT_ID = "delete-agent";
 

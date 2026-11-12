@@ -1,7 +1,7 @@
 import { AGENT_PROCESS_ENV } from "@jazz/core/utils/env";
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
-import { decideProposedGoalCommand } from "./goal";
 import { runWithoutServices } from "../test-support/run-without-services";
+import { decideProposedGoalCommand } from "./goal";
 
 const previous = process.env[AGENT_PROCESS_ENV];
 

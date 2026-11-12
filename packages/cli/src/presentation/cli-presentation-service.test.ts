@@ -3,8 +3,8 @@ import { PresentationServiceTag } from "@jazz/core/interfaces/presentation";
 import { type TerminalService } from "@jazz/core/interfaces/terminal";
 import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
-import { CLIPresentationService } from "./cli-presentation-service";
 import { partialFake } from "../test-support/partial-fake";
+import { CLIPresentationService } from "./cli-presentation-service";
 
 // Mock dependencies
 const mockTerminal = partialFake<TerminalService>({

@@ -1,8 +1,8 @@
 import type { Agent } from "@jazz/core/types/index";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { selectAgentForWorkflow } from "./workflow";
 import { store } from "../ui/store";
+import { selectAgentForWorkflow } from "./workflow";
 
 function agent(partial: {
   readonly id: string;

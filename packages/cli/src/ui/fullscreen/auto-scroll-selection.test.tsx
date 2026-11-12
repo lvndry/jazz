@@ -3,9 +3,9 @@
 import type { MouseEvent } from "@opentui/core";
 import { expect, it, spyOn } from "bun:test";
 import { useState } from "react";
+import { partialFake } from "../../test-support/partial-fake";
 import { useAutoScrollOnDrag } from "./auto-scroll-selection";
 import { renderForTest, updateForTest } from "./test-helpers";
-import { partialFake } from "../../test-support/partial-fake";
 
 it("cancels edge scrolling on drag end, occlusion, document switch and unmount", async () => {
   const scheduled = new Map<ReturnType<typeof setInterval>, () => void>();

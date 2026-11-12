@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { partialFake } from "@/core/test-support/fakes";
+import { LLMRequestError } from "../../types/errors";
 import { computeRunCost, classifyFailedAttempt, recordFailedAttempt } from "./agent-run-metrics";
 import type { AgentRunMetrics } from "./agent-run-metrics";
 import {
@@ -12,7 +13,6 @@ import {
   formatRetryWaste,
   type FailedAttemptObservation,
 } from "./failed-attempts";
-import { LLMRequestError } from "../../types/errors";
 
 const PRICING = { inputPricePerMillion: 3, outputPricePerMillion: 15 };
 const formatAmount = (usd: number) => `$${usd.toFixed(2)}`;

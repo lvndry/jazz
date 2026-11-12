@@ -10,8 +10,8 @@
  * and documentation, so they must not carry anyone's real address.
  */
 
-import type { ApprovalOverlay, Block, SearchOverlay, ViewModel } from "./types";
 import packageJson from "../../../../../package.json";
+import type { ApprovalOverlay, Block, SearchOverlay, ViewModel } from "./types";
 
 let seq = 0;
 const next = (): number => (seq += 1);

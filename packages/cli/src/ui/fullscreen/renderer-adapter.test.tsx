@@ -8,10 +8,10 @@
 
 import type { CliRenderer } from "@opentui/core";
 import { expect, test } from "bun:test";
+import { viewAs } from "../../test-support/view-as";
 import { guardOutput, type GuardedStream } from "./mount";
 import { observeNativeFailure, rendererInvalidation } from "./renderer-adapter";
 import { createTerminalOracle } from "./testing/terminal-oracle";
-import { viewAs } from "../../test-support/view-as";
 
 test("foreign erasure and control chunks cannot desynchronize the physical grid", async () => {
   const oracle = await createTerminalOracle({ width: 32, height: 10 });

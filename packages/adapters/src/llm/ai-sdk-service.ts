@@ -122,6 +122,7 @@ import shortUUID from "short-uuid";
 import { createMinimax } from "vercel-minimax-ai-provider";
 import { createZhipu } from "zhipu-ai-provider";
 import { z } from "zod";
+import rootPackageJson from "../../../../package.json";
 import { normalizeAnthropicToolSchema } from "./anthropic-tool-schema";
 import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
 import {
@@ -171,7 +172,6 @@ import {
   SDK_STOP_CONDITIONS,
   toJazzToolCall,
 } from "./tool-call-parts";
-import rootPackageJson from "../../../../package.json";
 
 /** Diagnostic fields from provider errors that cannot contain request or response content. */
 export function safeLLMErrorMetadata(

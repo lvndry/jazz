@@ -12,7 +12,6 @@ import type {
   PluginHostApi,
 } from "@jazz/plugin-sdk";
 import { afterEach, describe, expect, it } from "bun:test";
-import { fakeFetch, HookRegistry } from "./host-fakes";
 import plugin, {
   compactAction,
   COMPACT_BIG_RESULT_CHARS,
@@ -21,6 +20,7 @@ import plugin, {
   JEV_BASE_URL,
   JEV_MODEL,
 } from "../src/index";
+import { fakeFetch, HookRegistry } from "./host-fakes";
 
 const originalFetch = globalThis.fetch;
 

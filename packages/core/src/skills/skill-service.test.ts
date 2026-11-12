@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { partialFake } from "@/core/test-support/fakes";
+import { PluginRuntimeServiceTag, type PluginRuntimeService } from "../interfaces/plugin-runtime";
 import {
   getSkillIndexLine,
   scoreSkillsForQuery,
@@ -8,7 +9,6 @@ import {
   SkillsLive,
   type SkillMetadata,
 } from "./skill-service";
-import { PluginRuntimeServiceTag, type PluginRuntimeService } from "../interfaces/plugin-runtime";
 
 const skill = (overrides: Partial<SkillMetadata> & Pick<SkillMetadata, "name">): SkillMetadata => ({
   description: "",

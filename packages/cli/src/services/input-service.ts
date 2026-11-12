@@ -5,12 +5,12 @@
  */
 
 import { Context, Effect, Layer } from "effect";
-import { TerminalCapabilityServiceTag, type TerminalCapabilities } from "./terminal-service";
 import {
   createEscapeStateMachine,
   type KeyInfo,
   type ParsedInput,
 } from "../input/escape-state-machine";
+import { TerminalCapabilityServiceTag, type TerminalCapabilities } from "./terminal-service";
 
 // ============================================================================
 // Types

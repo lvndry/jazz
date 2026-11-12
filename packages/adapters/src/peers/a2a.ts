@@ -32,8 +32,8 @@ import type { Agent } from "@jazz/core/types";
 import { allowedToolsForTier } from "@jazz/core/types/disclosure-tier";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { Effect } from "effect";
-import { servePeerRequest } from "./serve";
 import packageJson from "../../../../package.json";
+import { servePeerRequest } from "./serve";
 
 /** The one security scheme this server actually accepts: a peer's own bearer token. */
 const SECURITY_SCHEME_ID = "peer-token";

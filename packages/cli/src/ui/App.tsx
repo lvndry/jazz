@@ -7,6 +7,8 @@
 import { Box, Static, Text, useInput } from "ink";
 import React, { useEffect, useRef, useState } from "react";
 import { InputPriority, InputResults } from "@/cli/services/input-service";
+import packageJson from "../../../../package.json";
+import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
 import { ActivityView } from "./ActivityView";
 import type { PendingStream } from "./adapters/terminal-output-adapter";
 import { ApprovalView } from "./ApprovalView";
@@ -36,12 +38,10 @@ import {
 import StatusFooter from "./StatusFooter";
 import { store, useOutputSlice, usePromptSlice, useSessionSlice, type ActiveMenu } from "./store";
 import { centredWindowStart } from "./text/picker-window";
+import { clipTerminalCells } from "./text/terminal-cells";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId } from "./types";
 import { WizardHome } from "./WizardHome";
-import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
-import { clipTerminalCells } from "./text/terminal-cells";
-import packageJson from "../../../../package.json";
 
 // ============================================================================
 // Activity Island - Unified state for status + streaming response

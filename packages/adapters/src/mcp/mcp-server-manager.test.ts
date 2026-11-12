@@ -2,8 +2,8 @@ import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logg
 import type { MCPServerConfigStdio } from "@jazz/core/interfaces/mcp-server";
 import { describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Fiber } from "effect";
-import { MCPServerManagerImpl } from "./mcp-server-manager";
 import { partialFake } from "../test-support/fakes";
+import { MCPServerManagerImpl } from "./mcp-server-manager";
 
 function fakeLogger(): LoggerService {
   const noop = () => Effect.void;

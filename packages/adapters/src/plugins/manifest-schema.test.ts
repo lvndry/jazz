@@ -7,9 +7,9 @@ import * as path from "node:path";
 import { validatePluginManifest } from "@jazz/core/agent/plugins/validation";
 import { PLUGIN_LIFECYCLE_EVENTS } from "@jazz/core/types/plugin";
 import { describe, expect, test } from "bun:test";
+import { fakeFetch } from "../test-support/fakes";
 import { acquirePluginManifest, PluginArtifactInstaller } from "./artifact-installer";
 import { parsePluginManifest } from "./manifest-schema";
-import { fakeFetch } from "../test-support/fakes";
 
 function manifest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {

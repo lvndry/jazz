@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { z } from "zod";
-import { Summarizer, type CompactionOutcome, type RecursiveRunner } from "./summarizer";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
@@ -28,6 +27,7 @@ import {
 } from "../metrics/prompt-cache";
 import { observePromptCache } from "../metrics/prompt-cache-observer";
 import type { AgentResponse } from "../types";
+import { Summarizer, type CompactionOutcome, type RecursiveRunner } from "./summarizer";
 
 const PROVIDER = "openai" as const;
 const MODEL = "gpt-4";

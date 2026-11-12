@@ -8,10 +8,10 @@ import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import type { ChatCompletionOptions } from "@/core/types/chat";
 import type { ChatMessage } from "@/core/types/message";
-import { requestAlignedSummary } from "./cache-aligned-summary";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import { observePromptCache, type PromptCacheScope } from "../metrics/prompt-cache-observer";
 import { silentLogger } from "../test-logger";
+import { requestAlignedSummary } from "./cache-aligned-summary";
 
 describe("cache-aligned checkpoint adapter prefix", () => {
   for (const provider of ["anthropic", "openai", "moonshotai", "deepseek"] as const) {

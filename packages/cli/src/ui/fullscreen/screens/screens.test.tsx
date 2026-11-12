@@ -17,6 +17,12 @@
 import { TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/core";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { getGlyphs } from "../../glyphs";
+import { agentDetailsRows } from "../../models/agent-details";
+import { HOME_COMMANDS, type HomeState } from "../../models/home-view";
+import { THEME } from "../../theme";
+import { renderForTest } from "../test-helpers";
+import type { Viewport } from "../types";
 import { AgentDetails } from "./AgentDetails";
 import {
   AgentPicker,
@@ -26,12 +32,6 @@ import {
   type AgentChoice,
 } from "./AgentPicker";
 import { Home, homeRows, type HomeModel } from "./Home";
-import { getGlyphs } from "../../glyphs";
-import { agentDetailsRows } from "../../models/agent-details";
-import { HOME_COMMANDS, type HomeState } from "../../models/home-view";
-import { THEME } from "../../theme";
-import { renderForTest } from "../test-helpers";
-import type { Viewport } from "../types";
 
 const WIDE: Viewport = { width: 100, height: 28 };
 const NARROW: Viewport = { width: 60, height: 20 };

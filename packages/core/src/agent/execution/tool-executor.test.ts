@@ -9,7 +9,6 @@ import { join } from "node:path";
 import { describe, expect, it, spyOn } from "bun:test";
 import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Result } from "effect";
 import { invalidInput, partialFake, withoutServices } from "@/core/test-support/fakes";
-import { applyApprovalEdit, ToolExecutor } from "./tool-executor";
 import type { AgentConfigService } from "../../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import type { FileSystemContextService } from "../../interfaces/fs";
@@ -45,6 +44,7 @@ import type { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import { createRetryWasteTally } from "../metrics/failed-attempts";
 import { createPerceptionTools } from "../tools/perception";
 import type { DetachedToolResult } from "../types";
+import { applyApprovalEdit, ToolExecutor } from "./tool-executor";
 
 /** Result shape of executeToolCall / executeToolCalls items */
 type ToolCallExecutionResult = {

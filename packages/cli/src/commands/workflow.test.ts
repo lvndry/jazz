@@ -16,9 +16,9 @@ import {
 } from "@jazz/core/workflows/workflow-service";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
-import { runWorkflowCommand } from "./workflow";
 import { agentRunStub } from "../test-support/agent-run-stub";
 import { partialFake } from "../test-support/partial-fake";
+import { runWorkflowCommand } from "./workflow";
 
 /**
  * These tests exercise `runWorkflowCommand`'s exit-code behavior end to end

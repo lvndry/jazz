@@ -62,6 +62,16 @@ import {
 } from "@/cli/ui/models/interrupt";
 import { retryLine, retryRecoveredLine } from "@/cli/ui/models/retry";
 import { terminalCellWidth } from "@/cli/ui/text/terminal-cells";
+import { contentFromOutput } from "../ui/document";
+import { getGlyphs } from "../ui/glyphs";
+import { markdownToAnsi } from "../ui/markdown/ansi";
+import { commandOutputPreview, commandResultText } from "../ui/models/receipt";
+import { store } from "../ui/store";
+import type { SubagentChannel } from "../ui/subagent-runs";
+import { formatCost } from "../ui/text/format";
+import { PADDING_BUDGET } from "../ui/theme";
+import { CHALK_THEME } from "../ui/theme";
+import { separatorLine, stripAnsiCodes } from "../utils/string-utils";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
@@ -83,16 +93,6 @@ import {
   type StepStats,
   type TurnTotals,
 } from "./turn-receipt";
-import { contentFromOutput } from "../ui/document";
-import { getGlyphs } from "../ui/glyphs";
-import { markdownToAnsi } from "../ui/markdown/ansi";
-import { commandOutputPreview, commandResultText } from "../ui/models/receipt";
-import { store } from "../ui/store";
-import type { SubagentChannel } from "../ui/subagent-runs";
-import { formatCost } from "../ui/text/format";
-import { PADDING_BUDGET } from "../ui/theme";
-import { CHALK_THEME } from "../ui/theme";
-import { separatorLine, stripAnsiCodes } from "../utils/string-utils";
 
 /** Last-N-lines cap for a live sub-agent panel. */
 const SUBAGENT_PANEL_LINES = 12;

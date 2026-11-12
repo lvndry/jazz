@@ -6,6 +6,7 @@
 import type { ModelsDevMetadata, ModelsDevModelEntry } from "@jazz/core/utils/models-dev";
 import { afterAll, describe, expect, it, mock, beforeEach, spyOn } from "bun:test";
 import { Effect } from "effect";
+import { fakeFetch } from "../test-support/fakes";
 import {
   clearOllamaProbeCache,
   createModelFetcher,
@@ -19,7 +20,6 @@ import {
   resolveOllamaToolSupport,
   type OllamaModel,
 } from "./model-fetcher";
-import { fakeFetch } from "../test-support/fakes";
 
 beforeEach(() => {
   clearOllamaProbeCache();

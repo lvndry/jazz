@@ -1,8 +1,8 @@
 /** Viewport ownership regressions: semantic identity, document revisions and adversarial transitions. */
 import { describe, expect, it } from "bun:test";
-import { createTranscriptLayout } from "./transcript-layout";
 import { getGlyphs } from "../glyphs";
 import { getThemeRevision, THEME } from "../theme";
+import { createTranscriptLayout } from "./transcript-layout";
 import type { Block } from "./types";
 import {
   navigateViewport,

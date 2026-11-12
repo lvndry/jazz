@@ -7,10 +7,13 @@ import { isTerminalReport } from "@jazz/core/interfaces/terminal";
 import { Box, Text } from "ink";
 import React from "react";
 import { runsInShell } from "@/cli/chat/commands/parser";
-import { getGlyphs } from "./glyphs";
-import { reportAnsiText } from "./report-ansi";
+import { dimReasoningMarkdownOutput, spaceReasoningSections } from "../presentation/format-utils";
+import { wrapToWidth } from "../presentation/markdown-formatter";
 import { formatTurnReceipt } from "../presentation/turn-receipt";
+import { getTerminalWidth } from "../utils/string-utils";
 import { PreWrappedText } from "./components/PreWrappedText";
+import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
+import { getGlyphs } from "./glyphs";
 import { markdownToAnsi } from "./markdown/ansi";
 import { interruptSummaryLines } from "./models/interrupt";
 import {
@@ -21,15 +24,12 @@ import {
   type ToolReceipt,
 } from "./models/receipt";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
+import { reportAnsiText } from "./report-ansi";
 import { store } from "./store";
 import { paintRole, paintSegments } from "./text/roles";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import { foldedThoughtLine } from "./turn-thought";
 import type { OutputEntryWithId, OutputType } from "./types";
-import { dimReasoningMarkdownOutput, spaceReasoningSections } from "../presentation/format-utils";
-import { wrapToWidth } from "../presentation/markdown-formatter";
-import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
-import { getTerminalWidth } from "../utils/string-utils";
 
 // Icons and colours are read per render, so a `/theme` switch or the ASCII glyph set reaches
 // entries already in the scrollback.

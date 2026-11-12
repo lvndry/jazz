@@ -28,6 +28,10 @@ import { withAgentProviderOverrides } from "@/core/utils/agent-llm-config";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { UNTRUSTED_DATA_INSTRUCTION } from "@/core/utils/untrusted-content";
+import { messageCarriesEgressTaint } from "../execution/egress-taint";
+import { toolFingerprintInput } from "../metrics/prompt-cache";
+import { listUnlockedToolNames } from "../tools/unlocked-tools";
+import type { AgentResponse } from "../types";
 import type { AdvisedDecision, ReduceToolResultsFn } from "./advised-tool-clearing";
 import {
   alignedSummaryBlocker,
@@ -43,10 +47,6 @@ import { extractMemories } from "./memory-extractor";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 import { toolResultsProtectFromIndex } from "./tool-result-clearing";
 import { appendJournalEntry, pruneJournal } from "./work-journal";
-import { messageCarriesEgressTaint } from "../execution/egress-taint";
-import { toolFingerprintInput } from "../metrics/prompt-cache";
-import { listUnlockedToolNames } from "../tools/unlocked-tools";
-import type { AgentResponse } from "../types";
 import { formatWorkState, readWorkState } from "./work-state";
 
 /** Longest tool-argument string kept verbatim in a summarizer transcript. */

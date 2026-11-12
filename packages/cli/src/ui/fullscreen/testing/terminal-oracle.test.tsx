@@ -8,11 +8,11 @@
 
 import { describe, expect, test } from "bun:test";
 import type { ReactNode } from "react";
-import { createLayoutFixture } from "./layout-fixture";
 import { viewAs } from "../../../test-support/view-as";
 import { repaintAfterResize } from "../mount";
 import { Transcript } from "../Transcript";
 import type { Block } from "../types";
+import { createLayoutFixture } from "./layout-fixture";
 import {
   createTerminalOracle,
   createVtObserver,

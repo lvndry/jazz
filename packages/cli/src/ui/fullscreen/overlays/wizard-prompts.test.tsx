@@ -6,13 +6,13 @@
  */
 
 import { describe, expect, it } from "bun:test";
+import { getGlyphs } from "../../glyphs";
+import { THEME } from "../../theme";
 import { renderForTest } from "../test-helpers";
+import type { Viewport } from "../types";
 import { alignDescriptionColumns, Question, type QuestionModel } from "./Question";
 import { stepperSegments } from "./stepper";
 import { TextPrompt } from "./TextPrompt";
-import { getGlyphs } from "../../glyphs";
-import { THEME } from "../../theme";
-import type { Viewport } from "../types";
 
 const VIEWPORT: Viewport = { width: 100, height: 30 };
 const STEP = { labels: ["provider", "model", "reasoning", "persona", "name", "tools"], index: 1 };

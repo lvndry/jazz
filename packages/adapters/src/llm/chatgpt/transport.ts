@@ -11,9 +11,9 @@ import {
   CAPABILITY_REASONING_EFFORTS,
   type ReasoningControlSurface,
 } from "@jazz/core/types/model-capabilities";
+import { logDebug } from "../../logger";
 import { getChatGPTCredential } from "./credentials";
 import { CHATGPT_ORIGINATOR, type ChatGPTAccess } from "./oauth";
-import { logDebug } from "../../logger";
 
 export const CHATGPT_BACKEND_BASE_URL = "https://chatgpt.com/backend-api";
 /** What the Responses client is pointed at; it appends `/responses`. */

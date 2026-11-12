@@ -10,17 +10,17 @@ import { report as commandReport } from "@jazz/core/interfaces/terminal";
 import { RGBA, TextAttributes, type CapturedSpan } from "@opentui/core";
 import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
-import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
-import { createLayoutFixture } from "./testing/layout-fixture";
-import { Transcript } from "./Transcript";
-import type { RenderRow, Segment } from "./transcript-layout";
-import { measureFor, type Block, type Viewport } from "./types";
 import { parseInlineMarkdown } from "../markdown/inline";
 import { parseMarkdown } from "../markdown/parse";
 import { markdownRoleColor, type MarkdownRole } from "../markdown/spans";
 import { terminalCellWidth } from "../text/terminal-cells";
 import { setThemeVariant, THEME } from "../theme";
+import { renderForTest } from "./test-helpers";
+import { createLayoutFixture } from "./testing/layout-fixture";
+import { Transcript } from "./Transcript";
+import type { RenderRow, Segment } from "./transcript-layout";
+import { measureFor, type Block, type Viewport } from "./types";
 
 const { rows: layoutRows } = createLayoutFixture();
 

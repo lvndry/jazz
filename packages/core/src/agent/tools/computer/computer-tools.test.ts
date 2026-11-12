@@ -17,6 +17,7 @@ import {
 } from "@/core/secrets/user-secrets";
 import { partialFake } from "@/core/test-support/fakes";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
+import { createToolRegistryLayer } from "../tool-registry";
 import {
   createComputerAcknowledgeDriverTool,
   createComputerAppsTool,
@@ -35,7 +36,6 @@ import { DRIVER_PATH_ENV } from "./driver-pin";
 import { mailApp } from "./fake-driver";
 import { readComputerState, updateComputerState, withAcknowledgement } from "./grants";
 import { ledgerPath } from "./ledger";
-import { createToolRegistryLayer } from "../tool-registry";
 import { ComputerSessions } from "./session";
 import { useTemporaryJazzHome } from "./test-home";
 import { startSession, type Started } from "./test-session";

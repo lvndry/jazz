@@ -144,6 +144,10 @@ import { pickThemeInteractively } from "@/cli/ui/theme-picker-prompt";
 import { getUserThemesDirectory } from "@/cli/ui/themes/registry";
 import * as fmt from "@/cli/utils/list-format";
 import { truncate } from "@/cli/utils/string-utils";
+import { reviewMemorySuggestions } from "../../memory-review";
+import { managePlugins } from "../../plugin-manager";
+import { formatCost } from "../../ui/text/format";
+import { registerExtensionCommands } from "../register-extension-commands";
 import { drainedPercent, planCompactionMeter, renderCompactionMeter } from "./compaction-meter";
 import {
   CHAT_COMMANDS,
@@ -183,10 +187,6 @@ import type {
   SpecialCommand,
 } from "./types";
 import { handleWaitsCommand } from "./waits";
-import { reviewMemorySuggestions } from "../../memory-review";
-import { managePlugins } from "../../plugin-manager";
-import { formatCost } from "../../ui/text/format";
-import { registerExtensionCommands } from "../register-extension-commands";
 
 /**
  * Handle special commands from user input.

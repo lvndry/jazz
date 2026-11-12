@@ -9,10 +9,10 @@
 
 import type { CliRenderer } from "@opentui/core";
 import { expect, test } from "bun:test";
+import { viewAs } from "../../test-support/view-as";
 import { mountFullscreenApp } from "./attach";
 import type { MountedRenderer } from "./mount";
 import { createTerminalOracle } from "./testing/terminal-oracle";
-import { viewAs } from "../../test-support/view-as";
 
 test("runtime errors hand off once after releasing the native renderer", async () => {
   const oracle = await createTerminalOracle({ width: 60, height: 20 });

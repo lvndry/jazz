@@ -9,9 +9,9 @@ import type {
   PresentationDocument,
   PresentationEntry,
 } from "@jazz/core/types/presentation-content";
-import type { OutputEntry, OutputEntryWithId } from "./types";
 import { stripAnsiCodes } from "../utils/string-utils";
 import type { StreamKind } from "./adapters/terminal-output-adapter";
+import type { OutputEntry, OutputEntryWithId } from "./types";
 
 export function contentFromOutput(entry: OutputEntry): PresentationContent {
   if (typeof entry.message !== "string") {

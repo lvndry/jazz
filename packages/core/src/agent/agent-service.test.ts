@@ -1,10 +1,10 @@
 import { describe, expect, it, mock } from "bun:test";
 import { Effect } from "effect";
 import { partialFake } from "@/core/test-support/fakes";
-import { createAgent, getAgentById, getAgentByIdentifier, listAllAgents } from "./agent-service";
 import { AgentServiceTag, type AgentService } from "../interfaces/agent-service";
 import { StorageNotFoundError } from "../types/errors";
 import { type Agent } from "../types/index";
+import { createAgent, getAgentById, getAgentByIdentifier, listAllAgents } from "./agent-service";
 
 // Mock Agent Service
 const mockAgentService = partialFake<AgentService>({

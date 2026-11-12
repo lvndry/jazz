@@ -4,8 +4,8 @@ import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { Effect } from "effect";
-import { refreshChatGPTSignIn } from "./chatgpt-sign-in";
 import { partialFake } from "../test-support/partial-fake";
+import { refreshChatGPTSignIn } from "./chatgpt-sign-in";
 
 const storedCredential = {
   access: "access-old",

@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { partialFake } from "../../test-support/partial-fake";
+import { applyTheme, getThemeName, initializeTheme, setTerminalBackground, THEME } from "../theme";
+import { setSystemTheme } from "../themes/registry";
+import type { OutputEntry } from "../types";
 import { mountFullscreenApp, type FullscreenHandle } from "./attach";
 import {
   guardOutput,
@@ -13,10 +17,6 @@ import {
   type GuardedStream,
   type LifecycleRenderer,
 } from "./mount";
-import { partialFake } from "../../test-support/partial-fake";
-import { applyTheme, getThemeName, initializeTheme, setTerminalBackground, THEME } from "../theme";
-import { setSystemTheme } from "../themes/registry";
-import type { OutputEntry } from "../types";
 
 describe("mountFullscreenApp", () => {
   test("reports OpenTUI startup failure so the caller can mount its fallback", async () => {

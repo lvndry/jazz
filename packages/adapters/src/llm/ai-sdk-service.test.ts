@@ -33,6 +33,7 @@ import { Cause, Duration, Effect, Exit, FileSystem, Layer, Result, Stream } from
 import { z } from "zod";
 import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
+import { fakeFetch, invalidInput, partialFake } from "../test-support/fakes";
 import {
   buildProviderCacheFingerprint,
   buildProviderOptions,
@@ -47,7 +48,6 @@ import {
   applyConversationCacheBreakpoint,
 } from "./ai-sdk-service";
 import { PROVIDER_MODELS } from "./models";
-import { fakeFetch, invalidInput, partialFake } from "../test-support/fakes";
 
 // Bun module mocks are process-global: snapshot the real exports so afterAll can
 // restore them for test files that run later in the same process.

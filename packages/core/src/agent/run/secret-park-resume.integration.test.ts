@@ -23,9 +23,9 @@ import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import type { ChatCompletionOptions, ChatCompletionResponse } from "@/core/types/chat";
 import type { ToolExecutionContext } from "@/core/types/tools";
-import { resumeRun } from "./resume";
 import { AgentRunner } from "../agent-runner";
 import { ASK_USER_SECRET_TOOL_NAME, userInteractionTools } from "../tools/user-interaction";
+import { resumeRun } from "./resume";
 
 const SECRET = "typed-after-the-park-77";
 const AGENT: Agent = {

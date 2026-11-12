@@ -12,8 +12,8 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import type { AppConfig } from "@jazz/core/types/config";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { configureLLMProviders } from "./settings-wizard";
 import { partialFake } from "../test-support/partial-fake";
+import { configureLLMProviders } from "./settings-wizard";
 
 let originalPath: string | undefined;
 

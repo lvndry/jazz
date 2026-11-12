@@ -42,11 +42,6 @@ import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/mod
 import type { DisplayConfig } from "@/core/types/output";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
 import type { UsageCostTokens } from "@/core/utils/usage-cost";
-import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
-import { makeDefaultObserver } from "./agent-loop-observer";
-import { buildCompletionOptions } from "./completion-request";
-import { validateCompletion } from "./completion-validation";
-import { withModelStepTimeout } from "./model-step-timeout";
 import type { RecursiveRunner } from "../context/summarizer";
 import {
   emitLLMRetry,
@@ -56,6 +51,11 @@ import {
 } from "../metrics/agent-run-metrics";
 import { isSubstantialOutput, type AttemptMode } from "../metrics/failed-attempts";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
+import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
+import { makeDefaultObserver } from "./agent-loop-observer";
+import { buildCompletionOptions } from "./completion-request";
+import { validateCompletion } from "./completion-validation";
+import { withModelStepTimeout } from "./model-step-timeout";
 
 const DEFERRED_RESPONSE_TIMEOUT = Duration.seconds(15);
 

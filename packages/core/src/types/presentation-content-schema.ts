@@ -6,8 +6,8 @@
  * schemas before trusting JSON or external history.
  */
 import { z } from "zod";
-import type { PresentationContent, PresentationEntry } from "./presentation-content";
 import { CACHE_MISS_REASONS } from "../agent/metrics/prompt-cache";
+import type { PresentationContent, PresentationEntry } from "./presentation-content";
 
 const nonnegative = z.number().finite().nonnegative();
 const cacheMissReason = z.enum(CACHE_MISS_REASONS);

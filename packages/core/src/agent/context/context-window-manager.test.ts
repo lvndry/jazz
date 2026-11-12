@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { ContextWindowManager } from "./context-window-manager";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import type { ChatMessage, ConversationMessages } from "../../types/message";
 import { createEgressTaint } from "../execution/egress-taint";
 import { collectUnlockedToolNames } from "../tools/unlocked-tools";
+import { ContextWindowManager } from "./context-window-manager";
 
 const mockLogger = {
   debug: () => Effect.void,

@@ -26,22 +26,6 @@ import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/pr
 import { Effect, FileSystem } from "effect";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 import {
-  agentChoicesFor,
-  confirmAndDeleteAgent,
-  localHostUrlFor,
-  modelMetadataFor,
-  showAgentActions,
-  showAgentDetails,
-  showAgentList,
-} from "./agent-menu";
-/** Re-exported for existing tests; the menu lives in agent-menu.ts. */
-export { showAgentList };
-import { createAgentCommand } from "./create-agent";
-import { editAgentCommand } from "./edit-agent";
-import { buildHome } from "./home-surface";
-import { sessionOpenLine } from "./session-open";
-import { settingsWizardCommand } from "./settings-wizard";
-import {
   environmentKeyDetections,
   ollamaOrigin,
   probeOllamaModels,
@@ -59,6 +43,22 @@ import {
   type WaitingSource,
 } from "../ui/models/home-view";
 import { store, type ActiveHomeDetection } from "../ui/store";
+import {
+  agentChoicesFor,
+  confirmAndDeleteAgent,
+  localHostUrlFor,
+  modelMetadataFor,
+  showAgentActions,
+  showAgentDetails,
+  showAgentList,
+} from "./agent-menu";
+/** Re-exported for existing tests; the menu lives in agent-menu.ts. */
+export { showAgentList };
+import { createAgentCommand } from "./create-agent";
+import { editAgentCommand } from "./edit-agent";
+import { buildHome } from "./home-surface";
+import { sessionOpenLine } from "./session-open";
+import { settingsWizardCommand } from "./settings-wizard";
 
 /**
  * Interactive wizard command - the main entry point when `jazz` is run with no arguments

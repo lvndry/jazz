@@ -16,9 +16,9 @@ import { withAgentProviderOverrides } from "@jazz/core/utils/agent-llm-config";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
+import { store, type ActiveAgentChoice } from "../ui/store";
 import { agentDetailFields } from "./agent-details";
 import { deleteAgentCommand } from "./agent-management";
-import { store, type ActiveAgentChoice } from "../ui/store";
 
 type AgentAction = "start" | "details" | "edit" | "delete" | "back";
 

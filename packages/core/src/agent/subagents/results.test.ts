@@ -4,16 +4,16 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import {
+  readOffloadedToolResult,
+  readOffloadedToolResultProvenance,
+} from "../context/tool-result-offload";
+import {
   combinedProvenance,
   fitSubagentResults,
   saveSubagentResult,
   subagentResultText,
 } from "./results";
 import type { SubagentSnapshot } from "./supervisor";
-import {
-  readOffloadedToolResult,
-  readOffloadedToolResultProvenance,
-} from "../context/tool-result-offload";
 
 const BUDGET = 12_000;
 

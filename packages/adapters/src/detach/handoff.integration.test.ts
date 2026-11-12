@@ -6,13 +6,13 @@ import * as path from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { test, expect } from "bun:test";
 import { Effect } from "effect";
-import { enqueueDetachedJob, readDetachedJob } from "./job";
-import { createDetachSnapshot, importDetachSnapshot, verifyDetachSnapshot } from "./snapshot";
 import {
   conversationRevision,
   EMPTY_CONVERSATION_REVISION,
   loadConversation,
 } from "../history/conversation-history-service";
+import { enqueueDetachedJob, readDetachedJob } from "./job";
+import { createDetachSnapshot, importDetachSnapshot, verifyDetachSnapshot } from "./snapshot";
 
 test("local handoff preserves Git state and conversation through a queued remote continuation", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-handoff-integration-"));

@@ -14,6 +14,9 @@ import type {
   ToolExecutionResult,
 } from "@/core/types/tools";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
+import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+import { isRunParkRequested } from "../run/park-signal";
+import { silentLogger } from "../test-logger";
 import {
   carryEgressTaint,
   createEgressTaint,
@@ -25,9 +28,6 @@ import {
 } from "./egress-taint";
 import { ToolBatchLedger } from "./tool-batch-ledger";
 import { ToolExecutor } from "./tool-executor";
-import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
-import { isRunParkRequested } from "../run/park-signal";
-import { silentLogger } from "../test-logger";
 
 const externalToolMessage = (content: string): ChatMessage => ({
   role: "tool",

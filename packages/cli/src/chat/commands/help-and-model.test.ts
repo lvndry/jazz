@@ -12,10 +12,10 @@ import { Effect, Layer } from "effect";
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { setActiveKeymap } from "@/cli/ui/keymaps";
 import { reportPlainText } from "@/cli/ui/report-layout";
+import { partialFake, type PartialMembers } from "../../test-support/partial-fake";
 import { setSkillCommands } from "./constants";
 import { handleSpecialCommand } from "./handler";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
-import { partialFake, type PartialMembers } from "../../test-support/partial-fake";
 
 const agent: Agent = {
   id: "help-model-agent",

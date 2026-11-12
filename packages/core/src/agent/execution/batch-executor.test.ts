@@ -4,7 +4,6 @@ import { TestClock } from "effect/testing";
 import { OneShotPresentationService } from "@/core/presentation/oneshot-presentation-service";
 import { SkillServiceTag } from "@/core/skills/skill-service";
 import { partialFake } from "@/core/test-support/fakes";
-import { executeWithoutStreaming } from "./batch-executor";
 import { DEFAULT_MAX_ITERATIONS, LLM_TIMEOUT_SECONDS } from "../../constants/agent";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
@@ -31,6 +30,7 @@ import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import { createSubagentSupervisor } from "../subagents/supervisor";
 import { DEFAULT_DISPLAY_CONFIG } from "../types";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
+import { executeWithoutStreaming } from "./batch-executor";
 
 const mockLogger = {
   debug: () => Effect.void,

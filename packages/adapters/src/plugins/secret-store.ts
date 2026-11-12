@@ -1,7 +1,6 @@
 /** Plugin-scoped secret lookup and deletion over Jazz's existing secret backends. */
 
 import { Effect } from "effect";
-import type { PluginSecretDeclaration } from "./manifest-schema";
 import {
   describeKeyringBackend,
   detectKeyringBackend,
@@ -10,6 +9,7 @@ import {
   keyringSet,
   type KeyringBackend,
 } from "../secrets/keyring";
+import type { PluginSecretDeclaration } from "./manifest-schema";
 
 export type PluginSecretSource = "environment" | "keyring" | "file" | "missing" | "unavailable";
 

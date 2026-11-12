@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "ink";
-import { ChoiceMeta, StepperLine } from "./PromptParts";
 import { initialChoiceIndex, toPickerChoices } from "../prompt-core/picker-adapter";
 import { stepperView } from "../prompt-core/stepper";
+import { ChoiceMeta, StepperLine } from "./PromptParts";
 
 const STEP = { labels: ["provider", "model", "reasoning", "persona", "name", "tools"], index: 1 };
 

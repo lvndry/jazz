@@ -1,12 +1,12 @@
 import type { ChatCompletionResponse } from "@jazz/core/types/chat";
 import { LLMRequestError } from "@jazz/core/types/errors";
 import { describe, expect, test } from "bun:test";
-import { AWAITING_LABELS, createAccumulator, reduceEvent } from "./activity-reducer";
-import type { ReducerAccumulator } from "./activity-reducer";
 import { contentFromOutput } from "../ui/document";
 import { getGlyphs } from "../ui/glyphs";
 import { receiptParts } from "../ui/models/receipt";
 import type { OutputEntry } from "../ui/types";
+import { AWAITING_LABELS, createAccumulator, reduceEvent } from "./activity-reducer";
+import type { ReducerAccumulator } from "./activity-reducer";
 
 /** Assertions inspect source facts; renderer parity is covered by receipt.test.tsx. */
 function receipt(entry: OutputEntry | undefined) {

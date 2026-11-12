@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect, Fiber, Layer } from "effect";
-import { createShellCommandTools, runShellCommand } from "./shell";
 import { SHELL_COMMAND_MAX_TIMEOUT_MS } from "../../constants/agent";
 import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
 import { terminateProcessGroup } from "../../utils/process";
+import { createShellCommandTools, runShellCommand } from "./shell";
 
 /**
  * A command killed at its cap has usually already produced the output somebody wanted. The

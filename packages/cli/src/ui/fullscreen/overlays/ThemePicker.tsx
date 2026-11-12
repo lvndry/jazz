@@ -19,14 +19,14 @@
 
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useEffect, useRef, type ReactNode } from "react";
-import { OVERLAY_Z_INDEX } from "./centered";
-import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
 import { getGlyphs } from "../../glyphs";
 import { clipTerminalCells, terminalCellWidth } from "../../text/terminal-cells";
 import { THEME } from "../../theme";
 import { themePickerVisibleRows } from "../theme-picker-keys";
 import { useThemeRevision } from "../theme-revision";
 import type { ThemePickerModel, Viewport } from "../types";
+import { OVERLAY_Z_INDEX } from "./centered";
+import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
 
 /** The title row and the blank row under it. */
 const TITLE_ROWS = 2;

@@ -65,9 +65,9 @@ import {
 import { getModelsDevProviderModels } from "@/core/utils/models-dev";
 import { resolveCompanionBinding, type CompanionTarget } from "@/core/utils/named-companions";
 import { agentModelString, parseProviderModel } from "@/core/utils/provider-model";
-import { defineTool, makeZodValidator, type ToolValidatorResult } from "./base-tool";
 import { AgentRunner } from "../agent-runner";
 import type { AgentResponse } from "../types";
+import { defineTool, makeZodValidator, type ToolValidatorResult } from "./base-tool";
 import { childRunAuthority } from "./child-run-authority";
 
 /** Companion execution timeout: matches spawn_subagent. */

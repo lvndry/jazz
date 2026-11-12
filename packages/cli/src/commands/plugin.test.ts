@@ -12,8 +12,8 @@ import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { beforeAll, afterAll, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { pluginEnableCommand, pluginTrustCommand } from "./plugin";
 import { partialFake } from "../test-support/partial-fake";
+import { pluginEnableCommand, pluginTrustCommand } from "./plugin";
 const headlessTerminal = partialFake<TerminalService>({
   isInteractive: false,
   confirm: () => Effect.succeed(true),

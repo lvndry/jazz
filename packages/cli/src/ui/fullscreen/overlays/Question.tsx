@@ -32,6 +32,14 @@
 import type { ChoicePreviewLine } from "@jazz/core/interfaces/terminal";
 import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
+import { getGlyphs } from "../../glyphs";
+import { CUSTOM_ANSWER_LABEL, questionKeys, questionPositionLabel } from "../../models/question";
+import { REMOVAL_HINT } from "../../prompt-core/choice-removal";
+import { alignTabColumns } from "../../prompt-core/description-columns";
+import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../text/picker-window";
+import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../../text/terminal-cells";
+import { THEME } from "../../theme";
+import type { Viewport } from "../types";
 import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
 import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
 import { stepperSegments, type QuestionStep } from "./stepper";
@@ -42,14 +50,6 @@ import {
   wrappedCaretRowCount,
   type Hint,
 } from "./TextPrompt";
-import { getGlyphs } from "../../glyphs";
-import { CUSTOM_ANSWER_LABEL, questionKeys, questionPositionLabel } from "../../models/question";
-import { REMOVAL_HINT } from "../../prompt-core/choice-removal";
-import { alignTabColumns } from "../../prompt-core/description-columns";
-import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../text/picker-window";
-import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../../text/terminal-cells";
-import { THEME } from "../../theme";
-import type { Viewport } from "../types";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
 

@@ -37,6 +37,9 @@ import { getHistoryDirectory } from "@jazz/core/utils/paths";
 import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import { withLock } from "@jazz/core/utils/storage";
 import { Effect, FileSystem, Option } from "effect";
+import { FileGoalStore } from "../storage/goal-store";
+import { FileLoopStore } from "../storage/loop-store";
+import { FileRunStore } from "../storage/run-store";
 import {
   agentConversationLockPath,
   archiveConversationLog,
@@ -55,9 +58,6 @@ import {
   type ConversationSummary,
   type ConversationToSave,
 } from "./conversation-log";
-import { FileGoalStore } from "../storage/goal-store";
-import { FileLoopStore } from "../storage/loop-store";
-import { FileRunStore } from "../storage/run-store";
 
 export type {
   Conversation,

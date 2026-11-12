@@ -1,8 +1,8 @@
 import type { Agent } from "@jazz/core/types/index";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { showAgentList } from "./wizard";
 import { store } from "../ui/store";
+import { showAgentList } from "./wizard";
 
 function agent(partial: {
   readonly id: string;

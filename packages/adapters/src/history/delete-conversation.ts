@@ -26,12 +26,6 @@ import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { withLock } from "@jazz/core/utils/storage";
 import { Effect, FileSystem } from "effect";
 import { forgetChatAttachment, heldByChatElsewhere } from "../chat-attachments";
-import { ConversationBusyError, withConversationTurn } from "./conversation-lease";
-import {
-  agentConversationLockPath,
-  archivedConversationLogPath,
-  deleteConversationLog,
-} from "./conversation-log";
 import {
   isCarriableBatch,
   JobQueueServiceImpl,
@@ -42,6 +36,12 @@ import { FileGoalStore } from "../storage/goal-store";
 import { FileLoopStore } from "../storage/loop-store";
 import { FileRunStore } from "../storage/run-store";
 import { WakeTriggerServiceImpl } from "../wake-trigger-service";
+import { ConversationBusyError, withConversationTurn } from "./conversation-lease";
+import {
+  agentConversationLockPath,
+  archivedConversationLogPath,
+  deleteConversationLog,
+} from "./conversation-log";
 
 /** A conversation that cannot be deleted right now; the message says why, for a person. */
 export class ConversationInUseError extends Error {

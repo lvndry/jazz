@@ -7,8 +7,8 @@
 import { stripAnsiCodes, terminalHyperlinksToMarkdown } from "@/cli/utils/string-utils";
 import { getGlyphs } from "../glyphs";
 import { subagentElapsedMs, type SubagentRun, type SubagentStatus } from "../subagent-runs";
-import type { Block, SubagentListItem } from "./types";
 import { formatElapsed } from "../text/format";
+import type { Block, SubagentListItem } from "./types";
 
 const STATUS_WORDS: Readonly<Record<SubagentStatus, string>> = {
   running: "running",

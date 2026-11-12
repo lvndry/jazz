@@ -4,9 +4,9 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import type { Agent } from "@jazz/core/types/agent";
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer } from "effect";
+import { partialFake } from "../../test-support/partial-fake";
 import { handleSpecialCommand } from "./handler";
 import type { CommandContext, CommandResult } from "./types";
-import { partialFake } from "../../test-support/partial-fake";
 
 const agent = partialFake<Agent>({
   id: "a",

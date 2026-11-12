@@ -12,8 +12,8 @@ import type { ProviderName } from "@jazz/core/constants/models";
 import { generateText, jsonSchema, tool, type ModelMessage, type ToolSet } from "ai";
 import { describe, expect, it } from "bun:test";
 import { z } from "zod";
-import { applyToolsCacheBreakpoint, buildToolInputSchema, toCoreMessages } from "./ai-sdk-service";
 import { fakeFetch, partialFake } from "../test-support/fakes";
+import { applyToolsCacheBreakpoint, buildToolInputSchema, toCoreMessages } from "./ai-sdk-service";
 import fixture from "./fixtures/system-prompt-requests.json";
 
 const MAX_ANTHROPIC_CACHE_BREAKPOINTS = 4;

@@ -60,10 +60,6 @@ import {
 } from "@/core/utils/tool-result-formatter";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
 import type { UsageCostPricing } from "@/core/utils/usage-cost";
-import type { AgentLoopObserver } from "./agent-loop-observer";
-import { messageCarriesEgressTaint, recordEgressTaint } from "./egress-taint";
-import { stoppedToolCallResult, ToolBatchLedger } from "./tool-batch-ledger";
-import { ToolExecutor, type ToolCallOutcome } from "./tool-executor";
 import type { ReduceToolResultsFn } from "../context/advised-tool-clearing";
 import { logContextRung } from "../context/context-telemetry";
 import { resolveContextThresholds } from "../context/context-thresholds";
@@ -122,6 +118,10 @@ import { lifecycleEventForStreamEvent } from "../plugins/lifecycle-bridge";
 import type { CancelCause } from "../run/cancel-cause";
 import type { SubagentSupervisor } from "../subagents/supervisor";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
+import type { AgentLoopObserver } from "./agent-loop-observer";
+import { messageCarriesEgressTaint, recordEgressTaint } from "./egress-taint";
+import { stoppedToolCallResult, ToolBatchLedger } from "./tool-batch-ledger";
+import { ToolExecutor, type ToolCallOutcome } from "./tool-executor";
 
 /**
  * Returns an ephemeral budget pressure message at 50%/70%/90% iteration thresholds.

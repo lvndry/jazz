@@ -3,13 +3,13 @@
 import type { Renderable } from "@opentui/core";
 import { expect, it, spyOn } from "bun:test";
 import { useState } from "react";
+import { partialFake } from "../../test-support/partial-fake";
 import { App } from "./App";
 import * as clipboard from "./clipboard";
 import { sampleIdleView } from "./sample";
 import { renderForTest, updateForTest } from "./test-helpers";
 import { TranscriptSurfaceRenderable } from "./transcript-surface";
 import type { Block, ViewModel } from "./types";
-import { partialFake } from "../../test-support/partial-fake";
 
 const history: Block = {
   id: "history",

@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it, mock, setSystemTime } from "bun:test";
 import { Clock, Effect, Fiber, FileSystem, Layer, Queue, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { partialFake } from "@/core/test-support/fakes";
-import { executeWithStreaming } from "./streaming-executor";
-import { ToolExecutor } from "./tool-executor";
 import { DEFAULT_MAX_ITERATIONS, LLM_TIMEOUT_SECONDS } from "../../constants/agent";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
@@ -30,6 +28,8 @@ import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import { createRetryWasteTally, SUBSTANTIAL_STREAMED_CHARS } from "../metrics/failed-attempts";
 import { createSubagentSupervisor } from "../subagents/supervisor";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
+import { executeWithStreaming } from "./streaming-executor";
+import { ToolExecutor } from "./tool-executor";
 
 // Mocks
 const mockLogger = {

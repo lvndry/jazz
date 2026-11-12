@@ -52,7 +52,6 @@ import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { Cause, Effect, FileSystem, Layer } from "effect";
 import type { z } from "zod";
-import { createGoldenReplay, type GoldenReplay } from "./replay";
 import {
   EMPTY_CONVERSATION_REVISION,
   loadConversation,
@@ -62,6 +61,7 @@ import {
 import type { GoldenFixture } from "../../llm/golden/fixture";
 import { InMemoryRunStore } from "../../storage/run-store";
 import { partialFake } from "../fakes";
+import { createGoldenReplay, type GoldenReplay } from "./replay";
 
 export const GOLDEN_PROVIDER = "openai";
 export const GOLDEN_MODEL = "gpt-4";

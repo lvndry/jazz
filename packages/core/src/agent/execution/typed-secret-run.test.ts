@@ -4,7 +4,6 @@ import { z } from "zod";
 import { closeUserSecretStore, openUserSecretStore } from "@/core/secrets/user-secrets";
 import { SkillServiceTag } from "@/core/skills/skill-service";
 import { partialFake } from "@/core/test-support/fakes";
-import { executeWithoutStreaming } from "./batch-executor";
 import { DEFAULT_MAX_ITERATIONS } from "../../constants/agent";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
@@ -25,6 +24,7 @@ import { createToolRegistryLayer } from "../tools/tool-registry";
 import { userInteractionTools } from "../tools/user-interaction";
 import { DEFAULT_DISPLAY_CONFIG } from "../types";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
+import { executeWithoutStreaming } from "./batch-executor";
 
 const SECRET = "hunter2-but-longer";
 const logged: string[] = [];

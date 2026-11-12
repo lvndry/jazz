@@ -1,9 +1,9 @@
 /** Proves the incremental fullscreen projection matches projecting the whole document. */
 import { describe, expect, it } from "bun:test";
-import { createFullscreenTranscript, transcriptBlocks } from "./transcript-projection";
-import type { Block } from "./types";
 import { outputFromEntry, projectDocumentEntries } from "../document";
 import { UIStore, type PresentationSnapshot } from "../store";
+import { createFullscreenTranscript, transcriptBlocks } from "./transcript-projection";
+import type { Block } from "./types";
 
 /** Every block of the document, projected from scratch the way the bridge used to. */
 function wholeDocumentBlocks(presentation: PresentationSnapshot): readonly Block[] {

@@ -1,10 +1,10 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Effect } from "effect";
+import { createDefaultKeyInfo } from "../input/escape-state-machine";
+import type { KeyInfo } from "../input/escape-state-machine";
 import { createInputService } from "./input-service";
 import { InputResults } from "./input-service";
 import type { TerminalCapabilities } from "./terminal-service";
-import { createDefaultKeyInfo } from "../input/escape-state-machine";
-import type { KeyInfo } from "../input/escape-state-machine";
 
 // ============================================================================
 // Test Utilities

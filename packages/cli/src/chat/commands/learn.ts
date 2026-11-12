@@ -24,12 +24,12 @@ import {
 import { suggestionDestinationPath } from "@jazz/core/memory/suggestion-destination";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
-import type { CommandContext, CommandResult } from "./types";
 import {
   reviewMemorySuggestions,
   suggestionHeadline,
   suggestionKindTag,
 } from "../../memory-review";
+import type { CommandContext, CommandResult } from "./types";
 
 /** Every memory entry's first line and content hash, to diff against when `/learn` runs. */
 export function snapshotMemoryState() {

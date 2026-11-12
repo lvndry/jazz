@@ -28,13 +28,13 @@ import os from "node:os";
 import path from "node:path";
 import type { Browser, CDPSession, Frame, HTTPRequest, Page } from "puppeteer-core";
 import type { PageFlagId, PageStructuralSignals } from "@/core/types/plugin";
+import { describeMissingBrowser } from "../chromium-default";
 import type { EgressPolicy } from "../guarded-fetch";
 import { RunScopedResource } from "../run-scoped-resource";
+import { loadPuppeteer } from "./load-puppeteer";
 import { readPageSignals } from "./page-signals";
 import { stripSingletonLocks } from "./real-profile";
 import { decideBrowserRequest } from "./request-guard";
-import { describeMissingBrowser } from "../chromium-default";
-import { loadPuppeteer } from "./load-puppeteer";
 import { buildSnapshot, type PageSnapshot } from "./snapshot";
 import {
   DEFAULT_TAB_NAME,

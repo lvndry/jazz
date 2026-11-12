@@ -2,9 +2,9 @@ import { Effect } from "effect";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
-import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./token-counter";
 import { carryEgressTaint } from "../execution/egress-taint";
 import { carryUnlockedToolNames } from "../tools/unlocked-tools";
+import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./token-counter";
 
 /**
  * The compaction ladder's thresholds and `ContextWindowManager`, which decides

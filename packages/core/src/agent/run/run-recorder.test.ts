@@ -6,10 +6,10 @@ import { RunStoreTag } from "@/core/interfaces/run-store";
 import { partialFake } from "@/core/test-support/fakes";
 import { GenerationInterruptedError } from "@/core/types/errors";
 import type { OccupancyEntry } from "@/core/types/occupancy";
-import { ToolActivityTracker } from "./tool-activity";
 import type { AgentResponse } from "../types";
 import { RunParkRequested } from "./park-signal";
 import { withRunRecording, type RunRecordingInput } from "./run-recorder";
+import { ToolActivityTracker } from "./tool-activity";
 
 const RUN_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 

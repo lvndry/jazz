@@ -24,8 +24,8 @@ import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
 import { separatorLine } from "@/cli/utils/string-utils";
-import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { CHALK_THEME } from "../ui/theme";
+import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 
 /**
  * CLI implementation of PresentationService
