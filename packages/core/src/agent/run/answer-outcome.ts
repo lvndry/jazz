@@ -157,7 +157,10 @@ export function judgeAnswer(response: JudgedResponse): AnswerVerdict {
     return {
       kind: "failed",
       code: "no_answer",
-      message: `The model stopped without answering (finish reason: ${finishReason}).`,
+      message:
+        finishReason === "length"
+          ? "The model reached its output token limit before producing an answer."
+          : `The model stopped without answering (finish reason: ${finishReason}).`,
     };
   }
   if (!hasAnswer && response.emptyCompletion === true) {

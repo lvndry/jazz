@@ -17,12 +17,20 @@ describe("judgeAnswer", () => {
   });
 
   it("fails a non-stop finish with no content", () => {
-    for (const finishReason of ["length", "other", "unknown", "error", "tool-calls"] as const) {
+    for (const finishReason of ["other", "unknown", "error", "tool-calls"] as const) {
       const verdict = judgeAnswer({ content: "  ", finishReason });
 
       expect(verdict.kind === "failed" && verdict.code).toBe("no_answer");
       expect(verdict.kind === "failed" && verdict.message).toContain(finishReason);
     }
+  });
+
+  it("explains a length finish with no answer", () => {
+    expect(judgeAnswer({ content: "  ", finishReason: "length" })).toEqual({
+      kind: "failed",
+      code: "no_answer",
+      message: "The model reached its output token limit before producing an answer.",
+    });
   });
 
   it("fails a content-filtered answer even when some text came through", () => {
