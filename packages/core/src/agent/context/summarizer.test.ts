@@ -1,3 +1,8 @@
+/**
+ * Exercise transcript splitting, checkpoint merging and summarizer configuration with
+ * injected runners. No inference is performed; failure cases must preserve the original
+ * conversation and policy settings while keeping tool call/result pairs valid.
+ */
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { invalidInput, partialFake } from "@/core/test-support/fakes";
@@ -232,6 +237,41 @@ describe("Summarizer", () => {
   });
 
   describe("summarizeHistory model selection", () => {
+    it.each([undefined, "anthropic/claude-3-5-haiku-latest"])(
+      "preserves configured reasoning for summaries (summarizerModel: %s)",
+      async (summarizerModel) => {
+        let capturedAgent: Agent | undefined;
+        const agent = createMockAgent({
+          config: {
+            llm: {
+              provider: "openai",
+              model: "gpt-4",
+              reasoning: "high",
+              ...(summarizerModel === undefined ? {} : { summarizerModel }),
+            },
+            persona: "default",
+            tools: [],
+          },
+        });
+        const runner: RecursiveRunner = (options) => {
+          capturedAgent = options.agent;
+          return Effect.succeed({ content: "summary", conversationId: "conv-1" });
+        };
+
+        await Effect.runPromise(
+          Summarizer.summarizeHistory(
+            [{ role: "user", content: "Preserve the unresolved approval." }],
+            agent,
+            "conv-1",
+            runner,
+          ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<ChatMessage, Error, never>,
+        );
+
+        expect(capturedAgent?.config.llm.reasoning).toBe("high");
+        expect(agent.config.llm.reasoning).toBe("high");
+      },
+    );
+
     it("builds the summarizer agent with the configured summarizer model", async () => {
       let capturedAgent: Agent | undefined;
       const mockRunner: RecursiveRunner = (options) => {

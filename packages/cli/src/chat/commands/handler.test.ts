@@ -57,7 +57,8 @@ import { GenerationInterruptedError, LLMRequestError } from "@jazz/core/types/er
 import type { ChatMessage, ConversationMessages } from "@jazz/core/types/message";
 import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
 import { describe, test, expect, afterAll, beforeEach, afterEach, mock, spyOn } from "bun:test";
-import { Effect, type FileSystem, Layer } from "effect";
+import { Clock, Deferred, Effect, Fiber, type FileSystem, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import * as chatSession from "@/cli/chat/session";
 import { ChatServiceImpl } from "@/cli/chat-service";
 import * as agentCreation from "@/cli/commands/create-agent";
@@ -132,13 +133,16 @@ function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
 }
 
 /** Minimal presentation layer: /compact drives a live region, so the handler needs one. */
-function mockPresentationLayer(): Layer.Layer<PresentationService> {
+function mockPresentationLayer(
+  overrides: Partial<PresentationService> = {},
+): Layer.Layer<PresentationService> {
   return Layer.succeed(
     PresentationServiceTag,
     partialFake<PresentationService>({
       openEphemeralRegion: () => Effect.succeed("region-test"),
       appendEphemeralRegion: () => Effect.void,
       collapseEphemeralRegion: () => Effect.void,
+      ...overrides,
     }),
   );
 }
@@ -1251,7 +1255,10 @@ describe("handleSpecialCommand /compact", () => {
     sessionStartedAt: new Date(),
   };
 
-  function runCompact(terminal: PartialMembers<TerminalService> = {}): Promise<CommandResult> {
+  function compactCommand(
+    terminal: PartialMembers<TerminalService> = {},
+    presentation: Partial<PresentationService> = {},
+  ): Effect.Effect<CommandResult, unknown, never> {
     const mockTerminal: PartialMembers<TerminalService> = {
       info: mock(() => Effect.void),
       success: mock(() => Effect.void),
@@ -1264,12 +1271,67 @@ describe("handleSpecialCommand /compact", () => {
       TerminalServiceTag,
       partialFake<TerminalService>(mockTerminal),
     );
-    return Effect.runPromise(
-      handleSpecialCommand({ type: "compact", args: [] }, context).pipe(
-        Effect.provide(Layer.mergeAll(terminalLayer, mockPresentationLayer())),
-      ) as Effect.Effect<CommandResult, unknown, never>,
-    );
+    return handleSpecialCommand({ type: "compact", args: [] }, context).pipe(
+      Effect.provide(Layer.mergeAll(terminalLayer, mockPresentationLayer(presentation))),
+    ) as Effect.Effect<CommandResult, unknown, never>;
   }
+
+  function runCompact(
+    terminal: PartialMembers<TerminalService> = {},
+    presentation: Partial<PresentationService> = {},
+  ): Promise<CommandResult> {
+    return Effect.runPromise(compactCommand(terminal, presentation));
+  }
+
+  test("animates the compaction spinner and keeps the current phase across refreshes", async () => {
+    const frames: string[] = [];
+    const summarizing = Deferred.makeUnsafe<void>();
+    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
+      (_history, _agent, _conversationId, _window, onPhase) =>
+        Effect.gen(function* () {
+          if (onPhase) {
+            yield* onPhase({ phase: "summarize-start", messageCount: 4 });
+          }
+          yield* Deferred.succeed(summarizing, undefined);
+          yield* Effect.sleep(450);
+          return undefined;
+        }),
+    );
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const clock = yield* Clock.Clock;
+          const now = spyOn(Date, "now").mockImplementation(() => clock.currentTimeMillisUnsafe());
+          try {
+            const command = yield* compactCommand(
+              {},
+              {
+                replaceEphemeralRegion: (_regionId, text) =>
+                  Effect.sync(() => {
+                    frames.push(text);
+                  }),
+              },
+            ).pipe(Effect.forkChild);
+            yield* Deferred.await(summarizing);
+            yield* TestClock.adjust(450);
+            yield* Fiber.join(command);
+          } finally {
+            now.mockRestore();
+          }
+        }).pipe(Effect.provide(TestClock.layer())),
+      );
+
+      expect(frames.length).toBeGreaterThanOrEqual(4);
+      for (const frame of frames.slice(1)) {
+        expect(frame).toContain("Summarizing 4 older messages…");
+        expect(frame).toEndWith("% context");
+      }
+      const marks = frames.map((frame) => frame.split("\n").at(-1)?.charAt(0));
+      expect(new Set(marks).size).toBeGreaterThan(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 
   test("replaces the history with the compacted one, recent messages included", async () => {
     const compacted: ConversationMessages = [

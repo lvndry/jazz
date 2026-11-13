@@ -252,19 +252,41 @@ compaction, while 20% of a 32K window is less than one large tool result. On win
 the warn rung. The newest message is always kept, even when it alone exceeds the budget.
 
 **The summarize call reuses the conversation's prefix when it can.** The summarizer sub-agent
-is the fallback. For automatic compaction, when the summarizer model equals the run's model,
-the provider is not `claude_code`, models.dev lists a cache-read price, and the whole history
+is the fallback. For automatic and manual compaction, when the summarizer model equals the run's model,
+the provider is not `claude_code`, a cache-read price or a positive observed cache hit is available, and the chosen history
 plus the tool schemas and checkpoint fit the window (`ALIGNED_SUMMARY_OUTPUT_RESERVE_RATIO`),
 `requestAlignedSummary` (`cache-aligned-summary.ts`) sends the run's own request options
 (`buildCompletionOptions`) with `toolChoice: "none"` over the unchanged history plus one final
 instruction message marked ephemeral so it preserves the current turn's reasoning during
 adapter conversion. The ledger's `peekCacheChange` must classify it `none` against the previous
-request, otherwise nothing would hit the cache and the stand-alone path (which chunks oversized
+request, or match a completed leading prefix of it, otherwise nothing would hit the cache and the stand-alone path (which chunks oversized
 transcripts) runs. A returned tool call, empty checkpoint or truncated checkpoint is discarded
 and falls back to the stand-alone summarizer. The summary's spend is side
-spend and its hit rate goes through `recordPromptCacheUsage`. `/compact`, `summarize_context`,
-overflow recovery and memory extraction have no previous request to share and always use the
-stand-alone path.
+spend and its hit rate goes through `recordPromptCacheUsage`.
+
+Manual `/compact` also supplies alignment after a turn in the same process. The cache ledger
+retains only the last offered schemas with its fingerprints, bounded to 64 conversations;
+it does not retain another transcript or the previous run's metrics. `compactHistory` creates
+fresh metrics and reuses those schemas. A local provider without published cache pricing can
+qualify through a positive cache hit already reported in this conversation. Both triggers
+can use `summaryRequestPrefix`: the older messages through outstanding tool results, but only
+at a boundary matching a previously completed request. The ledger retains at most 32 such
+checkpoint hashes per conversation, not their transcripts. Otherwise the full matching request
+is used. Hybrid backends may need saved recurrent-state checkpoints rather than an arbitrary
+text prefix; see [vLLM's hybrid cache rules](https://docs.vllm.ai/en/latest/features/automatic_prefix_caching/#hybrid-mamba-models).
+Remembering a completed request does not guarantee that the backend still retains it.
+The fingerprint
+guard permits a shorter leading prefix, never a changed header or an edit inside that prefix.
+The final instruction starts a new turn only when the removed tail contained the latest real
+user turn, preserving the adapter's original reasoning projection. Attachment histories cannot
+be shortened because it can change which attachments are inlined: manual compaction falls
+back to the standalone summarizer, while automatic compaction retains its existing full-history
+reuse checks. Neither the automatic threshold nor the configured reasoning level changes. Model, capacity and response
+checks still apply. A plugin pruning pass that rewrites results invalidates alignment. A cold process or
+evicted observation falls back to the standalone summarizer. Manual aligned calls emit their
+token usage because no active parent run will emit it. The agent's reasoning setting is
+preserved. `summarize_context`, overflow recovery and memory extraction still use the standalone
+path.
 
 The summary is a fixed checkpoint rather than free-form prose. Every compaction writes:
 

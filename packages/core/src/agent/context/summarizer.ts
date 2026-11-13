@@ -29,7 +29,12 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { UNTRUSTED_DATA_INSTRUCTION } from "@/core/utils/untrusted-content";
 import { messageCarriesEgressTaint } from "../execution/egress-taint";
-import { toolFingerprintInput } from "../metrics/prompt-cache";
+import {
+  fingerprintRequest,
+  isCompletedRequestPrefix,
+  lastCacheObservation,
+  toolFingerprintInput,
+} from "../metrics/prompt-cache";
 import { listUnlockedToolNames } from "../tools/unlocked-tools";
 import type { AgentResponse } from "../types";
 import type { AdvisedDecision, ReduceToolResultsFn } from "./advised-tool-clearing";
@@ -305,6 +310,57 @@ export function chunkForSummarizer(
 /** Build a token-counter hint from an agent's provider/model. */
 function modelHintFromAgent(agent: Agent): ModelHint {
   return { provider: agent.config.llm.provider, modelId: agent.config.llm.model };
+}
+
+/**
+ * The leading history needed for a checkpoint, ending after all tool results
+ * paired with its calls. Recent turns are already kept verbatim and need not enlarge
+ * the request or the generated checkpoint. Attachments disable trimming because their
+ * inline-age projection depends on the full history. The turn marker preserves the
+ * adapter's original current-turn reasoning projection at the shortened boundary.
+ */
+export function summaryRequestPrefix(
+  history: ConversationMessages,
+  messagesToSummarize: readonly ChatMessage[],
+): { readonly history: ConversationMessages; readonly startsNewTurn: boolean } | undefined {
+  if (history.some((message) => (message.attachments?.length ?? 0) > 0)) {
+    return undefined;
+  }
+  const last = messagesToSummarize.at(-1);
+  if (last === undefined) {
+    return undefined;
+  }
+  const target = history.lastIndexOf(last);
+  if (target < 1) {
+    return undefined;
+  }
+  let lastUser = -1;
+  for (let index = history.length - 1; index >= 0; index--) {
+    if (history[index]?.role === "user" && history[index]?.kind !== "ephemeral") {
+      lastUser = index;
+      break;
+    }
+  }
+  const prefix: ConversationMessages = [history[0]];
+  const pending = new Set<string>();
+  for (let index = 1; index < history.length; index++) {
+    const message = history[index];
+    if (!message) {
+      continue;
+    }
+    prefix.push(message);
+    if (message.role === "assistant") {
+      for (const call of message.tool_calls ?? []) {
+        pending.add(call.id);
+      }
+    } else if (message.role === "tool" && message.tool_call_id !== undefined) {
+      pending.delete(message.tool_call_id);
+    }
+    if (index >= target && pending.size === 0) {
+      return { history: prefix, startsNewTurn: index < lastUser };
+    }
+  }
+  return undefined;
 }
 
 interface SummarizerModelConfig {
@@ -1121,26 +1177,45 @@ export const Summarizer = {
       const recordedState = formatWorkState(yield* readWorkState(agent.id, conversationId));
 
       if (cacheAligned !== undefined) {
+        const summaryPrefix = summaryRequestPrefix(cacheAligned.history, messagesToSummarize);
         const hint = modelHintFromAgent(agent);
         const toolSchemas = cacheAligned.alignment.tools.map(toolFingerprintInput);
+        const usePrefix =
+          summaryPrefix !== undefined &&
+          isCompletedRequestPrefix(
+            cacheAligned.alignment.cacheScope.conversationKey,
+            fingerprintRequest({
+              provider: cacheAligned.alignment.cacheScope.provider,
+              model: cacheAligned.alignment.cacheScope.model,
+              tools: toolSchemas,
+              messages: summaryPrefix.history,
+            }),
+          );
+        const summaryHistory = usePrefix ? summaryPrefix.history : cacheAligned.history;
         const requestTokens =
           DEFAULT_TOKEN_COUNTER.countText(JSON.stringify(toolSchemas), hint) +
-          DEFAULT_TOKEN_COUNTER.countMessages(cacheAligned.history, hint) +
+          DEFAULT_TOKEN_COUNTER.countMessages(summaryHistory, hint) +
           DEFAULT_TOKEN_COUNTER.overheadFor(hint);
         const instruction = alignedSummaryInstruction({
           hasPriorSummary: priorSummary !== undefined,
-          keptVerbatimCount: cacheAligned.keptVerbatimCount,
+          keptVerbatimCount: usePrefix ? 0 : cacheAligned.keptVerbatimCount,
           recordedState,
         });
-        const blocker = toolSchemas.some((tool) => tool.schema === null)
-          ? "tool-schema-unavailable"
-          : alignedSummaryBlocker({
-              summarizerModel: summarizerModelConfig,
-              agent,
-              pricing: cacheAligned.alignment.pricing,
-              requestTokens: requestTokens + DEFAULT_TOKEN_COUNTER.countText(instruction, hint),
-              contextWindowTokens: cacheAligned.contextWindowTokens,
-            });
+        const blocker =
+          cacheAligned.alignment.trigger === "manual" && summaryPrefix === undefined
+            ? "summary-prefix-unavailable"
+            : toolSchemas.some((tool) => tool.schema === null)
+              ? "tool-schema-unavailable"
+              : alignedSummaryBlocker({
+                  summarizerModel: summarizerModelConfig,
+                  agent,
+                  pricing: cacheAligned.alignment.pricing,
+                  requestTokens: requestTokens + DEFAULT_TOKEN_COUNTER.countText(instruction, hint),
+                  contextWindowTokens: cacheAligned.contextWindowTokens,
+                  cacheReadObserved:
+                    (lastCacheObservation(cacheAligned.alignment.cacheScope.conversationKey)
+                      ?.hitRate ?? 0) > 0,
+                });
         if (blocker !== undefined) {
           yield* logger.debug("Compaction summary uses the stand-alone summarizer", {
             conversationId,
@@ -1150,8 +1225,9 @@ export const Summarizer = {
           const aligned = yield* requestAlignedSummary({
             alignment: cacheAligned.alignment,
             agent,
-            history: cacheAligned.history,
+            history: summaryHistory,
             instruction,
+            startsNewTurn: usePrefix ? summaryPrefix.startsNewTurn : false,
           });
           if (aligned.kind === "summary") {
             const accepted = yield* acceptSummary(aligned).pipe(Effect.result);

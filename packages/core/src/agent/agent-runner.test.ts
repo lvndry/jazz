@@ -39,7 +39,9 @@ import { ToolRegistryTag, type Tool, type ToolRequirements } from "../interfaces
 import type { SkillService } from "../skills/skill-service";
 import { SkillServiceTag } from "../skills/skill-service";
 import type { Agent } from "../types/agent";
-import type { ChatMessage } from "../types/message";
+import type { ChatCompletionOptions } from "../types/chat";
+import type { ChatMessage, ConversationMessages } from "../types/message";
+import type { ToolDefinition } from "../types/tools";
 import {
   AgentRunner,
   createNestedRunExecutor,
@@ -53,6 +55,8 @@ import {
 } from "./agent-runner";
 import { createEgressTaint } from "./execution/egress-taint";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
+import { promptCacheKey, recordCacheUsage, resetCacheLedger } from "./metrics/prompt-cache";
+import { observePromptCache } from "./metrics/prompt-cache-observer";
 import { createSubagentSupervisor } from "./subagents/supervisor";
 import { createSearchToolsTool } from "./tools/search-tools";
 import { createSubagentTools } from "./tools/subagent";
@@ -546,6 +550,192 @@ describe("AgentRunner", () => {
     userInput: "Hello, how can you help me?",
     conversationId: "test-session-123",
   };
+
+  describe("manual compaction cache reuse", () => {
+    const history: ConversationMessages = [
+      { role: "system", content: "The conversation's original system prompt." },
+      ...Array.from({ length: 24 }, (_, index): ChatMessage => ({
+        role: "user",
+        content: `Exchange ${index}: ` + "detail ".repeat(300),
+      })),
+    ];
+    const tools: ToolDefinition[] = [
+      {
+        type: "function",
+        function: {
+          name: "read_file",
+          description: "Read a file",
+          parameters: z.object({ path: z.string() }),
+        },
+      },
+    ];
+
+    it("reuses the real preceding turn's request when compacting its returned history", async () => {
+      resetCacheLedger();
+      const toolRegistry: ToolRegistry = {
+        ...mockToolRegistry,
+        getToolDefinitions: () => Effect.succeed([]),
+        getToolDefinitionsFor: () => Effect.succeed([]),
+      };
+      const agent: Agent = {
+        ...mockAgent,
+        config: {
+          ...mockAgent.config,
+          tools: [],
+          llm: { provider: "openai", model: "gpt-4o", reasoning: "high" },
+        },
+      };
+      const requests: ChatCompletionOptions[] = [];
+      const llm: LLMService = {
+        ...mockLlmService,
+        createChatCompletion: (_provider, request) => {
+          requests.push(request);
+          return Effect.succeed({
+            id: `request-${requests.length}`,
+            model: "gpt-4o",
+            content: requests.length === 1 ? "Turn completed" : "Cached checkpoint",
+            finishReason: "stop",
+            usage: {
+              promptTokens: 5000,
+              completionTokens: 100,
+              totalTokens: 5100,
+              cacheReadTokens: 4500,
+            },
+          });
+        },
+      };
+      try {
+        const response = await runWithTestLayers(
+          AgentRunner.run({
+            agent,
+            conversationId: "manual-after-turn",
+            userInput: "Continue",
+            stream: false,
+            maxIterations: 1,
+            disablePersistence: true,
+            conversationHistory: [...history, ...history.slice(1)],
+          }),
+          { llm, toolRegistry },
+        );
+        const first = response.messages?.[0];
+        if (!first || !response.messages) {
+          throw new Error("Turn did not return its history");
+        }
+        const current: ConversationMessages = [first, ...response.messages.slice(1)];
+        const outcome = await runWithTestLayers(
+          AgentRunner.compactHistory(current, agent, "manual-after-turn", 32_000),
+          { llm, toolRegistry },
+        );
+        expect(outcome).toBeDefined();
+        expect(requests).toHaveLength(2);
+        expect(requests[1]?.messages[0]).toEqual(requests[0]?.messages[0]);
+        expect(requests[1]?.tools).toEqual(requests[0]?.tools);
+        expect(requests[1]?.toolChoice).toBe("none");
+        expect(requests[1]?.reasoning).toBe("high");
+      } finally {
+        resetCacheLedger();
+      }
+    });
+
+    it.each(["unchanged", "rewritten", "cold", "plugin"] as const)(
+      "selects the manual summary path without changing reasoning (%s)",
+      async (scenario) => {
+        resetCacheLedger();
+        const agent: Agent = {
+          ...mockAgent,
+          config: { ...mockAgent.config, llm: { ...mockAgent.config.llm, reasoning: "high" } },
+        };
+        const conversationId = "manual-compaction-cache";
+        const conversationKey = promptCacheKey(agent.id, conversationId);
+        await Effect.runPromise(
+          observePromptCache(
+            {
+              logger: mockLogger,
+              runMetrics: createAgentRunMetrics({ agent, conversationId }),
+              conversationKey,
+              provider: "openai",
+              model: "gpt-4",
+              emit: undefined,
+            },
+            tools,
+            history,
+          ),
+        );
+        recordCacheUsage(conversationKey, { promptTokens: 5000, cacheReadTokens: 4500 });
+        if (scenario === "cold") {
+          resetCacheLedger();
+        }
+        const requests: ChatCompletionOptions[] = [];
+        const llm: LLMService = {
+          ...mockLlmService,
+          createChatCompletion: (_provider, request) => {
+            requests.push(request);
+            return Effect.succeed({
+              id: "cached-summary",
+              model: "gpt-4",
+              content: "Cached checkpoint",
+              finishReason: "stop",
+              usage: {
+                promptTokens: 5000,
+                completionTokens: 100,
+                totalTokens: 5100,
+                cacheReadTokens: 4500,
+              },
+            });
+          },
+        };
+        const fallback = spyOn(AgentRunner, "runRecursive").mockImplementation(() =>
+          Effect.succeed({ content: "Standalone checkpoint", conversationId }),
+        );
+        const closePlugin = mock(() => Effect.void);
+        const pluginRuntime = partialFake<PluginRuntimeService>({
+          openSession: () =>
+            Effect.succeed(
+              partialFake<PluginSession>({
+                runCompactTools: () => Effect.succeed({ status: "abstained", reason: "test" }),
+                describeHook: () => undefined,
+                close: closePlugin,
+              }),
+            ),
+          emitLifecycleEvent: () => Effect.void,
+        });
+        const current: ConversationMessages =
+          scenario === "rewritten"
+            ? [history[0], { role: "user", content: "rewritten" }, ...history.slice(2)]
+            : [...history];
+        try {
+          const outcome = await runWithTestLayers(
+            AgentRunner.compactHistory(current, agent, conversationId, 16_000),
+            { llm, ...(scenario === "plugin" ? { pluginRuntime } : {}) },
+          );
+          expect(outcome).toBeDefined();
+          if (scenario === "rewritten" || scenario === "cold") {
+            expect(requests).toHaveLength(0);
+            expect(fallback).toHaveBeenCalled();
+            expect(
+              outcome?.messages.some(
+                (message) =>
+                  message.kind === "summary" && message.content === "Standalone checkpoint",
+              ),
+            ).toBe(true);
+          } else {
+            expect(fallback).not.toHaveBeenCalled();
+            expect(requests).toHaveLength(1);
+            expect(requests[0]?.tools).toEqual(tools);
+            expect(requests[0]?.messages[0]).toEqual(history[0]);
+            expect(requests[0]?.toolChoice).toBe("none");
+            expect(requests[0]?.reasoning).toBe("high");
+          }
+          if (scenario === "plugin") {
+            expect(closePlugin).toHaveBeenCalledTimes(1);
+          }
+        } finally {
+          fallback.mockRestore();
+          resetCacheLedger();
+        }
+      },
+    );
+  });
 
   describe("runRecursive", () => {
     it("keeps compaction and extraction children in the active trace", async () => {

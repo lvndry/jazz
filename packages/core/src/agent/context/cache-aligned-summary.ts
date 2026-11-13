@@ -1,9 +1,14 @@
 /**
  * The compaction summary as one more request of the conversation: the run's own system prompt,
- * tool schemas and messages exactly as the previous request sent them, then one final user
+ * tool schemas and an unchanged leading history, then one final user
  * message asking for the checkpoint. The provider serves that prefix from the prompt cache the
  * previous request wrote, where a summarizer agent with its own persona and the transcript
  * pasted in as text shares no prefix with anything and is billed as fully uncached input.
+ * Both automatic and manual compaction can omit the recent tail
+ * at a completed earlier request boundary, ending at a complete tool group. Its turn marker preserves the
+ * reasoning projection of that prefix. Automatic compaction can still reuse full history
+ * when attachments or missing completed boundaries prevent shortening; manual attachment
+ * histories use the standalone fallback.
  *
  * Only a request that really does share the previous request's prefix is sent this way; every
  * other case returns a fallback and the caller runs the stand-alone summarizer instead.
@@ -21,13 +26,20 @@ import type { UsageCostPricing } from "@/core/utils/usage-cost";
 import { buildCompletionOptions } from "../execution/completion-request";
 import {
   createAgentRunMetrics,
+  emitLLMUsage,
   recordLLMUsage,
   recordFailedAttempt,
   recordSideSpend,
   runSpendReport,
   telemetryErrorCategory,
 } from "../metrics/agent-run-metrics";
-import { fingerprintRequest, peekCacheChange, toolFingerprintInput } from "../metrics/prompt-cache";
+import {
+  fingerprintRequest,
+  isCachedHistoryPrefix,
+  isCompletedRequestPrefix,
+  peekCacheChange,
+  toolFingerprintInput,
+} from "../metrics/prompt-cache";
 import {
   observePromptCache,
   recordPromptCacheUsage,
@@ -47,6 +59,7 @@ export const ALIGNED_SUMMARY_OUTPUT_RESERVE_RATIO = 0.1;
  * under (which also owns the run's metrics, so the summary's spend lands in them).
  */
 export interface CacheAlignedSummary {
+  readonly trigger: "automatic" | "manual";
   readonly tools: ToolDefinition[];
   readonly cacheScope: PromptCacheScope;
   readonly pricing: UsageCostPricing | undefined;
@@ -65,12 +78,14 @@ export interface AlignedSummaryRequest {
   readonly agent: Agent;
   readonly history: readonly ChatMessage[];
   readonly instruction: string;
+  /** Starts a new turn when the trimmed prefix excludes the original latest user turn. */
+  readonly startsNewTurn: boolean;
 }
 
 /**
  * Why a summary cannot be sent as a conversation request, or undefined when it can. Reuse needs
  * the provider's own model (a different summarizer model has a different cache), a provider that
- * prices cache reads (the catalog's signal that it caches prompts at all), a provider that runs
+ * prices cache reads or has reported a cache hit, a provider that runs
  * Jazz's tool loop itself rather than answering one request, and room in the window for the
  * whole history plus the checkpoint.
  */
@@ -80,6 +95,7 @@ export function alignedSummaryBlocker(input: {
   readonly pricing: UsageCostPricing | undefined;
   readonly requestTokens: number;
   readonly contextWindowTokens: number;
+  readonly cacheReadObserved?: boolean;
 }): string | undefined {
   const { summarizerModel, agent, pricing, requestTokens, contextWindowTokens } = input;
   const { provider, model } = agent.config.llm;
@@ -89,7 +105,7 @@ export function alignedSummaryBlocker(input: {
   if (provider === "claude_code") {
     return "provider-owns-tool-loop";
   }
-  if (pricing?.cacheReadPricePerMillion === undefined) {
+  if (pricing?.cacheReadPricePerMillion === undefined && input.cacheReadObserved !== true) {
     return "no-prompt-caching";
   }
   if (requestTokens > contextWindowTokens * (1 - ALIGNED_SUMMARY_OUTPUT_RESERVE_RATIO)) {
@@ -100,8 +116,8 @@ export function alignedSummaryBlocker(input: {
 
 /**
  * Send the summary as the conversation's next request. Returns a fallback, with the reason,
- * for anything that makes the stand-alone summarizer the better choice: a prefix that is not an
- * unchanged append of the previous request (it would not hit the cache, so it would be the same
+ * for anything that makes the stand-alone summarizer the better choice: a prefix that is neither
+ * an unchanged append nor a completed leading prefix of the previous request (it would not hit the cache, so it would be the same
  * uncached call with none of the stand-alone path's chunking), a failed request, or a model that
  * called a tool despite `toolChoice: "none"` (the call is discarded, never run).
  *
@@ -118,19 +134,27 @@ export function requestAlignedSummary(
     const { cacheScope, tools, pricing } = alignment;
     const messages: ChatMessage[] = [
       ...history,
-      { role: "user", content: instruction, kind: "ephemeral" },
+      {
+        role: "user",
+        content: instruction,
+        ...(request.startsNewTurn ? {} : { kind: "ephemeral" as const }),
+      },
     ];
 
-    const change = peekCacheChange(
-      cacheScope.conversationKey,
-      fingerprintRequest({
-        provider: cacheScope.provider,
-        model: cacheScope.model,
-        tools: tools.map(toolFingerprintInput),
-        messages,
-      }),
-    );
-    if (change.reason !== "none") {
+    const fingerprint = fingerprintRequest({
+      provider: cacheScope.provider,
+      model: cacheScope.model,
+      tools: tools.map(toolFingerprintInput),
+      messages: history,
+    });
+    const change = peekCacheChange(cacheScope.conversationKey, fingerprint);
+    if (
+      change.reason !== "none" &&
+      !(
+        isCachedHistoryPrefix(cacheScope.conversationKey, fingerprint) &&
+        isCompletedRequestPrefix(cacheScope.conversationKey, fingerprint)
+      )
+    ) {
       yield* logger.debug("Compaction summary cannot reuse the conversation prefix", {
         conversationId: cacheScope.runMetrics.conversationId,
         reason: change.reason,
@@ -186,6 +210,16 @@ export function requestAlignedSummary(
     if (completion.usage !== undefined) {
       recordLLMUsage(summaryMetrics, completion.usage);
       yield* recordPromptCacheUsage(summaryCacheScope, completion.usage);
+      if (alignment.trigger === "manual") {
+        yield* emitLLMUsage(cacheScope.runMetrics, completion.usage, Date.now() - startedAt);
+        yield* logger.info("Compaction summary token usage", {
+          agentId: agent.id,
+          conversationId: cacheScope.runMetrics.conversationId,
+          provider: cacheScope.provider,
+          model: cacheScope.model,
+          ...completion.usage,
+        });
+      }
     } else {
       summaryMetrics.usageMissing = true;
     }

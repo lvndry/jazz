@@ -7,6 +7,8 @@
  * byte-identical to the last request; it does not prove the provider still held that prefix
  * (Anthropic expires cached prefixes after 5 minutes idle, so a slow human turn misses with a
  * perfect fingerprint). The provider's own cache-read count is the only evidence of a hit.
+ * The bounded in-memory ledger also retains the latest offered tool schemas so manual
+ * compaction can reconstruct that prefix without retaining a second transcript.
  */
 
 import { createHash } from "node:crypto";
@@ -38,6 +40,8 @@ export const LOW_CACHE_HIT_RATE = 0.5;
 
 /** Conversations whose last request is remembered; the oldest is dropped past this. */
 const MAX_TRACKED_CONVERSATIONS = 64;
+/** Completed request boundaries remembered per conversation, without their message lists. */
+const MAX_REQUEST_CHECKPOINTS = 32;
 
 export interface ToolFingerprintInput {
   readonly name: string;
@@ -356,6 +360,8 @@ export interface CacheObservation {
 interface LedgerEntry {
   fingerprint: RequestFingerprint;
   last: CacheObservation;
+  readonly tools: readonly ToolDefinition[] | undefined;
+  readonly checkpoints: Set<string>;
 }
 
 const ledger = new Map<string, LedgerEntry>();
@@ -369,13 +375,19 @@ export function promptCacheKey(agentId: string, conversationId: string): string 
  * Compare a request against the conversation's previous one and remember it. The change is
  * known before the response; `recordCacheUsage` attaches the hit rate once usage arrives.
  */
-export function observeRequest(conversationKey: string, current: RequestFingerprint): CacheChange {
+export function observeRequest(
+  conversationKey: string,
+  current: RequestFingerprint,
+  tools?: readonly ToolDefinition[],
+): CacheChange {
   const previous = ledger.get(conversationKey);
   const change = classifyCacheChange(previous?.fingerprint, current);
   ledger.delete(conversationKey);
   ledger.set(conversationKey, {
     fingerprint: current,
     last: { change, hitRate: undefined },
+    tools: tools === undefined ? undefined : [...tools],
+    checkpoints: previous?.checkpoints ?? new Set<string>(),
   });
   while (ledger.size > MAX_TRACKED_CONVERSATIONS) {
     const oldest = ledger.keys().next();
@@ -395,6 +407,43 @@ export function peekCacheChange(conversationKey: string, current: RequestFingerp
   return classifyCacheChange(ledger.get(conversationKey)?.fingerprint, current);
 }
 
+/** Whether a shorter request preserves the previous request's leading messages and headers. */
+export function isCachedHistoryPrefix(
+  conversationKey: string,
+  current: RequestFingerprint,
+): boolean {
+  const previous = ledger.get(conversationKey)?.fingerprint;
+  return (
+    previous !== undefined &&
+    previous.provider === current.provider &&
+    previous.model === current.model &&
+    previous.toolsHash === current.toolsHash &&
+    previous.systemHash === current.systemHash &&
+    current.messageHashes.length <= previous.messageHashes.length &&
+    current.messageHashes.every((hash, index) => hash === previous.messageHashes[index])
+  );
+}
+
+function checkpointKey(request: RequestFingerprint): string {
+  return digest(
+    JSON.stringify([
+      request.provider,
+      request.model,
+      request.toolsHash,
+      request.systemHash,
+      request.historyHash,
+    ]),
+  );
+}
+
+/** Whether a completed request used this exact prefix; backend retention remains best effort. */
+export function isCompletedRequestPrefix(
+  conversationKey: string,
+  current: RequestFingerprint,
+): boolean {
+  return ledger.get(conversationKey)?.checkpoints.has(checkpointKey(current)) === true;
+}
+
 export function recordCacheUsage(
   conversationKey: string,
   usage: CacheUsageInput,
@@ -403,6 +452,18 @@ export function recordCacheUsage(
   const hitRate = cacheHitRate(usage);
   if (entry !== undefined) {
     entry.last = { change: entry.last.change, hitRate };
+    if (usage.promptTokens > 0) {
+      const checkpoint = checkpointKey(entry.fingerprint);
+      entry.checkpoints.delete(checkpoint);
+      entry.checkpoints.add(checkpoint);
+      while (entry.checkpoints.size > MAX_REQUEST_CHECKPOINTS) {
+        const oldest = entry.checkpoints.values().next();
+        if (oldest.done === true) {
+          break;
+        }
+        entry.checkpoints.delete(oldest.value);
+      }
+    }
   }
   return hitRate;
 }
@@ -410,6 +471,11 @@ export function recordCacheUsage(
 /** The conversation's most recent request, for `/context`. Undefined before any request. */
 export function lastCacheObservation(conversationKey: string): CacheObservation | undefined {
   return ledger.get(conversationKey)?.last;
+}
+
+/** Last offered schemas for manual compaction; evicted with their hashes, without retaining history. */
+export function lastRequestTools(conversationKey: string): readonly ToolDefinition[] | undefined {
+  return ledger.get(conversationKey)?.tools;
 }
 
 export function resetCacheLedger(): void {

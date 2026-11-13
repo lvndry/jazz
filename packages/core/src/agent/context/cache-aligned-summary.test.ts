@@ -1,3 +1,8 @@
+/**
+ * Replay the loop's cache observations around compaction with a recording LLM service.
+ * Verify request-prefix reuse, summary-specific options, fallback behavior and accounting
+ * without contacting a provider or mutating the parent agent's settings.
+ */
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { z } from "zod";
@@ -22,12 +27,18 @@ import {
   fingerprintRequest,
   lastCacheObservation,
   promptCacheKey,
+  recordCacheUsage,
   resetCacheLedger,
   toolFingerprintInput,
 } from "../metrics/prompt-cache";
 import { observePromptCache } from "../metrics/prompt-cache-observer";
 import type { AgentResponse } from "../types";
-import { Summarizer, type CompactionOutcome, type RecursiveRunner } from "./summarizer";
+import {
+  Summarizer,
+  summaryRequestPrefix,
+  type CompactionOutcome,
+  type RecursiveRunner,
+} from "./summarizer";
 
 const PROVIDER = "openai" as const;
 const MODEL = "gpt-4";
@@ -120,11 +131,13 @@ interface Harness {
   readonly metrics: AgentRunMetrics;
   readonly conversationKey: string;
   readonly previousMessages: ConversationMessages;
+  readonly history: ConversationMessages;
   readonly tools: ToolDefinition[];
   compact(options: {
     readonly agent?: Agent;
     readonly pricing?: typeof PRICING | undefined;
     readonly respond?: () => Effect.Effect<ChatCompletionResponse, LLMRequestError>;
+    readonly trigger?: "automatic" | "manual";
   }): Promise<CompactionOutcome | undefined>;
 }
 
@@ -134,11 +147,13 @@ let harnessCounter = 0;
  * Plays the agent loop: sends a request through the cache observer, appends what the loop would
  * have appended, then compacts with the alignment the loop passes.
  */
-async function makeHarness(tools = makeTools()): Promise<Harness> {
+async function makeHarness(
+  tools = makeTools(),
+  previousMessages = makeConversation(),
+): Promise<Harness> {
   harnessCounter += 1;
   const conversationId = `aligned-conv-${String(harnessCounter)}`;
   const agent = makeAgent();
-  const previousMessages = makeConversation();
   const metrics = createAgentRunMetrics({
     agent,
     conversationId,
@@ -177,6 +192,7 @@ async function makeHarness(tools = makeTools()): Promise<Harness> {
     metrics,
     conversationKey,
     previousMessages,
+    history,
     tools,
     async compact(options) {
       const { agent: agentOverride, respond } = options;
@@ -219,7 +235,7 @@ async function makeHarness(tools = makeTools()): Promise<Harness> {
           undefined,
           undefined,
           undefined,
-          { tools, cacheScope: scope, pricing },
+          { trigger: options.trigger ?? "automatic", tools, cacheScope: scope, pricing },
         ).pipe(Effect.provide(layer)) as Effect.Effect<CompactionOutcome | undefined, Error, never>,
       );
     },
@@ -231,39 +247,61 @@ describe("cache-aligned compaction summary", () => {
     resetCacheLedger();
   });
 
-  it("sends the summary as an append to the previous request, with the same tools and system prompt", async () => {
-    const harness = await makeHarness();
+  it.each(["automatic", "manual"] as const)(
+    "preserves reasoning for %s compaction",
+    async (trigger) => {
+      const harness = await makeHarness();
+      const base = makeAgent();
+      const agent: Agent = {
+        ...base,
+        config: { ...base.config, llm: { ...base.config.llm, reasoning: "high" } },
+      };
 
-    const outcome = await harness.compact({});
+      await harness.compact({ agent, trigger });
 
-    expect(outcome?.messages.some((message) => message.content === SUMMARY_TEXT)).toBe(true);
-    expect(harness.runnerInputs).toHaveLength(0);
-    expect(harness.requests).toHaveLength(1);
-    const [request] = harness.requests;
-    expect(request?.toolChoice).toBe("none");
-    expect(request?.messages.at(-1)?.kind).toBe("ephemeral");
+      expect(harness.requests).toHaveLength(1);
+      expect(harness.requests[0]?.reasoning).toBe("high");
+      expect(agent.config.llm.reasoning).toBe("high");
+    },
+  );
 
-    const previous = fingerprintRequest({
-      provider: PROVIDER,
-      model: MODEL,
-      tools: harness.tools.map(toolFingerprintInput),
-      messages: harness.previousMessages,
-    });
-    const sent = fingerprintRequest({
-      provider: PROVIDER,
-      model: MODEL,
-      tools: (request?.tools ?? []).map(toolFingerprintInput),
-      messages: request?.messages ?? [],
-    });
-    expect(sent.toolsHash).toBe(previous.toolsHash);
-    expect(sent.systemHash).toBe(previous.systemHash);
-    expect(sent.messageHashes.slice(0, previous.messageHashes.length)).toEqual([
-      ...previous.messageHashes,
-    ]);
-    expect(sent.messageHashes.length).toBeGreaterThan(previous.messageHashes.length);
-    expect(classifyCacheChange(previous, sent).reason).toBe("none");
-    expect(lastCacheObservation(harness.conversationKey)?.change.reason).toBe("none");
-  });
+  it.each(["automatic", "manual"] as const)(
+    "keeps the full prefix without a completed shorter boundary for %s compaction",
+    async (trigger) => {
+      const harness = await makeHarness();
+
+      const outcome = await harness.compact({ trigger });
+
+      expect(outcome?.messages.some((message) => message.content === SUMMARY_TEXT)).toBe(true);
+      expect(harness.runnerInputs).toHaveLength(0);
+      expect(harness.requests).toHaveLength(1);
+      const [request] = harness.requests;
+      expect(request?.messages).toHaveLength(harness.history.length + 1);
+      expect(request?.toolChoice).toBe("none");
+      expect(request?.messages.at(-1)?.kind).toBe("ephemeral");
+
+      const previous = fingerprintRequest({
+        provider: PROVIDER,
+        model: MODEL,
+        tools: harness.tools.map(toolFingerprintInput),
+        messages: harness.previousMessages,
+      });
+      const sent = fingerprintRequest({
+        provider: PROVIDER,
+        model: MODEL,
+        tools: (request?.tools ?? []).map(toolFingerprintInput),
+        messages: request?.messages ?? [],
+      });
+      expect(sent.toolsHash).toBe(previous.toolsHash);
+      expect(sent.systemHash).toBe(previous.systemHash);
+      expect(sent.messageHashes.slice(0, previous.messageHashes.length)).toEqual([
+        ...previous.messageHashes,
+      ]);
+      expect(sent.messageHashes.length).toBeGreaterThan(previous.messageHashes.length);
+      expect(classifyCacheChange(previous, sent).reason).toBe("none");
+      expect(lastCacheObservation(harness.conversationKey)?.change.reason).toBe("none");
+    },
+  );
 
   it("computes the step's hit rate from the provider's cache figures like any request", async () => {
     const harness = await makeHarness();
@@ -325,39 +363,144 @@ describe("cache-aligned compaction summary", () => {
     );
   });
 
-  it("uses the stand-alone summarizer when the model has no cache-read price", async () => {
+  it.each(["automatic", "manual"] as const)(
+    "falls back without cache pricing or observed cache reads for %s compaction",
+    async (trigger) => {
+      const harness = await makeHarness();
+
+      await harness.compact({ pricing: undefined, trigger });
+
+      expect(harness.requests).toHaveLength(0);
+      expect(harness.runnerInputs).toHaveLength(1);
+    },
+  );
+
+  it.each(["automatic", "manual"] as const)(
+    "reuses an unpriced provider's prefix after observed cache reads for %s compaction",
+    async (trigger) => {
+      const harness = await makeHarness();
+      recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 4500 });
+
+      await harness.compact({ pricing: undefined, trigger });
+
+      expect(harness.requests).toHaveLength(1);
+      expect(harness.runnerInputs).toHaveLength(0);
+      expect(harness.metrics.sideCostUnknown).toBe(true);
+      expect(harness.requests[0]?.messages).toHaveLength(harness.history.length + 1);
+    },
+  );
+
+  it.each(["automatic", "manual"] as const)(
+    "shortens %s compaction at a completed boundary while retaining task, prior checkpoint and recent history",
+    async (trigger) => {
+      const previousMessages = makeConversation();
+      const task = {
+        role: "user",
+        kind: "task",
+        content: "Preserve the exact output format.",
+      } as const;
+      const checkpoint = {
+        role: "assistant",
+        kind: "summary",
+        content: "Earlier checkpoint.",
+      } as const;
+      previousMessages.splice(1, 0, task, checkpoint);
+      const harness = await makeHarness(makeTools(), previousMessages);
+      const split = Summarizer.splitMessages(harness.history, CONTEXT_WINDOW_TOKENS, {
+        provider: PROVIDER,
+        modelId: MODEL,
+      });
+      const prefix = summaryRequestPrefix(harness.history, split.messagesToSummarize);
+      if (!prefix) {
+        throw new Error("Missing prefix fixture");
+      }
+      const scope = {
+        logger,
+        runMetrics: harness.metrics,
+        conversationKey: harness.conversationKey,
+        provider: PROVIDER,
+        model: MODEL,
+        emit: undefined,
+      };
+      await Effect.runPromise(observePromptCache(scope, harness.tools, prefix.history));
+      recordCacheUsage(harness.conversationKey, { promptTokens: 1000 });
+      await Effect.runPromise(observePromptCache(scope, harness.tools, harness.previousMessages));
+      recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 4500 });
+
+      const outcome = await harness.compact({ trigger });
+
+      expect(harness.runnerInputs).toHaveLength(0);
+      expect(harness.requests).toHaveLength(1);
+      expect(harness.requests[0]?.messages.slice(0, -1)).toEqual(prefix.history);
+      expect(harness.requests[0]?.messages.length).toBeLessThan(harness.history.length);
+      expect(harness.requests[0]?.messages).toContainEqual(checkpoint);
+      expect(harness.requests[0]?.messages).toContainEqual(task);
+      expect(harness.requests[0]?.messages.at(-1)?.content).toContain("except the final 0");
+      expect(harness.requests[0]?.messages.at(-1)?.content).toContain("The prior checkpoint");
+      expect(outcome?.messages).toContainEqual(task);
+      expect(outcome?.messages.slice(-split.sanitizedRecentMessages.length)).toEqual(
+        split.sanitizedRecentMessages,
+      );
+    },
+  );
+
+  it.each(["automatic", "manual"] as const)(
+    "does not infer caching support from zero cache reads for %s compaction",
+    async (trigger) => {
+      const harness = await makeHarness();
+      recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 0 });
+
+      await harness.compact({ pricing: undefined, trigger });
+
+      expect(harness.requests).toHaveLength(0);
+      expect(harness.runnerInputs).toHaveLength(1);
+    },
+  );
+
+  it("keeps automatic compaction's full matching history when attachments prevent shortening", async () => {
     const harness = await makeHarness();
+    harness.history.push({
+      role: "user",
+      content: "Retained image",
+      attachments: [
+        { kind: "image", path: "/tmp/test.png", mediaType: "image/png", byteSize: 100 },
+      ],
+    });
 
-    await harness.compact({ pricing: undefined });
+    await harness.compact({ trigger: "automatic" });
 
-    expect(harness.requests).toHaveLength(0);
-    expect(harness.runnerInputs).toHaveLength(1);
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.requests[0]?.messages.slice(0, -1)).toEqual(harness.history);
+    expect(harness.runnerInputs).toHaveLength(0);
   });
 
-  it("uses the stand-alone summarizer when the history no longer matches the previous request", async () => {
-    const harness = await makeHarness();
-    const rewritten = [...harness.previousMessages];
-    rewritten[1] = { role: "user", content: "an earlier message that was rewritten" };
-    await Effect.runPromise(
-      observePromptCache(
-        {
-          logger,
-          runMetrics: harness.metrics,
-          conversationKey: harness.conversationKey,
-          provider: PROVIDER,
-          model: MODEL,
-          emit: undefined,
-        },
-        harness.tools,
-        rewritten,
-      ),
-    );
+  it.each(["automatic", "manual"] as const)(
+    "rejects rewritten history for %s compaction",
+    async (trigger) => {
+      const harness = await makeHarness();
+      const rewritten = [...harness.previousMessages];
+      rewritten[1] = { role: "user", content: "an earlier message that was rewritten" };
+      await Effect.runPromise(
+        observePromptCache(
+          {
+            logger,
+            runMetrics: harness.metrics,
+            conversationKey: harness.conversationKey,
+            provider: PROVIDER,
+            model: MODEL,
+            emit: undefined,
+          },
+          harness.tools,
+          rewritten,
+        ),
+      );
 
-    await harness.compact({});
+      await harness.compact({ trigger });
 
-    expect(harness.requests).toHaveLength(0);
-    expect(harness.runnerInputs).toHaveLength(1);
-  });
+      expect(harness.requests).toHaveLength(0);
+      expect(harness.runnerInputs).toHaveLength(1);
+    },
+  );
 
   it("discards a tool call the model makes anyway and falls back, still paying for the call", async () => {
     const harness = await makeHarness();

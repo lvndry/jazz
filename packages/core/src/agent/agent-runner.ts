@@ -77,6 +77,7 @@ import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { agentPromptBuilder, resolveUserInputAttachments } from "./agent-prompt";
 import { buildAdvisedReducer } from "./context/advised-tool-clearing";
+import type { CacheAlignedSummary } from "./context/cache-aligned-summary";
 import {
   Summarizer,
   type CompactionOutcome,
@@ -107,6 +108,7 @@ import {
   telemetryErrorCategory,
   type AgentRunMetrics,
 } from "./metrics/agent-run-metrics";
+import { lastRequestTools, promptCacheKey } from "./metrics/prompt-cache";
 import {
   discoverProjectInstructions,
   type ProjectInstructionDiscovery,
@@ -1535,6 +1537,8 @@ export class AgentRunner {
    * `undefined` when nothing is old enough to summarize.
    *
    * This is a public convenience method that delegates to the Summarizer module.
+   * The last request's in-memory tool schemas enable prefix reuse after an ordinary
+   * turn; a cold process, changed prefix or pruning pass uses the standalone summarizer.
    *
    * Memory extraction stays off here. Its gate is `!internal && !disablePersistence`,
    * and a caller outside a run — `/compact` in chat — holds neither flag, so it cannot
@@ -1567,6 +1571,34 @@ export class AgentRunner {
 
     return Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
+      const provider = agent.config.llm.provider;
+      const model = agent.config.llm.model;
+      const metrics = createAgentRunMetrics({ agent, conversationId, provider, model });
+      const conversationKey = promptCacheKey(agent.id, conversationId);
+      const tools = lastRequestTools(conversationKey);
+      const pricing =
+        tools === undefined
+          ? undefined
+          : yield* Effect.tryPromise({
+              try: () => getModelsDevMetadata(model, provider),
+              catch: () => undefined,
+            }).pipe(Effect.catch(() => Effect.succeed(undefined)));
+      const cacheAlignment: CacheAlignedSummary | undefined =
+        tools === undefined
+          ? undefined
+          : {
+              trigger: "manual",
+              tools: [...tools],
+              cacheScope: {
+                logger,
+                runMetrics: metrics,
+                conversationKey,
+                provider,
+                model,
+                emit: undefined,
+              },
+              pricing,
+            };
       // Manual /compact has no live agent loop, so it never hit the clear rung where a
       // compact.tools plugin normally prunes. Open a short-lived session here and run the same
       // lossless pre-pass before the summary, so /compact is plugin-driven exactly like a run.
@@ -1581,15 +1613,14 @@ export class AgentRunner {
           false,
           undefined,
           onPhase,
+          undefined,
+          cacheAlignment,
         );
       }
 
-      const provider = agent.config.llm.provider;
-      const model = agent.config.llm.model;
       const goal =
         lastUserMessageText(messages) ??
         "Continue the current task; keep tool results still relevant to it.";
-      const metrics = createAgentRunMetrics({ agent, conversationId, provider, model });
 
       return yield* Effect.scoped(
         Effect.gen(function* () {
@@ -1640,6 +1671,8 @@ export class AgentRunner {
             false,
             reduceToolResults,
             observedPhase,
+            undefined,
+            cacheAlignment,
           );
         }),
       );

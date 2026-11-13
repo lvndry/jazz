@@ -5,6 +5,6 @@
     "noEmit": true,
     "types": ["bun"]
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "../packages/adapters/src/sweep-assets.d.ts"],
   "exclude": ["node_modules", "dist", "report", "**/*.test.ts"]
 }
