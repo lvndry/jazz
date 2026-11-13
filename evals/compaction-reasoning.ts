@@ -13,7 +13,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { closeSync, fchmodSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import {
   parseConversationLog,
   reduceConversationLog,
@@ -29,6 +29,7 @@ import type { ChatCompletionOptions, ChatCompletionResponse } from "@jazz/core/t
 import { Duration, Effect } from "effect";
 import { createAppLayer } from "../packages/runtime/src/app-layer";
 import { readOption } from "./cli-options";
+import { saveReport } from "./compaction-report";
 
 interface Measurement {
   readonly sample: number;
@@ -37,17 +38,6 @@ interface Measurement {
   readonly usage: ChatCompletionResponse["usage"];
   readonly finishReason: ChatCompletionResponse["finishReason"];
   readonly summary: string;
-}
-
-/** Reports contain conversation text, including when overwriting an existing file. */
-function saveReport(outputPath: string, report: unknown): void {
-  const descriptor = openSync(outputPath, "w", 0o600);
-  try {
-    fchmodSync(descriptor, 0o600);
-    writeFileSync(descriptor, JSON.stringify(report, null, 2));
-  } finally {
-    closeSync(descriptor);
-  }
 }
 
 const historyPath = readOption("--history", "");

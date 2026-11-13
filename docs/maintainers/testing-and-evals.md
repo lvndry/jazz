@@ -139,6 +139,10 @@ the later run with `--baseline <report>`; the report then includes per-sample pa
 adversarial targets. Reports land in `evals/report/` (gitignored). Full flags and task-authoring guide:
 [`evals/README.md`](../../evals/README.md).
 
+The compaction reasoning comparison writes private reports containing conversation text.
+Its output destination must be a regular file: symlinks and special files are rejected.
+Existing regular reports are overwritten with owner-only permissions.
+
 ---
 
 ## If you change the harness
