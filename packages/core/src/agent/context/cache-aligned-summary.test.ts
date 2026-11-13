@@ -147,11 +147,13 @@ let harnessCounter = 0;
  * Plays the agent loop: sends a request through the cache observer, appends what the loop would
  * have appended, then compacts with the alignment the loop passes.
  */
-async function makeHarness(tools = makeTools()): Promise<Harness> {
+async function makeHarness(
+  tools = makeTools(),
+  previousMessages = makeConversation(),
+): Promise<Harness> {
   harnessCounter += 1;
   const conversationId = `aligned-conv-${String(harnessCounter)}`;
   const agent = makeAgent();
-  const previousMessages = makeConversation();
   const metrics = createAgentRunMetrics({
     agent,
     conversationId,
@@ -245,54 +247,61 @@ describe("cache-aligned compaction summary", () => {
     resetCacheLedger();
   });
 
-  it("preserves the conversation's reasoning setting for the summary", async () => {
-    const harness = await makeHarness();
-    const base = makeAgent();
-    const agent: Agent = {
-      ...base,
-      config: { ...base.config, llm: { ...base.config.llm, reasoning: "high" } },
-    };
+  it.each(["automatic", "manual"] as const)(
+    "preserves reasoning for %s compaction",
+    async (trigger) => {
+      const harness = await makeHarness();
+      const base = makeAgent();
+      const agent: Agent = {
+        ...base,
+        config: { ...base.config, llm: { ...base.config.llm, reasoning: "high" } },
+      };
 
-    await harness.compact({ agent });
+      await harness.compact({ agent, trigger });
 
-    expect(harness.requests).toHaveLength(1);
-    expect(harness.requests[0]?.reasoning).toBe("high");
-    expect(agent.config.llm.reasoning).toBe("high");
-  });
+      expect(harness.requests).toHaveLength(1);
+      expect(harness.requests[0]?.reasoning).toBe("high");
+      expect(agent.config.llm.reasoning).toBe("high");
+    },
+  );
 
-  it("sends the summary as an append to the previous request, with the same tools and system prompt", async () => {
-    const harness = await makeHarness();
+  it.each(["automatic", "manual"] as const)(
+    "keeps the full prefix without a completed shorter boundary for %s compaction",
+    async (trigger) => {
+      const harness = await makeHarness();
 
-    const outcome = await harness.compact({});
+      const outcome = await harness.compact({ trigger });
 
-    expect(outcome?.messages.some((message) => message.content === SUMMARY_TEXT)).toBe(true);
-    expect(harness.runnerInputs).toHaveLength(0);
-    expect(harness.requests).toHaveLength(1);
-    const [request] = harness.requests;
-    expect(request?.toolChoice).toBe("none");
-    expect(request?.messages.at(-1)?.kind).toBe("ephemeral");
+      expect(outcome?.messages.some((message) => message.content === SUMMARY_TEXT)).toBe(true);
+      expect(harness.runnerInputs).toHaveLength(0);
+      expect(harness.requests).toHaveLength(1);
+      const [request] = harness.requests;
+      expect(request?.messages).toHaveLength(harness.history.length + 1);
+      expect(request?.toolChoice).toBe("none");
+      expect(request?.messages.at(-1)?.kind).toBe("ephemeral");
 
-    const previous = fingerprintRequest({
-      provider: PROVIDER,
-      model: MODEL,
-      tools: harness.tools.map(toolFingerprintInput),
-      messages: harness.previousMessages,
-    });
-    const sent = fingerprintRequest({
-      provider: PROVIDER,
-      model: MODEL,
-      tools: (request?.tools ?? []).map(toolFingerprintInput),
-      messages: request?.messages ?? [],
-    });
-    expect(sent.toolsHash).toBe(previous.toolsHash);
-    expect(sent.systemHash).toBe(previous.systemHash);
-    expect(sent.messageHashes.slice(0, previous.messageHashes.length)).toEqual([
-      ...previous.messageHashes,
-    ]);
-    expect(sent.messageHashes.length).toBeGreaterThan(previous.messageHashes.length);
-    expect(classifyCacheChange(previous, sent).reason).toBe("none");
-    expect(lastCacheObservation(harness.conversationKey)?.change.reason).toBe("none");
-  });
+      const previous = fingerprintRequest({
+        provider: PROVIDER,
+        model: MODEL,
+        tools: harness.tools.map(toolFingerprintInput),
+        messages: harness.previousMessages,
+      });
+      const sent = fingerprintRequest({
+        provider: PROVIDER,
+        model: MODEL,
+        tools: (request?.tools ?? []).map(toolFingerprintInput),
+        messages: request?.messages ?? [],
+      });
+      expect(sent.toolsHash).toBe(previous.toolsHash);
+      expect(sent.systemHash).toBe(previous.systemHash);
+      expect(sent.messageHashes.slice(0, previous.messageHashes.length)).toEqual([
+        ...previous.messageHashes,
+      ]);
+      expect(sent.messageHashes.length).toBeGreaterThan(previous.messageHashes.length);
+      expect(classifyCacheChange(previous, sent).reason).toBe("none");
+      expect(lastCacheObservation(harness.conversationKey)?.change.reason).toBe("none");
+    },
+  );
 
   it("computes the step's hit rate from the provider's cache figures like any request", async () => {
     const harness = await makeHarness();
@@ -354,104 +363,144 @@ describe("cache-aligned compaction summary", () => {
     );
   });
 
-  it("uses the stand-alone summarizer when the model has no cache-read price", async () => {
-    const harness = await makeHarness();
+  it.each(["automatic", "manual"] as const)(
+    "falls back without cache pricing or observed cache reads for %s compaction",
+    async (trigger) => {
+      const harness = await makeHarness();
 
-    await harness.compact({ pricing: undefined });
+      await harness.compact({ pricing: undefined, trigger });
 
-    expect(harness.requests).toHaveLength(0);
-    expect(harness.runnerInputs).toHaveLength(1);
-  });
+      expect(harness.requests).toHaveLength(0);
+      expect(harness.runnerInputs).toHaveLength(1);
+    },
+  );
 
-  it("reuses an unpriced provider's prefix after it reports actual cache reads", async () => {
-    const harness = await makeHarness();
-    recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 4500 });
+  it.each(["automatic", "manual"] as const)(
+    "reuses an unpriced provider's prefix after observed cache reads for %s compaction",
+    async (trigger) => {
+      const harness = await makeHarness();
+      recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 4500 });
 
-    await harness.compact({ pricing: undefined, trigger: "manual" });
+      await harness.compact({ pricing: undefined, trigger });
 
-    expect(harness.requests).toHaveLength(1);
-    expect(harness.runnerInputs).toHaveLength(0);
-    expect(harness.metrics.sideCostUnknown).toBe(true);
-    expect(harness.requests[0]?.messages).toHaveLength(harness.history.length + 1);
-  });
+      expect(harness.requests).toHaveLength(1);
+      expect(harness.runnerInputs).toHaveLength(0);
+      expect(harness.metrics.sideCostUnknown).toBe(true);
+      expect(harness.requests[0]?.messages).toHaveLength(harness.history.length + 1);
+    },
+  );
 
-  it("shortens a manual request only to a completed earlier request boundary", async () => {
-    const harness = await makeHarness();
-    const prefix = summaryRequestPrefix(
-      harness.history,
-      Summarizer.splitMessages(harness.history, CONTEXT_WINDOW_TOKENS, {
+  it.each(["automatic", "manual"] as const)(
+    "shortens %s compaction at a completed boundary while retaining task, prior checkpoint and recent history",
+    async (trigger) => {
+      const previousMessages = makeConversation();
+      const task = {
+        role: "user",
+        kind: "task",
+        content: "Preserve the exact output format.",
+      } as const;
+      const checkpoint = {
+        role: "assistant",
+        kind: "summary",
+        content: "Earlier checkpoint.",
+      } as const;
+      previousMessages.splice(1, 0, task, checkpoint);
+      const harness = await makeHarness(makeTools(), previousMessages);
+      const split = Summarizer.splitMessages(harness.history, CONTEXT_WINDOW_TOKENS, {
         provider: PROVIDER,
         modelId: MODEL,
-      }).messagesToSummarize,
-    );
-    if (!prefix) {
-      throw new Error("Missing prefix fixture");
-    }
-    const scope = {
-      logger,
-      runMetrics: harness.metrics,
-      conversationKey: harness.conversationKey,
-      provider: PROVIDER,
-      model: MODEL,
-      emit: undefined,
-    };
-    await Effect.runPromise(observePromptCache(scope, harness.tools, prefix.history));
-    recordCacheUsage(harness.conversationKey, { promptTokens: 1000 });
-    await Effect.runPromise(observePromptCache(scope, harness.tools, harness.previousMessages));
-    recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 4500 });
+      });
+      const prefix = summaryRequestPrefix(harness.history, split.messagesToSummarize);
+      if (!prefix) {
+        throw new Error("Missing prefix fixture");
+      }
+      const scope = {
+        logger,
+        runMetrics: harness.metrics,
+        conversationKey: harness.conversationKey,
+        provider: PROVIDER,
+        model: MODEL,
+        emit: undefined,
+      };
+      await Effect.runPromise(observePromptCache(scope, harness.tools, prefix.history));
+      recordCacheUsage(harness.conversationKey, { promptTokens: 1000 });
+      await Effect.runPromise(observePromptCache(scope, harness.tools, harness.previousMessages));
+      recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 4500 });
 
-    await harness.compact({ trigger: "manual" });
+      const outcome = await harness.compact({ trigger });
 
-    expect(harness.runnerInputs).toHaveLength(0);
+      expect(harness.runnerInputs).toHaveLength(0);
+      expect(harness.requests).toHaveLength(1);
+      expect(harness.requests[0]?.messages.slice(0, -1)).toEqual(prefix.history);
+      expect(harness.requests[0]?.messages.length).toBeLessThan(harness.history.length);
+      expect(harness.requests[0]?.messages).toContainEqual(checkpoint);
+      expect(harness.requests[0]?.messages).toContainEqual(task);
+      expect(harness.requests[0]?.messages.at(-1)?.content).toContain("except the final 0");
+      expect(harness.requests[0]?.messages.at(-1)?.content).toContain("The prior checkpoint");
+      expect(outcome?.messages).toContainEqual(task);
+      expect(outcome?.messages.slice(-split.sanitizedRecentMessages.length)).toEqual(
+        split.sanitizedRecentMessages,
+      );
+    },
+  );
+
+  it.each(["automatic", "manual"] as const)(
+    "does not infer caching support from zero cache reads for %s compaction",
+    async (trigger) => {
+      const harness = await makeHarness();
+      recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 0 });
+
+      await harness.compact({ pricing: undefined, trigger });
+
+      expect(harness.requests).toHaveLength(0);
+      expect(harness.runnerInputs).toHaveLength(1);
+    },
+  );
+
+  it("keeps automatic compaction's full matching history when attachments prevent shortening", async () => {
+    const harness = await makeHarness();
+    harness.history.push({
+      role: "user",
+      content: "Retained image",
+      attachments: [
+        { kind: "image", path: "/tmp/test.png", mediaType: "image/png", byteSize: 100 },
+      ],
+    });
+
+    await harness.compact({ trigger: "automatic" });
+
     expect(harness.requests).toHaveLength(1);
-    expect(harness.requests[0]?.messages.slice(0, -1)).toEqual(prefix.history);
-    expect(harness.requests[0]?.messages.length).toBeLessThan(harness.history.length);
+    expect(harness.requests[0]?.messages.slice(0, -1)).toEqual(harness.history);
+    expect(harness.runnerInputs).toHaveLength(0);
   });
 
-  it("does not infer caching support from zero cache reads", async () => {
-    const harness = await makeHarness();
-    recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 0 });
+  it.each(["automatic", "manual"] as const)(
+    "rejects rewritten history for %s compaction",
+    async (trigger) => {
+      const harness = await makeHarness();
+      const rewritten = [...harness.previousMessages];
+      rewritten[1] = { role: "user", content: "an earlier message that was rewritten" };
+      await Effect.runPromise(
+        observePromptCache(
+          {
+            logger,
+            runMetrics: harness.metrics,
+            conversationKey: harness.conversationKey,
+            provider: PROVIDER,
+            model: MODEL,
+            emit: undefined,
+          },
+          harness.tools,
+          rewritten,
+        ),
+      );
 
-    await harness.compact({ pricing: undefined });
+      await harness.compact({ trigger });
 
-    expect(harness.requests).toHaveLength(0);
-    expect(harness.runnerInputs).toHaveLength(1);
-  });
-
-  it("keeps automatic compaction's existing pricing requirement", async () => {
-    const harness = await makeHarness();
-    recordCacheUsage(harness.conversationKey, { promptTokens: 5000, cacheReadTokens: 4500 });
-
-    await harness.compact({ pricing: undefined, trigger: "automatic" });
-
-    expect(harness.requests).toHaveLength(0);
-    expect(harness.runnerInputs).toHaveLength(1);
-  });
-
-  it("uses the stand-alone summarizer when the history no longer matches the previous request", async () => {
-    const harness = await makeHarness();
-    const rewritten = [...harness.previousMessages];
-    rewritten[1] = { role: "user", content: "an earlier message that was rewritten" };
-    await Effect.runPromise(
-      observePromptCache(
-        {
-          logger,
-          runMetrics: harness.metrics,
-          conversationKey: harness.conversationKey,
-          provider: PROVIDER,
-          model: MODEL,
-          emit: undefined,
-        },
-        harness.tools,
-        rewritten,
-      ),
-    );
-
-    await harness.compact({});
-
-    expect(harness.requests).toHaveLength(0);
-    expect(harness.runnerInputs).toHaveLength(1);
-  });
+      expect(harness.requests).toHaveLength(0);
+      expect(harness.runnerInputs).toHaveLength(1);
+    },
+  );
 
   it("discards a tool call the model makes anyway and falls back, still paying for the call", async () => {
     const harness = await makeHarness();

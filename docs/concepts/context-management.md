@@ -36,12 +36,12 @@ the meter's drain during summarization is an estimate. The final result reports 
 measured context usage after compaction.
 
 When the summarizer model is the conversation's own model and its provider prices cached
-input, an automatic compaction asks for the summary as one more request of the
+input or has reported cache hits, automatic and manual compaction can ask for the summary as one more request of the
 conversation: same system prompt, same tools, same messages, then one final instruction, with
 tool calls disabled. That request shares its prefix with the step before it, so the provider can
 serve most of it from cache instead of billing the largest call of the run as fully uncached
 input. Jazz falls back to a separate summarizer when `llm.summarizerModel` names another model,
-the provider has no cache pricing, the request would not leave
+the provider has neither cache pricing nor observed cache hits, the request would not leave
 room in the window for the summary, the history changed since the last request, `summarize_context` triggers it,
 or the model returns a tool call anyway. The step's cache rate is computed like any other
 request.
@@ -52,9 +52,11 @@ copy of the transcript. It uses the standalone summarizer if no prior request is
 the system prompt or earlier messages changed, pruning rewrote old results, attachments prevent
 a safe prefix match, or the aligned request fails. When an earlier completed request ended at
 the summary boundary, Jazz can omit the retained recent tail, extending through paired tool
-results when necessary. Otherwise it keeps the full matching request prefix: some hybrid
+results when necessary. Automatic compaction uses the same completed-prefix checks and can
+also omit its retained recent tail. Otherwise it keeps the full matching request prefix: some hybrid
 backends cannot reuse arbitrary shorter prefixes. Local providers can qualify through actual reported cache hits even without published
-cache pricing. Reasoning remains at the agent's configured level in both paths; cache reuse
+cache pricing. Automatic compaction keeps its full-history path when attachments prevent
+safe shortening. Its default 80% trigger is unchanged. Reasoning remains at the agent's configured level in both paths; cache reuse
 reduces repeated input processing, while generating the summary still takes model time.
 
 **Trimming** removes older messages without summarizing them. Jazz uses it when compaction

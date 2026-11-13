@@ -4,9 +4,11 @@
  * message asking for the checkpoint. The provider serves that prefix from the prompt cache the
  * previous request wrote, where a summarizer agent with its own persona and the transcript
  * pasted in as text shares no prefix with anything and is billed as fully uncached input.
- * Automatic compaction keeps the full history; manual compaction can omit the recent tail
+ * Both automatic and manual compaction can omit the recent tail
  * at a completed earlier request boundary, ending at a complete tool group. Its turn marker preserves the
- * reasoning projection of that prefix. Attachment histories use the standalone fallback.
+ * reasoning projection of that prefix. Automatic compaction can still reuse full history
+ * when attachments or missing completed boundaries prevent shortening; manual attachment
+ * histories use the standalone fallback.
  *
  * Only a request that really does share the previous request's prefix is sent this way; every
  * other case returns a fallback and the caller runs the stand-alone summarizer instead.
@@ -115,7 +117,7 @@ export function alignedSummaryBlocker(input: {
 /**
  * Send the summary as the conversation's next request. Returns a fallback, with the reason,
  * for anything that makes the stand-alone summarizer the better choice: a prefix that is neither
- * an unchanged append nor a manual leading prefix of the previous request (it would not hit the cache, so it would be the same
+ * an unchanged append nor a completed leading prefix of the previous request (it would not hit the cache, so it would be the same
  * uncached call with none of the stand-alone path's chunking), a failed request, or a model that
  * called a tool despite `toolChoice: "none"` (the call is discarded, never run).
  *
@@ -149,7 +151,6 @@ export function requestAlignedSummary(
     if (
       change.reason !== "none" &&
       !(
-        alignment.trigger === "manual" &&
         isCachedHistoryPrefix(cacheScope.conversationKey, fingerprint) &&
         isCompletedRequestPrefix(cacheScope.conversationKey, fingerprint)
       )

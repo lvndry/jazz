@@ -313,7 +313,7 @@ function modelHintFromAgent(agent: Agent): ModelHint {
 }
 
 /**
- * The leading history needed for a manual checkpoint, ending after all tool results
+ * The leading history needed for a checkpoint, ending after all tool results
  * paired with its calls. Recent turns are already kept verbatim and need not enlarge
  * the request or the generated checkpoint. Attachments disable trimming because their
  * inline-age projection depends on the full history. The turn marker preserves the
@@ -1177,24 +1177,21 @@ export const Summarizer = {
       const recordedState = formatWorkState(yield* readWorkState(agent.id, conversationId));
 
       if (cacheAligned !== undefined) {
-        const manualPrefix =
-          cacheAligned.alignment.trigger === "manual"
-            ? summaryRequestPrefix(cacheAligned.history, messagesToSummarize)
-            : undefined;
+        const summaryPrefix = summaryRequestPrefix(cacheAligned.history, messagesToSummarize);
         const hint = modelHintFromAgent(agent);
         const toolSchemas = cacheAligned.alignment.tools.map(toolFingerprintInput);
         const usePrefix =
-          manualPrefix !== undefined &&
+          summaryPrefix !== undefined &&
           isCompletedRequestPrefix(
             cacheAligned.alignment.cacheScope.conversationKey,
             fingerprintRequest({
               provider: cacheAligned.alignment.cacheScope.provider,
               model: cacheAligned.alignment.cacheScope.model,
               tools: toolSchemas,
-              messages: manualPrefix.history,
+              messages: summaryPrefix.history,
             }),
           );
-        const summaryHistory = usePrefix ? manualPrefix.history : cacheAligned.history;
+        const summaryHistory = usePrefix ? summaryPrefix.history : cacheAligned.history;
         const requestTokens =
           DEFAULT_TOKEN_COUNTER.countText(JSON.stringify(toolSchemas), hint) +
           DEFAULT_TOKEN_COUNTER.countMessages(summaryHistory, hint) +
@@ -1205,7 +1202,7 @@ export const Summarizer = {
           recordedState,
         });
         const blocker =
-          cacheAligned.alignment.trigger === "manual" && manualPrefix === undefined
+          cacheAligned.alignment.trigger === "manual" && summaryPrefix === undefined
             ? "summary-prefix-unavailable"
             : toolSchemas.some((tool) => tool.schema === null)
               ? "tool-schema-unavailable"
@@ -1216,7 +1213,6 @@ export const Summarizer = {
                   requestTokens: requestTokens + DEFAULT_TOKEN_COUNTER.countText(instruction, hint),
                   contextWindowTokens: cacheAligned.contextWindowTokens,
                   cacheReadObserved:
-                    cacheAligned.alignment.trigger === "manual" &&
                     (lastCacheObservation(cacheAligned.alignment.cacheScope.conversationKey)
                       ?.hitRate ?? 0) > 0,
                 });
@@ -1231,7 +1227,7 @@ export const Summarizer = {
             agent,
             history: summaryHistory,
             instruction,
-            startsNewTurn: usePrefix ? manualPrefix.startsNewTurn : false,
+            startsNewTurn: usePrefix ? summaryPrefix.startsNewTurn : false,
           });
           if (aligned.kind === "summary") {
             const accepted = yield* acceptSummary(aligned).pipe(Effect.result);
