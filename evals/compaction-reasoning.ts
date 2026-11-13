@@ -10,6 +10,8 @@
  * call reuses that request, varying only reasoning. Pair order alternates to expose
  * cache/order effects. Reports include summaries for human fidelity review, but never
  * include provider credentials or reasoning text. --capture-only skips measured calls.
+ * Only single-request production captures are replayed. Non-loopback endpoints require
+ * --allow-remote, including named hosts; prefer a loopback IP for same-machine inference.
  */
 
 import { createHash } from "node:crypto";
@@ -21,14 +23,15 @@ import {
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { PINNED_KINDS } from "@jazz/core/agent/context/context-window-manager";
 import { Summarizer, type RecursiveRunner } from "@jazz/core/agent/context/summarizer";
-import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
+import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
-import type { Agent } from "@jazz/core/types/agent";
 import type { ChatCompletionOptions, ChatCompletionResponse } from "@jazz/core/types/chat";
+import { withAgentProviderOverrides } from "@jazz/core/utils/agent-llm-config";
 import { Duration, Effect } from "effect";
 import { createAppLayer } from "../packages/runtime/src/app-layer";
 import { readOption } from "./cli-options";
+import { assertVllmReplayProviders, validateVllmReplayEndpoint } from "./compaction-replay-safety";
 import { saveReport } from "./compaction-report";
 
 interface Measurement {
@@ -93,10 +96,26 @@ const measurements: Measurement[] = [];
 
 const experiment = Effect.gen(function* () {
   const agent = yield* (yield* AgentServiceTag).getAgent(agentId);
-  if (agent.config.llm.provider !== "vllm") {
-    throw new Error("This experiment is restricted to the local vLLM provider");
-  }
+  assertVllmReplayProviders(agent);
   const llm = yield* LLMServiceTag;
+  const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
+  const baseUrl = llm.resolveLocalProviderBaseUrl(
+    "vllm",
+    withAgentProviderOverrides(appConfig.llm, agent.config.llm),
+  );
+  const endpoint = validateVllmReplayEndpoint(baseUrl, {
+    allowRemote: process.argv.includes("--allow-remote"),
+  });
+  console.log(
+    JSON.stringify({
+      phase: "destination",
+      origin: endpoint.origin,
+      isLoopback: endpoint.isLoopback,
+      transmission: process.argv.includes("--capture-only")
+        ? "metadata-only"
+        : "conversation-history",
+    }),
+  );
   const requests: ChatCompletionOptions[] = [];
   const capturingLLM: LLMService = {
     getProvider: llm.getProvider.bind(llm),
@@ -109,8 +128,11 @@ const experiment = Effect.gen(function* () {
       llm.fetchVllmServerModel(baseUrl, model, apiKey ?? agent.config.llm.apiKeys?.vllm),
     fetchSglangServerModel: llm.fetchSglangServerModel.bind(llm),
     resolveLocalProviderBaseUrl: llm.resolveLocalProviderBaseUrl.bind(llm),
-    createChatCompletion: (_provider, request) =>
+    createChatCompletion: (provider, request) =>
       Effect.sync(() => {
+        if (provider !== "vllm") {
+          throw new Error("Production selected a non-vLLM completion provider");
+        }
         requests.push(request);
         return { id: "capture", model: request.model, content: "captured", finishReason: "stop" };
       }),
@@ -128,32 +150,14 @@ const experiment = Effect.gen(function* () {
       },
       disablePersistence: true,
     }).pipe(Effect.provideService(LLMServiceTag, capturingLLM));
-  let summarizer: Agent | undefined;
   yield* Summarizer.summarizeHistory(
-    messagesToSummarize.slice(0, 1),
-    agent,
-    conversation.conversationId,
-    (options) =>
-      Effect.sync(() => {
-        summarizer = options.agent;
-        return { content: "captured", conversationId: options.conversationId };
-      }),
-  ).pipe(Effect.provideService(LLMServiceTag, capturingLLM));
-  if (!summarizer) {
-    throw new Error("Summarizer agent was not constructed");
-  }
-  const recordedState = formatWorkState(
-    yield* readWorkState(agent.id, conversation.conversationId),
-  );
-  yield* Summarizer.summarizeChunk(
     messagesToSummarize,
-    summarizer,
+    agent,
     conversation.conversationId,
     runner,
     priorSummary,
-    recordedState,
-  );
-  const request = requests[0];
+  ).pipe(Effect.provideService(LLMServiceTag, capturingLLM));
+  const captured = requests[0];
   console.log(
     JSON.stringify({
       phase: "capture-metadata",
@@ -166,9 +170,15 @@ const experiment = Effect.gen(function* () {
       })),
     }),
   );
-  if (requests.length !== 1 || !request) {
-    throw new Error(`Expected one summarizer request, got ${requests.length}`);
+  if (requests.length !== 1 || !captured) {
+    throw new Error(
+      `Production requires ${requests.length} summarizer requests; only single-request captures can be compared`,
+    );
   }
+  const request = {
+    ...captured,
+    providerBaseUrls: { ...captured.providerBaseUrls, vllm: baseUrl },
+  };
   const fingerprint = createHash("sha256")
     .update(
       JSON.stringify({
@@ -186,6 +196,7 @@ const experiment = Effect.gen(function* () {
       historyMessages: history.length,
       summarizedMessages: messagesToSummarize.length,
       provider: agent.config.llm.provider,
+      endpointOrigin: endpoint.origin,
       model: request.model,
       before,
       measurements,

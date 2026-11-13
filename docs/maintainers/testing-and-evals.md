@@ -142,6 +142,11 @@ adversarial targets. Reports land in `evals/report/` (gitignored). Full flags an
 The compaction reasoning comparison writes private reports containing conversation text.
 Its output destination must be a regular file: symlinks and special files are rejected.
 Existing regular reports are overwritten with owner-only permissions.
+The replay utility captures through production chunking and accepts only single-request
+captures with vLLM selected for both the primary agent and summarizer. Loopback IP endpoints
+are allowed by default; any hostname or other IP requires `--allow-remote` before accessing
+the endpoint. It discloses the destination origin and keeps measured requests on that endpoint.
+See the [comparison instructions](../../evals/README.md#compaction-reasoning-comparison).
 
 ---
 

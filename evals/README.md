@@ -30,7 +30,7 @@ keyring; for a local server that needs a key, pass it at runtime (for example `V
 ### Compaction reasoning comparison
 
 `compaction-reasoning.ts` compares `medium` and disabled reasoning on a frozen summarizer
-request using your local vLLM provider. Prepare a private `JAZZ_HOME` with the source agent,
+request using your vLLM provider. Prepare a private `JAZZ_HOME` with the source agent,
 provider configuration and, when relevant, a copy of its work state. The original conversation
 log is read only. Set `--before` to a time immediately before the saved compaction you want
 to replay:
@@ -46,6 +46,18 @@ rebuilds the summarizer prompt, which is captured without inference and frozen f
 variants. This reconstructs the saved exchanges; it cannot recover transient tool-result
 pruning or the exact historical system prompt. `--capture-only` checks selection and request
 construction without running the comparison.
+
+Both the primary and selected summarizer providers must be vLLM. Capture follows production
+chunking and rejects histories requiring multiple summarizer requests before any measured
+inference; it does not compare a fabricated single request or replay a folding sequence.
+
+The resolved endpoint includes agent overrides, global configuration, and `VLLM_BASE_URL`.
+By default only loopback IPs (`127.0.0.0/8` and `::1`) are allowed. For another endpoint,
+including hostnames such as `localhost`, add `--allow-remote` to explicitly permit transmission
+of the reconstructed conversation. The utility prints the destination origin before capture
+and pins measured requests to that validated endpoint. URL credentials and non-HTTP(S) URLs
+are rejected. `--capture-only` performs model metadata requests, but sends no conversation
+for inference; it requires the same endpoint opt-in.
 
 Pair order alternates to expose warming effects. Reports contain latency, token usage,
 reasoning tokens, cache reads, finish reasons, a request fingerprint and the generated summaries.
