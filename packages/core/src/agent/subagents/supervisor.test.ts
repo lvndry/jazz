@@ -1,7 +1,7 @@
 /** Supervisor behavior checks; the GC retention assertion runs in a fresh process to isolate VM roots. */
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "bun:test";
-import { Deferred, Effect, Fiber } from "effect";
+import { Deferred, Duration, Effect, Fiber, Option } from "effect";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { createSubagentSupervisor, type SubagentSupervisor } from "./supervisor";
 
@@ -72,7 +72,7 @@ describe("SubagentSupervisor", () => {
         yield* startChild(supervisor, "one", first);
         yield* startChild(supervisor, "two", second);
         expect(supervisor.liveCount()).toBe(2);
-        const waiting = yield* Effect.forkChild(supervisor.wait([], "all", 5_000));
+        const waiting = yield* Effect.forkChild(supervisor.wait([], "all"));
         yield* Deferred.succeed(first, "first done");
         yield* Deferred.succeed(second, "second done");
         const result = yield* Fiber.join(waiting);
@@ -104,8 +104,8 @@ describe("SubagentSupervisor", () => {
         });
         const hooks = yield* finishedChild(supervisor, "digest", done("the whole report"));
         const listed = supervisor.list()[0];
-        const first = (yield* supervisor.wait([], "all", 5_000)).subagents[0];
-        const second = (yield* supervisor.wait([], "all", 5_000)).subagents[0];
+        const first = (yield* supervisor.wait([], "all")).subagents[0];
+        const second = (yield* supervisor.wait([], "all")).subagents[0];
         const steered = yield* supervisor.steer(hooks.id, "message", "write it to a file");
         return { id: hooks.id, listed, first, second, steered };
       }),
@@ -124,7 +124,7 @@ describe("SubagentSupervisor", () => {
     );
   });
 
-  it("returns on the first child to finish with until any, and times out with none", async () => {
+  it("returns on the first child to finish with until any", async () => {
     const outcome = await Effect.runPromise(
       Effect.gen(function* () {
         const supervisor = yield* createSubagentSupervisor();
@@ -132,15 +132,13 @@ describe("SubagentSupervisor", () => {
         const second = yield* Deferred.make<string>();
         yield* startChild(supervisor, "one", first);
         yield* startChild(supervisor, "two", second);
-        const timedOut = yield* supervisor.wait([], "any", 20);
-        const waiting = yield* Effect.forkChild(supervisor.wait([], "any", 5_000));
+        const waiting = yield* Effect.forkChild(supervisor.wait([], "any"));
         yield* Deferred.succeed(first, "first done");
-        return { timedOut, any: yield* Fiber.join(waiting) };
+        return yield* Fiber.join(waiting);
       }),
     );
-    expect(outcome.timedOut.outcome).toBe("timed-out");
-    expect(outcome.any.outcome).toBe("settled");
-    expect(outcome.any.subagents.map((child) => child.status)).toEqual(["completed", "running"]);
+    expect(outcome.outcome).toBe("settled");
+    expect(outcome.subagents.map((child) => child.status)).toEqual(["completed", "running"]);
   });
 
   it("announces a finished child the parent has not read, once", async () => {
@@ -179,7 +177,7 @@ describe("SubagentSupervisor", () => {
         const hooks = supervisor.register({ name: "worker" });
         yield* supervisor.steer(hooks.id, "message", "also add Portugal");
         yield* supervisor.start(hooks.id, Effect.succeed(done("Paris, Madrid, Rome")));
-        yield* supervisor.wait([hooks.id], "all", 5_000);
+        yield* supervisor.wait([hooks.id], "all");
         return supervisor.list()[0];
       }),
     );
@@ -278,7 +276,7 @@ describe("SubagentSupervisor", () => {
       Effect.gen(function* () {
         const supervisor = yield* createSubagentSupervisor();
         yield* finishedChild(supervisor, "read", done("x"));
-        yield* supervisor.wait([], "all", 5_000);
+        yield* supervisor.wait([], "all");
         return yield* supervisor.settleBeforeAnswer();
       }),
     );
@@ -337,11 +335,17 @@ describe("SubagentSupervisor", () => {
         const supervisor = yield* createSubagentSupervisor();
         const hooks = supervisor.register({ name: "worker" });
         hooks.onToolEvent({ kind: "approval-required", toolName: "execute_command" });
-        return yield* supervisor.wait([], "any", 30);
+        const stillWaiting = yield* supervisor
+          .wait([], "any")
+          .pipe(Effect.timeoutOption(Duration.millis(30)));
+        yield* supervisor.steer(hooks.id, "cancel");
+        const settled = yield* supervisor.wait([], "any");
+        return { stillWaiting, settled };
       }),
     );
-    expect(outcome.outcome).toBe("timed-out");
-    expect(outcome.subagents[0]?.status).toBe("waiting-approval");
+    expect(Option.isNone(outcome.stillWaiting)).toBe(true);
+    expect(outcome.settled.outcome).toBe("settled");
+    expect(outcome.settled.subagents[0]?.status).toBe("cancelled");
   });
 
   it("says so when asked to resume a child that is not paused", async () => {
@@ -489,7 +493,7 @@ describe("SubagentSupervisor that outlives runs", () => {
         yield* startChild(supervisor, "worker", yield* Deferred.make<string>());
         const message = yield* Deferred.make<void>();
         const waiting = yield* Effect.forkChild(
-          supervisor.wait([], "all", 60_000, Deferred.await(message)),
+          supervisor.wait([], "all", Deferred.await(message)),
         );
         yield* Effect.yieldNow;
         yield* Deferred.succeed(message, undefined);
@@ -552,7 +556,7 @@ describe("SubagentSupervisor attachments", () => {
         first.detach();
         const releasedBeforeChildEnds = [...released];
         yield* Deferred.succeed(release, undefined);
-        yield* supervisor.wait([], "all", 5_000);
+        yield* supervisor.wait([], "all");
         yield* Effect.yieldNow;
         return { firstLive, firstLate, secondLive, releasedBeforeChildEnds, released };
       }),
@@ -586,7 +590,7 @@ describe("SubagentSupervisor queue", () => {
         yield* Effect.yieldNow;
         const afterSecond = statusOf(supervisor);
         yield* Deferred.succeed(releases[2]!, "three done");
-        const waited = yield* supervisor.wait([], "all", 5_000);
+        const waited = yield* supervisor.wait([], "all");
         return {
           queued,
           afterFirst,
@@ -698,7 +702,7 @@ describe("SubagentSupervisor queue", () => {
           yield* Effect.yieldNow;
           yield* Effect.yieldNow;
         }
-        yield* supervisor.wait([], "all", 5_000);
+        yield* supervisor.wait([], "all");
         return highest;
       }),
     );
@@ -720,7 +724,7 @@ describe("SubagentSupervisor queue", () => {
         const whilePaused = statusOf(supervisor);
         yield* supervisor.steer(queued.id, "resume");
         yield* Deferred.succeed(second, "two done");
-        const waited = yield* supervisor.wait([queued.id], "all", 5_000);
+        const waited = yield* supervisor.wait([queued.id], "all");
         return { whilePaused, finished: waited.subagents[0]?.status };
       }),
     );
@@ -760,7 +764,7 @@ describe("SubagentSupervisor queue", () => {
         yield* Effect.yieldNow;
         const afterFirst = [...released];
         yield* Deferred.succeed(second, "two done");
-        yield* supervisor.wait([], "all", 5_000);
+        yield* supervisor.wait([], "all");
         yield* Effect.yieldNow;
         return { afterFirst, released, late };
       }),
@@ -812,14 +816,14 @@ describe("SubagentSupervisor queue", () => {
               1,
             );
           }
-          const waited = yield* own.wait([], "all", 5_000);
+          const waited = yield* own.wait([], "all");
           return done(waited.outcome);
         });
         for (let index = 0; index < CHILDREN; index++) {
           const hooks = top.register({ name: `child-${String(index)}` });
           yield* top.startOrQueue(hooks.id, childWork, 1);
         }
-        const waited = yield* top.wait([], "all", 5_000);
+        const waited = yield* top.wait([], "all");
         return { outcome: waited.outcome, statuses: waited.subagents.map((child) => child.status) };
       }),
     );

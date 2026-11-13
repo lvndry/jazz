@@ -116,7 +116,7 @@ function runSpawnArgs(
       if (!spawned.success || agentId === undefined) {
         return spawned;
       }
-      const waited = yield* supervisor.wait([agentId], "all", 60_000);
+      const waited = yield* supervisor.wait([agentId], "all");
       const child = waited.subagents[0];
       const shownAfterRead = child?.error !== undefined ? child.untrusted : undefined;
       for (const name of ["list_subagents", "wait_subagents"]) {

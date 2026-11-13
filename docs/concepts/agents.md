@@ -203,6 +203,10 @@ While children work, the parent can manage them:
 | `post_to_blackboard` | Posts a finding to the board the parent and every child share                                   |
 | `read_blackboard`    | Reads that board, oldest first, by topic or only posts newer than the last read                 |
 
+`wait_subagents` has no time limit of its own: it returns when the children settle, when you send
+a message, or when the run's time budget ends. A child's own `maxMinutes` is the only clock it
+sets.
+
 An agent granted `spawn_subagent` gets these six with it. Guidance and pauses take effect
 before the child's next model call, and a paused child spends nothing. Cancelling stops it at
 once, with the tools and processes it started. A child that finishes is announced to the parent

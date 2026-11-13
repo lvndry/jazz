@@ -27,7 +27,7 @@
  * cap counts that live spend, so parallel children cannot each spend the whole remainder.
  */
 
-import { Deferred, Duration, Effect, Exit, Fiber, Option, Scope } from "effect";
+import { Deferred, Effect, Exit, Fiber, Option, Scope } from "effect";
 import type { RunCost } from "@/core/agent/metrics/agent-run-metrics";
 import type { CancelCause } from "@/core/agent/run/cancel-cause";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
@@ -75,7 +75,7 @@ export type SteerOutcome =
 export type WaitUntil = "any" | "all";
 
 /** Why a wait returned before its children did. */
-export type WaitOutcome = "settled" | "timed-out" | "interrupted";
+export type WaitOutcome = "settled" | "interrupted";
 
 /** The hooks a child's run uses to take steering and report on itself. */
 export interface SubagentHooks {
@@ -184,14 +184,14 @@ export interface SubagentSupervisor {
   readonly list: () => readonly SubagentSnapshot[];
   /**
    * Wait until the children named (every child when `ids` is empty) have finished or were
-   * paused: `any` returns once one of them has, `all` once all have. Answers not read before are
-   * returned and marked read; one read before is marked `alreadyRead` and left out. Completing
-   * `interrupt` ends the wait early with whatever has finished, as a timeout does.
+   * paused: `any` returns once one of them has, `all` once all have. There is no time limit of
+   * its own: the wait ends when the children settle, when `interrupt` completes, or when the
+   * run's own time budget interrupts the calling fiber. Answers not read before are returned and
+   * marked read; one read before is marked `alreadyRead` and left out.
    */
   readonly wait: (
     ids: readonly string[],
     until: WaitUntil,
-    timeoutMs: number,
     interrupt?: Effect.Effect<void>,
   ) => Effect.Effect<{
     readonly subagents: readonly SubagentSnapshot[];
@@ -622,10 +622,9 @@ export function createSubagentSupervisor(
 
       list: () => [...entries.values()].map((entry) => snapshot(entry, false)),
 
-      wait: (ids, until, timeoutMs, interrupt) =>
+      wait: (ids, until, interrupt) =>
         Effect.gen(function* () {
           const targets = resolveTargets(ids);
-          const deadline = Date.now() + timeoutMs;
           // A child waiting on an approval is waiting on a person, not on the parent, so the
           // wait goes on until the person answers; a paused one only the parent can release.
           const needsParent = (entry: Entry) =>
@@ -652,12 +651,7 @@ export function createSubagentSupervisor(
               outcome = "interrupted";
               break;
             }
-            const remaining = deadline - Date.now();
-            if (remaining <= 0) {
-              outcome = "timed-out";
-              break;
-            }
-            yield* Deferred.await(changed).pipe(Effect.timeoutOption(Duration.millis(remaining)));
+            yield* Deferred.await(changed);
           }
           if (interruption !== undefined) {
             yield* Fiber.interrupt(interruption);
