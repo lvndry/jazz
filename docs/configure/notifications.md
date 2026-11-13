@@ -74,6 +74,11 @@ drops desktop targets.
 
 ## Desktop notifications
 
+Automatic completion notifications are silently skipped when no desktop channel is available.
+`CI=true` or `CI=1` disables both desktop channels, even if the runner inherits terminal or
+display variables. On Linux without a desktop session or a supported controlling terminal,
+Jazz does not try to launch `notify-send` or print a missing-libnotify warning on completion.
+
 A desktop notification is shown one of two ways, never both.
 
 **In the terminal.** When Jazz runs in a terminal that shows notifications itself, it writes
