@@ -26,6 +26,7 @@ function host(overrides: Partial<DesktopNotifierHost>): DesktopNotifierHost {
     env: {},
     resolveTerminalNotifier: () => "/opt/jazz/terminal-notifier",
     findNotifySend: () => "/usr/bin/notify-send",
+    hasMacDesktopSession: () => true,
     canWriteTerminal: () => false,
     writeTerminal: () => false,
     ...overrides,
@@ -94,6 +95,15 @@ describe("launchDetached", () => {
 });
 
 describe("desktopNotifierCommand", () => {
+  test("refuses a macOS host without a graphical login session", () => {
+    expect(
+      desktopNotifierCommand(
+        { title: "Jazz", message: "hi" },
+        host({ hasMacDesktopSession: () => false }),
+      ),
+    ).toEqual({ available: false, reason: NO_DESKTOP_SESSION });
+  });
+
   test("checks the Linux desktop session before looking for notify-send", () => {
     let lookups = 0;
     const command = desktopNotifierCommand(
@@ -166,6 +176,18 @@ describe("desktopNotifierCommand", () => {
 });
 
 describe("sendDesktopNotification", () => {
+  test("skips a headless macOS host outside CI", async () => {
+    const { calls, launch } = recordingLauncher({ launched: true });
+    const headless = host({ hasMacDesktopSession: () => false });
+    expect(isDesktopNotifierAvailable(headless)).toBe(false);
+    expect(
+      await Effect.runPromise(
+        sendDesktopNotification({ title: "Jazz", message: "hi" }, headless, launch),
+      ),
+    ).toEqual({ delivered: false, error: NO_DESKTOP_SESSION, retryable: false });
+    expect(calls).toEqual([]);
+  });
+
   test.each(["true", "1"])(
     "CI=%s disables both channels even with a desktop and terminal",
     async (ci) => {
@@ -328,7 +350,12 @@ describe("the terminal channel", () => {
   test("a forced protocol reaches a terminal that is not detected, as over SSH", () => {
     expect(
       desktopNotificationChannel(
-        host({ env: {}, terminalSetting: "osc777", ...recordingTerminal(true).overrides }),
+        host({
+          env: {},
+          hasMacDesktopSession: () => false,
+          terminalSetting: "osc777",
+          ...recordingTerminal(true).overrides,
+        }),
       ),
     ).toEqual({ kind: "terminal", protocol: "osc777" });
   });

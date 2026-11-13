@@ -17,7 +17,7 @@
  * failure explaining why delivery is unavailable; automatic completion notifications skip it.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
@@ -48,8 +48,7 @@ export const TERMINAL_NOTIFIER_MISSING =
 export const NOTIFY_SEND_MISSING =
   "notify-send not found — install libnotify (`libnotify-bin` on Debian and Ubuntu, `libnotify` elsewhere)";
 
-export const NO_DESKTOP_SESSION =
-  "No desktop session on this host: DISPLAY, WAYLAND_DISPLAY and DBUS_SESSION_BUS_ADDRESS are all unset";
+export const NO_DESKTOP_SESSION = "No desktop session on this host";
 
 export const UNSUPPORTED_DESKTOP_PLATFORM =
   "Desktop notifications are shown on macOS and Linux only";
@@ -73,6 +72,8 @@ export interface DesktopNotifierHost {
   readonly env: NodeJS.ProcessEnv;
   readonly resolveTerminalNotifier: () => string | null;
   readonly findNotifySend: () => string | null;
+  /** Whether this user has an active macOS GUI launchd domain. */
+  readonly hasMacDesktopSession: () => boolean;
   /** `notifications.terminal`; `JAZZ_NOTIFICATIONS_TERMINAL` in `env` wins over it. */
   readonly terminalSetting?: TerminalNotificationSetting;
   readonly canWriteTerminal: () => boolean;
@@ -97,15 +98,31 @@ export type DesktopNotifierCommand =
 export function currentDesktopNotifierHost(
   terminalSetting?: TerminalNotificationSetting,
 ): DesktopNotifierHost {
+  let macDesktopSession: boolean | undefined;
   return {
     platform: process.platform,
     env: process.env,
     resolveTerminalNotifier: resolveTerminalNotifierBinary,
     findNotifySend: () => findExecutableOnPath("notify-send"),
+    hasMacDesktopSession: () => (macDesktopSession ??= hasMacDesktopSession()),
     ...(terminalSetting !== undefined ? { terminalSetting } : {}),
     canWriteTerminal: canWriteControllingTerminal,
     writeTerminal: writeControllingTerminal,
   };
+}
+
+/** A macOS loginwindow creates this domain for a graphical user session. */
+function hasMacDesktopSession(): boolean {
+  const uid = process.getuid?.();
+  if (uid === undefined) {
+    return false;
+  }
+  return (
+    spawnSync("launchctl", ["print", `gui/${uid}`], {
+      stdio: "ignore",
+      timeout: 1_000,
+    }).status === 0
+  );
 }
 
 /** This host, with `notifications.terminal` from the config when a config service is provided. */
@@ -133,6 +150,9 @@ export function desktopNotificationChannel(host: DesktopNotifierHost): DesktopNo
   const protocol = selectTerminalNotificationProtocol(host.env, setting);
   if (protocol !== undefined && host.canWriteTerminal()) {
     return { kind: "terminal", protocol };
+  }
+  if (host.platform === "darwin" && !host.hasMacDesktopSession()) {
+    return { kind: "disabled", reason: NO_DESKTOP_SESSION };
   }
   return { kind: "os" };
 }
@@ -193,6 +213,9 @@ export function desktopNotifierCommand(
     return { available: false, reason: CI_NOTIFICATIONS_DISABLED };
   }
   if (host.platform === "darwin") {
+    if (!host.hasMacDesktopSession()) {
+      return { available: false, reason: NO_DESKTOP_SESSION };
+    }
     const terminalNotifier = host.resolveTerminalNotifier();
     if (terminalNotifier === null) {
       return { available: false, reason: TERMINAL_NOTIFIER_MISSING };

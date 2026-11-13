@@ -78,6 +78,8 @@ Automatic completion notifications are silently skipped when no desktop channel 
 `CI=true` or `CI=1` disables both desktop channels, even if the runner inherits terminal or
 display variables. On Linux without a desktop session or a supported controlling terminal,
 Jazz does not try to launch `notify-send` or print a missing-libnotify warning on completion.
+On macOS, Jazz checks for a graphical login session before using `terminal-notifier`; a
+headless host without one also skips automatic completion notifications.
 
 A desktop notification is shown one of two ways, never both.
 

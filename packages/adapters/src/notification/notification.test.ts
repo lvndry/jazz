@@ -19,6 +19,7 @@ test.each(["linux", "darwin"] as const)(
         env: platform === "darwin" ? { CI: "true" } : {},
         resolveTerminalNotifier: () => "/opt/jazz/terminal-notifier",
         findNotifySend: () => null,
+        hasMacDesktopSession: () => platform !== "darwin",
         canWriteTerminal: () => false,
         writeTerminal: () => false,
       });
@@ -50,6 +51,7 @@ test("automatic notifications still send on an available desktop", async () => {
       env: { DISPLAY: ":0" },
       resolveTerminalNotifier: () => null,
       findNotifySend: () => "/usr/bin/notify-send",
+      hasMacDesktopSession: () => false,
       canWriteTerminal: () => false,
       writeTerminal: () => false,
     });
