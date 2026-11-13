@@ -1,7 +1,8 @@
 /**
  * Implements `NotificationService`: the desktop notification shown when an agent finishes, sent
  * through the one desktop sender (`desktop-notifier.ts`), in the terminal or with the OS
- * notifier, unless a plugin handles notifications.
+ * notifier, unless a plugin handles notifications. Automatic notifications silently skip hosts
+ * without an available desktop channel, including CI and headless Linux servers.
  */
 
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
@@ -42,6 +43,11 @@ export class NotificationServiceImpl implements NotificationService {
         return;
       }
 
+      const host = currentDesktopNotifierHost(notificationsConfig?.terminal);
+      if (!isDesktopNotifierAvailable(host)) {
+        return;
+      }
+
       const pluginRuntime = yield* Effect.serviceOption(PluginRuntimeServiceTag);
       if (Option.isSome(pluginRuntime)) {
         const pluginHandles = yield* pluginRuntime.value
@@ -62,7 +68,7 @@ export class NotificationServiceImpl implements NotificationService {
           ...(options?.subtitle !== undefined ? { subtitle: options.subtitle } : {}),
           sound,
         },
-        currentDesktopNotifierHost(notificationsConfig?.terminal),
+        host,
       ).pipe(
         Effect.tap((outcome) =>
           outcome.delivered ? Effect.void : Effect.sync(() => reportFailureOnce(outcome.error)),

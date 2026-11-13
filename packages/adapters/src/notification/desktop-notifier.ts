@@ -13,10 +13,11 @@
  *   the notifier started and did not exit with an error.
  *
  * A notification is shown on one channel only: the OS notifier is used when no escape sequence
- * was written. A host with neither channel gets a non-retryable failure naming what to install.
+ * was written. CI disables both channels. A host with neither channel gets a non-retryable
+ * failure explaining why delivery is unavailable; automatic completion notifications skip it.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
@@ -47,11 +48,12 @@ export const TERMINAL_NOTIFIER_MISSING =
 export const NOTIFY_SEND_MISSING =
   "notify-send not found — install libnotify (`libnotify-bin` on Debian and Ubuntu, `libnotify` elsewhere)";
 
-export const NO_DESKTOP_SESSION =
-  "No desktop session on this host: DISPLAY, WAYLAND_DISPLAY and DBUS_SESSION_BUS_ADDRESS are all unset";
+export const NO_DESKTOP_SESSION = "No desktop session on this host";
 
 export const UNSUPPORTED_DESKTOP_PLATFORM =
   "Desktop notifications are shown on macOS and Linux only";
+
+const CI_NOTIFICATIONS_DISABLED = "Desktop notifications are disabled in CI";
 
 const LINUX_SESSION_VARIABLES = ["DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS"] as const;
 
@@ -70,6 +72,8 @@ export interface DesktopNotifierHost {
   readonly env: NodeJS.ProcessEnv;
   readonly resolveTerminalNotifier: () => string | null;
   readonly findNotifySend: () => string | null;
+  /** Whether the OS has a desktop session where notifications can appear. */
+  readonly hasDesktopSession: () => boolean;
   /** `notifications.terminal`; `JAZZ_NOTIFICATIONS_TERMINAL` in `env` wins over it. */
   readonly terminalSetting?: TerminalNotificationSetting;
   readonly canWriteTerminal: () => boolean;
@@ -79,6 +83,7 @@ export interface DesktopNotifierHost {
 
 export type DesktopNotificationChannel =
   | { readonly kind: "terminal"; readonly protocol: TerminalNotificationProtocol }
+  | { readonly kind: "disabled"; readonly reason: string }
   | { readonly kind: "os" };
 
 export type LaunchOutcome =
@@ -93,15 +98,38 @@ export type DesktopNotifierCommand =
 export function currentDesktopNotifierHost(
   terminalSetting?: TerminalNotificationSetting,
 ): DesktopNotifierHost {
+  let desktopSession: boolean | undefined;
   return {
     platform: process.platform,
     env: process.env,
     resolveTerminalNotifier: resolveTerminalNotifierBinary,
     findNotifySend: () => findExecutableOnPath("notify-send"),
+    hasDesktopSession: () =>
+      (desktopSession ??= detectDesktopSession(process.platform, process.env)),
     ...(terminalSetting !== undefined ? { terminalSetting } : {}),
     canWriteTerminal: canWriteControllingTerminal,
     writeTerminal: writeControllingTerminal,
   };
+}
+
+/** Detect a graphical session on each supported OS; a macOS loginwindow creates the GUI domain. */
+function detectDesktopSession(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): boolean {
+  if (platform === "linux") {
+    return LINUX_SESSION_VARIABLES.some((variable) => (env[variable] ?? "").length > 0);
+  }
+  if (platform !== "darwin") {
+    return false;
+  }
+  const uid = process.getuid?.();
+  if (uid === undefined) {
+    return false;
+  }
+  return (
+    spawnSync("launchctl", ["print", `gui/${uid}`], {
+      stdio: "ignore",
+      timeout: 1_000,
+    }).status === 0
+  );
 }
 
 /** This host, with `notifications.terminal` from the config when a config service is provided. */
@@ -118,16 +146,26 @@ export function configuredDesktopNotifierHost(): Effect.Effect<DesktopNotifierHo
 
 /**
  * The terminal when a sequence is selected for it and this process can write its controlling
- * terminal; the OS notifier otherwise. A daemon or scheduled job has no controlling terminal, so
- * it always uses the OS notifier, whatever `TERM_PROGRAM` it inherited.
+ * terminal; the OS notifier otherwise. CI disables both. A daemon or scheduled job has no
+ * controlling terminal, so it uses the OS notifier if available, whatever `TERM_PROGRAM` it inherited.
  */
 export function desktopNotificationChannel(host: DesktopNotifierHost): DesktopNotificationChannel {
+  if (isCi(host)) {
+    return { kind: "disabled", reason: CI_NOTIFICATIONS_DISABLED };
+  }
   const setting = resolveTerminalNotificationSetting(host.env, host.terminalSetting);
   const protocol = selectTerminalNotificationProtocol(host.env, setting);
   if (protocol !== undefined && host.canWriteTerminal()) {
     return { kind: "terminal", protocol };
   }
+  if ((host.platform === "darwin" || host.platform === "linux") && !host.hasDesktopSession()) {
+    return { kind: "disabled", reason: NO_DESKTOP_SESSION };
+  }
   return { kind: "os" };
+}
+
+function isCi(host: DesktopNotifierHost): boolean {
+  return host.env["CI"] === "true" || host.env["CI"] === "1";
 }
 
 function titleWithSubtitle(notification: DesktopNotification): string {
@@ -178,6 +216,12 @@ export function desktopNotifierCommand(
   notification: DesktopNotification,
   host: DesktopNotifierHost = currentDesktopNotifierHost(),
 ): DesktopNotifierCommand {
+  if (isCi(host)) {
+    return { available: false, reason: CI_NOTIFICATIONS_DISABLED };
+  }
+  if ((host.platform === "darwin" || host.platform === "linux") && !host.hasDesktopSession()) {
+    return { available: false, reason: NO_DESKTOP_SESSION };
+  }
   if (host.platform === "darwin") {
     const terminalNotifier = host.resolveTerminalNotifier();
     if (terminalNotifier === null) {
@@ -201,12 +245,6 @@ export function desktopNotifierCommand(
     if (notifySend === null) {
       return { available: false, reason: NOTIFY_SEND_MISSING };
     }
-    const hasSession = LINUX_SESSION_VARIABLES.some(
-      (variable) => (host.env[variable] ?? "").length > 0,
-    );
-    if (!hasSession) {
-      return { available: false, reason: NO_DESKTOP_SESSION };
-    }
     return {
       available: true,
       command: notifySend,
@@ -220,7 +258,11 @@ export function desktopNotifierCommand(
 export function desktopNotifierUnavailableReason(
   host: DesktopNotifierHost = currentDesktopNotifierHost(),
 ): string | undefined {
-  if (desktopNotificationChannel(host).kind === "terminal") {
+  const channel = desktopNotificationChannel(host);
+  if (channel.kind === "disabled") {
+    return channel.reason;
+  }
+  if (channel.kind === "terminal") {
     return undefined;
   }
   const command = desktopNotifierCommand({ title: "", message: "" }, host);
@@ -261,7 +303,8 @@ function sendThroughOsNotifier(
  * sequence was written; a write that fails falls back to the OS notifier. Through the OS notifier
  * it is delivered only when the notifier started and did not exit with an error; a missing
  * notifier, a host without a desktop session, or a notifier that fails is a non-retryable
- * failure whose error says what to install or check. Without `host`, the current host with
+ * failure whose error says what to install or check. CI returns a non-retryable failure without
+ * writing to the terminal or launching a notifier. Without `host`, the current host with
  * `notifications.terminal` from the config is used.
  */
 export function sendDesktopNotification(
@@ -272,6 +315,9 @@ export function sendDesktopNotification(
   return Effect.gen(function* () {
     const resolvedHost = host ?? (yield* configuredDesktopNotifierHost());
     const channel = desktopNotificationChannel(resolvedHost);
+    if (channel.kind === "disabled") {
+      return { delivered: false, error: channel.reason, retryable: false } as const;
+    }
     if (channel.kind === "terminal") {
       const sequence = encodeTerminalNotification(
         { title: titleWithSubtitle(notification), body: notification.message },

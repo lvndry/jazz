@@ -1,3 +1,4 @@
+/** Regression coverage for desktop eligibility, terminal delivery and notifier process failures. */
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
@@ -25,6 +26,12 @@ function host(overrides: Partial<DesktopNotifierHost>): DesktopNotifierHost {
     env: {},
     resolveTerminalNotifier: () => "/opt/jazz/terminal-notifier",
     findNotifySend: () => "/usr/bin/notify-send",
+    hasDesktopSession: () =>
+      overrides.platform === "linux"
+        ? ["DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS"].some(
+            (variable) => (overrides.env?.[variable] ?? "").length > 0,
+          )
+        : true,
     canWriteTerminal: () => false,
     writeTerminal: () => false,
     ...overrides,
@@ -93,6 +100,31 @@ describe("launchDetached", () => {
 });
 
 describe("desktopNotifierCommand", () => {
+  test("refuses a macOS host without a graphical login session", () => {
+    expect(
+      desktopNotifierCommand(
+        { title: "Jazz", message: "hi" },
+        host({ hasDesktopSession: () => false }),
+      ),
+    ).toEqual({ available: false, reason: NO_DESKTOP_SESSION });
+  });
+
+  test("checks the Linux desktop session before looking for notify-send", () => {
+    let lookups = 0;
+    const command = desktopNotifierCommand(
+      { title: "Jazz", message: "hi" },
+      host({
+        platform: "linux",
+        findNotifySend: () => {
+          lookups += 1;
+          return null;
+        },
+      }),
+    );
+    expect(command).toEqual({ available: false, reason: NO_DESKTOP_SESSION });
+    expect(lookups).toBe(0);
+  });
+
   test("uses terminal-notifier on macOS", () => {
     const command = desktopNotifierCommand(
       { title: "Jazz", message: 'say "hi" \\ there', subtitle: "sub", sound: true },
@@ -149,6 +181,45 @@ describe("desktopNotifierCommand", () => {
 });
 
 describe("sendDesktopNotification", () => {
+  test("skips a headless macOS host outside CI", async () => {
+    const { calls, launch } = recordingLauncher({ launched: true });
+    const headless = host({ hasDesktopSession: () => false });
+    expect(isDesktopNotifierAvailable(headless)).toBe(false);
+    expect(
+      await Effect.runPromise(
+        sendDesktopNotification({ title: "Jazz", message: "hi" }, headless, launch),
+      ),
+    ).toEqual({ delivered: false, error: NO_DESKTOP_SESSION, retryable: false });
+    expect(calls).toEqual([]);
+  });
+
+  test.each(["true", "1"])(
+    "CI=%s disables both channels even with a desktop and terminal",
+    async (ci) => {
+      const terminal = recordingTerminal(true);
+      const { calls, launch } = recordingLauncher({ launched: true });
+      const ciHost = host({
+        env: { CI: ci, DISPLAY: ":0", TERM_PROGRAM: "ghostty" },
+        terminalSetting: "osc777",
+        ...terminal.overrides,
+      });
+      expect(isDesktopNotifierAvailable(ciHost)).toBe(false);
+      expect(desktopNotifierCommand({ title: "Jazz", message: "hi" }, ciHost).available).toBe(
+        false,
+      );
+      const outcome = await Effect.runPromise(
+        sendDesktopNotification({ title: "Jazz", message: "hi" }, ciHost, launch),
+      );
+      expect(outcome).toMatchObject({ delivered: false, retryable: false });
+      expect(terminal.written).toEqual([]);
+      expect(calls).toEqual([]);
+    },
+  );
+
+  test.each(["false", "0", ""])("CI=%s leaves desktop notifications available", (ci) => {
+    expect(isDesktopNotifierAvailable(host({ env: { CI: ci } }))).toBe(true);
+  });
+
   test("is delivered only when the notifier launched", async () => {
     const { calls, launch } = recordingLauncher({ launched: true });
     const outcome = await Effect.runPromise(
@@ -284,7 +355,12 @@ describe("the terminal channel", () => {
   test("a forced protocol reaches a terminal that is not detected, as over SSH", () => {
     expect(
       desktopNotificationChannel(
-        host({ env: {}, terminalSetting: "osc777", ...recordingTerminal(true).overrides }),
+        host({
+          env: {},
+          hasDesktopSession: () => false,
+          terminalSetting: "osc777",
+          ...recordingTerminal(true).overrides,
+        }),
       ),
     ).toEqual({ kind: "terminal", protocol: "osc777" });
   });
