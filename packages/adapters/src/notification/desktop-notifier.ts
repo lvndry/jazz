@@ -72,8 +72,8 @@ export interface DesktopNotifierHost {
   readonly env: NodeJS.ProcessEnv;
   readonly resolveTerminalNotifier: () => string | null;
   readonly findNotifySend: () => string | null;
-  /** Whether this user has an active macOS GUI launchd domain. */
-  readonly hasMacDesktopSession: () => boolean;
+  /** Whether the OS has a desktop session where notifications can appear. */
+  readonly hasDesktopSession: () => boolean;
   /** `notifications.terminal`; `JAZZ_NOTIFICATIONS_TERMINAL` in `env` wins over it. */
   readonly terminalSetting?: TerminalNotificationSetting;
   readonly canWriteTerminal: () => boolean;
@@ -98,21 +98,28 @@ export type DesktopNotifierCommand =
 export function currentDesktopNotifierHost(
   terminalSetting?: TerminalNotificationSetting,
 ): DesktopNotifierHost {
-  let macDesktopSession: boolean | undefined;
+  let desktopSession: boolean | undefined;
   return {
     platform: process.platform,
     env: process.env,
     resolveTerminalNotifier: resolveTerminalNotifierBinary,
     findNotifySend: () => findExecutableOnPath("notify-send"),
-    hasMacDesktopSession: () => (macDesktopSession ??= hasMacDesktopSession()),
+    hasDesktopSession: () =>
+      (desktopSession ??= detectDesktopSession(process.platform, process.env)),
     ...(terminalSetting !== undefined ? { terminalSetting } : {}),
     canWriteTerminal: canWriteControllingTerminal,
     writeTerminal: writeControllingTerminal,
   };
 }
 
-/** A macOS loginwindow creates this domain for a graphical user session. */
-function hasMacDesktopSession(): boolean {
+/** Detect a graphical session on each supported OS; a macOS loginwindow creates the GUI domain. */
+function detectDesktopSession(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): boolean {
+  if (platform === "linux") {
+    return LINUX_SESSION_VARIABLES.some((variable) => (env[variable] ?? "").length > 0);
+  }
+  if (platform !== "darwin") {
+    return false;
+  }
   const uid = process.getuid?.();
   if (uid === undefined) {
     return false;
@@ -151,7 +158,7 @@ export function desktopNotificationChannel(host: DesktopNotifierHost): DesktopNo
   if (protocol !== undefined && host.canWriteTerminal()) {
     return { kind: "terminal", protocol };
   }
-  if (host.platform === "darwin" && !host.hasMacDesktopSession()) {
+  if ((host.platform === "darwin" || host.platform === "linux") && !host.hasDesktopSession()) {
     return { kind: "disabled", reason: NO_DESKTOP_SESSION };
   }
   return { kind: "os" };
@@ -212,10 +219,10 @@ export function desktopNotifierCommand(
   if (isCi(host)) {
     return { available: false, reason: CI_NOTIFICATIONS_DISABLED };
   }
+  if ((host.platform === "darwin" || host.platform === "linux") && !host.hasDesktopSession()) {
+    return { available: false, reason: NO_DESKTOP_SESSION };
+  }
   if (host.platform === "darwin") {
-    if (!host.hasMacDesktopSession()) {
-      return { available: false, reason: NO_DESKTOP_SESSION };
-    }
     const terminalNotifier = host.resolveTerminalNotifier();
     if (terminalNotifier === null) {
       return { available: false, reason: TERMINAL_NOTIFIER_MISSING };
@@ -234,12 +241,6 @@ export function desktopNotifierCommand(
     return { available: true, command: terminalNotifier, args };
   }
   if (host.platform === "linux") {
-    const hasSession = LINUX_SESSION_VARIABLES.some(
-      (variable) => (host.env[variable] ?? "").length > 0,
-    );
-    if (!hasSession) {
-      return { available: false, reason: NO_DESKTOP_SESSION };
-    }
     const notifySend = host.findNotifySend();
     if (notifySend === null) {
       return { available: false, reason: NOTIFY_SEND_MISSING };

@@ -26,7 +26,12 @@ function host(overrides: Partial<DesktopNotifierHost>): DesktopNotifierHost {
     env: {},
     resolveTerminalNotifier: () => "/opt/jazz/terminal-notifier",
     findNotifySend: () => "/usr/bin/notify-send",
-    hasMacDesktopSession: () => true,
+    hasDesktopSession: () =>
+      overrides.platform === "linux"
+        ? ["DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS"].some(
+            (variable) => (overrides.env?.[variable] ?? "").length > 0,
+          )
+        : true,
     canWriteTerminal: () => false,
     writeTerminal: () => false,
     ...overrides,
@@ -99,7 +104,7 @@ describe("desktopNotifierCommand", () => {
     expect(
       desktopNotifierCommand(
         { title: "Jazz", message: "hi" },
-        host({ hasMacDesktopSession: () => false }),
+        host({ hasDesktopSession: () => false }),
       ),
     ).toEqual({ available: false, reason: NO_DESKTOP_SESSION });
   });
@@ -178,7 +183,7 @@ describe("desktopNotifierCommand", () => {
 describe("sendDesktopNotification", () => {
   test("skips a headless macOS host outside CI", async () => {
     const { calls, launch } = recordingLauncher({ launched: true });
-    const headless = host({ hasMacDesktopSession: () => false });
+    const headless = host({ hasDesktopSession: () => false });
     expect(isDesktopNotifierAvailable(headless)).toBe(false);
     expect(
       await Effect.runPromise(
@@ -352,7 +357,7 @@ describe("the terminal channel", () => {
       desktopNotificationChannel(
         host({
           env: {},
-          hasMacDesktopSession: () => false,
+          hasDesktopSession: () => false,
           terminalSetting: "osc777",
           ...recordingTerminal(true).overrides,
         }),
