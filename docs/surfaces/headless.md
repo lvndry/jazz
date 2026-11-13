@@ -78,13 +78,13 @@ model call and tool batch.
 
 `code` says why a run failed, so a script can branch without parsing `error`:
 
-| `code`             | Meaning                                                                                                             |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `failed`           | The run errored: provider, tool, configuration, or timeout                                                          |
-| `empty_response`   | The model returned an empty completion with zero tokens: usually a misconfigured or overloaded provider             |
-| `no_answer`        | The model stopped for a reason other than `stop` (for example `length`) before writing anything; see `finishReason` |
-| `content_filtered` | The provider's content filter withheld the answer                                                                   |
-| `interrupted`      | SIGINT or SIGTERM stopped the run; `signal` names which                                                             |
+| `code`             | Meaning                                                                                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `failed`           | The run errored: provider, tool, configuration, or timeout                                                                                                  |
+| `empty_response`   | The model returned an empty completion with zero tokens: usually a misconfigured or overloaded provider                                                     |
+| `no_answer`        | The model stopped before producing an answer. When `finishReason` is `length`, it reached its output token limit; other reasons appear in the error message |
+| `content_filtered` | The provider's content filter withheld the answer                                                                                                           |
+| `interrupted`      | SIGINT or SIGTERM stopped the run; `signal` names which                                                                                                     |
 
 A run that finishes without a usable answer is a failure, never `ok:true` with an empty
 `answer`.

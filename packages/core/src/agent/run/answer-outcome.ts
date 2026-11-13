@@ -123,6 +123,18 @@ export class NoUsableAnswerError extends Error {
   }
 }
 
+/** Explain a non-stop finish that left no usable answer, with details for known causes. */
+function formatNoAnswerMessage(finishReason: Exclude<FinishReason, "stop">): string {
+  switch (finishReason) {
+    case "length":
+      return "The model reached its output token limit before producing an answer.";
+    case "content-filter":
+      return "The provider's content filter withheld the model's answer.";
+    default:
+      return `The model stopped without answering (finish reason: ${finishReason}).`;
+  }
+}
+
 /**
  * Judge a run's final response.
  *
@@ -148,7 +160,7 @@ export function judgeAnswer(response: JudgedResponse): AnswerVerdict {
     return {
       kind: "failed",
       code: "content_filtered",
-      message: "The provider's content filter withheld the model's answer.",
+      message: formatNoAnswerMessage(finishReason),
     };
   }
 
@@ -157,7 +169,7 @@ export function judgeAnswer(response: JudgedResponse): AnswerVerdict {
     return {
       kind: "failed",
       code: "no_answer",
-      message: `The model stopped without answering (finish reason: ${finishReason}).`,
+      message: formatNoAnswerMessage(finishReason),
     };
   }
   if (!hasAnswer && response.emptyCompletion === true) {
