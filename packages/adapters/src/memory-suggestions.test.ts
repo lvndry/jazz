@@ -12,7 +12,6 @@ import { quotedSentenceKeys } from "@jazz/core/memory/source-trust";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect, type FileSystem } from "effect";
 import { MemoryServiceImpl } from "./memory-service";
-import { MAX_PENDING_SUGGESTIONS } from "./memory-suggestions";
 
 let tmpDir: string;
 
@@ -74,21 +73,18 @@ describe("lesson proposals", () => {
     expect(await runEffect(service.pendingSuggestions())).toHaveLength(1);
   });
 
-  test("a full queue refuses a new proposal instead of dropping a waiting one", async () => {
+  test("more than 40 distinct proposals remain available for review", async () => {
     const service = makeService();
-    for (let index = 0; index < MAX_PENDING_SUGGESTIONS; index += 1) {
-      await runEffect(
+    for (let index = 0; index < 45; index += 1) {
+      const outcome = await runEffect(
         service.proposeLesson({ ...priorArt, rule: `Rule number ${String(index)}.` }),
       );
+      expect(outcome.success).toBe(true);
     }
-    const overflow = await runEffect(
-      service.proposeLesson({ ...priorArt, rule: "One more rule." }),
-    );
-
-    expect(overflow.success).toBe(false);
     const pending = await runEffect(service.pendingSuggestions());
-    expect(pending).toHaveLength(MAX_PENDING_SUGGESTIONS);
+    expect(pending).toHaveLength(45);
     expect(pending[0]).toMatchObject({ kind: "lesson", rule: "Rule number 0." });
+    expect(pending[44]).toMatchObject({ kind: "lesson", rule: "Rule number 44." });
   });
 
   test("accepting saves the rule under its situation as a lesson and dequeues it", async () => {

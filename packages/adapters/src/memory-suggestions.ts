@@ -26,14 +26,6 @@ import { Effect, FileSystem } from "effect";
 
 const QUEUE_FILENAME = ".pending-memory.json";
 
-/**
- * Suggestions waiting at once. A person reviews these by hand, so past this a new one is refused
- * rather than an old one dropped: an unreviewed suggestion is never discarded without being seen.
- * Sized for several compaction passes between reviews, each of which can queue up to six facts
- * and three lessons.
- */
-export const MAX_PENDING_SUGGESTIONS = 40;
-
 /** Bytes of randomness in a suggestion id: 6 hex characters, short enough to type. */
 const SUGGESTION_ID_BYTES = 3;
 
@@ -205,12 +197,6 @@ function enqueue<Suggestion extends MemorySuggestion>(
         success: true,
         message: "This is already waiting for review.",
         suggestion: duplicate as Suggestion,
-      };
-    }
-    if (queue.suggestions.length >= MAX_PENDING_SUGGESTIONS) {
-      return {
-        success: false,
-        message: `${MAX_PENDING_SUGGESTIONS} memory suggestions are already waiting for review; this one was not added.`,
       };
     }
     yield* writeQueue(memoryDirectory, { suggestions: [...queue.suggestions, suggestion] });

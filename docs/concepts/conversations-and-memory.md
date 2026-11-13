@@ -187,8 +187,10 @@ memory first, does not duplicate an entry that already covers the fact, and amen
 has gone stale. Saving nothing is the common outcome.
 
 Nothing this pass picks is saved straight away: each pick waits for review alongside lessons
-(see below), and the turn ends with a line saying how many are waiting. The pass is one extra
-model call, and its cost counts toward the run's caps. A manual `/compact` does not run it.
+(see below). Chat shows the waiting count when it opens and reminds you to run `/memory review`
+when new suggestions bring the backlog to 10, 20, 30, and so on. There is no backlog cap. The
+pass is one extra model call, and its cost counts toward the run's caps. A manual `/compact` does
+not run it.
 
 Both passes can write only what they can quote from your messages (see below), and neither runs
 when persistence is off: `--ephemeral` on `jazz run` or `jazz agent chat`, or a run answering a peer.
