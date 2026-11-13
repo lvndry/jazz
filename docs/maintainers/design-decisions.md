@@ -257,7 +257,8 @@ non-waiting one. What differs is who owns the supervisor:
   started it (the browser, typed secrets) is released once that turn's children have all finished,
   and spend a child reports after its turn was recorded goes to the ledger as a further entry under
   the turn's run id. A message the user sends ends a `wait_subagents` early, so a parent waiting on
-  its children never holds the user off.
+  its children never holds the user off. The wait has no time limit of its own: it ends when the
+  children settle, the user writes, or the run's time budget runs out.
 
 **Alternatives rejected.** Keeping a mode where the spawn call blocks until the child answers: it
 saves one model call when a single child is started and awaited at once, but it is a second

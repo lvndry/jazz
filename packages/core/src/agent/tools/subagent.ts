@@ -882,31 +882,22 @@ function childWork(
 
 // ─── Background Sub-Agent Tools ──────────────────────────────────────
 
-/** Longest single wait_subagents call; a longer wait is several calls. */
-const MAX_WAIT_SECONDS = 30 * 60;
-const DEFAULT_WAIT_SECONDS = 600;
-
 const listSubagentsSchema = z.object({});
 
-const waitSubagentsSchema = z.object({
-  ids: z
-    .array(z.string())
-    .optional()
-    .describe("agentIds to wait for; omit for every sub-agent you started."),
-  until: z
-    .enum(["any", "all"])
-    .optional()
-    .describe(
-      "all (default) returns once none is still running; any once one finishes or needs you.",
-    ),
-  timeoutSeconds: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_WAIT_SECONDS)
-    .optional()
-    .describe(`Longest wait, default ${String(DEFAULT_WAIT_SECONDS)}.`),
-});
+const waitSubagentsSchema = z
+  .object({
+    ids: z
+      .array(z.string())
+      .optional()
+      .describe("agentIds to wait for; omit for every sub-agent you started."),
+    until: z
+      .enum(["any", "all"])
+      .optional()
+      .describe(
+        "all (default) returns once none is still running; any once one finishes or needs you.",
+      ),
+  })
+  .strict();
 
 const steerSubagentSchema = z.object({
   id: z.string().describe("The agentId spawn_subagent or map_subagents returned."),
@@ -1099,9 +1090,8 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "wait_subagents",
       disclosure: "private",
       longRunning: true,
-      timeoutMs: MAX_WAIT_SECONDS * 1000,
       description:
-        "Wait for sub-agents and get their answers in one call: until all (default) returns once none is still running, until any once one finishes or is paused. Each answer comes once; a long one comes as a preview whose resultNote says how to read the whole answer. Use it instead of checking list_subagents repeatedly.",
+        "Wait for sub-agents and get their answers in one call: until all (default) returns once none is still running, until any once one finishes or is paused. It waits until they settle, with no time limit of its own; a user message or the run's time budget can end the wait early. Each answer comes once; a long one comes as a preview whose resultNote says how to read the whole answer. Use it instead of checking list_subagents repeatedly.",
       parameters: waitSubagentsSchema,
       hidden: false,
       peerGrantRequired: true,
@@ -1126,10 +1116,8 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           const waited = yield* supervisor.wait(
             ids,
             args.until ?? "all",
-            (args.timeoutSeconds ?? DEFAULT_WAIT_SECONDS) * 1000,
             context.awaitQueuedMessage?.(),
           );
-          const timedOut = waited.outcome === "timed-out";
           const note =
             waited.outcome === "interrupted"
               ? supervisor.outlivesRuns
@@ -1142,14 +1130,13 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             (fitted) =>
               JSON.stringify({
                 subagents: fitted,
-                timedOut,
                 ...(note !== undefined ? { note } : {}),
               }),
           );
           const untrusted = combinedProvenance(subagents);
           return {
             success: true,
-            result: { subagents, timedOut, ...(note !== undefined ? { note } : {}) },
+            result: { subagents, ...(note !== undefined ? { note } : {}) },
             ...(untrusted !== undefined ? { untrusted } : {}),
           };
         }),

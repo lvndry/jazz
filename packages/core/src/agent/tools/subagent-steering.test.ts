@@ -162,7 +162,6 @@ describe("sub-agents the parent steers", () => {
     await Effect.runPromise(Deferred.succeed(children.answers[0]!, "Lisbon, €84 return"));
     const waited = await waiting;
     expect(waited.result).toMatchObject({
-      timedOut: false,
       subagents: [{ id: agentId, status: "completed", result: "Lisbon, €84 return" }],
     });
   });
@@ -403,5 +402,12 @@ describe("sub-agents the parent steers", () => {
     const result = await call("wait_subagents", { ids: ["sa-999"] }, supervisor);
     expect(result.success).toBe(false);
     expect(result.error).toContain("sa-999");
+  });
+
+  it("waits without a timeout of its own and rejects a timeout argument", () => {
+    const waitTool = tool("wait_subagents");
+    expect(waitTool.timeoutMs).toBeUndefined();
+    expect(waitTool.parameters.safeParse({}).success).toBe(true);
+    expect(waitTool.parameters.safeParse({ timeoutSeconds: 60 }).success).toBe(false);
   });
 });

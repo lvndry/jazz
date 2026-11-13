@@ -29,8 +29,7 @@ function finished(id: string, result: unknown, extra: Partial<SubagentSnapshot> 
   } satisfies SubagentSnapshot;
 }
 
-const serialize = (subagents: readonly SubagentSnapshot[]) =>
-  JSON.stringify({ subagents, timedOut: false });
+const serialize = (subagents: readonly SubagentSnapshot[]) => JSON.stringify({ subagents });
 
 function report(chars: number): string {
   const line = 'Finding: "sovereign AI" demand, cited [S1]\n';

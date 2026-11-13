@@ -14,7 +14,7 @@ const answerRef = await Effect.runPromise(
     const answer = { report: "the whole report" };
     const child = supervisor.register({ name: "digest" });
     yield* supervisor.start(child.id, Effect.succeed({ success: true, result: answer }));
-    const first = yield* supervisor.wait([], "all", 5_000);
+    const first = yield* supervisor.wait([], "all");
     assert.equal(first.subagents[0]?.result, answer);
     return new WeakRef(answer);
   }),
@@ -33,7 +33,7 @@ async function awaitCollection(reference: WeakRef<object>): Promise<void> {
 
 await awaitCollection(answerRef);
 assert.equal(answerRef.deref(), undefined, "the supervisor still retains a collected answer");
-const reread = await Effect.runPromise(supervisor.wait([], "all", 5_000));
+const reread = await Effect.runPromise(supervisor.wait([], "all"));
 assert.equal(reread.subagents[0]?.status, "completed");
 assert.equal(reread.subagents[0]?.alreadyRead, true);
 await Effect.runPromise(supervisor.close());
