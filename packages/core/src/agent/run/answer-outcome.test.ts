@@ -21,7 +21,9 @@ describe("judgeAnswer", () => {
       const verdict = judgeAnswer({ content: "  ", finishReason });
 
       expect(verdict.kind === "failed" && verdict.code).toBe("no_answer");
-      expect(verdict.kind === "failed" && verdict.message).toContain(finishReason);
+      expect(verdict.kind === "failed" && verdict.message).toBe(
+        `The model stopped without answering (finish reason: ${finishReason}).`,
+      );
     }
   });
 
@@ -37,6 +39,9 @@ describe("judgeAnswer", () => {
     const verdict = judgeAnswer({ content: "partial", finishReason: "content-filter" });
 
     expect(verdict.kind === "failed" && verdict.code).toBe("content_filtered");
+    expect(verdict.kind === "failed" && verdict.message).toBe(
+      "The provider's content filter withheld the model's answer.",
+    );
   });
 
   it("keeps a cut-off answer but marks it truncated", () => {
