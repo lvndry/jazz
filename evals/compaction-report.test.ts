@@ -2,7 +2,10 @@
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
+  closeSync,
+  constants,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
   statSync,
@@ -51,11 +54,20 @@ test("rejects a symlink without changing its target contents or permissions", ()
   expect(statSync(target).mode).toBe(originalMode);
 });
 
-test("rejects a directory and an unopened FIFO without blocking", () => {
+test("rejects directories and FIFOs before changing permissions or blocking", () => {
   const directory = temporaryDirectory();
   expect(() => saveReport(directory, {})).toThrow();
   const output = join(directory, "report.fifo");
   execFileSync("mkfifo", [output]);
   expect(() => saveReport(output, {})).toThrow();
   expect(statSync(output).isFIFO()).toBe(true);
+  chmodSync(output, 0o644);
+  const originalMode = statSync(output).mode;
+  const reader = openSync(output, constants.O_RDONLY | constants.O_NONBLOCK);
+  try {
+    expect(() => saveReport(output, {})).toThrow("must be a regular file");
+    expect(statSync(output).mode).toBe(originalMode);
+  } finally {
+    closeSync(reader);
+  }
 });
