@@ -37,9 +37,13 @@ async function detectPublicIp(fetchAddress: AddressFetch): Promise<string> {
   try {
     while (true) {
       const chunk = await reader.read();
-      if (chunk.done) break;
+      if (chunk.done) {
+        break;
+      }
       bytes += chunk.value.byteLength;
-      if (bytes > MAX_PUBLIC_IP_BYTES) throw new Error("public IP lookup returned too much data");
+      if (bytes > MAX_PUBLIC_IP_BYTES) {
+        throw new Error("public IP lookup returned too much data");
+      }
       body += decoder.decode(chunk.value, { stream: true });
     }
     body += decoder.decode();
@@ -48,7 +52,9 @@ async function detectPublicIp(fetchAddress: AddressFetch): Promise<string> {
     reader.releaseLock();
   }
   const address = body.trim();
-  if (isIP(address) !== 4) throw new Error("public IP lookup returned an invalid IPv4 address");
+  if (isIP(address) !== 4) {
+    throw new Error("public IP lookup returned an invalid IPv4 address");
+  }
   return address;
 }
 
@@ -68,10 +74,11 @@ export function resolvePeerInviteOrigin(
           url.hash !== "" ||
           url.username !== "" ||
           url.password !== ""
-        )
+        ) {
           throw new Error(
             "--public-url must be an HTTP(S) origin without a path, query, fragment, or credentials",
           );
+        }
         return url.origin;
       }
       if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65_535) {

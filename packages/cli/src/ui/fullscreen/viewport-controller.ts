@@ -101,10 +101,14 @@ function occurrenceRow(
   occurrence: number | undefined,
 ): number | undefined {
   const first = index.sourceRow(source);
-  if (first === undefined) return undefined;
+  if (first === undefined) {
+    return undefined;
+  }
   let row = first;
   for (let step = 0; step < (occurrence ?? 0); step++) {
-    if (!sameSource(index.sourceAt(row + 1), source)) break;
+    if (!sameSource(index.sourceAt(row + 1), source)) {
+      break;
+    }
     row += 1;
   }
   return row;
@@ -112,7 +116,9 @@ function occurrenceRow(
 
 function anchorAt(index: ViewportRowIndex, top: number): Anchor | undefined {
   const source = index.sourceAt(top);
-  if (source === undefined) return undefined;
+  if (source === undefined) {
+    return undefined;
+  }
   let occurrence = 0;
   while (sameSource(index.sourceAt(top - occurrence - 1), source)) {
     occurrence += 1;
@@ -133,7 +139,9 @@ function resolveAnchor(
   anchor: Anchor | undefined,
   fallback: number,
 ): number {
-  if (anchor === undefined) return fallback;
+  if (anchor === undefined) {
+    return fallback;
+  }
   return (
     occurrenceRow(index, anchor.source, anchor.occurrence) ??
     (anchor.neighborAfter === undefined ? undefined : index.sourceRow(anchor.neighborAfter)) ??
@@ -144,7 +152,9 @@ function resolveAnchor(
 
 function tailSource(index: ViewportRowIndex): Anchor | undefined {
   const anchor = anchorAt(index, index.length - 1);
-  if (anchor === undefined) return undefined;
+  if (anchor === undefined) {
+    return undefined;
+  }
   return {
     ...anchor,
     source: { ...anchor.source, start: Math.max(anchor.source.start, anchor.source.end - 1) },
@@ -154,9 +164,13 @@ function tailSource(index: ViewportRowIndex): Anchor | undefined {
 /** A removed live tail resolves to its preceding receipt, not the start of its old document. */
 function seenTailRow(index: ViewportRowIndex, anchor: Anchor): number | undefined {
   const source = anchor.source;
-  if (index.hasPart(source)) return occurrenceRow(index, source, anchor.occurrence);
+  if (index.hasPart(source)) {
+    return occurrenceRow(index, source, anchor.occurrence);
+  }
   const bounds = index.blockBounds(source.blockId);
-  if (bounds !== undefined) return bounds.last;
+  if (bounds !== undefined) {
+    return bounds.last;
+  }
   if (anchor.neighborBefore !== undefined) {
     return seenTailRow(index, {
       source: {

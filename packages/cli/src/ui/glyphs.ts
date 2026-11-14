@@ -316,8 +316,12 @@ const UNICODE: GlyphSet = {
  */
 export function resolveGlyphMode(): GlyphMode {
   const raw = (process.env["JAZZ_UI_GLYPHS"] ?? "").toLowerCase();
-  if (raw === "unicode") return "unicode";
-  if (raw === "ascii") return "ascii";
+  if (raw === "unicode") {
+    return "unicode";
+  }
+  if (raw === "ascii") {
+    return "ascii";
+  }
   return detectGlyphMode();
 }
 
@@ -336,16 +340,24 @@ const UNICODE_CAPABLE_TERM_PROGRAMS = new Set([
 
 function detectGlyphMode(): GlyphMode {
   const term = (process.env["TERM"] ?? "").toLowerCase();
-  if (term === "dumb" || term === "linux") return "ascii";
+  if (term === "dumb" || term === "linux") {
+    return "ascii";
+  }
 
   const locale = process.env["LC_ALL"] ?? process.env["LC_CTYPE"] ?? process.env["LANG"] ?? "";
-  if (/utf-?8/i.test(locale)) return "unicode";
+  if (/utf-?8/i.test(locale)) {
+    return "unicode";
+  }
 
   const termProgram = (process.env["TERM_PROGRAM"] ?? "").toLowerCase();
-  if (UNICODE_CAPABLE_TERM_PROGRAMS.has(termProgram)) return "unicode";
+  if (UNICODE_CAPABLE_TERM_PROGRAMS.has(termProgram)) {
+    return "unicode";
+  }
 
   // Windows Terminal exposes no locale vars but handles Unicode fine.
-  if (process.env["WT_SESSION"] !== undefined) return "unicode";
+  if (process.env["WT_SESSION"] !== undefined) {
+    return "unicode";
+  }
 
   return "ascii";
 }

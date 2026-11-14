@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { HTTPRequest, Page } from "puppeteer-core";
+import { partialFake } from "@/core/test-support/fakes";
 import { decidePageRequest, guardPageRequests } from "./guarded-page";
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
@@ -49,21 +50,21 @@ describe("guarded page file requests", () => {
 
   it("answers an intercepted request with the redacted body", async () => {
     let listener: ((request: HTTPRequest) => void) | undefined;
-    const page = {
+    const page = partialFake<Page>({
       setRequestInterception: () => Promise.resolve(),
       on: (_event: string, handler: (request: HTTPRequest) => void) => {
         listener = handler;
       },
-    } as unknown as Page;
+    });
     await guardPageRequests(page, join(pageDirectory, "index.html"), {}, known);
 
     const responded = new Promise<unknown>((resolve) => {
-      const request = {
+      const request = partialFake<HTTPRequest>({
         url: () => pathToFileURL(join(pageDirectory, ".env")).href,
         continue: () => Promise.resolve(resolve("continue")),
         abort: () => Promise.resolve(resolve("abort")),
         respond: (response: unknown) => Promise.resolve(resolve(response)),
-      } as unknown as HTTPRequest;
+      });
       listener?.(request);
     });
 

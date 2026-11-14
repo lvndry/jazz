@@ -95,7 +95,9 @@ function splitVisibleAtSeparators(
         break;
       }
     }
-    if (breakAt === -1) breakAt = windowEnd;
+    if (breakAt === -1) {
+      breakAt = windowEnd;
+    }
     pieces.push(chars.slice(start, breakAt).join(""));
     start = breakAt;
   }
@@ -116,7 +118,9 @@ function partitionLinkDisplay(
   rest = rest.slice(open.length);
   const close = rest.match(TRAILING_SGR_REGEX)?.[0] ?? "";
   rest = rest.slice(0, rest.length - close.length);
-  if (stripAnsiCodes(rest) !== rest) return null;
+  if (stripAnsiCodes(rest) !== rest) {
+    return null;
+  }
   return { open, visible: rest, close };
 }
 
@@ -132,7 +136,9 @@ function partitionLinkDisplay(
  */
 function breakLongLinkSpans(text: string, width: number): string {
   OSC8_LINK_SPAN_REGEX.lastIndex = 0;
-  if (!OSC8_LINK_SPAN_REGEX.test(text)) return text;
+  if (!OSC8_LINK_SPAN_REGEX.test(text)) {
+    return text;
+  }
   OSC8_LINK_SPAN_REGEX.lastIndex = 0;
 
   let result = "";
@@ -181,7 +187,9 @@ function breakLongLinkSpans(text: string, width: number): string {
  * @param availableWidth - number of visible character columns available
  */
 export function wrapToWidth(text: string, availableWidth: number): string {
-  if (!text || text.length === 0) return text;
+  if (!text || text.length === 0) {
+    return text;
+  }
   const width = Math.max(availableWidth, MIN_WRAP_WIDTH);
   return wrapAnsi(breakLongLinkSpans(text, width), width, { trim: false, hard: true });
 }

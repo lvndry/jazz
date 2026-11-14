@@ -18,8 +18,8 @@ export const tasks: EvalTask[] = [
     },
     check(result) {
       return constraintCheck(result, [
-        { name: "day", test: (a) => /thursday/i.test(a) },
-        { name: "time", test: (a) => /2\s*pm|14:00|2:00/i.test(a) },
+        { name: "day", test: (answer) => /thursday/i.test(answer) },
+        { name: "time", test: (answer) => /2\s*pm|14:00|2:00/i.test(answer) },
       ]);
     },
   },

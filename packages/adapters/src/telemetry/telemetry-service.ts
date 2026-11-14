@@ -205,8 +205,12 @@ export class TelemetryServiceImpl implements TelemetryService {
     data: Parameters<TelemetryService["recordLLMUsage"]>[0],
   ): Effect.Effect<void, TelemetryError> {
     const opts: { agentId?: string; conversationId?: string } = {};
-    if (data.agentId !== undefined) opts.agentId = data.agentId;
-    if (data.conversationId !== undefined) opts.conversationId = data.conversationId;
+    if (data.agentId !== undefined) {
+      opts.agentId = data.agentId;
+    }
+    if (data.conversationId !== undefined) {
+      opts.conversationId = data.conversationId;
+    }
     return this.appendEvent("llm_usage", { ...data, process: sampleProcessResources() }, opts);
   }
 
@@ -214,8 +218,12 @@ export class TelemetryServiceImpl implements TelemetryService {
     data: Parameters<TelemetryService["recordLLMRetry"]>[0],
   ): Effect.Effect<void, TelemetryError> {
     const opts: { agentId?: string; conversationId?: string } = {};
-    if (data.agentId !== undefined) opts.agentId = data.agentId;
-    if (data.conversationId !== undefined) opts.conversationId = data.conversationId;
+    if (data.agentId !== undefined) {
+      opts.agentId = data.agentId;
+    }
+    if (data.conversationId !== undefined) {
+      opts.conversationId = data.conversationId;
+    }
     return this.appendEvent("llm_retry", data, opts);
   }
 
@@ -224,8 +232,12 @@ export class TelemetryServiceImpl implements TelemetryService {
   ): Effect.Effect<void, TelemetryError> {
     const eventType: TelemetryEventType = data.success ? "tool_invocation" : "tool_error";
     const opts: { agentId?: string; conversationId?: string } = {};
-    if (data.agentId !== undefined) opts.agentId = data.agentId;
-    if (data.conversationId !== undefined) opts.conversationId = data.conversationId;
+    if (data.agentId !== undefined) {
+      opts.agentId = data.agentId;
+    }
+    if (data.conversationId !== undefined) {
+      opts.conversationId = data.conversationId;
+    }
     return this.appendEvent(eventType, { ...data, process: sampleProcessResources() }, opts);
   }
 
@@ -239,8 +251,12 @@ export class TelemetryServiceImpl implements TelemetryService {
     data: Parameters<TelemetryService["recordProcessSample"]>[0],
   ): Effect.Effect<void, TelemetryError> {
     const opts: { agentId?: string; conversationId?: string } = {};
-    if (data.agentId !== undefined) opts.agentId = data.agentId;
-    if (data.conversationId !== undefined) opts.conversationId = data.conversationId;
+    if (data.agentId !== undefined) {
+      opts.agentId = data.agentId;
+    }
+    if (data.conversationId !== undefined) {
+      opts.conversationId = data.conversationId;
+    }
     return this.appendEvent("process_sample", data, opts);
   }
 
@@ -251,38 +267,40 @@ export class TelemetryServiceImpl implements TelemetryService {
   ): Effect.Effect<readonly TelemetryEvent[], TelemetryError> {
     return Effect.gen(
       function* (this: TelemetryServiceImpl) {
-        if (!this.enabled) return [];
+        if (!this.enabled) {
+          return [];
+        }
 
         const allEvents = yield* this.loadAllEvents();
         let filtered = allEvents;
 
         if (options?.types && options.types.length > 0) {
           const typeSet = new Set(options.types);
-          filtered = filtered.filter((e) => typeSet.has(e.type));
+          filtered = filtered.filter((event) => typeSet.has(event.type));
         }
 
         if (options?.agentId) {
           const agentId = options.agentId;
-          filtered = filtered.filter((e) => e.agentId === agentId);
+          filtered = filtered.filter((event) => event.agentId === agentId);
         }
 
         if (options?.conversationId) {
           const conversationId = options.conversationId;
-          filtered = filtered.filter((e) => e.conversationId === conversationId);
+          filtered = filtered.filter((event) => event.conversationId === conversationId);
         }
 
         if (options?.from) {
           const from = options.from;
-          filtered = filtered.filter((e) => e.timestamp >= from);
+          filtered = filtered.filter((event) => event.timestamp >= from);
         }
 
         if (options?.to) {
           const to = options.to;
-          filtered = filtered.filter((e) => e.timestamp <= to);
+          filtered = filtered.filter((event) => event.timestamp <= to);
         }
 
         // Sort by timestamp descending (most recent first)
-        filtered.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+        filtered.sort((left, right) => right.timestamp.localeCompare(left.timestamp));
 
         const offset = options?.offset ?? 0;
         const limit = options?.limit ?? filtered.length;
@@ -298,16 +316,24 @@ export class TelemetryServiceImpl implements TelemetryService {
   }): Effect.Effect<UsageSummary, TelemetryError> {
     return Effect.gen(
       function* (this: TelemetryServiceImpl) {
-        if (!this.enabled) return emptyUsageSummary();
+        if (!this.enabled) {
+          return emptyUsageSummary();
+        }
 
         const queryOpts: {
           from?: string;
           to?: string;
           agentId?: string;
         } = {};
-        if (options?.from !== undefined) queryOpts.from = options.from;
-        if (options?.to !== undefined) queryOpts.to = options.to;
-        if (options?.agentId !== undefined) queryOpts.agentId = options.agentId;
+        if (options?.from !== undefined) {
+          queryOpts.from = options.from;
+        }
+        if (options?.to !== undefined) {
+          queryOpts.to = options.to;
+        }
+        if (options?.agentId !== undefined) {
+          queryOpts.agentId = options.agentId;
+        }
         const events = yield* this.getEvents(queryOpts);
 
         return this.aggregateUsage(events);
@@ -359,7 +385,9 @@ export class TelemetryServiceImpl implements TelemetryService {
 
   private startRunSampler(runId: string, agentId: string, conversationId: string): void {
     this.stopRunSampler(runId);
-    if (!this.enabled || this.processSampleIntervalMs <= 0) return;
+    if (!this.enabled || this.processSampleIntervalMs <= 0) {
+      return;
+    }
 
     const timer = setInterval(() => {
       void Effect.runPromise(
@@ -379,7 +407,9 @@ export class TelemetryServiceImpl implements TelemetryService {
 
   private stopRunSampler(runId: string): void {
     const timer = this.runSamplers.get(runId);
-    if (timer === undefined) return;
+    if (timer === undefined) {
+      return;
+    }
     clearInterval(timer);
     this.runSamplers.delete(runId);
   }
@@ -397,7 +427,9 @@ export class TelemetryServiceImpl implements TelemetryService {
   ): Effect.Effect<void, TelemetryError> {
     return Effect.gen(
       function* (this: TelemetryServiceImpl) {
-        if (!this.enabled) return;
+        if (!this.enabled) {
+          return;
+        }
 
         const event: TelemetryEvent = {
           id: randomUUID(),
@@ -466,7 +498,9 @@ export class TelemetryServiceImpl implements TelemetryService {
 
   private boundPending(events: TelemetryEvent[]): TelemetryEvent[] {
     const ceiling = this.bufferSize * MAX_BUFFER_MULTIPLIER;
-    if (events.length <= ceiling) return events;
+    if (events.length <= ceiling) {
+      return events;
+    }
     const dropped = events.length - ceiling;
     this.onEventsDropped(dropped);
     return events.slice(dropped);
@@ -478,7 +512,9 @@ export class TelemetryServiceImpl implements TelemetryService {
 
   private loadAllEvents(): Effect.Effect<TelemetryEvent[], TelemetryError> {
     const reader = this.sinks.find(isEventReader);
-    if (!reader) return Effect.succeed([...this.buffer]);
+    if (!reader) {
+      return Effect.succeed([...this.buffer]);
+    }
 
     return Effect.tryPromise({
       try: async () => [
@@ -503,7 +539,9 @@ export class TelemetryServiceImpl implements TelemetryService {
     const fileSink = this.sinks.find(
       (sink): sink is FileTelemetrySink => sink instanceof FileTelemetrySink,
     );
-    if (!fileSink) return Effect.succeed(0);
+    if (!fileSink) {
+      return Effect.succeed(0);
+    }
 
     return Effect.tryPromise({
       try: () => fileSink.prune(),
@@ -751,7 +789,7 @@ export function createTelemetryServiceLayer(): Layer.Layer<
           });
           sinks.push(metricsSink);
         }
-        if (otlpConfig.signals.some((signal) => signal === "traces" || signal === "logs"))
+        if (otlpConfig.signals.some((signal) => signal === "traces" || signal === "logs")) {
           sinks.push(
             new OtlpTelemetrySink(otlpConfig, packageJson.version, {
               outboxPath: storagePath,
@@ -768,6 +806,7 @@ export function createTelemetryServiceLayer(): Layer.Layer<
               },
             }),
           );
+        }
       }
 
       yield* logger.debug("Telemetry service initialized", {
@@ -792,7 +831,9 @@ export function createTelemetryServiceLayer(): Layer.Layer<
         sinks,
         ...(metricsSink ? { metricsSink } : {}),
         onSinkError: (sinkName) => {
-          if (sinkName === "otlp-metrics") metricsSink?.recordExportFailure("metrics", "sink");
+          if (sinkName === "otlp-metrics") {
+            metricsSink?.recordExportFailure("metrics", "sink");
+          }
           Effect.runFork(
             logger.warn("Telemetry sink write failed", {
               sink:

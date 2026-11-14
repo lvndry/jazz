@@ -17,12 +17,16 @@
  */
 export function normalizeHandle(handle: string): string {
   const trimmed = handle.trim().toLowerCase();
-  if (trimmed.includes("@")) return trimmed;
+  if (trimmed.includes("@")) {
+    return trimmed;
+  }
 
   const digits = trimmed.replace(/[\s()\-.]/g, "");
   // `00` is the international prefix in most of the world and `+` is the same
   // thing; normalising one to the other lets a person write either.
-  if (digits.startsWith("00")) return `+${digits.slice(2)}`;
+  if (digits.startsWith("00")) {
+    return `+${digits.slice(2)}`;
+  }
   return digits;
 }
 

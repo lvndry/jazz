@@ -388,7 +388,9 @@ export class ChatServiceImpl implements ChatService {
       ): Effect.Effect<void> =>
         Effect.gen(function* () {
           const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
-          if (Option.isNone(runtimeOption)) return;
+          if (Option.isNone(runtimeOption)) {
+            return;
+          }
           yield* runtimeOption.value.emitLifecycleEvent({
             event,
             agentId: agent.id,
@@ -475,7 +477,9 @@ export class ChatServiceImpl implements ChatService {
         ).pipe(
           Effect.tap((revision) =>
             Effect.sync(() => {
-              if (revision !== null) savedRevision = revision;
+              if (revision !== null) {
+                savedRevision = revision;
+              }
             }),
           ),
           Effect.asVoid,
@@ -1163,7 +1167,7 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.removeAutoApprovedCommand) {
               autoApprovedCommands = autoApprovedCommands.filter(
-                (c) => c !== commandResult.removeAutoApprovedCommand,
+                (command) => command !== commandResult.removeAutoApprovedCommand,
               );
             }
 
@@ -1534,9 +1538,13 @@ export class ChatServiceImpl implements ChatService {
           );
 
           for (const cmd of autoApprovedCommands) {
-            if (persistedSet.has(cmd)) continue;
+            if (persistedSet.has(cmd)) {
+              continue;
+            }
             const record = approvals[cmd];
-            if (!record || record.sessionCount < record.nextPromptAt) continue;
+            if (!record || record.sessionCount < record.nextPromptAt) {
+              continue;
+            }
 
             const promote = yield* terminal.confirm(
               `You've approved "${cmd}" in ${record.sessionCount} sessions. Always approve it?`,

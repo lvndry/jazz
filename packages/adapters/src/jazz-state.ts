@@ -99,12 +99,12 @@ function deepGet(obj: Record<string, unknown>, path: string): unknown {
 function deepSet(obj: Record<string, unknown>, path: string, value: unknown): void {
   const parts = path.split(".").filter(Boolean);
   let current: Record<string, unknown> = obj;
-  for (let i = 0; i < parts.length; i++) {
-    const key = parts[i] as string;
+  for (let index = 0; index < parts.length; index++) {
+    const key = parts[index] as string;
     if (FORBIDDEN_KEYS.has(key)) {
       return;
     }
-    if (i === parts.length - 1) {
+    if (index === parts.length - 1) {
       current[key] = value;
     } else {
       const next = current[key];

@@ -33,7 +33,9 @@ export function parseServerNameFromToolName(
 
   for (const serverName of knownServerNames) {
     const prefix = `mcp_${serverName.toLowerCase()}_`;
-    if (!lowerToolName.startsWith(prefix)) continue;
+    if (!lowerToolName.startsWith(prefix)) {
+      continue;
+    }
     // Longest wins, so a server named `railway` cannot claim a tool that
     // belongs to a more specific `railway_staging`.
     if (bestMatch === undefined || serverName.length > bestMatch.length) {

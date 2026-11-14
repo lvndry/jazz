@@ -76,10 +76,14 @@ export function mountFullscreenApp(options: FullscreenMountOptions = {}): Fullsc
   const mount = options.mount ?? mountFullscreen;
 
   const fail = (error: unknown): void => {
-    if (released || failureScheduled) return;
+    if (released || failureScheduled) {
+      return;
+    }
     failureScheduled = true;
     queueMicrotask(() => {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
       try {
         teardown?.();
@@ -118,12 +122,18 @@ export function mountFullscreenApp(options: FullscreenMountOptions = {}): Fullsc
       const root = createRoot(renderer);
       scope.add(() => root.unmount());
       applyTitle = (next) => {
-        if (!renderer.isDestroyed) renderer.setTerminalTitle(next);
+        if (!renderer.isDestroyed) {
+          renderer.setTerminalTitle(next);
+        }
       };
       invalidate = () => {
-        if (!renderer.isDestroyed) effects.invalidate();
+        if (!renderer.isDestroyed) {
+          effects.invalidate();
+        }
       };
-      if (title !== undefined) applyTitle(title);
+      if (title !== undefined) {
+        applyTitle(title);
+      }
       root.render(
         <RuntimeBoundary onFailure={fail}>
           <ThemedBridge />
@@ -134,7 +144,9 @@ export function mountFullscreenApp(options: FullscreenMountOptions = {}): Fullsc
 
   return {
     setTitle(next) {
-      if (released || failureScheduled) return;
+      if (released || failureScheduled) {
+        return;
+      }
       title = next.replace(/\p{Cc}/gu, "");
       try {
         applyTitle?.(title);
@@ -143,7 +155,9 @@ export function mountFullscreenApp(options: FullscreenMountOptions = {}): Fullsc
       }
     },
     invalidate() {
-      if (released || failureScheduled) return;
+      if (released || failureScheduled) {
+        return;
+      }
       try {
         invalidate?.();
       } catch (error) {
@@ -151,7 +165,9 @@ export function mountFullscreenApp(options: FullscreenMountOptions = {}): Fullsc
       }
     },
     release() {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
       try {
         teardown?.();

@@ -15,8 +15,9 @@ import { copyFileSync, existsSync, readFileSync, readdirSync, writeFileSync } fr
 import { join, resolve } from "node:path";
 
 const [baseArgument, headArgument] = process.argv.slice(2);
-if (baseArgument === undefined || headArgument === undefined)
+if (baseArgument === undefined || headArgument === undefined) {
   throw new Error("Expected base and head checkout directories");
+}
 const base = resolve(baseArgument);
 const head = resolve(headArgument);
 const moves = [
@@ -29,7 +30,9 @@ const moves = [
 
 for (const name of readdirSync(join(head, "bench")).filter((file) => file.endsWith(".bench.ts"))) {
   const destination = join(base, "bench", name);
-  if (!existsSync(destination)) continue;
+  if (!existsSync(destination)) {
+    continue;
+  }
   const hasSemanticDocument = existsSync(join(base, "packages/cli/src/ui/document.ts"));
   const hasLayoutIndex = existsSync(
     join(base, "packages/cli/src/ui/fullscreen/transcript-layout.ts"),
@@ -57,7 +60,9 @@ for (const name of readdirSync(join(head, "bench")).filter((file) => file.endsWi
   for (const [current, previous] of moves) {
     const hasCurrent = existsSync(join(base, "bench", `${current}.ts`));
     const hasPrevious = existsSync(join(base, "bench", `${previous}.ts`));
-    if (!hasCurrent && hasPrevious) source = source.replaceAll(current, previous);
+    if (!hasCurrent && hasPrevious) {
+      source = source.replaceAll(current, previous);
+    }
   }
   writeFileSync(destination, source);
 }

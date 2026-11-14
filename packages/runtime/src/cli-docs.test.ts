@@ -23,7 +23,9 @@ describe(DOCS_PATH, () => {
     const commands: import("commander").Command[] = [];
     function visit(parent: import("commander").Command): void {
       for (const command of parent.commands) {
-        if (!command.description().startsWith("Internal:")) commands.push(command);
+        if (!command.description().startsWith("Internal:")) {
+          commands.push(command);
+        }
         visit(command);
       }
     }

@@ -26,8 +26,12 @@ export function isRunCostKnown(
   modelId: string,
   costIncomplete = false,
 ): boolean {
-  if (costIncomplete) return false;
-  if (costUSD !== undefined) return true;
+  if (costIncomplete) {
+    return false;
+  }
+  if (costUSD !== undefined) {
+    return true;
+  }
   return isZeroCostLocalModel(provider, modelId);
 }
 

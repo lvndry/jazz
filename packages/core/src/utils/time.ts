@@ -16,7 +16,9 @@ function tzOffsetMs(epoch: number, tz: string): number {
   }).formatToParts(new Date(epoch));
   const field: Record<string, number> = {};
   for (const part of parts) {
-    if (part.type !== "literal") field[part.type] = Number(part.value);
+    if (part.type !== "literal") {
+      field[part.type] = Number(part.value);
+    }
   }
   const asIfUtc = Date.UTC(
     field["year"] ?? 1970,
@@ -42,7 +44,9 @@ export function zonedDateParts(
   }).formatToParts(new Date(epoch));
   const field: Record<string, number> = {};
   for (const part of parts) {
-    if (part.type !== "literal") field[part.type] = Number(part.value);
+    if (part.type !== "literal") {
+      field[part.type] = Number(part.value);
+    }
   }
   return { year: field["year"] ?? 1970, month: field["month"] ?? 1, day: field["day"] ?? 1 };
 }
@@ -162,7 +166,9 @@ export function parseWhen(spec: string, now: number, tz: string): number | null 
   if (weekday && weekdayNumber !== undefined) {
     const hours = Number(weekday[2]);
     const minutes = Number(weekday[3]);
-    if (hours > 23 || minutes > 59) return null;
+    if (hours > 23 || minutes > 59) {
+      return null;
+    }
     const today = zonedDateParts(now, tz);
     const daysAhead = (weekdayNumber - zonedWeekday(now, tz) + DAYS_PER_WEEK) % DAYS_PER_WEEK;
     const fireAt = wallClockToEpoch(
@@ -173,7 +179,9 @@ export function parseWhen(spec: string, now: number, tz: string): number | null 
       minutes,
       tz,
     );
-    if (fireAt > now) return fireAt;
+    if (fireAt > now) {
+      return fireAt;
+    }
     return wallClockToEpoch(
       today.year,
       today.month,
@@ -189,7 +197,9 @@ export function parseWhen(spec: string, now: number, tz: string): number | null 
   if (clock) {
     const hours = Number(clock[1]);
     const minutes = Number(clock[2]);
-    if (hours > 23 || minutes > 59) return null;
+    if (hours > 23 || minutes > 59) {
+      return null;
+    }
     const today = zonedDateParts(now, tz);
     const dayOffset = tomorrow ? 1 : 0;
     let fireAt = wallClockToEpoch(
@@ -207,7 +217,9 @@ export function parseWhen(spec: string, now: number, tz: string): number | null 
   }
 
   const duration = parseDurationMs(trimmed);
-  if (duration !== null) return now + duration;
+  if (duration !== null) {
+    return now + duration;
+  }
 
   return null;
 }

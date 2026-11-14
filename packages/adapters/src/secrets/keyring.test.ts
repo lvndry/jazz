@@ -81,8 +81,11 @@ describe('the "file" backend — the headless-server fallback below both OS keyr
   });
 
   afterEach(() => {
-    if (originalJazzHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = originalJazzHome;
+    if (originalJazzHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = originalJazzHome;
+    }
     fs.rmSync(tempDirectory, { recursive: true, force: true });
   });
 
@@ -818,10 +821,16 @@ process.exit(process.argv[2] === "-i" ? lastCode : code);
 
   afterEach(() => {
     setSystemTime();
-    if (originalJazzHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = originalJazzHome;
-    if (originalPath === undefined) delete process.env["PATH"];
-    else process.env["PATH"] = originalPath;
+    if (originalJazzHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = originalJazzHome;
+    }
+    if (originalPath === undefined) {
+      delete process.env["PATH"];
+    } else {
+      process.env["PATH"] = originalPath;
+    }
     fs.rmSync(directory, { recursive: true, force: true });
   });
 

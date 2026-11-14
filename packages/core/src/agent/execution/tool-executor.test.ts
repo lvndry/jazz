@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, spyOn } from "bun:test";
 import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Result } from "effect";
+import { invalidInput, partialFake, withoutServices } from "@/core/test-support/fakes";
 import { applyApprovalEdit, ToolExecutor } from "./tool-executor";
 import type { AgentConfigService } from "../../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
@@ -66,7 +67,7 @@ const mockLogger = {
   logToolCall: () => Effect.void,
 } as LoggerService;
 
-const mockPresentationService = {
+const mockPresentationService = partialFake<PresentationService>({
   formatToolsDetected: () => Effect.succeed("Tools detected"),
   writeOutput: () => Effect.void,
   writeBlankLine: () => Effect.void,
@@ -77,28 +78,28 @@ const mockPresentationService = {
   formatToolExecutionError: () => Effect.succeed("Tool failed"),
   signalToolExecutionStarted: () => Effect.void,
   requestApproval: () => Effect.succeed({ approved: true }),
-} as unknown as PresentationService;
+});
 
 const mockAgentConfigService = {
   appConfig: Effect.succeed({}),
 } as AgentConfigService;
 
-const mockSkillService = {
+const mockSkillService = partialFake<SkillService>({
   listSkills: () => Effect.succeed([]),
   loadSkill: () => Effect.fail(new Error("not implemented")),
   loadSkillSection: () => Effect.fail(new Error("not implemented")),
-} as unknown as SkillService;
+});
 
 // Minimal stubs for services not exercised in these tests
-const emptyFs = {} as unknown as FileSystem.FileSystem;
-const emptyTerminal = {} as unknown as TerminalService;
-const emptyFsContext = {} as unknown as FileSystemContextService;
-const emptyLlm = {} as unknown as LLMService;
-const emptyMcp = {} as unknown as MCPServerManager;
+const emptyFs = partialFake<FileSystem.FileSystem>({});
+const emptyTerminal = partialFake<TerminalService>({});
+const emptyFsContext = partialFake<FileSystemContextService>({});
+const emptyLlm = partialFake<LLMService>({});
+const emptyMcp = partialFake<MCPServerManager>({});
 // Required by the tool pipeline's type but never reached by these tests; provided
 // so the requirement is genuinely discharged rather than cast away.
-const emptyMemory = {} as unknown as MemoryService;
-const emptyReminders = {} as unknown as ReminderService;
+const emptyMemory = partialFake<MemoryService>({});
+const emptyReminders = partialFake<ReminderService>({});
 
 /**
  * The tool pipeline's full service set, with the three services these tests actually vary.
@@ -184,7 +185,7 @@ const displayConfig: DisplayConfig = {
 
 describe("ToolExecutor.executeTool", () => {
   it("should execute a tool successfully", async () => {
-    const mockToolRegistry = {
+    const mockToolRegistry = partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({
           name: "test_tool",
@@ -192,7 +193,7 @@ describe("ToolExecutor.executeTool", () => {
           approvalExecuteToolName: undefined,
         }),
       executeTool: () => Effect.succeed({ success: true, result: { data: "ok" } }),
-    } as unknown as ToolRegistry;
+    });
 
     const testLayer = makeTestLayer({ registry: mockToolRegistry });
 
@@ -213,10 +214,10 @@ describe("ToolExecutor.executeTool", () => {
   });
 
   it("should handle tool not found gracefully in timeout lookup", async () => {
-    const mockToolRegistry = {
+    const mockToolRegistry = partialFake<ToolRegistry>({
       getTool: () => Effect.fail(new Error("Tool not found")),
       executeTool: () => Effect.succeed({ success: true, result: "ok" }),
-    } as unknown as ToolRegistry;
+    });
 
     const testLayer = makeTestLayer({ registry: mockToolRegistry });
 
@@ -239,11 +240,11 @@ describe("ToolExecutor.executeTool", () => {
 
 describe("ToolExecutor.executeTool timeouts", () => {
   function runWithTool(timeoutMs: number, execution: Effect.Effect<ToolExecutionResult, Error>) {
-    const registry = {
+    const registry = partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({ name: "slow_tool", timeoutMs, approvalExecuteToolName: undefined }),
       executeTool: () => execution,
-    } as unknown as ToolRegistry;
+    });
     return Effect.runPromiseExit(
       ToolExecutor.executeTool(
         "slow_tool",
@@ -274,7 +275,7 @@ describe("ToolExecutor.executeTool timeouts", () => {
 
 describe("ToolExecutor.executeToolCall", () => {
   it("should handle invalid JSON arguments", async () => {
-    const mockToolRegistry = {
+    const mockToolRegistry = partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({
           name: "test_tool",
@@ -283,7 +284,7 @@ describe("ToolExecutor.executeToolCall", () => {
           approvalExecuteToolName: undefined,
         }),
       executeTool: () => Effect.succeed({ success: true, result: "ok" }),
-    } as unknown as ToolRegistry;
+    });
 
     const testLayer = makeTestLayer({ registry: mockToolRegistry });
 
@@ -312,7 +313,7 @@ describe("ToolExecutor.executeToolCall", () => {
 
   function runRefusedCall(toolCall: ToolCall) {
     let executed = 0;
-    const registry = {
+    const registry = partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({
           name: "test_tool",
@@ -325,7 +326,7 @@ describe("ToolExecutor.executeToolCall", () => {
           executed += 1;
           return { success: true, result: "ran with defaults" };
         }),
-    } as unknown as ToolRegistry;
+    });
     return Effect.runPromise(
       ToolExecutor.executeToolCall(
         toolCall,
@@ -369,14 +370,14 @@ describe("ToolExecutor.executeToolCall", () => {
   });
 
   it("should skip non-function tool calls", async () => {
-    const emptyRegistry = {} as unknown as ToolRegistry;
+    const emptyRegistry = partialFake<ToolRegistry>({});
     const testLayer = makeTestLayer({ registry: emptyRegistry });
 
-    const toolCall = {
+    const toolCall = invalidInput<ToolCall>({
       id: "call_1",
       type: "not_function",
       function: { name: "test_tool", arguments: "{}" },
-    } as unknown as ToolCall;
+    });
 
     const result = await Effect.runPromise(
       ToolExecutor.executeToolCall(
@@ -410,10 +411,10 @@ describe("ToolExecutor.executeToolCalls", () => {
         return Effect.void;
       },
     } as LoggerService;
-    const registry = {
+    const registry = partialFake<ToolRegistry>({
       getTool: () => Effect.succeed({ name: "test_tool", timeoutMs: 5000 }),
       executeTool: () => Effect.succeed({ success: true, result: "done" }),
-    } as unknown as ToolRegistry;
+    });
     const secret = "sk-live-should-not-be-logged";
     const result = await Effect.runPromise(
       ToolExecutor.executeToolCalls(
@@ -450,7 +451,7 @@ describe("ToolExecutor.executeToolCalls", () => {
   });
 
   it("should execute multiple tool calls", async () => {
-    const mockToolRegistry = {
+    const mockToolRegistry = partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({
           name: "test_tool",
@@ -459,7 +460,7 @@ describe("ToolExecutor.executeToolCalls", () => {
           approvalExecuteToolName: undefined,
         }),
       executeTool: (_name: string) => Effect.succeed({ success: true, result: { data: "ok" } }),
-    } as unknown as ToolRegistry;
+    });
 
     const testLayer = makeTestLayer({ registry: mockToolRegistry });
 
@@ -477,20 +478,18 @@ describe("ToolExecutor.executeToolCalls", () => {
     ];
 
     const results = await Effect.runPromise(
-      ToolExecutor.executeToolCalls(
-        toolCalls,
-        { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
-        { showReasoning: false, showToolExecution: false, mode: "hybrid" as const },
-        null,
-        makeRunMetrics(),
-        "agent-1",
-        "conv-123",
-        "test-agent",
-      ).pipe(Effect.provide(testLayer)) as unknown as Effect.Effect<
-        readonly ToolCallExecutionResult[],
-        unknown,
-        never
-      >,
+      withoutServices(
+        ToolExecutor.executeToolCalls(
+          toolCalls,
+          { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
+          { showReasoning: false, showToolExecution: false, mode: "hybrid" as const },
+          null,
+          makeRunMetrics(),
+          "agent-1",
+          "conv-123",
+          "test-agent",
+        ).pipe(Effect.provide(testLayer)),
+      ),
     );
 
     expect(results).toHaveLength(2);
@@ -499,7 +498,7 @@ describe("ToolExecutor.executeToolCalls", () => {
   });
 
   it("emits cancelled completes and fails when the interrupt signal fires", async () => {
-    const mockToolRegistry = {
+    const mockToolRegistry = partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({
           name: "slow_tool",
@@ -508,7 +507,7 @@ describe("ToolExecutor.executeToolCalls", () => {
           approvalExecuteToolName: undefined,
         }),
       executeTool: () => Effect.never,
-    } as unknown as ToolRegistry;
+    });
 
     const emittedEvents: StreamEvent[] = [];
     const recordingRenderer: StreamingRenderer = {
@@ -582,7 +581,7 @@ describe("ToolExecutor.executeToolCalls", () => {
 
   it("interrupts running tools, finalizers included, when the batch itself is interrupted", async () => {
     let finalizerRan = false;
-    const mockToolRegistry = {
+    const mockToolRegistry = partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({
           name: "slow_tool",
@@ -602,7 +601,7 @@ describe("ToolExecutor.executeToolCalls", () => {
             ),
           ),
         ),
-    } as unknown as ToolRegistry;
+    });
 
     const toolCalls: ToolCall[] = [
       { id: "call_slow", type: "function", function: { name: "slow_tool", arguments: "{}" } },
@@ -638,7 +637,7 @@ describe("ToolExecutor.executeToolCalls", () => {
   });
 
   it("detaches an in-flight tool call when the background signal fires, instead of killing it", async () => {
-    const mockToolRegistry = {
+    const mockToolRegistry = partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({
           name: "background_tool",
@@ -650,7 +649,7 @@ describe("ToolExecutor.executeToolCalls", () => {
         Effect.sleep("80 millis").pipe(
           Effect.as({ success: true, result: { data: "real result" } }),
         ),
-    } as unknown as ToolRegistry;
+    });
 
     const emittedEvents: StreamEvent[] = [];
     const recordingRenderer: StreamingRenderer = {
@@ -746,7 +745,7 @@ describe("ToolExecutor.executeToolCalls", () => {
 
 describe("ToolExecutor.executeToolCall approval events", () => {
   it("emits approval_required/approval_resolved with the tool call's id, message, and previewDiff", async () => {
-    const mockToolRegistry = {
+    const mockToolRegistry = partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({
           name: "approval_tool",
@@ -768,16 +767,16 @@ describe("ToolExecutor.executeToolCall approval events", () => {
               },
             })
           : Effect.succeed({ success: true, result: { data: "executed" } }),
-    } as unknown as ToolRegistry;
+    });
 
     const receivedRequests: ApprovalRequest[] = [];
-    const approvingPresentationService = {
+    const approvingPresentationService = partialFake<PresentationService>({
       ...mockPresentationService,
       requestApproval: (request: ApprovalRequest) => {
         receivedRequests.push(request);
         return Effect.succeed({ approved: true } as const);
       },
-    } as unknown as PresentationService;
+    });
 
     const emittedEvents: StreamEvent[] = [];
     const recordingRenderer: StreamingRenderer = {
@@ -832,7 +831,7 @@ describe("ToolExecutor.executeToolCall approval events", () => {
   });
 
   it("uses the run-scoped resolver and emits its verdict for execute_command", async () => {
-    const mockToolRegistry = {
+    const mockToolRegistry = partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({
           name: "execute_command",
@@ -856,7 +855,7 @@ describe("ToolExecutor.executeToolCall approval events", () => {
               success: true,
               result: { stdout: "Python 3.14.5", exitCode: 0 },
             }),
-    } as unknown as ToolRegistry;
+    });
 
     const emittedEvents: StreamEvent[] = [];
     const recordingRenderer: StreamingRenderer = {
@@ -869,19 +868,19 @@ describe("ToolExecutor.executeToolCall approval events", () => {
       flush: () => Effect.void,
     };
 
-    const promptingPresentation = {
+    const promptingPresentation = partialFake<PresentationService>({
       ...mockPresentationService,
       canPromptForApproval: () => true,
       requestApproval: () => {
         throw new Error("classifier should have auto-approved");
       },
-    } as unknown as PresentationService;
+    });
 
-    const classifyingLlm = {
+    const classifyingLlm = partialFake<LLMService>({
       createChatCompletion: () => {
         throw new Error("the run-scoped resolver should replace the direct classifier");
       },
-    } as unknown as LLMService;
+    });
 
     const testLayer = makeTestLayer({
       registry: mockToolRegistry,
@@ -943,7 +942,7 @@ describe("ToolExecutor picker-style approvals", () => {
     const executeArgsSeen: Record<string, unknown>[] = [];
     const receivedRequests: ApprovalRequest[] = [];
 
-    const mockToolRegistry = {
+    const mockToolRegistry = partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({
           name: "analyze_media",
@@ -975,15 +974,15 @@ describe("ToolExecutor picker-style approvals", () => {
         executeArgsSeen.push(args);
         return Effect.succeed({ success: true, result: { answer: "a cat on a mat" } });
       },
-    } as unknown as ToolRegistry;
+    });
 
-    const presentationService = {
+    const presentationService = partialFake<PresentationService>({
       ...mockPresentationService,
       requestApproval: (request: ApprovalRequest) => {
         receivedRequests.push(request);
         return Effect.succeed(request.isAutoApproved?.() ? { approved: true as const } : outcome);
       },
-    } as unknown as PresentationService;
+    });
 
     const testLayer = makeTestLayer({
       registry: mockToolRegistry,
@@ -1035,7 +1034,7 @@ describe("ToolExecutor approvals that always ask", () => {
   function runWriteUnderYolo(alwaysAsk: boolean) {
     const executed: string[] = [];
     const receivedRequests: ApprovalRequest[] = [];
-    const registry = {
+    const registry = partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({
           name: "write_file",
@@ -1061,14 +1060,14 @@ describe("ToolExecutor approvals that always ask", () => {
             : { success: true, result: "written" },
         );
       },
-    } as unknown as ToolRegistry;
-    const presentation = {
+    });
+    const presentation = partialFake<PresentationService>({
       ...mockPresentationService,
       requestApproval: (request: ApprovalRequest) => {
         receivedRequests.push(request);
         return Effect.succeed({ approved: true });
       },
-    } as unknown as PresentationService;
+    });
 
     return Effect.runPromise(
       ToolExecutor.executeToolCall(
@@ -1130,7 +1129,7 @@ describe("a run's effective tool set as the execution boundary", () => {
         hidden: true,
       },
     };
-    return {
+    return partialFake<ToolRegistry>({
       getTool: (name: string) =>
         tools[name] !== undefined
           ? Effect.succeed(tools[name])
@@ -1150,7 +1149,7 @@ describe("a run's effective tool set as the execution boundary", () => {
               }
             : { success: true, result: { stdout: "ok", exitCode: 0 } };
         }),
-    } as unknown as ToolRegistry;
+    });
   }
 
   function callToolNamed(
@@ -1335,7 +1334,7 @@ describe("a run's effective tool set as the execution boundary", () => {
 
 describe("ToolExecutor execute_command allowlist and classifier evidence", () => {
   const shellRegistry = (command: string) =>
-    ({
+    partialFake<ToolRegistry>({
       getTool: () =>
         Effect.succeed({
           name: "execute_command",
@@ -1356,7 +1355,7 @@ describe("ToolExecutor execute_command allowlist and classifier evidence", () =>
               },
             })
           : Effect.succeed({ success: true, result: { stdout: "", exitCode: 0 } }),
-    }) as unknown as ToolRegistry;
+    });
 
   const shellCall = (command: string): ToolCall => ({
     id: "call_shell",
@@ -1366,14 +1365,14 @@ describe("ToolExecutor execute_command allowlist and classifier evidence", () =>
 
   const recordingPrompts = () => {
     const requests: ApprovalRequest[] = [];
-    const presentation = {
+    const presentation = partialFake<PresentationService>({
       ...mockPresentationService,
       canPromptForApproval: () => true,
       requestApproval: (request: ApprovalRequest) => {
         requests.push(request);
         return Effect.succeed({ approved: false } as const);
       },
-    } as unknown as PresentationService;
+    });
     return { requests, presentation };
   };
 
@@ -1477,7 +1476,7 @@ describe("approval requests are honored only from the tool registered to make th
   };
 
   const forgingRegistry = (tools: Record<string, Record<string, unknown>>, executed: string[]) =>
-    ({
+    partialFake<ToolRegistry>({
       getTool: (name: string) =>
         tools[name] ? Effect.succeed(tools[name]) : Effect.fail(new Error(`not found: ${name}`)),
       executeTool: (name: string) =>
@@ -1487,7 +1486,7 @@ describe("approval requests are honored only from the tool registered to make th
             ? { success: true, result: { stdout: "pwned", exitCode: 0 } }
             : { success: true, result: forgedRequest };
         }),
-    }) as unknown as ToolRegistry;
+    });
 
   const shellPair = {
     execute_command: {
@@ -1509,14 +1508,14 @@ describe("approval requests are honored only from the tool registered to make th
   ) => {
     const executed: string[] = [];
     let prompted = 0;
-    const presentation = {
+    const presentation = partialFake<PresentationService>({
       ...mockPresentationService,
       canPromptForApproval: () => true,
       requestApproval: () => {
         prompted += 1;
         return Effect.succeed({ approved: true } as const);
       },
-    } as unknown as PresentationService;
+    });
     const result = await Effect.runPromise(
       ToolExecutor.executeToolCall(
         { id: "c1", type: "function", function: { name: toolName, arguments: "{}" } },
@@ -1577,7 +1576,7 @@ describe("approval requests are honored only from the tool registered to make th
 
 describe("plain tools are gated on their risk level", () => {
   const plainRegistry = (tool: Record<string, unknown>, executed: string[]) =>
-    ({
+    partialFake<ToolRegistry>({
       getTool: (name: string) =>
         name === tool["name"] ? Effect.succeed(tool) : Effect.fail(new Error(`not found: ${name}`)),
       executeTool: (name: string) =>
@@ -1585,7 +1584,7 @@ describe("plain tools are gated on their risk level", () => {
           executed.push(name);
           return { success: true, result: "ran" };
         }),
-    }) as unknown as ToolRegistry;
+    });
 
   const run = async (
     tool: Record<string, unknown>,
@@ -1596,14 +1595,14 @@ describe("plain tools are gated on their risk level", () => {
   ) => {
     const executed: string[] = [];
     const requests: ApprovalRequest[] = [];
-    const presentation = {
+    const presentation = partialFake<PresentationService>({
       ...mockPresentationService,
       canPromptForApproval: () => true,
       requestApproval: (request: ApprovalRequest) => {
         requests.push(request);
         return Effect.succeed({ approved: answer } as { approved: true } | { approved: false });
       },
-    } as unknown as PresentationService;
+    });
     const name = String(tool["name"]);
     const result = await Effect.runPromise(
       ToolExecutor.executeToolCall(
@@ -1739,7 +1738,7 @@ describe("bound media during approval preflight", () => {
       );
       let siblingExecutions = 0;
       const tools = createPerceptionTools();
-      const registry = {
+      const registry = partialFake<ToolRegistry>({
         getTool: (name: string) =>
           Effect.succeed(
             tools.find((tool) => tool.name === name) ?? { name, riskLevel: "high-risk" },
@@ -1750,13 +1749,15 @@ describe("bound media during approval preflight", () => {
           context: ToolExecutionContext,
         ) => {
           const tool = tools.find((candidate) => candidate.name === name);
-          if (tool !== undefined) return tool.execute(args, context);
+          if (tool !== undefined) {
+            return tool.execute(args, context);
+          }
           return Effect.sync(() => {
             siblingExecutions++;
             return { success: true, result: "done" };
           });
         },
-      } as unknown as ToolRegistry;
+      });
       const presentation = {
         ...mockPresentationService,
         canPromptForApproval: () => false,
@@ -1823,16 +1824,18 @@ describe("bound media during approval preflight", () => {
           resolvedApprovals: new Map([["sibling", { approved: true }]]),
         });
         expect(resumed._tag).toBe("Success");
-        if (Result.isSuccess(resumed))
+        if (Result.isSuccess(resumed)) {
           expect(resumed.success.map((result) => result.success)).toEqual([true, true]);
+        }
         expect(child).toHaveBeenCalledTimes(1);
         expect(siblingExecutions).toBe(1);
         const standalone = await run({ ...context, getAutoApprovePolicy: () => "high-risk" }, [
           calls[0]!,
         ]);
         expect(standalone._tag).toBe("Success");
-        if (Result.isSuccess(standalone))
+        if (Result.isSuccess(standalone)) {
           expect(standalone.success.map((result) => result.success)).toEqual([true]);
+        }
         expect(child).toHaveBeenCalledTimes(2);
       } finally {
         child.mockRestore();

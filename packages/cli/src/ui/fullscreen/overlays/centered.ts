@@ -16,7 +16,9 @@ export const OVERLAY_Z_INDEX = 1000;
  * a full-width list would only push it off-frame.
  */
 export function centeredOffset(contentWidth: number, availableWidth: number): number {
-  if (contentWidth >= availableWidth) return 0;
+  if (contentWidth >= availableWidth) {
+    return 0;
+  }
   return Math.max(0, Math.floor((availableWidth - contentWidth) / 2));
 }
 

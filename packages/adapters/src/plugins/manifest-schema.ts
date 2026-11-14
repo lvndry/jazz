@@ -69,8 +69,9 @@ function exactKeys(
 ): void {
   const allowedSet = new Set(allowed);
   const unknown = Object.keys(value).filter((key) => !allowedSet.has(key));
-  if (unknown.length > 0)
+  if (unknown.length > 0) {
     throw new Error(`${label} contains unknown field(s): ${unknown.join(", ")}`);
+  }
 }
 
 /** Line breaks and tabs, which multi-line document fields such as skill bodies need. */
@@ -82,7 +83,9 @@ function boundedString(
   max: number,
   allowed: ReadonlySet<string> = new Set(),
 ): string {
-  if (typeof value !== "string") throw new Error(`${label} must be a string`);
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a string`);
+  }
   const normalized = value.trim();
   if (normalized.length === 0 || normalized.length > max) {
     throw new Error(`${label} must contain 1-${max} characters`);
@@ -113,7 +116,9 @@ function uniqueStrings(
     }
     return parsed;
   });
-  if (new Set(result).size !== result.length) throw new Error(`${label} contains duplicates`);
+  if (new Set(result).size !== result.length) {
+    throw new Error(`${label} contains duplicates`);
+  }
   return result;
 }
 
@@ -143,20 +148,25 @@ function parseToolDeclaration(value: unknown, index: number): PluginToolDeclarat
   const item = record(value, `tools[${index}]`);
   exactKeys(item, ["name", "description", "parameters", "riskLevel", "egress"], `tools[${index}]`);
   const name = boundedString(item["name"], `tools[${index}].name`, 64);
-  if (!TOOL_NAME.test(name)) throw new Error(`tools[${index}].name has an invalid format`);
+  if (!TOOL_NAME.test(name)) {
+    throw new Error(`tools[${index}].name has an invalid format`);
+  }
   const description = boundedString(item["description"], `tools[${index}].description`, 1024);
   const riskLevel = item["riskLevel"];
   if (riskLevel !== "read-only" && riskLevel !== "low-risk" && riskLevel !== "high-risk") {
     throw new Error(`tools[${index}].riskLevel must be read-only, low-risk, or high-risk`);
   }
-  if (typeof item["egress"] !== "boolean")
+  if (typeof item["egress"] !== "boolean") {
     throw new Error(`tools[${index}].egress must be boolean`);
+  }
   const parameters = record(item["parameters"], `tools[${index}].parameters`) as JsonValue;
   return { name, description, parameters, riskLevel, egress: item["egress"] };
 }
 
 function parseTools(value: unknown): readonly PluginToolDeclaration[] {
-  if (value === undefined) return [];
+  if (value === undefined) {
+    return [];
+  }
   if (!Array.isArray(value) || value.length > 32) {
     throw new Error("tools must be an array with at most 32 entries");
   }
@@ -171,13 +181,17 @@ function parseCommandDeclaration(value: unknown, index: number): PluginCommandDe
   const item = record(value, `commands[${index}]`);
   exactKeys(item, ["name", "description"], `commands[${index}]`);
   const name = boundedString(item["name"], `commands[${index}].name`, 64);
-  if (!TOOL_NAME.test(name)) throw new Error(`commands[${index}].name has an invalid format`);
+  if (!TOOL_NAME.test(name)) {
+    throw new Error(`commands[${index}].name has an invalid format`);
+  }
   const description = boundedString(item["description"], `commands[${index}].description`, 1024);
   return { name, description };
 }
 
 function parseCommands(value: unknown): readonly PluginCommandDeclaration[] {
-  if (value === undefined) return [];
+  if (value === undefined) {
+    return [];
+  }
   if (!Array.isArray(value) || value.length > 32) {
     throw new Error("commands must be an array with at most 32 entries");
   }
@@ -192,7 +206,9 @@ function parsePersonaDeclaration(value: unknown, index: number): PluginPersonaDe
   const item = record(value, `personas[${index}]`);
   exactKeys(item, ["name", "description", "systemPrompt", "tone", "style"], `personas[${index}]`);
   const name = boundedString(item["name"], `personas[${index}].name`, 64);
-  if (!TOOL_NAME.test(name)) throw new Error(`personas[${index}].name has an invalid format`);
+  if (!TOOL_NAME.test(name)) {
+    throw new Error(`personas[${index}].name has an invalid format`);
+  }
   const description = boundedString(item["description"], `personas[${index}].description`, 1024);
   const systemPrompt = boundedString(
     item["systemPrompt"],
@@ -217,7 +233,9 @@ function parsePersonaDeclaration(value: unknown, index: number): PluginPersonaDe
 }
 
 function parsePersonas(value: unknown): readonly PluginPersonaDeclaration[] {
-  if (value === undefined) return [];
+  if (value === undefined) {
+    return [];
+  }
   if (!Array.isArray(value) || value.length > 16) {
     throw new Error("personas must be an array with at most 16 entries");
   }
@@ -232,7 +250,9 @@ function parseSkillDeclaration(value: unknown, index: number): PluginSkillDeclar
   const item = record(value, `skills[${index}]`);
   exactKeys(item, ["name", "description", "content"], `skills[${index}]`);
   const name = boundedString(item["name"], `skills[${index}].name`, 64);
-  if (!TOOL_NAME.test(name)) throw new Error(`skills[${index}].name has an invalid format`);
+  if (!TOOL_NAME.test(name)) {
+    throw new Error(`skills[${index}].name has an invalid format`);
+  }
   const description = boundedString(item["description"], `skills[${index}].description`, 1024);
   const content = boundedString(
     item["content"],
@@ -244,16 +264,22 @@ function parseSkillDeclaration(value: unknown, index: number): PluginSkillDeclar
 }
 
 function parseLifecycleHooks(value: unknown): readonly LifecycleEventId[] {
-  if (value === undefined) return [];
+  if (value === undefined) {
+    return [];
+  }
   const events = uniqueStrings(value, "lifecycleHooks", { maxItems: 16, maxLength: 64 });
   for (const event of events) {
-    if (!isLifecycleEventId(event)) throw new Error(`unknown lifecycle event: ${event}`);
+    if (!isLifecycleEventId(event)) {
+      throw new Error(`unknown lifecycle event: ${event}`);
+    }
   }
   return events as readonly LifecycleEventId[];
 }
 
 function parseSkills(value: unknown): readonly PluginSkillDeclaration[] {
-  if (value === undefined) return [];
+  if (value === undefined) {
+    return [];
+  }
   if (!Array.isArray(value) || value.length > 16) {
     throw new Error("skills must be an array with at most 16 entries");
   }
@@ -268,14 +294,22 @@ function parseSecret(value: unknown, index: number): PluginSecretDeclaration {
   const item = record(value, `secrets[${index}]`);
   exactKeys(item, ["name", "env", "required", "description"], `secrets[${index}]`);
   const name = boundedString(item["name"], `secrets[${index}].name`, 64);
-  if (!SECRET_NAME.test(name)) throw new Error(`secrets[${index}].name has an invalid format`);
+  if (!SECRET_NAME.test(name)) {
+    throw new Error(`secrets[${index}].name has an invalid format`);
+  }
   const description = boundedString(item["description"], `secrets[${index}].description`, 200);
   const required = item["required"];
-  if (typeof required !== "boolean") throw new Error(`secrets[${index}].required must be boolean`);
+  if (typeof required !== "boolean") {
+    throw new Error(`secrets[${index}].required must be boolean`);
+  }
   const envValue = item["env"];
-  if (envValue === undefined) return { name, required, description };
+  if (envValue === undefined) {
+    return { name, required, description };
+  }
   const env = boundedString(envValue, `secrets[${index}].env`, 128);
-  if (!ENV_NAME.test(env)) throw new Error(`secrets[${index}].env has an invalid format`);
+  if (!ENV_NAME.test(env)) {
+    throw new Error(`secrets[${index}].env has an invalid format`);
+  }
   return { name, env, required, description };
 }
 
@@ -287,7 +321,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
   let decoded: unknown = input;
   if (typeof input === "string") {
     try {
-      decoded = JSON.parse(input) as unknown;
+      decoded = JSON.parse(input);
     } catch {
       throw new Error("Plugin manifest is not valid JSON");
     }
@@ -300,14 +334,21 @@ export function parsePluginManifest(input: unknown): PluginManifest {
   if (root["schemaVersion"] !== PLUGIN_MANIFEST_SCHEMA_VERSION) {
     throw new Error(`Unsupported plugin manifest schemaVersion: ${String(root["schemaVersion"])}`);
   }
-  if (root["hostApi"] !== 1)
+  if (root["hostApi"] !== 1) {
     throw new Error(`Unsupported plugin hostApi: ${String(root["hostApi"])}`);
+  }
   const id = boundedString(root["id"], "id", 128).toLowerCase();
-  if (!PLUGIN_ID.test(id)) throw new Error("id must be a lowercase reverse-DNS-style identifier");
+  if (!PLUGIN_ID.test(id)) {
+    throw new Error("id must be a lowercase reverse-DNS-style identifier");
+  }
   const version = boundedString(root["version"], "version", 80);
-  if (!VERSION.test(version)) throw new Error("version must be a semantic version");
+  if (!VERSION.test(version)) {
+    throw new Error("version must be a semantic version");
+  }
   const sha256 = boundedString(root["sha256"], "sha256", 64);
-  if (!SHA256.test(sha256)) throw new Error("sha256 must be exactly 64 lowercase hex characters");
+  if (!SHA256.test(sha256)) {
+    throw new Error("sha256 must be exactly 64 lowercase hex characters");
+  }
   const network = record(root["network"], "network");
   exactKeys(network, ["destinations"], "network");
   const destinations = uniqueStrings(network["destinations"], "network.destinations", {
@@ -355,7 +396,9 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       maxLength: 64,
       pattern: HOOK_ID,
     }).map((hook) => {
-      if (hook !== "classify.command-risk") throw new Error(`Unknown policy hook: ${hook}`);
+      if (hook !== "classify.command-risk") {
+        throw new Error(`Unknown policy hook: ${hook}`);
+      }
       return hook;
     }),
     decisionProviders: uniqueStrings(root["decisionProviders"], "decisionProviders", {

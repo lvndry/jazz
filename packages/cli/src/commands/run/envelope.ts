@@ -11,6 +11,7 @@
  * command's job; saying what they look like on the wire is this file's.
  */
 
+import type { CacheMissReason } from "@jazz/core/agent/metrics/prompt-cache";
 import { isTruncated, type AnswerFailureCode } from "@jazz/core/agent/run/answer-outcome";
 import type { PendingInput } from "@jazz/core/agent/run/run-state";
 import { describeArtifact, type GeneratedArtifact } from "@jazz/core/types/artifact";
@@ -25,6 +26,12 @@ export interface OneShotTokenUsage {
   readonly totalTokens: number;
   /** Share of promptTokens served from the provider's prompt cache. */
   readonly cacheReadTokens?: number;
+  /** Cache reads over input, 0..1. Absent when the provider reported no cache fields. */
+  readonly cacheHitRate?: number;
+  /** Present and true when `cacheHitRate` covers only the requests that reported cache fields. */
+  readonly cacheHitRatePartial?: true;
+  /** Why the run's latest request's cacheable prefix changed; see the prompt-cache docs. */
+  readonly cacheMissReason?: CacheMissReason;
 }
 
 export interface OneShotToolCall {
@@ -137,7 +144,9 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
   if (!options.json) {
     const answer = result.answer.trim();
     const artifacts = result.artifacts ?? [];
-    if (artifacts.length === 0) return `${answer}\n`;
+    if (artifacts.length === 0) {
+      return `${answer}\n`;
+    }
 
     // Paths go below the answer whether or not the model mentioned them. A run that writes a
     // file and does not say where is a run the user has to go hunting after, and models are
