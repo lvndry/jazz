@@ -548,6 +548,15 @@ function validatePrompt(prompt: PromptState, value: string): string | null {
   return typeof result === "string" ? result : "Invalid input";
 }
 
+/**
+ * A keyed prompt's footer hints: its actions, one hint each so a narrow footer drops them one at
+ * a time. The masked-credential label before the actions is left out; the transcript already
+ * names the provider being configured.
+ */
+export function keyedPromptHints(message: string): string[] {
+  return message.replace(/^.*•+\s+/, "").split(/,\s+|\s+·\s+/);
+}
+
 function hiddenPromptKeys(prompt: PromptState | null): readonly string[] | undefined {
   if (prompt?.type !== "hidden") {
     return undefined;
@@ -3178,7 +3187,7 @@ export function FullscreenBridge(): React.ReactNode {
       mode: isYolo ? "yolo" : "safe",
       hints:
         prompt !== null && hiddenPromptKeys(prompt) !== undefined
-          ? prompt.message.split(", ")
+          ? keyedPromptHints(prompt.message)
           : agentCursor !== null
             ? agentCursor >= subagentRuns.length
               ? waitRowHints(backgroundItemsNow[agentCursor - subagentRuns.length])
