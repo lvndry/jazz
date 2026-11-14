@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { partialFake } from "@/core/test-support/fakes";
 import { computeRunCost, classifyFailedAttempt, recordFailedAttempt } from "./agent-run-metrics";
 import type { AgentRunMetrics } from "./agent-run-metrics";
 import {
@@ -284,13 +285,13 @@ describe("retry waste in the run's cost", () => {
   });
 
   it("recordFailedAttempt still counts the retry and keeps the usage out of the run's own tokens", () => {
-    const metrics = {
+    const metrics = partialFake<AgentRunMetrics>({
       llmRetryCount: 0,
       errors: [],
       currentIteration: undefined,
       retryWaste: createRetryWasteTally(),
       totalPromptTokens: 0,
-    } as unknown as AgentRunMetrics;
+    });
 
     recordFailedAttempt(
       metrics,
