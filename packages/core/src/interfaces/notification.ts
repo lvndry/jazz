@@ -9,6 +9,8 @@ export interface NotificationOptions {
   readonly sound?: boolean;
   readonly icon?: string;
   readonly wait?: boolean;
+  /** Milliseconds after which the notification closes itself, on channels that can close one. */
+  readonly expireAfterMs?: number;
 }
 
 export interface NotificationService {

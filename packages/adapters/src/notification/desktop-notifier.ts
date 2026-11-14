@@ -64,6 +64,8 @@ export interface DesktopNotification {
   readonly message: string;
   readonly subtitle?: string;
   readonly sound?: boolean;
+  /** Milliseconds after which the notification closes itself. */
+  readonly expireAfterMs?: number;
 }
 
 /** What the sender needs to know about the host; injected in tests. */
@@ -91,8 +93,20 @@ export type LaunchOutcome =
 
 export type LaunchNotifier = (command: string, args: readonly string[]) => Promise<LaunchOutcome>;
 
+/** A command that runs `delayMs` after the notification is shown, to close it. */
+export interface DesktopNotifierCloseCommand {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly delayMs: number;
+}
+
 export type DesktopNotifierCommand =
-  | { readonly available: true; readonly command: string; readonly args: readonly string[] }
+  | {
+      readonly available: true;
+      readonly command: string;
+      readonly args: readonly string[];
+      readonly close?: DesktopNotifierCloseCommand;
+    }
   | { readonly available: false; readonly reason: string };
 
 export function currentDesktopNotifierHost(
@@ -211,6 +225,29 @@ export function launchDetached(
   });
 }
 
+/**
+ * Run `command` after `delayMs` in a process that outlives this one, so a notification closes
+ * even when a short-lived run has already exited. The shell receives the command and its
+ * arguments as positional parameters, never as script text.
+ */
+export function scheduleDetached(command: string, args: readonly string[], delayMs: number): void {
+  const delaySeconds = Math.max(1, Math.ceil(delayMs / 1_000));
+  const child = spawn(
+    "/bin/sh",
+    [
+      "-c",
+      'sleep "$1"; shift; exec "$@"',
+      "jazz-close-notification",
+      String(delaySeconds),
+      command,
+      ...args,
+    ],
+    { stdio: "ignore", detached: true },
+  );
+  child.once("error", () => undefined);
+  child.unref();
+}
+
 /** The OS notifier command that shows `notification` on this host, or why none can. */
 export function desktopNotifierCommand(
   notification: DesktopNotification,
@@ -228,6 +265,12 @@ export function desktopNotifierCommand(
       return { available: false, reason: TERMINAL_NOTIFIER_MISSING };
     }
     const args = ["-title", notification.title, "-message", notification.message];
+    const expireAfterMs = notification.expireAfterMs;
+    const groupId =
+      expireAfterMs !== undefined && expireAfterMs > 0 ? `jazz-${randomUUID()}` : undefined;
+    if (groupId !== undefined) {
+      args.push("-group", groupId);
+    }
     const bundleId = getTerminalBundleId();
     if (bundleId !== undefined) {
       args.push("-activate", bundleId);
@@ -238,7 +281,20 @@ export function desktopNotifierCommand(
     if (notification.sound === true) {
       args.push("-sound", MACOS_NOTIFICATION_SOUND);
     }
-    return { available: true, command: terminalNotifier, args };
+    return {
+      available: true,
+      command: terminalNotifier,
+      args,
+      ...(groupId !== undefined && expireAfterMs !== undefined
+        ? {
+            close: {
+              command: terminalNotifier,
+              args: ["-remove", groupId],
+              delayMs: expireAfterMs,
+            },
+          }
+        : {}),
+    };
   }
   if (host.platform === "linux") {
     const notifySend = host.findNotifySend();
@@ -248,7 +304,13 @@ export function desktopNotifierCommand(
     return {
       available: true,
       command: notifySend,
-      args: [titleWithSubtitle(notification), notification.message],
+      args: [
+        ...(notification.expireAfterMs !== undefined && notification.expireAfterMs > 0
+          ? ["--expire-time", String(Math.round(notification.expireAfterMs))]
+          : []),
+        titleWithSubtitle(notification),
+        notification.message,
+      ],
     };
   }
   return { available: false, reason: UNSUPPORTED_DESKTOP_PLATFORM };
@@ -292,6 +354,9 @@ function sendThroughOsNotifier(
         error: error instanceof Error ? error.message : String(error),
       }),
     );
+    if (outcome.launched && command.close !== undefined) {
+      scheduleDetached(command.close.command, command.close.args, command.close.delayMs);
+    }
     return outcome.launched
       ? { delivered: true }
       : { delivered: false, error: outcome.error, retryable: false };
@@ -320,7 +385,13 @@ export function sendDesktopNotification(
     }
     if (channel.kind === "terminal") {
       const sequence = encodeTerminalNotification(
-        { title: titleWithSubtitle(notification), body: notification.message },
+        {
+          title: titleWithSubtitle(notification),
+          body: notification.message,
+          ...(notification.expireAfterMs !== undefined
+            ? { expireAfterMs: notification.expireAfterMs }
+            : {}),
+        },
         channel.protocol,
         { id: randomUUID(), env: resolvedHost.env },
       );
