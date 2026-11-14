@@ -24,7 +24,12 @@ import { HOME_COMMANDS } from "../models/home-view";
 import { store, type ActiveHome } from "../store";
 import { applyTheme, THEME } from "../theme";
 import { pickThemeInteractively } from "../theme-picker-prompt";
-import { APPROVAL_ARM_MS, flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
+import {
+  APPROVAL_ARM_MS,
+  flushPendingTerminalKeys,
+  FullscreenBridge,
+  keyedPromptHints,
+} from "./bridge";
 import { frameWhen, renderForTest, updateForTest } from "./test-helpers";
 import { LIVE_ZONE_MAX_ROWS } from "./types";
 
@@ -4080,5 +4085,23 @@ describe("fullscreen bridge theme picker", () => {
     const answer = await chosen;
     renderer.destroy();
     expect(answer).toBe("jazz:light");
+  });
+});
+
+describe("keyedPromptHints", () => {
+  it("returns one hint per action and leaves out the masked credential label", () => {
+    expect(
+      keyedPromptHints(
+        "OAuth credential: ••••••••  [r]efresh token · [e]dit account · [c]opy credential",
+      ),
+    ).toEqual(["[r]efresh token", "[e]dit account", "[c]opy credential"]);
+    expect(keyedPromptHints("Anthropic: ••••••••  [e]dit · [c]opy")).toEqual(["[e]dit", "[c]opy"]);
+  });
+
+  it("splits a comma-separated message that has no masked label", () => {
+    expect(keyedPromptHints("Press i to install, n to skip")).toEqual([
+      "Press i to install",
+      "n to skip",
+    ]);
   });
 });
