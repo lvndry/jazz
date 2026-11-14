@@ -56,6 +56,8 @@ const OSC_FIELD_SEPARATOR = /;/g;
 export interface TerminalNotification {
   readonly title: string;
   readonly body: string;
+  /** Milliseconds after which the terminal closes the notification; only OSC 99 carries it. */
+  readonly expireAfterMs?: number;
 }
 
 export interface TerminalNotificationEncoding {
@@ -149,11 +151,17 @@ export function encodeOsc99(notification: TerminalNotification, id: string): str
   const title = boundedTitle(notification.title, false);
   const body = boundedBody(notification.body, false);
   const application = `f=${base64(KITTY_APPLICATION_NAME)}`;
+  const expiry =
+    notification.expireAfterMs !== undefined && notification.expireAfterMs > 0
+      ? `:w=${Math.round(notification.expireAfterMs)}`
+      : "";
   if (body.length === 0) {
-    return [`${OSC}99;i=${id}:d=1:e=1:${application}:p=title;${base64(title)}${STRING_TERMINATOR}`];
+    return [
+      `${OSC}99;i=${id}:d=1:e=1${expiry}:${application}:p=title;${base64(title)}${STRING_TERMINATOR}`,
+    ];
   }
   return [
-    `${OSC}99;i=${id}:d=0:e=1:${application}:p=title;${base64(title)}${STRING_TERMINATOR}`,
+    `${OSC}99;i=${id}:d=0:e=1${expiry}:${application}:p=title;${base64(title)}${STRING_TERMINATOR}`,
     `${OSC}99;i=${id}:d=1:e=1:p=body;${base64(body)}${STRING_TERMINATOR}`,
   ];
 }

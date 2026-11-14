@@ -90,6 +90,13 @@ describe("encoders", () => {
     ]);
   });
 
+  test("OSC 99 asks the terminal to close the notification after the expiry", () => {
+    expect(encodeOsc99({ title: "Jazz", body: "Done", expireAfterMs: 30_000 }, "n1")).toEqual([
+      `${ESC}]99;i=n1:d=0:e=1:w=30000:f=${base64("jazz")}:p=title;${base64("Jazz")}${ESC}\\`,
+      `${ESC}]99;i=n1:d=1:e=1:p=body;${base64("Done")}${ESC}\\`,
+    ]);
+  });
+
   test("OSC 99 without a body is one finished chunk", () => {
     expect(encodeOsc99({ title: "Jazz", body: "" }, "n1")).toEqual([
       `${ESC}]99;i=n1:d=1:e=1:f=${base64("jazz")}:p=title;${base64("Jazz")}${ESC}\\`,

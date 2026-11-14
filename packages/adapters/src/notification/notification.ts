@@ -66,6 +66,7 @@ export class NotificationServiceImpl implements NotificationService {
           title,
           message,
           ...(options?.subtitle !== undefined ? { subtitle: options.subtitle } : {}),
+          ...(options?.expireAfterMs !== undefined ? { expireAfterMs: options.expireAfterMs } : {}),
           sound,
         },
         host,

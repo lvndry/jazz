@@ -57,6 +57,9 @@ import { buildCompletionOptions } from "./completion-request";
 import { validateCompletion } from "./completion-validation";
 import { withModelStepTimeout } from "./model-step-timeout";
 
+/** A finished-run notification closes itself after this long, so unattended runs don't pile them up. */
+const RUN_FINISHED_NOTIFICATION_TTL_MS = 5 * 60 * 1_000;
+
 const DEFERRED_RESPONSE_TIMEOUT = Duration.seconds(15);
 
 /**
@@ -553,7 +556,11 @@ export function executeWithStreaming(
                   }
                 : { message: `${agentName} has completed the task.`, title: "Jazz Task Complete" };
             yield* notificationServiceOption.value
-              .notify(notice.message, { title: notice.title, sound: true })
+              .notify(notice.message, {
+                title: notice.title,
+                sound: true,
+                expireAfterMs: RUN_FINISHED_NOTIFICATION_TTL_MS,
+              })
               .pipe(Effect.catch(() => Effect.void));
           }
         });

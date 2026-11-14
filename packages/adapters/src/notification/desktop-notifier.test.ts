@@ -125,6 +125,40 @@ describe("desktopNotifierCommand", () => {
     expect(lookups).toBe(0);
   });
 
+  test("groups a macOS notification and schedules its removal when it expires", () => {
+    const command = desktopNotifierCommand(
+      { title: "Jazz", message: "hi", expireAfterMs: 60_000 },
+      host({}),
+    );
+    expect(command.available).toBe(true);
+    if (command.available) {
+      const groupIndex = command.args.indexOf("-group");
+      const group = command.args[groupIndex + 1];
+      expect(groupIndex).toBeGreaterThanOrEqual(0);
+      expect(command.close).toEqual({
+        command: "/opt/jazz/terminal-notifier",
+        args: ["-remove", group as string],
+        delayMs: 60_000,
+      });
+    }
+  });
+
+  test("passes the expiry to notify-send on Linux", () => {
+    const command = desktopNotifierCommand(
+      { title: "Jazz", message: "hi", expireAfterMs: 60_000 },
+      host({
+        platform: "linux",
+        hasDesktopSession: () => true,
+        findNotifySend: () => "/usr/bin/notify-send",
+      }),
+    );
+    expect(command).toEqual({
+      available: true,
+      command: "/usr/bin/notify-send",
+      args: ["--expire-time", "60000", "Jazz", "hi"],
+    });
+  });
+
   test("uses terminal-notifier on macOS", () => {
     const command = desktopNotifierCommand(
       { title: "Jazz", message: 'say "hi" \\ there', subtitle: "sub", sound: true },
