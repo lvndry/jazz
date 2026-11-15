@@ -9,7 +9,7 @@ export interface TextInputProps {
   inputId: string;
   defaultValue?: string;
   placeholder?: string;
-  /** When set, display a masked value (last 6 characters, or last 2 if shorter). */
+  /** When set, display one `*` per character except the last few, keeping the value's length. */
   mask?: string;
   /** When true, display one bullet per character and nothing of the value. */
   conceal?: boolean;
