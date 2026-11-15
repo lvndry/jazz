@@ -1103,8 +1103,6 @@ export async function promptForAgentInfo(
             }
           }
 
-          let resolvedTools = [...selectedTools];
-
           if (selectedTools.includes(WEB_SEARCH_CATEGORY.displayName)) {
             const webSearchProvider = await Effect.runPromise(
               configureWebSearch(
@@ -1122,15 +1120,13 @@ export async function promptForAgentInfo(
             }
 
             if (webSearchProvider === "builtin") {
-              resolvedTools = resolvedTools.filter(
-                (toolName) => toolName !== WEB_SEARCH_CATEGORY.displayName,
-              );
+              delete state.webSearchProvider;
             } else {
               state.webSearchProvider = webSearchProvider;
             }
           }
 
-          state.tools = resolvedTools;
+          state.tools = [...selectedTools];
           break;
         }
 

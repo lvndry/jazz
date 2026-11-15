@@ -78,7 +78,8 @@ interface AgentEditAnswers {
   /** New ceiling in tokens, or null to remove the ceiling. */
   maxContextTokens?: number | null;
   tools?: string[];
-  webSearchProvider?: WebSearchProviderName;
+  /** External search provider, or null for the model provider's native search. */
+  webSearchProvider?: WebSearchProviderName | null;
 }
 
 /**
@@ -249,24 +250,59 @@ export function editAgentCommand(
       const logger = yield* LoggerServiceTag;
       const mcpManager = yield* MCPServerManagerTag;
 
-      // If user selected "tools", connect to all configured MCP servers and discover their tools
-      // BEFORE showing the tool selection, so all MCP tools are available
-      if (fieldToUpdate === "tools") {
-        if (!supportsTools) {
-          yield* terminal.warn(
-            `\n⚠️  The current model (${agent.config.llm.model}) does not support tools.`,
-          );
-          continue;
-        }
+      if (fieldToUpdate === "tools" && !supportsTools) {
+        yield* terminal.warn(
+          `\n⚠️  The current model (${agent.config.llm.model}) does not support tools.`,
+        );
+        continue;
+      }
 
+      const editAnswers = yield* Effect.tryPromise({
+        try: () =>
+          promptForAgentUpdates(
+            agent,
+            providers,
+            personaNames,
+            toolsByCategory,
+            terminal,
+            llmService,
+            configService,
+            currentProviderInfo,
+            fieldToUpdate,
+            mcpServerData,
+          ),
+        catch: (error) =>
+          new ValidationError({
+            field: "agent",
+            message: `Agent edit wizard failed: ${toError(error).message}`,
+          }),
+      });
+
+      if (editAnswers === null) {
+        yield* terminal.info("Edit cancelled.");
+        continue;
+      }
+
+      if (editAnswers.tools && editAnswers.tools.length > 0) {
+        const selectedCategoryNames = new Set(editAnswers.tools);
+        const selectedServerNames = new Set(
+          [...mcpServerData.displayNameToServerName.entries()]
+            .filter(([displayName]) => selectedCategoryNames.has(displayName))
+            .map(([, serverName]) => serverName),
+        );
         const allServers = yield* mcpManager.listServers();
-        const enabledServers = allServers.filter((server) => server.enabled !== false);
+        const selectedServers = allServers.filter(
+          (server) => server.enabled !== false && selectedServerNames.has(server.name),
+        );
+        yield* logger.debug("MCP servers selected for discovery", {
+          selectedCount: selectedServers.length,
+          enabledCount: allServers.filter((server) => server.enabled !== false).length,
+        });
 
-        if (enabledServers.length > 0) {
-          yield* terminal.log("Discovering tools from MCP servers...");
+        if (selectedServers.length > 0) {
+          yield* terminal.log("Discovering tools from selected MCP servers...");
 
-          // Discover and register tools from all enabled MCP servers
-          const discoveryEffects = enabledServers.map((serverConfig) =>
+          const discoveryEffects = selectedServers.map((serverConfig) =>
             Effect.gen(function* () {
               yield* logger.debug("Discovering MCP tools");
               yield* terminal.debug(`Discovering tools from MCP server ${serverConfig.name}...`);
@@ -411,34 +447,6 @@ export function editAgentCommand(
         }
       }
 
-      const editAnswers = yield* Effect.tryPromise({
-        try: () =>
-          promptForAgentUpdates(
-            agent,
-            providers,
-            personaNames,
-            toolsByCategory,
-            terminal,
-            llmService,
-            configService,
-            currentProviderInfo,
-            fieldToUpdate,
-            mcpServerData,
-          ),
-        catch: (error) =>
-          new ValidationError({
-            field: "agent",
-            message: `Agent edit wizard failed: ${toError(error).message}`,
-          }),
-      });
-
-      if (editAnswers === null) {
-        yield* terminal.info("Edit cancelled.");
-        continue;
-      }
-
-      // Tools are already discovered and registered (if fieldToUpdate was "tools")
-      // Just convert selected categories to tool names
       // Convert selected categories (display names) to tool names
       // Only process if user selected tools (editAnswers.tools contains category display names)
       if (editAnswers.tools && editAnswers.tools.length > 0) {
@@ -490,6 +498,19 @@ export function editAgentCommand(
               `Found ${toolsInCategory.length} tools in category "${selectedDisplayName}": ${toolsInCategory.slice(0, 5).join(", ")}${toolsInCategory.length > 5 ? "..." : ""}`,
             );
             selectedToolNames.push(...toolsInCategory);
+          } else if (mcpServerData.displayNameToServerName.has(selectedDisplayName)) {
+            const serverName = mcpServerData.displayNameToServerName.get(selectedDisplayName)!;
+            const savedToolPrefix = `${mcpToolCategory(serverName).id}_`;
+            const savedServerTools = (agent.config.tools ?? []).filter((toolName) =>
+              toolName.startsWith(savedToolPrefix),
+            );
+            yield* logger.warn("MCP server returned no tools; keeping saved tools", {
+              toolCount: savedServerTools.length,
+            });
+            yield* terminal.warn(
+              `Could not load tools from "${selectedDisplayName}"; keeping its ${savedServerTools.length} saved tools.`,
+            );
+            selectedToolNames.push(...savedServerTools);
           } else {
             yield* logger.warn("No tools found in selected category", { toolCount: 0 });
             yield* terminal.warn(
@@ -528,6 +549,11 @@ export function editAgentCommand(
         ...(editAnswers.tools !== undefined && { tools: Array.from(new Set(editAnswers.tools)) }),
         ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
       };
+      if (editAnswers.webSearchProvider === null) {
+        const { webSearchProvider: _cleared, ...configWithoutSearchProvider } = updatedConfig;
+        void _cleared;
+        updatedConfig = configWithoutSearchProvider;
+      }
       if (editAnswers.maxContextTokens === null) {
         const { maxContextTokens: _cleared, ...llmWithoutCeiling } = updatedConfig.llm;
         void _cleared;
@@ -977,13 +1003,7 @@ async function promptForAgentUpdates(
             continue;
           }
 
-          if (webSearchProvider === "builtin") {
-            selectedCategories = selectedCategories.filter(
-              (category) => category !== searchCategoryName,
-            );
-          } else {
-            answers.webSearchProvider = webSearchProvider;
-          }
+          answers.webSearchProvider = webSearchProvider === "builtin" ? null : webSearchProvider;
         }
       }
 
