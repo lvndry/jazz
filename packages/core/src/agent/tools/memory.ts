@@ -7,11 +7,7 @@
 
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
-import {
-  DEFAULT_MEMORY_SCOPE,
-  MEMORY_SUMMARY_MAX_CHARS,
-  SUGGEST_ONLY_MEMORY_AGENT_IDS,
-} from "@/core/constants/memory";
+import { DEFAULT_MEMORY_SCOPE, SUGGEST_ONLY_MEMORY_AGENT_IDS } from "@/core/constants/memory";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type {
   MemoryService,
@@ -204,7 +200,6 @@ const entryClaimParameters = {
     .string()
     .trim()
     .min(1)
-    .max(MEMORY_SUMMARY_MAX_CHARS)
     .refine((fact) => !isStoredClaimLine(fact), {
       message: "Write fact as your own summary; put the user's words in quotes.",
     })
