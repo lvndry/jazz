@@ -56,6 +56,19 @@ export const SHELL_COMMAND_TIMEOUT_MINUTES = 15;
  */
 export const SHELL_COMMAND_MAX_TIMEOUT_MS = SHELL_COMMAND_TIMEOUT_MINUTES * 60 * 1000;
 
+/**
+ * Ceiling on a single `wait_for` watch: the default and the schema maximum.
+ *
+ * Wider than `SHELL_COMMAND_MAX_TIMEOUT_MS` on purpose — a wait is a repeated
+ * fast check on an interval, not one long command, so it can cover deploys,
+ * CI runs and long streams without re-arming. Each check still dies on its own
+ * deadline and the job lease is renewed by the worker heartbeat, so a long
+ * watch cannot be reclaimed or leave a hung check. Longer waits are
+ * `register_trigger`'s job.
+ */
+export const WAIT_FOR_TIMEOUT_MINUTES = 60;
+export const WAIT_FOR_MAX_TIMEOUT_MS = WAIT_FOR_TIMEOUT_MINUTES * 60 * 1000;
+
 /** Floor on `wait_for`'s poll interval; each check is a process spawn. */
 export const WAIT_FOR_MIN_INTERVAL_MS = 250;
 

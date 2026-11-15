@@ -2,8 +2,8 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
-  SHELL_COMMAND_MAX_TIMEOUT_MS,
   WAIT_FOR_FIRST_CHECK_TIMEOUT_MS,
+  WAIT_FOR_MAX_TIMEOUT_MS,
   WAIT_FOR_MIN_INTERVAL_MS,
 } from "@/core/constants/agent";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
@@ -220,9 +220,9 @@ describe("wait_for", () => {
     await run({ command: "false", description: "defaults" });
 
     const backgroundTimeoutMs = enqueueCalls[0]?.jobs[0]?.poll?.timeoutMs ?? 0;
-    expect(backgroundTimeoutMs).toBeLessThanOrEqual(SHELL_COMMAND_MAX_TIMEOUT_MS);
+    expect(backgroundTimeoutMs).toBeLessThanOrEqual(WAIT_FOR_MAX_TIMEOUT_MS);
     expect(backgroundTimeoutMs).toBeGreaterThan(
-      SHELL_COMMAND_MAX_TIMEOUT_MS - WAIT_FOR_FIRST_CHECK_TIMEOUT_MS,
+      WAIT_FOR_MAX_TIMEOUT_MS - WAIT_FOR_FIRST_CHECK_TIMEOUT_MS,
     );
     expect(enqueueCalls[0]?.jobs[0]?.poll?.intervalMs).toBeGreaterThanOrEqual(
       WAIT_FOR_MIN_INTERVAL_MS,
@@ -244,11 +244,11 @@ describe("wait_for", () => {
     const result = await run({
       command: "true",
       description: "too long",
-      timeoutMs: SHELL_COMMAND_MAX_TIMEOUT_MS + 1,
+      timeoutMs: WAIT_FOR_MAX_TIMEOUT_MS + 1,
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain(`at most ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}`);
+    expect(result.error).toContain(`at most ${String(WAIT_FOR_MAX_TIMEOUT_MS)}`);
   });
 
   it("refuses an interval below the floor", async () => {
