@@ -19,7 +19,7 @@ import {
   MAX_MEMORY_PATH_DEPTH,
   MAX_MEMORY_PATH_SEGMENT_LENGTH,
   MAX_MEMORY_TOTAL_BYTES_PER_SCOPE,
-  MEMORY_SUMMARY_MAX_CHARS,
+  MEMORY_EXISTING_CONTENT_HINT_CHARS,
   MEMORY_VIEW_MAX_LINES,
   MEMORY_VIEW_TRUNCATE_CHARS,
 } from "@jazz/core/constants/memory";
@@ -433,7 +433,7 @@ function entrySummary(content: string): string | undefined {
   if (firstLine === undefined) {
     return undefined;
   }
-  return firstLine.replace(/^#+\s*/, "").slice(0, MEMORY_SUMMARY_MAX_CHARS);
+  return firstLine.replace(/^#+\s*/, "");
 }
 
 function readEntrySummary(
@@ -1172,7 +1172,11 @@ export class MemoryServiceImpl implements MemoryService {
               `Error: ${abbreviateHomePath(target)} already exists.`,
               "Amend the existing entry rather than adding a second one.",
               ...(existingText.length > 0
-                ? ["", "Current content:", existingText.slice(0, MEMORY_SUMMARY_MAX_CHARS * 4)]
+                ? [
+                    "",
+                    "Current content:",
+                    existingText.slice(0, MEMORY_EXISTING_CONTENT_HINT_CHARS),
+                  ]
                 : []),
             ].join("\n"),
           } satisfies MemoryMutationOutcome;

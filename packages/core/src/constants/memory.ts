@@ -48,9 +48,5 @@ export const SUGGEST_ONLY_MEMORY_AGENT_IDS: readonly string[] = [
   MEMORY_LEARNER_AGENT_ID,
 ];
 
-/**
- * Longest derived entry summary kept in the sidecar. Entries are one thought
- * each, so anything past this is prose that belongs in the body rather than in
- * the text the recall index ranks on.
- */
-export const MEMORY_SUMMARY_MAX_CHARS = 200;
+/** Characters of an existing entry echoed back when a create is refused because it already exists. */
+export const MEMORY_EXISTING_CONTENT_HINT_CHARS = 800;
