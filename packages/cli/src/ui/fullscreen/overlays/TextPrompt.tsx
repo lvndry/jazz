@@ -10,10 +10,10 @@
  *     drawn from some font range, occupies a column the text also wants, and
  *     disappears against a block character; inverting the cell the caret is
  *     *on* costs nothing and cannot be confused with content.
- *   - A masked value is replaced before it is measured or windowed. The
- *     prefix stays hidden (`***`) and only the last few characters are
- *     shown, so a pasted API key can be recognised without flashing the
- *     whole secret. A concealed value (a secret typed for the agent) shows
+ *   - A masked value is replaced before it is measured or windowed. Every
+ *     character but the last few shows as `*`, so the length of a pasted API
+ *     key is visible and its tail recognisable without flashing the whole
+ *     secret. A concealed value (a secret typed for the agent) shows
  *     one bullet per character and nothing of the value.
  *   - The value scrolls horizontally rather than wrapping. A wrapped input
  *     changes the height of the overlay as you type, which moves everything
@@ -25,7 +25,7 @@
 import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
 import { getGlyphs } from "../../glyphs";
-import { concealValue, maskSecret, maskSecretCaret } from "../../mask-secret";
+import { concealValue, maskSecret } from "../../mask-secret";
 import {
   clipTerminalCells,
   clipTerminalCellsFromStart,
@@ -196,9 +196,7 @@ export function CaretValue({
 
   const display =
     concealed === true ? concealValue(value) : masked === true ? maskSecret(value) : value;
-  const displayCaret =
-    concealed === true ? caret : masked === true ? maskSecretCaret(value, caret) : caret;
-  const cells = caretCells(display, displayCaret, width);
+  const cells = caretCells(display, caret, width);
 
   return (
     <text style={{ flexShrink: 0 }}>

@@ -701,7 +701,7 @@ describe("text prompt overlay", () => {
     renderer.destroy();
   });
 
-  it("masks the prefix of a secret and reveals only the last 6 characters", async () => {
+  it("masks a secret to its length and reveals only the last 5 characters", async () => {
     const longSecret = "c9706a74-71d7-4523-8044-29b01abff127";
     const { renderer, captureCharFrame } = await draw(
       <TextPrompt
@@ -712,7 +712,7 @@ describe("text prompt overlay", () => {
     );
     const frame = captureCharFrame();
 
-    expect(frame).toContain("***bff127");
+    expect(frame).toContain(`${"*".repeat(longSecret.length - 5)}ff127`);
     expect(frame).not.toContain(longSecret);
     expect(frame).not.toContain("c9706a74");
     expect(frame).toContain("hidden while you type");

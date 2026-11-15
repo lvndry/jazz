@@ -2,16 +2,19 @@ import { concealValue } from "@jazz/core/presentation/concealed-line";
 
 export { concealValue };
 
-export const SECRET_MASK_PREFIX = "***";
-export const SECRET_REVEAL_LONG = 6;
+export const SECRET_MASK_CHARACTER = "*";
+/** Trailing characters left visible so a pasted key can be recognized. */
+export const SECRET_REVEAL_LONG = 5;
 export const SECRET_REVEAL_SHORT = 2;
+/** Shortest secret whose last SECRET_REVEAL_LONG characters show: at least as much stays hidden. */
+const SECRET_REVEAL_LONG_MIN_LENGTH = 2 * SECRET_REVEAL_LONG;
 
 export interface MaskSecretOptions {
   readonly reveal?: number;
 }
 
 function revealLength(value: string, revealLong: number): number {
-  if (value.length >= revealLong) {
+  if (value.length >= Math.max(SECRET_REVEAL_LONG_MIN_LENGTH, 2 * revealLong)) {
     return revealLong;
   }
   if (value.length > SECRET_REVEAL_SHORT) {
@@ -20,28 +23,14 @@ function revealLength(value: string, revealLong: number): number {
   return 0;
 }
 
+/**
+ * One mask character per hidden character, then the revealed tail, so the masked text has the
+ * secret's length and a caret index into the value is also an index into the mask.
+ */
 export function maskSecret(value: string, options?: MaskSecretOptions): string {
-  if (value.length === 0) {
-    return "";
-  }
-  const reveal = revealLength(value, options?.reveal ?? SECRET_REVEAL_LONG);
-  if (reveal === 0) {
-    return SECRET_MASK_PREFIX;
-  }
-  return SECRET_MASK_PREFIX + value.slice(-reveal);
-}
-
-export function maskSecretCaret(value: string, caret: number, options?: MaskSecretOptions): number {
-  if (value.length === 0) {
-    return 0;
-  }
   const reveal = revealLength(value, options?.reveal ?? SECRET_REVEAL_LONG);
   const hiddenLength = value.length - reveal;
-  const clamped = Math.max(0, Math.min(caret, value.length));
-  if (clamped <= hiddenLength) {
-    return clamped === 0 ? 0 : SECRET_MASK_PREFIX.length;
-  }
-  return SECRET_MASK_PREFIX.length + (clamped - hiddenLength);
+  return SECRET_MASK_CHARACTER.repeat(hiddenLength) + value.slice(hiddenLength);
 }
 
 /** How a text field draws its value: as typed, masked but for its tail, or all bullets. */
@@ -60,7 +49,7 @@ export function displayedInput(
     return { text: concealValue(value), caret: concealValue(value.slice(0, caret)).length };
   }
   if (mode === "tail") {
-    return { text: maskSecret(value), caret: maskSecretCaret(value, caret) };
+    return { text: maskSecret(value), caret };
   }
   return { text: value, caret };
 }

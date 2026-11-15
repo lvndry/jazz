@@ -1814,7 +1814,7 @@ describe("fullscreen bridge", () => {
     const masked = rendered.captureCharFrame();
     expect(masked).toContain("API key");
     expect(masked).not.toContain("topsecret");
-    expect(masked).toContain("***secret");
+    expect(masked).toContain("*******et");
     rendered.mockInput.pressKey("RETURN");
     await settleKeypress(rendered.flush);
     expect(await passwordResult).toBe("topsecret");
@@ -1834,7 +1834,7 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
     await typeInto(rendered.mockInput, rendered.flush, apiKey);
     const live = rendered.captureCharFrame();
-    expect(live).toContain("***bff127");
+    expect(live).toContain(`${"*".repeat(apiKey.length - 5)}ff127`);
     expect(live).not.toContain(apiKey);
     rendered.mockInput.pressKey("RETURN");
     await settleKeypress(rendered.flush);
