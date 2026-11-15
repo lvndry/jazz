@@ -2,13 +2,13 @@
  * @fileoverview `wait_for` — watch a condition in the background. The call enqueues a one-job
  * batch whose worker reruns the check on an interval, returns at once, and the conversation is
  * woken when the condition holds or the time runs out, so a wait never holds a turn open.
- * Bounded by `SHELL_COMMAND_MAX_TIMEOUT_MS`; longer waits compose with `register_trigger`.
+ * Bounded by `WAIT_FOR_MAX_TIMEOUT_MS`; longer waits compose with `register_trigger`.
  */
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import {
-  SHELL_COMMAND_MAX_TIMEOUT_MS,
-  SHELL_COMMAND_TIMEOUT_MINUTES,
+  WAIT_FOR_MAX_TIMEOUT_MS,
+  WAIT_FOR_TIMEOUT_MINUTES,
   WAIT_FOR_DEFAULT_INTERVAL_MS,
   WAIT_FOR_FIRST_CHECK_TIMEOUT_MS,
   WAIT_FOR_MIN_INTERVAL_MS,
@@ -120,14 +120,14 @@ const waitForParameters = z
       .int()
       .positive()
       .max(
-        SHELL_COMMAND_MAX_TIMEOUT_MS,
-        `timeoutMs cannot exceed ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}ms (${String(
-          SHELL_COMMAND_TIMEOUT_MINUTES,
-        )} minutes). Pass at most ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}, and call wait_for again if it times out.`,
+        WAIT_FOR_MAX_TIMEOUT_MS,
+        `timeoutMs cannot exceed ${String(WAIT_FOR_MAX_TIMEOUT_MS)}ms (${String(
+          WAIT_FOR_TIMEOUT_MINUTES,
+        )} minutes). Pass at most ${String(WAIT_FOR_MAX_TIMEOUT_MS)}, and call wait_for again if it times out.`,
       )
       .optional()
       .describe(
-        `Milliseconds before giving up. Default and maximum ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}.`,
+        `Milliseconds before giving up. Default and maximum ${String(WAIT_FOR_MAX_TIMEOUT_MS)}.`,
       ),
     workingDirectory: z.string().optional().describe("Defaults to the session working directory."),
   })
@@ -193,7 +193,7 @@ export function createWaitTools(): WaitTools {
     summary:
       "Watch for something to finish, appear, change, drop, arrive or come back up, checking as " +
       "often as every quarter second, in the background — you keep working and are woken when " +
-      `it happens or after ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes at most. Cancel with cancel_wait_for using the batch id it returns.`,
+      `it happens or after ${String(WAIT_FOR_TIMEOUT_MINUTES)} minutes at most. Cancel with cancel_wait_for using the batch id it returns.`,
     description:
       "Rerun a command in the background until it exits 0; use it for every wait-until check. " +
       "Runs one check right away: if it already exits 0 the call returns status `holds` and " +
@@ -204,7 +204,7 @@ export function createWaitTools(): WaitTools {
       "Have the command print one short status line per check, such as " +
       "`tail -n 1 build.log; grep -q 'build finished' build.log`; the newest line shows in the " +
       "session while it waits. " +
-      `Waits up to ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes.`,
+      `Waits up to ${String(WAIT_FOR_TIMEOUT_MINUTES)} minutes.`,
     parameters: waitForParameters,
     riskLevel: "unknown",
     validate: makeZodValidator(waitForParameters),
@@ -218,7 +218,7 @@ export function createWaitTools(): WaitTools {
       }
 
       const intervalMs = args.intervalMs ?? WAIT_FOR_DEFAULT_INTERVAL_MS;
-      const timeoutMs = args.timeoutMs ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
+      const timeoutMs = args.timeoutMs ?? WAIT_FOR_MAX_TIMEOUT_MS;
       const maxAttempts = worstCaseRuns(intervalMs, timeoutMs);
 
       return Effect.succeed(`Wait for: ${args.description}
@@ -254,7 +254,7 @@ The command runs repeatedly and unattended, in the background, until it succeeds
           : yield* shell.getCwd(key);
 
         const intervalMs = args.intervalMs ?? WAIT_FOR_DEFAULT_INTERVAL_MS;
-        const timeoutMs = args.timeoutMs ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
+        const timeoutMs = args.timeoutMs ?? WAIT_FOR_MAX_TIMEOUT_MS;
 
         const firstCheckStartedAt = Date.now();
         const firstCheck = yield* runFirstCheck(
