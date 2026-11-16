@@ -376,6 +376,7 @@ const webSearchShape = {
   treg: apiKeyOnly,
   keenable: apiKeyOnly,
   providers: z.array(z.enum(WEB_SEARCH_PROVIDERS)).exactOptional(),
+  preferBuiltin: z.boolean().exactOptional(),
 } satisfies SchemaShape<WebSearchConfig>;
 
 const privateHostEntry = described(

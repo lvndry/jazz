@@ -100,6 +100,7 @@ function resolveToolDisplayMetadata(
     const route = yield* resolveWebSearchRoute(
       configService,
       context.parentAgent?.config.webSearchProviders,
+      false,
     );
     if (route.kind === "builtin") {
       return { provider: "builtin" };

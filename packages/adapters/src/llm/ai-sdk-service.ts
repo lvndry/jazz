@@ -2319,11 +2319,13 @@ class AISDKService implements LLMService {
   }
 
   /**
-   * Whether `web_search` should become the model's native search: only when the agent's search
-   * route has no external provider with a key. Resolved by the same function the tool runs, so
-   * the swap and the tool's own provider chain cannot disagree.
+   * Whether `web_search` should become the model's native search: when the agent's search route
+   * is built-in, either because no external provider has a key or because `preferBuiltin` is on
+   * and this provider hosts search. Resolved by the same function the tool runs, so the swap and
+   * the tool's own provider chain cannot disagree.
    */
   private async webSearchRouteIsBuiltin(
+    providerName: ProviderName,
     requestedTools: ChatCompletionOptions["tools"],
     webSearchProviders: ChatCompletionOptions["webSearchProviders"],
   ): Promise<boolean> {
@@ -2331,7 +2333,11 @@ class AISDKService implements LLMService {
       return false;
     }
     const route = await Effect.runPromise(
-      resolveWebSearchRoute(this.configService, webSearchProviders),
+      resolveWebSearchRoute(
+        this.configService,
+        webSearchProviders,
+        checkProviderNativeWebSearchSupport(providerName, this.logger),
+      ),
     );
     return route.kind === "builtin";
   }
@@ -2509,7 +2515,11 @@ class AISDKService implements LLMService {
         const prepared = this.prepareTools(
           providerName,
           requestedTools,
-          await this.webSearchRouteIsBuiltin(requestedTools, options.webSearchProviders),
+          await this.webSearchRouteIsBuiltin(
+            providerName,
+            requestedTools,
+            options.webSearchProviders,
+          ),
         );
         const tools = prepared?.tools;
         const providerNativeToolNames = prepared?.providerNativeToolNames ?? new Set<string>();
@@ -2966,7 +2976,11 @@ class AISDKService implements LLMService {
                 const prepared = this.prepareTools(
                   providerName,
                   requestedTools,
-                  await this.webSearchRouteIsBuiltin(requestedTools, options.webSearchProviders),
+                  await this.webSearchRouteIsBuiltin(
+                    providerName,
+                    requestedTools,
+                    options.webSearchProviders,
+                  ),
                 );
                 const tools = prepared?.tools;
 

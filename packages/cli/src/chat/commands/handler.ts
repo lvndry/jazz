@@ -1006,14 +1006,18 @@ function resolveWebSearchProviderLabel(
 ): Effect.Effect<string | null, never, AgentConfigService | LLMService> {
   return Effect.gen(function* () {
     const configService = yield* AgentConfigServiceTag;
-    const route = yield* resolveWebSearchRoute(configService, agent.config.webSearchProviders);
+    const llmService = yield* LLMServiceTag;
+    const supportsNative = yield* llmService.supportsNativeWebSearch(agent.config.llm.provider);
+    const route = yield* resolveWebSearchRoute(
+      configService,
+      agent.config.webSearchProviders,
+      supportsNative,
+    );
 
     if (route.kind === "external") {
       return `via ${route.chain.map((link) => webSearchProviderLabel(link.provider)).join(" → ")}`;
     }
 
-    const llmService = yield* LLMServiceTag;
-    const supportsNative = yield* llmService.supportsNativeWebSearch(agent.config.llm.provider);
     if (supportsNative) {
       const providerName =
         agent.config.llm.provider.charAt(0).toUpperCase() + agent.config.llm.provider.slice(1);

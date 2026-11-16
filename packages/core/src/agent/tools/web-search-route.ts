@@ -34,13 +34,24 @@ export type WebSearchRoute =
  * An explicit list is authoritative: a provider left off it is never called, even with a key, and
  * an explicit empty list selects the model's built-in search. With no list anywhere, every
  * provider holding a key joins the chain in {@link WEB_SEARCH_PROVIDERS} order.
+ *
+ * `web_search.preferBuiltin` sends an agent without its own list to the model's built-in search
+ * when `hostsNativeSearch` says the model provider has one, and to the chain otherwise.
  */
 export function resolveWebSearchRoute(
   config: AgentConfigService,
   agentProviders: readonly WebSearchProviderName[] | undefined,
+  hostsNativeSearch: boolean,
 ): Effect.Effect<WebSearchRoute, never> {
   return Effect.gen(function* () {
     const appConfig = yield* config.appConfig;
+    if (
+      agentProviders === undefined &&
+      appConfig.web_search?.preferBuiltin === true &&
+      hostsNativeSearch
+    ) {
+      return { kind: "builtin", missingKeys: [] } as const;
+    }
     const explicit = agentProviders ?? appConfig.web_search?.providers;
     const chain: WebSearchChainLink[] = [];
     const missingKeys: WebSearchProviderName[] = [];

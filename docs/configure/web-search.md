@@ -54,6 +54,17 @@ The list is authoritative: a provider left off it is never called, even with a k
 
 Settings → Web Search in the `jazz` menu and the agent wizards set the same order: pick the first provider, then tick the ones to fall back to.
 
+## Prefer built-in search where the model has it
+
+Some model providers host their own search (OpenAI, ChatGPT, Anthropic, Google, xAI, Groq and OpenRouter); others, such as vLLM and Ollama, do not. To use built-in search where it exists and your provider order everywhere else:
+
+```bash
+jazz config set web_search.providers exa,brave,linkup,parallel
+jazz config set web_search.preferBuiltin true
+```
+
+An agent on an OpenAI model then searches with OpenAI's built-in search, and an agent on a vLLM model searches with Exa, falling back to Brave, Linkup and Parallel. The built-in search runs on the model provider's account, so it has no separate quota to fall back from. The setting applies only to agents without their own `webSearchProviders`. Toggle it in Settings → Web Search.
+
 ## Fallback behavior
 
 Each search tries the providers in order and returns the first answer. Any failure moves to the next provider: quota or credit exhaustion, rate limits, a refused key, timeouts, server errors, and requests one provider rejects. An empty result is an answer, not a failure.

@@ -607,6 +607,10 @@ function configureWebSearchProviders() {
           name: `Provider order (current: ${providerDisplay})`,
           value: "select-provider",
         },
+        {
+          name: `Prefer the model's built-in search when it has one (current: ${config.web_search?.preferBuiltin === true ? "on" : "off"})`,
+          value: "toggle-prefer-builtin",
+        },
         ...WEB_SEARCH_PROVIDERS.map((provider) => {
           const hasKey = !!config.web_search?.[provider.value]?.api_key;
           return {
@@ -623,6 +627,17 @@ function configureWebSearchProviders() {
 
       if (!selection || selection === "back") {
         break;
+      }
+
+      if (selection === "toggle-prefer-builtin") {
+        const preferBuiltin = config.web_search?.preferBuiltin !== true;
+        yield* configService.set("web_search.preferBuiltin", preferBuiltin ? true : undefined);
+        yield* terminal.success(
+          preferBuiltin
+            ? "Agents whose model has built-in search will use it; others use the provider order."
+            : "Agents will use the provider order.",
+        );
+        continue;
       }
 
       if (selection === "select-provider") {
