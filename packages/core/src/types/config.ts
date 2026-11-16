@@ -517,4 +517,9 @@ export interface WebSearchConfig {
    * list means the model's built-in search.
    */
   readonly providers?: readonly WebSearchProviderName[];
+  /**
+   * Use the model's built-in search when its provider has one, and `providers` otherwise. Applies
+   * to agents without their own `webSearchProviders`.
+   */
+  readonly preferBuiltin?: boolean;
 }

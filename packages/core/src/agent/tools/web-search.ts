@@ -141,15 +141,19 @@ export function webSearchReadiness(
     const config = yield* AgentConfigServiceTag;
     const llm = yield* LLMServiceTag;
     const logger = yield* Effect.serviceOption(LoggerServiceTag);
-    const route = yield* resolveWebSearchRoute(config, context.agent.config.webSearchProviders);
+    const hostsNativeSearch = yield* llm
+      .supportsNativeWebSearch(context.agent.config.llm.provider)
+      .pipe(Effect.catch(() => Effect.succeed(false)));
+    const route = yield* resolveWebSearchRoute(
+      config,
+      context.agent.config.webSearchProviders,
+      hostsNativeSearch,
+    );
 
     if (route.kind === "external") {
       return { ready: true } as const;
     }
 
-    const hostsNativeSearch = yield* llm
-      .supportsNativeWebSearch(context.agent.config.llm.provider)
-      .pipe(Effect.catch(() => Effect.succeed(false)));
     if (hostsNativeSearch) {
       return { ready: true } as const;
     }
@@ -210,6 +214,7 @@ export function createWebSearchTool(
         const route = yield* resolveWebSearchRoute(
           config,
           context.parentAgent?.config.webSearchProviders,
+          false,
         );
 
         if (route.kind === "builtin") {

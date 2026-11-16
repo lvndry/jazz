@@ -111,7 +111,7 @@ export function configureWebSearch(
 
     if (keySaved.size > 0) {
       choices.push({
-        name: "Default (Jazz-wide provider order)",
+        name: "Default (Jazz-wide web search setting)",
         value: "default",
         tag: [...keySaved].map(webSearchProviderLabel).join(" → "),
         tagTone: "muted",
@@ -145,7 +145,7 @@ export function configureWebSearch(
       }
 
       if (selection === "default") {
-        yield* terminal.success("Using the Jazz-wide web search providers.");
+        yield* terminal.success("Using the Jazz-wide web search setting.");
         return { kind: "default" } as const;
       }
 

@@ -128,6 +128,8 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "web_search.<provider>.api_key": "API key for the web search provider.",
   "web_search.providers":
     "Web search providers in fallback order, used when an agent does not name its own. Unset: every provider with a key. Empty: the model's built-in search.",
+  "web_search.preferBuiltin":
+    "Use the model's built-in search when its provider has one, and `web_search.providers` otherwise. Applies to agents without their own `webSearchProviders`. Defaults to false.",
   "output.showReasoning": "Show the model's reasoning. Defaults to true.",
   "output.showToolExecution": "Show each tool call as it runs. Defaults to true.",
   "output.collapseReasoning":

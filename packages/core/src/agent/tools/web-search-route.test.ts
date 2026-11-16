@@ -29,7 +29,7 @@ function configWith(
 describe("resolveWebSearchRoute", () => {
   it("chains every keyed provider in canonical order when no order is set", async () => {
     const route = await Effect.runPromise(
-      resolveWebSearchRoute(configWith(undefined, { brave: "b", exa: "e" }), undefined),
+      resolveWebSearchRoute(configWith(undefined, { brave: "b", exa: "e" }), undefined, false),
     );
     expect(route).toEqual({
       kind: "external",
@@ -43,10 +43,11 @@ describe("resolveWebSearchRoute", () => {
 
   it("lets the agent's order replace the global one and reports keyless entries", async () => {
     const route = await Effect.runPromise(
-      resolveWebSearchRoute(configWith({ providers: ["exa"] }, { brave: "b", exa: "e" }), [
-        "tavily",
-        "brave",
-      ]),
+      resolveWebSearchRoute(
+        configWith({ providers: ["exa"] }, { brave: "b", exa: "e" }),
+        ["tavily", "brave"],
+        false,
+      ),
     );
     expect(route).toEqual({
       kind: "external",
@@ -57,9 +58,28 @@ describe("resolveWebSearchRoute", () => {
 
   it("selects built-in search for an empty order even with keys", async () => {
     const route = await Effect.runPromise(
-      resolveWebSearchRoute(configWith({ providers: [] }, { exa: "e" }), undefined),
+      resolveWebSearchRoute(configWith({ providers: [] }, { exa: "e" }), undefined, false),
     );
     expect(route.kind).toBe("builtin");
+  });
+});
+
+describe("resolveWebSearchRoute with preferBuiltin", () => {
+  const preferring = configWith({ providers: ["exa", "brave"], preferBuiltin: true }, { exa: "e" });
+
+  it("uses built-in search when the model provider hosts one", async () => {
+    const route = await Effect.runPromise(resolveWebSearchRoute(preferring, undefined, true));
+    expect(route.kind).toBe("builtin");
+  });
+
+  it("uses the provider order when the model provider hosts no search", async () => {
+    const route = await Effect.runPromise(resolveWebSearchRoute(preferring, undefined, false));
+    expect(route).toMatchObject({ kind: "external", chain: [{ provider: "exa" }] });
+  });
+
+  it("leaves an agent's own order in charge", async () => {
+    const route = await Effect.runPromise(resolveWebSearchRoute(preferring, ["exa"], true));
+    expect(route.kind).toBe("external");
   });
 });
 
