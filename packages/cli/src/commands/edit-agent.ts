@@ -58,7 +58,7 @@ import {
 } from "@/cli/helpers/reasoning";
 import { ensureLocalProviderBaseUrl } from "@/cli/setup/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/setup/provider-api-key";
-import { configureWebSearch } from "@/cli/setup/web-search";
+import { configureWebSearch, webSearchProvidersFor } from "@/cli/setup/web-search";
 import * as fmt from "@/cli/utils/list-format";
 
 /**
@@ -78,8 +78,8 @@ interface AgentEditAnswers {
   /** New ceiling in tokens, or null to remove the ceiling. */
   maxContextTokens?: number | null;
   tools?: string[];
-  /** External search provider, or null for the model provider's native search. */
-  webSearchProvider?: WebSearchProviderName | null;
+  /** Search providers in fallback order ([] for native search), or null to clear the setting. */
+  webSearchProviders?: readonly WebSearchProviderName[] | null;
 }
 
 /**
@@ -547,10 +547,12 @@ export function editAgentCommand(
           }),
         },
         ...(editAnswers.tools !== undefined && { tools: Array.from(new Set(editAnswers.tools)) }),
-        ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
+        ...(editAnswers.webSearchProviders && {
+          webSearchProviders: editAnswers.webSearchProviders,
+        }),
       };
-      if (editAnswers.webSearchProvider === null) {
-        const { webSearchProvider: _cleared, ...configWithoutSearchProvider } = updatedConfig;
+      if (editAnswers.webSearchProviders === null) {
+        const { webSearchProviders: _cleared, ...configWithoutSearchProvider } = updatedConfig;
         void _cleared;
         updatedConfig = configWithoutSearchProvider;
       }
@@ -991,11 +993,11 @@ async function promptForAgentUpdates(
       if (selectedCategories.includes(searchCategoryName)) {
         const providerName = currentAgent.config.llm.provider;
         if (providerName) {
-          const webSearchProvider = await Effect.runPromise(
+          const webSearchSelection = await Effect.runPromise(
             configureWebSearch(terminal, configService, llmService, providerName),
           );
 
-          if (webSearchProvider === false) {
+          if (webSearchSelection === false) {
             selectedCategories = selectedCategories.filter(
               (category) => category !== searchCategoryName,
             );
@@ -1003,7 +1005,7 @@ async function promptForAgentUpdates(
             continue;
           }
 
-          answers.webSearchProvider = webSearchProvider === "builtin" ? null : webSearchProvider;
+          answers.webSearchProviders = webSearchProvidersFor(webSearchSelection) ?? null;
         }
       }
 

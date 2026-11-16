@@ -13,6 +13,10 @@ import {
 } from "@/core/agent/detach/auto-detach";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { resolveCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
+import {
+  processWebSearchCooldowns,
+  resolveWebSearchRoute,
+} from "@/core/agent/tools/web-search-route";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -80,8 +84,8 @@ import { toolCallIdentityError } from "./tool-call-identity";
 
 /**
  * Display metadata for tools whose behavior depends on a configured backend.
- * For web_search, resolves the provider the handler will actually use
- * (per-agent override first, then global config) so the UI can show
+ * For web_search, resolves the provider the handler will try first
+ * (per-agent list, then global list, then every keyed provider) so the UI can show
  * `web_search(brave)` instead of a bare tool name.
  */
 function resolveToolDisplayMetadata(
@@ -93,10 +97,15 @@ function resolveToolDisplayMetadata(
       return undefined;
     }
     const configService = yield* AgentConfigServiceTag;
-    const appConfig = yield* configService.appConfig;
-    const provider =
-      context.parentAgent?.config.webSearchProvider ?? appConfig.web_search?.provider;
-    return { provider: provider ?? "builtin" };
+    const route = yield* resolveWebSearchRoute(
+      configService,
+      context.parentAgent?.config.webSearchProviders,
+    );
+    if (route.kind === "builtin") {
+      return { provider: "builtin" };
+    }
+    const [first] = processWebSearchCooldowns.order(route.chain);
+    return { provider: first?.provider ?? "builtin" };
   });
 }
 

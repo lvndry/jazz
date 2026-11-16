@@ -106,7 +106,16 @@ export function agentDetailFields(
   fields.push(
     { section: "Access", label: "Tools added", value: list(config.tools) },
     { section: "Access", label: "Tools denied", value: list(config.deniedTools) },
-    { section: "Access", label: "Web search", value: config.webSearchProvider ?? "default" },
+    {
+      section: "Access",
+      label: "Web search",
+      value:
+        config.webSearchProviders === undefined
+          ? "default"
+          : config.webSearchProviders.length === 0
+            ? "built-in"
+            : config.webSearchProviders.join(" → "),
+    },
     { section: "Access", label: "Env allowlist", value: list(config.envAllowlist) },
   );
   const companions = Object.entries(config.companions ?? {});

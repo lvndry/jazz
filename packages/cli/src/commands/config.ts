@@ -8,6 +8,7 @@ import type { LoggingConfig } from "@jazz/core/types/config";
 import { ConfigurationValidationError } from "@jazz/core/types/errors";
 import { splitConfigPath } from "@jazz/core/utils/config-path";
 import {
+  type ConfigScalarInput,
   type ConfigValueKind,
   missingNamedListEntry,
   type NamedListEntry,
@@ -108,6 +109,8 @@ function valueHint(kind: ConfigValueKind, expected: string): string {
       return `Pass ${expected}.`;
     case "text":
       return "Pass the value as plain text.";
+    case "list":
+      return `Pass ${expected}, comma-separated, or "" for an empty list.`;
   }
 }
 
@@ -198,7 +201,7 @@ function sectionError(path: string): ConfigurationValidationError {
 function typedConfigValue(
   path: string,
   raw: string,
-): Effect.Effect<string | number | boolean, ConfigurationValidationError> {
+): Effect.Effect<ConfigScalarInput, ConfigurationValidationError> {
   if (isSecretPath(path)) {
     const resolution = resolveConfigPath(path);
     return isProviderKeyPath(path) && !resolution.known

@@ -31,5 +31,8 @@ export function buildCompletionOptions(input: CompletionRequestInput): ChatCompl
     ...(typeof numCtx === "number" ? { num_ctx: numCtx } : {}),
     ...(apiKeys ? { providerApiKeys: apiKeys } : {}),
     ...(baseUrls ? { providerBaseUrls: baseUrls } : {}),
+    ...(agent.config.webSearchProviders !== undefined
+      ? { webSearchProviders: agent.config.webSearchProviders }
+      : {}),
   };
 }

@@ -82,7 +82,7 @@ describe("AgentConfigService", () => {
     storage: { type: "file", path: "/tmp" },
     logging: { level: "info", format: "plain" },
     llm: {},
-    web_search: { provider: "parallel" },
+    web_search: { providers: ["parallel"] },
   };
 
   it("should get nested properties using dot notation", async () => {
@@ -839,7 +839,7 @@ describe("createConfigLayer", () => {
   it("removes a setting from the file when it is cleared", async () => {
     const globalPath = path.join(getJazzHomeDirectory(), "config.json");
     const fileContents = new Map([
-      [globalPath, JSON.stringify({ web_search: { provider: "brave" }, maxRetries: 2 })],
+      [globalPath, JSON.stringify({ web_search: { providers: ["brave"] }, maxRetries: 2 })],
     ]);
     const testFS = createTestFileSystem(fileContents);
     const layer = createConfigLayer().pipe(
@@ -848,7 +848,7 @@ describe("createConfigLayer", () => {
 
     await Effect.runPromise(
       Effect.flatMap(AgentConfigServiceTag, (service) =>
-        service.set("web_search.provider", undefined),
+        service.set("web_search.providers", undefined),
       ).pipe(Effect.provide(layer)),
     );
 

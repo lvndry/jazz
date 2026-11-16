@@ -513,15 +513,22 @@ export class AgentServiceImpl implements AgentService {
         }
       }
 
-      const webSearchProvider: unknown = config.webSearchProvider;
-      if (webSearchProvider !== undefined && webSearchProvider !== null) {
-        if (typeof webSearchProvider !== "string" || !isWebSearchProviderName(webSearchProvider)) {
+      const webSearchProviders: unknown = config.webSearchProviders;
+      if (webSearchProviders !== undefined && webSearchProviders !== null) {
+        const invalid: unknown = Array.isArray(webSearchProviders)
+          ? (webSearchProviders as readonly unknown[]).find(
+              (entry) => typeof entry !== "string" || !isWebSearchProviderName(entry),
+            )
+          : webSearchProviders;
+        if (invalid !== undefined) {
           return yield* Effect.fail(
             new AgentConfigurationError({
               agentId: "unknown",
-              field: "config.webSearchProvider",
-              message: `Unknown web search provider ${JSON.stringify(webSearchProvider)}`,
-              suggestion: `Use one of: ${WEB_SEARCH_PROVIDERS.join(", ")}.`,
+              field: "config.webSearchProviders",
+              message: Array.isArray(webSearchProviders)
+                ? `Unknown web search provider ${JSON.stringify(invalid)}`
+                : "webSearchProviders must be a list of provider names",
+              suggestion: `Use a list drawn from: ${WEB_SEARCH_PROVIDERS.join(", ")}.`,
             }),
           );
         }

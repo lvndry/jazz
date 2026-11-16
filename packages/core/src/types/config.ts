@@ -512,5 +512,9 @@ export interface WebSearchConfig {
   readonly treg?: WebSearchProviderConfig;
   readonly linkup?: WebSearchProviderConfig;
   readonly keenable?: WebSearchProviderConfig;
-  readonly provider?: WebSearchProviderName;
+  /**
+   * Providers to search with, in fallback order. Unset means every provider with a key; an empty
+   * list means the model's built-in search.
+   */
+  readonly providers?: readonly WebSearchProviderName[];
 }

@@ -1377,7 +1377,11 @@ describe("AgentRunner", () => {
     const SECRET_KEY = "sk-secret-value-123";
     const searchAgent: Agent = {
       ...mockAgent,
-      config: { ...mockAgent.config, tools: ["tool1", "web_search"], webSearchProvider: "brave" },
+      config: {
+        ...mockAgent.config,
+        tools: ["tool1", "web_search"],
+        webSearchProviders: ["brave"],
+      },
     };
 
     const agentWithoutProvider: Agent = {
@@ -1386,16 +1390,16 @@ describe("AgentRunner", () => {
     };
 
     function configWith(settings: {
-      readonly globalProvider?: string;
+      readonly globalProviders?: readonly string[];
       readonly keys?: Record<string, string>;
     }): AgentConfigService {
       return standIn<AgentConfigService>({
         ...mockAgentConfigService,
         appConfig: Effect.succeed({
           ...mockAppConfig,
-          ...(settings.globalProvider === undefined
+          ...(settings.globalProviders === undefined
             ? {}
-            : { web_search: { provider: settings.globalProvider } }),
+            : { web_search: { providers: settings.globalProviders } }),
         }),
         getOrElse: (key: string, fallback: unknown) =>
           Effect.succeed(settings.keys?.[key] ?? fallback),
@@ -1471,6 +1475,21 @@ describe("AgentRunner", () => {
 
     it("leaves web_search out when no provider is configured and the model has no native search", async () => {
       const declared = await declaredToolsOfRun(configWith({}), { agent: agentWithoutProvider });
+      expect(declared).not.toContain("web_search");
+    });
+
+    it("offers web_search when no order is set and any provider has a key", async () => {
+      const declared = await declaredToolsOfRun(
+        configWith({ keys: { "web_search.exa.api_key": SECRET_KEY } }),
+        { agent: agentWithoutProvider },
+      );
+      expect(declared).toContain("web_search");
+    });
+
+    it("leaves web_search out when only providers off the agent's order have keys", async () => {
+      const declared = await declaredToolsOfRun(
+        configWith({ keys: { "web_search.exa.api_key": SECRET_KEY } }),
+      );
       expect(declared).not.toContain("web_search");
     });
 

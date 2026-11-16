@@ -10,6 +10,7 @@ import { configureWebSearch } from "./web-search";
 function stubTerminal(overrides: {
   readonly select: TerminalService["select"];
   readonly ask: TerminalService["ask"];
+  readonly checkbox?: TerminalService["checkbox"];
 }): TerminalService {
   return {
     isInteractive: true,
@@ -113,8 +114,53 @@ describe("configureWebSearch", () => {
     const result = await runWebSearch(terminal, configService);
 
     expect(askedFor).toEqual(["Enter API Key for tavily:", "Enter API Key for linkup:"]);
-    expect(result).toBe("linkup");
+    expect(result).toEqual({ kind: "chain", providers: ["linkup"] });
     expect(saved).toEqual([{ key: "web_search.linkup.api_key", value: "linkup-key" }]);
+    expect(selectCalls).toBe(2);
+  });
+
+  it("returns the primary provider followed by the fallbacks, asking keys only for unsaved ones", async () => {
+    const askedFor: string[] = [];
+    const saved = new Set(["web_search.exa.api_key"]);
+    const terminal = stubTerminal({
+      select: (() => Effect.succeed("brave")) as TerminalService["select"],
+      ask: (message) => {
+        askedFor.push(message);
+        return Effect.succeed("key");
+      },
+      checkbox: ((_message: string, options: { default?: readonly unknown[] }) => {
+        expect(options.default).toEqual(["exa"]);
+        return Effect.succeed(["exa", "tavily"]);
+      }) as TerminalService["checkbox"],
+    });
+    const configService = stubConfig({
+      has: (key) => Effect.succeed(saved.has(key)),
+      set: (key) => {
+        saved.add(key);
+        return Effect.void;
+      },
+    });
+
+    const result = await runWebSearch(terminal, configService);
+
+    expect(result).toEqual({ kind: "chain", providers: ["brave", "exa", "tavily"] });
+    expect(askedFor).toEqual(["Enter API Key for brave:", "Enter API Key for tavily:"]);
+  });
+
+  it("returns to the provider picker when the fallback picker is cancelled", async () => {
+    let selectCalls = 0;
+    const terminal = stubTerminal({
+      select: (() => {
+        selectCalls += 1;
+        return Effect.succeed(selectCalls === 1 ? "exa" : "back");
+      }) as TerminalService["select"],
+      ask: () => Effect.succeed("key"),
+      checkbox: (() => Effect.succeed(undefined)) as TerminalService["checkbox"],
+    });
+
+    const result = await runWebSearch(terminal, stubConfig({ has: () => Effect.succeed(true) }));
+
+    expect(result).toBe(false);
     expect(selectCalls).toBe(2);
   });
 });

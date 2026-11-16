@@ -64,7 +64,7 @@ import { modelUsage, recordModelUsage } from "@/cli/helpers/model-recency";
 import { promptForReasoningSelection } from "@/cli/helpers/reasoning";
 import { ensureLocalProviderBaseUrl } from "@/cli/setup/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/setup/provider-api-key";
-import { configureWebSearch } from "@/cli/setup/web-search";
+import { configureWebSearch, webSearchProvidersFor } from "@/cli/setup/web-search";
 import { configuredProviderNames } from "@/cli/ui/models/configured-providers";
 import { ollamaOrigin, probeOllamaModels } from "../helpers/provider-detection";
 
@@ -120,7 +120,7 @@ interface AIAgentCreationAnswers {
   reasoning?: ReasoningSelection;
   numCtx?: number;
   tools: string[];
-  webSearchProvider?: WebSearchProviderName;
+  webSearchProviders?: readonly WebSearchProviderName[];
 }
 
 /**
@@ -346,7 +346,9 @@ export function createAgentCommand(
         ...(typeof agentAnswers.numCtx === "number" && { numCtx: agentAnswers.numCtx }),
       },
       tools: uniqueToolNames,
-      ...(agentAnswers.webSearchProvider && { webSearchProvider: agentAnswers.webSearchProvider }),
+      ...(agentAnswers.webSearchProviders !== undefined && {
+        webSearchProviders: agentAnswers.webSearchProviders,
+      }),
     };
 
     const agentService = yield* AgentServiceTag;
@@ -506,7 +508,7 @@ interface WizardState {
   name?: string;
   description?: string;
   tools?: string[];
-  webSearchProvider?: WebSearchProviderName;
+  webSearchProviders?: readonly WebSearchProviderName[];
   // Cached data
   allProviders?: readonly LLMProviderListItem[];
   providerInfo?: LLMProvider;
@@ -1104,7 +1106,7 @@ export async function promptForAgentInfo(
           }
 
           if (selectedTools.includes(WEB_SEARCH_CATEGORY.displayName)) {
-            const webSearchProvider = await Effect.runPromise(
+            const webSearchSelection = await Effect.runPromise(
               configureWebSearch(
                 terminal,
                 configService,
@@ -1114,15 +1116,16 @@ export async function promptForAgentInfo(
               ),
             );
 
-            if (webSearchProvider === false) {
+            if (webSearchSelection === false) {
               await Effect.runPromise(terminal.log(""));
               continue;
             }
 
-            if (webSearchProvider === "builtin") {
-              delete state.webSearchProvider;
+            const webSearchProviders = webSearchProvidersFor(webSearchSelection);
+            if (webSearchProviders === undefined) {
+              delete state.webSearchProviders;
             } else {
-              state.webSearchProvider = webSearchProvider;
+              state.webSearchProviders = webSearchProviders;
             }
           }
 
@@ -1195,6 +1198,8 @@ export async function promptForAgentInfo(
     name: state.name!,
     ...(state.description && { description: state.description }),
     tools: finalTools,
-    ...(state.webSearchProvider && { webSearchProvider: state.webSearchProvider }),
+    ...(state.webSearchProviders !== undefined && {
+      webSearchProviders: state.webSearchProviders,
+    }),
   };
 }

@@ -691,6 +691,23 @@ describe("parseConfigInput", () => {
     }
   });
 
+  it("reads a list of scalars from comma-separated text", () => {
+    expect(parseConfigInput("web_search.providers", "brave, exa")).toEqual({
+      ok: true,
+      value: ["brave", "exa"],
+    });
+    expect(parseConfigInput("web_search.providers", "")).toEqual({ ok: true, value: [] });
+    expect(parseConfigInput("web_search.providers", "brave,google")).toMatchObject({
+      ok: false,
+      reason: "invalid",
+      kind: "list",
+    });
+  });
+
+  it("still refuses a list of objects as a single value", () => {
+    expect(parseConfigInput("peers", "x")).toEqual({ ok: false, reason: "structured" });
+  });
+
   it("keeps text settings exactly as typed", () => {
     expect(parseConfigInput("llm.ollama.keep_alive", "-1")).toEqual({ ok: true, value: "-1" });
     expect(parseConfigInput("llm.openai.api_key", " sk-abc ")).toEqual({
