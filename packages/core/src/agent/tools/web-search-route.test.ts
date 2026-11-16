@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import type { AgentConfigService } from "../../interfaces/agent-config";
+import { partialFake } from "../../test-support/fakes";
 import type { AppConfig } from "../../types";
 import {
   classifySearchFailure,
@@ -12,17 +13,17 @@ function configWith(
   webSearch: AppConfig["web_search"],
   keys: Record<string, string>,
 ): AgentConfigService {
-  return {
+  return partialFake<AgentConfigService>({
     appConfig: Effect.succeed({
       storage: { type: "file", path: "./.jazz" },
       logging: { level: "info", format: "plain" },
       ...(webSearch === undefined ? {} : { web_search: webSearch }),
     }),
-    getOrElse: (key: string, fallback: unknown) => {
+    getOrElse: <A>(key: string, fallback: A) => {
       const provider = key.split(".")[1] ?? "";
-      return Effect.succeed(keys[provider] ?? fallback);
+      return Effect.succeed((keys[provider] as A | undefined) ?? fallback);
     },
-  } as unknown as AgentConfigService;
+  });
 }
 
 describe("resolveWebSearchRoute", () => {

@@ -1,5 +1,5 @@
 ---
-description: "Configure Brave, Exa, Keenable, Linkup, Parallel, Perplexity, Tavily, or treg as Jazz web-search providers, set their fallback order, and understand normalized search options and limits."
+description: "Configure Brave, Exa, Keenable, Linkup, Parallel, Perplexity, Tavily, or treg for web search, set their fallback order, and understand search options and limits."
 ---
 
 # Configure web search
