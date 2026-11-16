@@ -8,7 +8,7 @@
 
 import { loadChatGPTCredential } from "@jazz/adapters/llm/chatgpt";
 import { normalizeLocalProviderBaseUrl } from "@jazz/adapters/llm/models";
-import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
+import { WEB_SEARCH_PROVIDERS, webSearchProviderLabel } from "@jazz/core/agent/tools/web-search";
 import {
   isLocalServerProvider,
   LOCAL_SERVER_PROVIDERS,
@@ -594,12 +594,17 @@ function configureWebSearchProviders() {
 
     while (true) {
       const config = yield* configService.appConfig;
-      const currentProvider = config.web_search?.provider;
-      const providerDisplay = currentProvider ?? "Built-in (if available)";
+      const currentProviders = config.web_search?.providers;
+      const providerDisplay =
+        currentProviders === undefined
+          ? "every provider with a key"
+          : currentProviders.length === 0
+            ? "built-in only"
+            : currentProviders.map(webSearchProviderLabel).join(" → ");
 
       const choices = [
         {
-          name: `Select external provider (current: ${providerDisplay})`,
+          name: `Provider order (current: ${providerDisplay})`,
           value: "select-provider",
         },
         ...WEB_SEARCH_PROVIDERS.map((provider) => {
@@ -621,26 +626,52 @@ function configureWebSearchProviders() {
       }
 
       if (selection === "select-provider") {
-        const providerChoices: Array<{ name: string; value: WebSearchProviderName | "none" }> = [
-          { name: "None (use built-in if available)", value: "none" },
+        const providerChoices: Array<{
+          name: string;
+          value: WebSearchProviderName | "auto" | "none";
+        }> = [
+          { name: "Every provider with a key, in Jazz's order", value: "auto" },
+          { name: "None (use the model's built-in search if available)", value: "none" },
           ...WEB_SEARCH_PROVIDERS.map((provider) => ({
             name: provider.name,
             value: provider.value,
           })),
         ];
 
-        const choice = yield* terminal.select<WebSearchProviderName | "none">("Select provider:", {
-          choices: providerChoices,
-        });
+        const choice = yield* terminal.select<WebSearchProviderName | "auto" | "none">(
+          "Search with which provider first?",
+          { choices: providerChoices },
+        );
 
-        if (choice === "none") {
-          yield* configService.set("web_search.provider", undefined);
+        if (choice === "auto") {
+          yield* configService.set("web_search.providers", undefined);
+          yield* terminal.success("Web search will use every provider with a key.");
+        } else if (choice === "none") {
+          yield* configService.set("web_search.providers", []);
           yield* terminal.success(
-            "External provider disabled. Built-in provider web search will be used if available.",
+            "External providers disabled. Built-in provider web search will be used if available.",
           );
         } else if (choice) {
-          yield* configService.set("web_search.provider", choice);
-          yield* terminal.success(`External provider set to ${choice}.`);
+          const others = WEB_SEARCH_PROVIDERS.filter((provider) => provider.value !== choice);
+          const fallbacks = yield* terminal.checkbox<WebSearchProviderName>(
+            `Fall back to which providers when ${webSearchProviderLabel(choice)} fails or runs out of quota?`,
+            {
+              choices: others.map((provider) => ({
+                name: `${provider.name}${config.web_search?.[provider.value]?.api_key ? " (configured)" : ""}`,
+                value: provider.value,
+              })),
+              default: others
+                .filter((provider) => !!config.web_search?.[provider.value]?.api_key)
+                .map((provider) => provider.value),
+            },
+          );
+          if (fallbacks !== undefined) {
+            const chain = [choice, ...fallbacks];
+            yield* configService.set("web_search.providers", chain);
+            yield* terminal.success(
+              `Web search order: ${chain.map(webSearchProviderLabel).join(" → ")}.`,
+            );
+          }
         }
       } else {
         const provider = selection as WebSearchProviderName;

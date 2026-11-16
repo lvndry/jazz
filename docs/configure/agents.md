@@ -140,7 +140,7 @@ Use `deniedTools` for a hard per-agent restriction. Jazz applies it after built-
 peer, and custom capabilities are assembled, so an earlier grant cannot add the tool back. Use
 exact tool names from `/tools` in a chat or the [tool inventory](../tools/index.md).
 
-`webSearchProvider` selects the configured search backend. `envAllowlist` may exempt at most 32
+`webSearchProviders` lists the search providers this agent uses, in [fallback order](./web-search.md#set-the-fallback-order). `envAllowlist` may exempt at most 32
 uppercase environment-variable names from command secret scrubbing. Treat each exemption as a
 credential grant to every command the agent can run.
 

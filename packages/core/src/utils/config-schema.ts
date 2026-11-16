@@ -375,7 +375,7 @@ const webSearchShape = {
   linkup: apiKeyOnly,
   treg: apiKeyOnly,
   keenable: apiKeyOnly,
-  provider: z.enum(WEB_SEARCH_PROVIDERS).exactOptional(),
+  providers: z.array(z.enum(WEB_SEARCH_PROVIDERS)).exactOptional(),
 } satisfies SchemaShape<WebSearchConfig>;
 
 const privateHostEntry = described(
@@ -903,7 +903,8 @@ function alternatives(schema: z.ZodType): string[] {
     return ["text"];
   }
   if (inner instanceof z.ZodArray) {
-    return ["a list"];
+    const element = unwrap(inner.element as z.ZodType);
+    return isStructured(element) ? ["a list"] : [`a list of ${describeExpected(element)}`];
   }
   return ["an object"];
 }
@@ -1167,9 +1168,11 @@ export function mcpServerEntryName(path: string, value: unknown): string | undef
 
 function isStructured(schema: z.ZodType): boolean {
   const inner = unwrap(schema);
-  return (
-    inner instanceof z.ZodObject || inner instanceof z.ZodRecord || inner instanceof z.ZodArray
-  );
+  if (inner instanceof z.ZodArray) {
+    const element = unwrap(inner.element as z.ZodType);
+    return element instanceof z.ZodArray || isStructured(element);
+  }
+  return inner instanceof z.ZodObject || inner instanceof z.ZodRecord;
 }
 
 function suggestPath(segments: readonly string[]): string | undefined {
@@ -1207,10 +1210,13 @@ export function resolveConfigPath(path: string): ConfigPathResolution {
 }
 
 /** The broad kind of value a setting holds, for choosing how to explain a refusal. */
-export type ConfigValueKind = "whole-number" | "number" | "boolean" | "choice" | "text";
+export type ConfigValueKind = "whole-number" | "number" | "boolean" | "choice" | "text" | "list";
+
+/** A value `jazz config set` can store: a scalar, or a list of scalars given comma-separated. */
+export type ConfigScalarInput = string | number | boolean | readonly string[];
 
 export type ConfigInput =
-  | { readonly ok: true; readonly value: string | number | boolean }
+  | { readonly ok: true; readonly value: ConfigScalarInput }
   | { readonly ok: false; readonly reason: "unknown-key"; readonly suggestion?: string }
   | { readonly ok: false; readonly reason: "structured" }
   | {
@@ -1222,6 +1228,9 @@ export type ConfigInput =
 
 function valueKind(schema: z.ZodType): ConfigValueKind {
   const inner = unwrap(schema);
+  if (inner instanceof z.ZodArray) {
+    return "list";
+  }
   if (inner instanceof z.ZodNumber) {
     return inner.isInt ? "whole-number" : "number";
   }
@@ -1237,8 +1246,16 @@ function valueKind(schema: z.ZodType): ConfigValueKind {
 const TRUE_LITERALS: ReadonlySet<string> = new Set(["true", "yes", "on", "1"]);
 const FALSE_LITERALS: ReadonlySet<string> = new Set(["false", "no", "off", "0"]);
 
-function readings(raw: string): readonly (string | number | boolean)[] {
+function readings(raw: string, schema: z.ZodType): readonly ConfigScalarInput[] {
   const trimmed = raw.trim();
+  if (unwrap(schema) instanceof z.ZodArray) {
+    return [
+      trimmed
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry !== ""),
+    ];
+  }
   const lowered = trimmed.toLowerCase();
   const out: (string | number | boolean)[] = [raw, lowered];
   if (TRUE_LITERALS.has(lowered)) {
@@ -1275,7 +1292,7 @@ export function parseConfigInput(path: string, raw: string): ConfigInput {
   }
 
   const schema = schemaAt(parsePath(path) ?? []) as z.ZodType;
-  for (const reading of readings(raw)) {
+  for (const reading of readings(raw, schema)) {
     if (schema.safeParse(reading).success) {
       return { ok: true, value: reading };
     }

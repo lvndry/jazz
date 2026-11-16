@@ -53,7 +53,8 @@ import {
   type UnreadyTool,
 } from "@jazz/core/agent/tools/tool-readiness";
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
-import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
+import { webSearchProviderLabel } from "@jazz/core/agent/tools/web-search";
+import { resolveWebSearchRoute } from "@jazz/core/agent/tools/web-search-route";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
@@ -996,28 +997,21 @@ function handleToolsCommand(
 }
 
 /**
- * Resolve a human-readable label for the active web_search provider.
+ * Resolve a human-readable label for the agent's web_search route.
  *
- * Returns e.g. "via Brave", "via OpenAI (native)", or null if web_search
- * is not in use / no provider could be determined.
+ * Returns e.g. "via Exa → Brave", "via OpenAI (native)", or "no provider configured".
  */
 function resolveWebSearchProviderLabel(
   agent: CommandContext["agent"],
 ): Effect.Effect<string | null, never, AgentConfigService | LLMService> {
   return Effect.gen(function* () {
     const configService = yield* AgentConfigServiceTag;
-    const appConfig = yield* configService.appConfig;
+    const route = yield* resolveWebSearchRoute(configService, agent.config.webSearchProviders);
 
-    // 1. Check for an explicitly configured external provider
-    const externalProvider = appConfig.web_search?.provider;
-    if (externalProvider) {
-      const display =
-        WEB_SEARCH_PROVIDERS.find((provider) => provider.value === externalProvider)?.name ??
-        externalProvider;
-      return `via ${display}`;
+    if (route.kind === "external") {
+      return `via ${route.chain.map((link) => webSearchProviderLabel(link.provider)).join(" → ")}`;
     }
 
-    // 2. Check if the agent's LLM provider supports native web search
     const llmService = yield* LLMServiceTag;
     const supportsNative = yield* llmService.supportsNativeWebSearch(agent.config.llm.provider);
     if (supportsNative) {
@@ -1026,7 +1020,6 @@ function resolveWebSearchProviderLabel(
       return `via ${providerName} (native)`;
     }
 
-    // 3. No provider available
     return "no provider configured";
   }).pipe(Effect.catch(() => Effect.succeed(null)));
 }

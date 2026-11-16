@@ -1553,6 +1553,7 @@ describe("handleSpecialCommand /tools", () => {
 
     const mockAgentConfigService: PartialMembers<AgentConfigService> = {
       appConfig: Effect.succeed({}) as AgentConfigService["appConfig"],
+      getOrElse: <A>(_key: string, fallback: A) => Effect.succeed(fallback),
     };
     const mockLLMService: PartialMembers<LLMService> = {
       supportsNativeWebSearch: () => Effect.succeed(false),

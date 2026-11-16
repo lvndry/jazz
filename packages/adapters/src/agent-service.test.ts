@@ -862,13 +862,19 @@ describe("AgentService", () => {
       await expectRejected({ ...baseConfig, llm: { ...baseConfig.llm, numCtx: 1024.5 } });
     });
 
-    it("accepts a known web search provider", async () => {
-      await expectAccepted({ ...baseConfig, webSearchProvider: "exa" });
+    it("accepts a list of known web search providers", async () => {
+      await expectAccepted({ ...baseConfig, webSearchProviders: ["exa", "brave"] });
+      await expectAccepted({ ...baseConfig, webSearchProviders: [] });
     });
 
     it("rejects an unknown web search provider", async () => {
       // @ts-expect-error - unknown provider
-      await expectRejected({ ...baseConfig, webSearchProvider: "google" });
+      await expectRejected({ ...baseConfig, webSearchProviders: ["exa", "google"] });
+    });
+
+    it("rejects a single provider name in place of a list", async () => {
+      // @ts-expect-error - a bare string is not a list
+      await expectRejected({ ...baseConfig, webSearchProviders: "exa" });
     });
 
     it("accepts denied tool names", async () => {

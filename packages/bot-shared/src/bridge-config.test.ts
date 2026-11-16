@@ -38,11 +38,20 @@ describe("mergeBridgeConfig", () => {
 
   it("configures brave web search from the key", () => {
     const { config, applied } = mergeBridgeConfig({}, { braveApiKey: "brv" });
+    expect(config["web_search"]).toEqual({ brave: { api_key: "brv" } });
+    expect(applied).toContain("web_search=brave");
+  });
+
+  it("keeps the operator's provider order and drops the single-provider key the schema refuses", () => {
+    const { config } = mergeBridgeConfig(
+      { web_search: { provider: "brave", providers: ["exa", "brave"], exa: { api_key: "e" } } },
+      { braveApiKey: "brv" },
+    );
     expect(config["web_search"]).toEqual({
-      provider: "brave",
+      providers: ["exa", "brave"],
+      exa: { api_key: "e" },
       brave: { api_key: "brv" },
     });
-    expect(applied).toContain("web_search=brave");
   });
 
   it("removes web_search when the key goes away, so disabling it takes effect", () => {

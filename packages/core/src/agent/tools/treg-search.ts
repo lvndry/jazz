@@ -110,6 +110,16 @@ async function callRouted(args: WebSearchArgs, token: string): Promise<SearchRes
   };
 }
 
+/**
+ * " (HTTP 402)" for a failed treg HTTP call, so the fallback chain can tell exhausted credit from
+ * other failures. Only the status is kept: other error text can carry provider response bodies.
+ */
+function httpStatusSuffix(error: unknown): string {
+  const status =
+    error instanceof Error ? /^treg returned HTTP (\d{3})$/.exec(error.message)?.[1] : undefined;
+  return status === undefined ? "" : ` (HTTP ${status})`;
+}
+
 /** Search free first; pay at most five cents for one fallback call if it fails. */
 export function executeTregSearch(
   args: WebSearchArgs,
@@ -128,7 +138,10 @@ export function executeTregSearch(
       yield* logger.info("Treg search using capped paid fallback", { provider: "treg" });
       response = yield* Effect.tryPromise({
         try: () => callRouted(args, token),
-        catch: () => new Error("treg paid fallback failed or exceeded its cost limit"),
+        catch: (error) =>
+          new Error(
+            `treg paid fallback failed or exceeded its cost limit${httpStatusSuffix(error)}`,
+          ),
       });
     }
 

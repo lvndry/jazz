@@ -42,11 +42,9 @@ export function mergeBridgeConfig(
   const applied: string[] = [];
 
   if (env.braveApiKey) {
-    config["web_search"] = {
-      ...nestedObject(config, "web_search"),
-      provider: "brave",
-      brave: { api_key: env.braveApiKey },
-    };
+    const { provider: _retiredProviderKey, ...webSearch } = nestedObject(config, "web_search");
+    void _retiredProviderKey;
+    config["web_search"] = { ...webSearch, brave: { api_key: env.braveApiKey } };
     applied.push("web_search=brave");
   } else {
     delete config["web_search"];

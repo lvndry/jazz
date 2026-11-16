@@ -108,7 +108,11 @@ export interface AgentConfig {
    * has: taking one away is something somebody has to ask for.
    */
   readonly deniedTools?: readonly string[];
-  readonly webSearchProvider?: WebSearchProviderName;
+  /**
+   * Web search providers for this agent, in fallback order, replacing `web_search.providers`.
+   * An empty list means the model's built-in search.
+   */
+  readonly webSearchProviders?: readonly WebSearchProviderName[];
   /**
    * Env var names exempted from the `execute_command` shell env scrub, even
    * when they match the sensitive-name regex (API|KEY|SECRET|TOKEN|PASSWORD|

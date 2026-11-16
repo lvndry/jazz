@@ -4,6 +4,7 @@
  */
 import type { ProviderName } from "@/core/constants/models";
 import type { GeneratedArtifact } from "@/core/types/artifact";
+import type { WebSearchProviderName } from "@/core/types/config";
 import type { ReasoningSelection } from "@/core/types/model-capabilities";
 import type { ChatMessage, StoredReasoningPart } from "./message";
 import type { ToolCall, ToolDefinition } from "./tools";
@@ -104,4 +105,6 @@ export interface ChatCompletionOptions {
   providerApiKeys?: Partial<Record<ProviderName, string>>;
   /** Optional per-request base URL overrides by provider (typically from agent config). */
   providerBaseUrls?: Partial<Record<ProviderName, string>>;
+  /** The agent's web search providers, deciding whether `web_search` uses the model's native search. */
+  webSearchProviders?: readonly WebSearchProviderName[];
 }

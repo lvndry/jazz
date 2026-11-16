@@ -126,7 +126,8 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "llm.openrouter.sort":
     "Send OpenRouter requests to the cheapest (`price`), fastest (`throughput`) or quickest-to-answer (`latency`) endpoint first instead of load balancing across them. See [Model providers](./providers.md#endpoint-order).",
   "web_search.<provider>.api_key": "API key for the web search provider.",
-  "web_search.provider": "Web search provider agents use when an agent does not name one.",
+  "web_search.providers":
+    "Web search providers in fallback order, used when an agent does not name its own. Unset: every provider with a key. Empty: the model's built-in search.",
   "output.showReasoning": "Show the model's reasoning. Defaults to true.",
   "output.showToolExecution": "Show each tool call as it runs. Defaults to true.",
   "output.collapseReasoning":

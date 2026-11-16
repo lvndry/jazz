@@ -3,7 +3,9 @@ import { Effect, Layer } from "effect";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import type { AppConfig } from "../../types";
+import type { WebSearchProviderName } from "../../types/config";
 import { createWebSearchTool, DEFAULT_MAX_RESULTS, type WebSearchArgs } from "./web-search";
+import { WebSearchCooldowns } from "./web-search-route";
 
 // Mock exa-js
 const mockExaSearch = mock();
@@ -48,7 +50,7 @@ describe("WebSearchTool", () => {
     storage: { type: "file", path: "./.jazz" },
     logging: { level: "info", format: "plain" },
     web_search: {
-      provider: "exa",
+      providers: ["exa"],
     },
   };
 
@@ -297,7 +299,7 @@ describe("WebSearchTool", () => {
     describe.each(providers)("Provider: $name", (provider) => {
       it(`should use the configured provider (${provider.name})`, async () => {
         const tool = createWebSearchTool();
-        const config = { ...mockAppConfig, web_search: { provider: provider.name as any } };
+        const config = { ...mockAppConfig, web_search: { providers: [provider.name as any] } };
         const layer = createMockServices(config, { [provider.name]: provider.apiKey });
 
         provider.setupMock();
@@ -315,7 +317,7 @@ describe("WebSearchTool", () => {
 
       it(`should pass maxResults to ${provider.name}`, async () => {
         const tool = createWebSearchTool();
-        const config = { ...mockAppConfig, web_search: { provider: provider.name as any } };
+        const config = { ...mockAppConfig, web_search: { providers: [provider.name as any] } };
         const layer = createMockServices(config, { [provider.name]: provider.apiKey });
 
         provider.setupMock();
@@ -330,7 +332,7 @@ describe("WebSearchTool", () => {
 
       it(`should use default maxResults if not provided to ${provider.name}`, async () => {
         const tool = createWebSearchTool();
-        const config = { ...mockAppConfig, web_search: { provider: provider.name as any } };
+        const config = { ...mockAppConfig, web_search: { providers: [provider.name as any] } };
         const layer = createMockServices(config, { [provider.name]: provider.apiKey });
 
         provider.setupMock();
@@ -342,6 +344,133 @@ describe("WebSearchTool", () => {
 
         provider.verifyMock(args);
       });
+    });
+  });
+
+  describe("Fallback chain", () => {
+    const originalFetch = global.fetch;
+    const keys = { exa: "exa-key", brave: "brave-key" };
+    const braveResponse = (status: number, statusText: string) =>
+      Response.json({ web: { results: [] } }, { status, statusText });
+
+    beforeEach(() => {
+      global.fetch = vi.fn() as any;
+    });
+
+    afterAll(() => {
+      global.fetch = originalFetch;
+    });
+
+    function run(
+      config: AppConfig,
+      cooldowns: WebSearchCooldowns,
+      agentProviders?: readonly WebSearchProviderName[],
+    ) {
+      const parentAgent =
+        agentProviders === undefined
+          ? undefined
+          : ({ config: { webSearchProviders: agentProviders } } as any);
+      return Effect.runPromise(
+        createWebSearchTool(cooldowns)
+          .execute({ query: "test" }, { agentId: "test", ...(parentAgent ? { parentAgent } : {}) })
+          .pipe(Effect.provide(createMockServices(config, keys))),
+      ) as Promise<any>;
+    }
+
+    const braveThenExa: AppConfig = {
+      ...mockAppConfig,
+      web_search: { providers: ["brave", "exa"] },
+    };
+
+    it("moves to the next provider on a rate limit without retrying the first", async () => {
+      (global.fetch as any).mockResolvedValue(braveResponse(429, "Too Many Requests"));
+      mockExaSearch.mockResolvedValue({ results: [{ title: "Exa", url: "https://exa.ai" }] });
+
+      const result = await run(braveThenExa, new WebSearchCooldowns());
+
+      expect(result.success).toBe(true);
+      expect(result.result.provider).toBe("exa");
+      expect(result.result.fallbacks).toEqual([
+        expect.objectContaining({ provider: "brave", reason: "rate_limited" }),
+      ]);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("tries a provider that ran out of quota last on the next search", async () => {
+      let now = 0;
+      const cooldowns = new WebSearchCooldowns(() => now);
+      (global.fetch as any).mockResolvedValue(braveResponse(402, "Payment Required"));
+      mockExaSearch.mockResolvedValue({ results: [{ title: "Exa", url: "https://exa.ai" }] });
+
+      await run(braveThenExa, cooldowns);
+      (global.fetch as any).mockClear();
+      const second = await run(braveThenExa, cooldowns);
+
+      expect(second.result.provider).toBe("exa");
+      expect(second.result.fallbacks).toBeUndefined();
+      expect(global.fetch).not.toHaveBeenCalled();
+
+      now = 60 * 60_000 + 1;
+      await run(braveThenExa, cooldowns);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("still tries a cooling provider when every other provider fails", async () => {
+      const cooldowns = new WebSearchCooldowns();
+      cooldowns.record("brave", "quota");
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ web: { results: [{ title: "Brave", url: "https://brave.com" }] } }),
+      });
+      mockExaSearch.mockRejectedValue(new Error("401 Unauthorized"));
+
+      const result = await run(braveThenExa, cooldowns);
+
+      expect(result.result.provider).toBe("brave");
+      expect(result.result.fallbacks).toEqual([
+        expect.objectContaining({ provider: "exa", reason: "auth" }),
+      ]);
+    });
+
+    it("reports every provider's failure when none answers", async () => {
+      (global.fetch as any).mockResolvedValue(braveResponse(429, "Too Many Requests"));
+      mockExaSearch.mockRejectedValue(new Error("402 Payment Required"));
+
+      const result = await run(braveThenExa, new WebSearchCooldowns());
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("brave (rate_limited)");
+      expect(result.error).toContain("exa (quota)");
+    });
+
+    it("treats empty results as an answer", async () => {
+      (global.fetch as any).mockResolvedValue(braveResponse(200, "OK"));
+
+      const result = await run(braveThenExa, new WebSearchCooldowns());
+
+      expect(result.success).toBe(true);
+      expect(result.result.provider).toBe("brave");
+      expect(mockExaSearch).not.toHaveBeenCalled();
+    });
+
+    it("uses every keyed provider when no order is set", async () => {
+      mockExaSearch.mockRejectedValue(new Error("402 Payment Required"));
+      (global.fetch as any).mockResolvedValue(braveResponse(200, "OK"));
+
+      const result = await run({ ...mockAppConfig, web_search: {} }, new WebSearchCooldowns());
+
+      expect(mockExaSearch).toHaveBeenCalledTimes(1);
+      expect(result.result.provider).toBe("brave");
+    });
+
+    it("never calls a keyed provider left off the agent's order", async () => {
+      (global.fetch as any).mockResolvedValue(braveResponse(429, "Too Many Requests"));
+
+      const result = await run(braveThenExa, new WebSearchCooldowns(), ["brave"]);
+
+      expect(result.success).toBe(false);
+      expect(mockExaSearch).not.toHaveBeenCalled();
     });
   });
 

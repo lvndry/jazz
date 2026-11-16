@@ -26,6 +26,7 @@ import {
   relaxToolArguments,
   type ArgumentRelaxation,
 } from "@jazz/core/agent/tools/argument-tolerance";
+import { resolveWebSearchRoute } from "@jazz/core/agent/tools/web-search-route";
 import { AI_SDK_MAX_RETRIES } from "@jazz/core/constants/agent";
 import {
   isLocalServerProvider,
@@ -2317,9 +2318,28 @@ class AISDKService implements LLMService {
     return Effect.succeed(allProviders);
   }
 
+  /**
+   * Whether `web_search` should become the model's native search: only when the agent's search
+   * route has no external provider with a key. Resolved by the same function the tool runs, so
+   * the swap and the tool's own provider chain cannot disagree.
+   */
+  private async webSearchRouteIsBuiltin(
+    requestedTools: ChatCompletionOptions["tools"],
+    webSearchProviders: ChatCompletionOptions["webSearchProviders"],
+  ): Promise<boolean> {
+    if (!requestedTools?.some((toolDef) => toolDef.function.name === "web_search")) {
+      return false;
+    }
+    const route = await Effect.runPromise(
+      resolveWebSearchRoute(this.configService, webSearchProviders),
+    );
+    return route.kind === "builtin";
+  }
+
   private prepareTools(
     providerName: ProviderName,
     requestedTools: ChatCompletionOptions["tools"],
+    webSearchRouteIsBuiltin: boolean,
   ):
     | { tools: ToolSet; providerNativeToolNames: Set<string>; toolDefinitionChars: number }
     | undefined {
@@ -2356,39 +2376,21 @@ class AISDKService implements LLMService {
     const hasWebSearch = requestedTools.some((toolDef) => toolDef.function.name === "web_search");
     if (hasWebSearch) {
       const providerNativeWebSearch = getProviderNativeWebSearchTool(providerName, this.logger);
-      // Check if user explicitly selected an external provider (vs "none"/undefined for builtin)
-      const selectedExternalProvider = this.config.webSearchConfig?.provider;
-      const hasSelectedProviderKey = selectedExternalProvider
-        ? !!this.config.webSearchConfig?.[selectedExternalProvider]?.api_key
-        : false;
-
-      // Use native if: no external provider selected AND native is available
-      // Use external if: external provider is selected AND has API key
-      const shouldUseProviderNative = !selectedExternalProvider && providerNativeWebSearch;
-      const shouldUseExternal = selectedExternalProvider && hasSelectedProviderKey;
-
-      if (shouldUseProviderNative) {
+      if (webSearchRouteIsBuiltin && providerNativeWebSearch) {
         Effect.runFork(
-          this.logger.debug(
-            `[Web Search] Using provider-native web search tool for ${providerName} (builtin selected, no external provider configured)`,
-          ),
+          this.logger.debug("Web search route: provider-native", { provider: providerName }),
         );
         tools["web_search"] = providerNativeWebSearch;
         providerNativeToolNames.add("web_search");
-      } else if (shouldUseExternal) {
+      } else if (webSearchRouteIsBuiltin) {
         Effect.runFork(
-          this.logger.debug(
-            `[Web Search] Using Jazz web_search tool with external provider: ${selectedExternalProvider}`,
-          ),
+          this.logger.debug("Web search route: none", {
+            provider: providerName,
+            reason: "no external provider has a key and the model provider hosts no native search",
+          }),
         );
-        // Keep Jazz's web_search tool - it will route to the external provider
-      } else if (!providerNativeWebSearch && !shouldUseExternal) {
-        Effect.runFork(
-          this.logger.debug(
-            `[Web Search] web_search tool available but may fail: provider ${providerName} has no native support and no external provider configured`,
-          ),
-        );
-        // Keep Jazz's web_search tool but it will return an error when called
+      } else {
+        Effect.runFork(this.logger.debug("Web search route: external provider chain"));
       }
     }
 
@@ -2504,7 +2506,11 @@ class AISDKService implements LLMService {
           toolsDisabled,
         } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
 
-        const prepared = this.prepareTools(providerName, requestedTools);
+        const prepared = this.prepareTools(
+          providerName,
+          requestedTools,
+          await this.webSearchRouteIsBuiltin(requestedTools, options.webSearchProviders),
+        );
         const tools = prepared?.tools;
         const providerNativeToolNames = prepared?.providerNativeToolNames ?? new Set<string>();
 
@@ -2957,7 +2963,11 @@ class AISDKService implements LLMService {
                   toolsDisabled,
                 } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
 
-                const prepared = this.prepareTools(providerName, requestedTools);
+                const prepared = this.prepareTools(
+                  providerName,
+                  requestedTools,
+                  await this.webSearchRouteIsBuiltin(requestedTools, options.webSearchProviders),
+                );
                 const tools = prepared?.tools;
 
                 if (toolsDisabled) {
