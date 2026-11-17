@@ -181,7 +181,11 @@ export class TimeoutError extends Data.TaggedError("TimeoutError")<{
   readonly operation: string;
   readonly timeout: number;
   readonly suggestion?: string;
-}> {}
+}> {
+  override get message(): string {
+    return `Operation "${this.operation}" exceeded the maximum wait time (${String(this.timeout)}ms).${this.suggestion ? ` ${this.suggestion}` : ""}`;
+  }
+}
 
 /** A tool call ran past its timeout and was stopped. */
 export class ToolTimeoutError extends Data.TaggedError("ToolTimeoutError")<{

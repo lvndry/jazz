@@ -173,6 +173,10 @@ context window. It returns an `agentId` at once and the child works while the pa
 the parent collects the child's answer with `wait_subagents`, and gets back a summary and the
 cost, not the child's transcript.
 
+If a child fails, its error includes a digest of completed tool calls, file changes, and any
+unfinished call. A model-step timeout includes the operation, wait limit, and recovery hint.
+Approved command calls appear as `execute_command` in that digest.
+
 Each child's whole answer is saved with the conversation's working state. `wait_subagents`
 returns each answer once, and when several long answers would not fit together it returns a
 preview of each, sharing the space between them, with the id to read the whole answer by with
@@ -226,8 +230,12 @@ Delegation limits:
   child's allowlist, so delegation cannot widen reach.
 - **Depth stops at 3.** A subagent can spawn one, but the chain ends there. `maxSubagentDepth: 0`
   disables delegation outright.
-- **At most 10 at once** by default (`maxLiveSubagents`), each with **30 iterations** by default,
-  against the parent's 100. In chat the count spans turns: a child still working from an earlier
+- **At most 10 at once** by default (`maxLiveSubagents`). Terminal conversations default to
+  unlimited child iterations; unattended runs default to **30 iterations**. Set
+  `maxSubagentIterations: 0` for unlimited iterations on either surface. There is no fixed
+  30-minute child limit: explicit `maxMinutes`, inherited parent time budgets, and shared cost
+  budgets can still stop a child. Each individual model step also has a 15-minute timeout,
+  including retries. In chat the count spans turns: a child still working from an earlier
   turn holds a slot.
 - **Cost rolls up and is shared.** Each child's spend is added to the parent's as it happens, so
   children running together stop at the parent's `maxCostUSD` instead of each spending the whole

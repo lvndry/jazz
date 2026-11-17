@@ -14,6 +14,7 @@ import type {
 } from "@/core/interfaces/presentation";
 import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types";
+import { TimeoutError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { ToolExecutionResult, UntrustedProvenance } from "@/core/types/tools";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
@@ -603,6 +604,29 @@ describe("spawn_subagent time budget", () => {
       }).catch(() => undefined);
 
       expect(charged).toEqual([{ costUSD: 0.07, costIncomplete: true, totalTokens: 4_000 }]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("includes the timeout reason and recovery suggestion in the parent's failure", async () => {
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation(
+      () =>
+        Effect.fail(
+          new TimeoutError({
+            operation: "reviewer's model step (including retries)",
+            timeout: 900_000,
+            suggestion: "Check connectivity or try again.",
+          }),
+        ) as ReturnType<typeof AgentRunner.runRecursive>,
+    );
+    try {
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawn(presentation)) as ToolExecutionResult;
+      expect(result.success).toBe(false);
+      expect(result.error).toBe(
+        `Operation "reviewer's model step (including retries)" exceeded the maximum wait time (900000ms). Check connectivity or try again.\nIt had made no tool calls before it stopped.`,
+      );
     } finally {
       spy.mockRestore();
     }
