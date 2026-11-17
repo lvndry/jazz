@@ -1,3 +1,7 @@
+/**
+ * Track child tool progress for failure reports. Record progress events with `record`, then
+ * call `describe` for completed calls, file changes, and unfinished work.
+ */
 import type { ToolProgressEvent } from "@/core/types/tools";
 
 /** Tools whose success means the child left something different on disk. */
@@ -11,7 +15,12 @@ const FILE_CHANGING_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 function countsLabel(counts: ReadonlyMap<string, number>): string {
-  return [...counts].map(([toolName, count]) => `${toolName} ×${String(count)}`).join(", ");
+  return [...counts]
+    .map(
+      ([toolName, count]) =>
+        `${toolName.replace(/^execute_execute_/, "execute_")} ×${String(count)}`,
+    )
+    .join(", ");
 }
 
 /**

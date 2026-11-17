@@ -43,6 +43,14 @@ describe("createSubagentWorkDigest", () => {
     );
   });
 
+  it("renders the approved command name without a doubled execution prefix", () => {
+    const digest = createSubagentWorkDigest();
+    digest.record({ kind: "tool-finished", toolName: "execute_execute_command", ok: true });
+    expect(digest.describe()).toBe(
+      "It had finished 1 tool call (execute_command ×1), changed no files.",
+    );
+  });
+
   it("ignores approval requests", () => {
     const digest = createSubagentWorkDigest();
     digest.record({ kind: "approval-required", toolName: "execute_command", toolCallId: "1" });
