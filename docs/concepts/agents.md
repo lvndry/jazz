@@ -234,9 +234,9 @@ Delegation limits:
   unlimited child iterations; unattended runs default to **30 iterations**. Set
   `maxSubagentIterations: 0` for unlimited iterations on either surface. There is no fixed
   30-minute child limit: explicit `maxMinutes`, inherited parent time budgets, and shared cost
-  budgets can still stop a child. Each individual model step also has a 15-minute timeout,
-  including retries. In chat the count spans turns: a child still working from an earlier
-  turn holds a slot.
+  budgets can still stop a child. A streaming model step has no time limit of its own, so a
+  model that keeps reasoning is never cut off; a non-streaming request gets 15 minutes. In
+  chat the count spans turns: a child still working from an earlier turn holds a slot.
 - **Cost rolls up and is shared.** Each child's spend is added to the parent's as it happens, so
   children running together stop at the parent's `maxCostUSD` instead of each spending the whole
   remainder. An unpriced child marks the total cost as unknown. A chat child that finishes after

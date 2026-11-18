@@ -22,7 +22,7 @@ import {
   withLongRunningLlmNotice,
 } from "@/core/agent/execution/llm-retry-present";
 import { isEmptyCompletion, judgeAnswer } from "@/core/agent/run/answer-outcome";
-import { DEFAULT_MAX_LLM_RETRIES } from "@/core/constants/agent";
+import { DEFAULT_MAX_LLM_RETRIES, LLM_TIMEOUT_SECONDS } from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -55,7 +55,7 @@ import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
 import { buildCompletionOptions } from "./completion-request";
 import { validateCompletion } from "./completion-validation";
-import { withModelStepTimeout } from "./model-step-timeout";
+import { withNonStreamingAttemptTimeout } from "./model-step-timeout";
 
 /** A finished-run notification closes itself after this long, so unattended runs don't pile them up. */
 const RUN_FINISHED_NOTIFICATION_TTL_MS = 5 * 60 * 1_000;
@@ -306,7 +306,9 @@ export function executeWithStreaming(
                   ? Effect.succeed(fromRef)
                   : Effect.gen(function* () {
                       yield* streamingResult.cancel;
-                      return yield* llmService.createChatCompletion(provider, llmOptions);
+                      return yield* llmService
+                        .createChatCompletion(provider, llmOptions)
+                        .pipe(withNonStreamingAttemptTimeout(agent.name));
                     }),
               ),
             );
@@ -345,7 +347,11 @@ export function executeWithStreaming(
 
           const nonStreamingAttempt = Effect.suspend(() =>
             beginAttempt.pipe(
-              Effect.andThen(llmService.createChatCompletion(provider, llmOptions)),
+              Effect.andThen(
+                llmService
+                  .createChatCompletion(provider, llmOptions)
+                  .pipe(withNonStreamingAttemptTimeout(agent.name)),
+              ),
             ),
           ).pipe(
             Effect.map((completion) => ({ completion, interrupted: false })),
@@ -356,7 +362,7 @@ export function executeWithStreaming(
            * Leaves the failed attempt's record: what it streamed and used, never what it said.
            * Completion events are rendered only after acceptance, so failed usage belongs to
            * the retry receipt rather than an apparently successful step. A failure that interrupts
-           * the step (Esc, the step's wall-clock limit) never reaches here.
+           * the step (Esc) never reaches here.
            */
           const recordAttemptFailure = (error: unknown, mode: AttemptMode) =>
             Effect.gen(function* () {
@@ -474,8 +480,7 @@ export function executeWithStreaming(
             );
           });
 
-          // One retry budget and one wall-clock limit for the whole step, whichever mode
-          // each attempt uses.
+          // One retry budget for the whole step, whichever mode each attempt uses.
           const completionWithRetries = Effect.retry(
             withLongRunningLlmNotice(
               agent.name,
@@ -485,7 +490,6 @@ export function executeWithStreaming(
             ),
             retrySchedule,
           ).pipe(
-            withModelStepTimeout(agent.name),
             Effect.ensuring(
               Effect.suspend(() => {
                 const notify = onRetry;
@@ -496,7 +500,7 @@ export function executeWithStreaming(
             Effect.tapError((error) =>
               error instanceof TimeoutError
                 ? showAgentStatus(
-                    `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
+                    `${agent.name}'s model request got no answer within ${LLM_TIMEOUT_SECONDS / 60} minutes. Check connectivity or try again.`,
                     "warning",
                   )
                 : Effect.void,

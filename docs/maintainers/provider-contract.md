@@ -186,8 +186,11 @@ compacting.
 
 The streaming and batch executors share one retry budget and schedule: exponential backoff
 from 1 second, jittered, capped at `MAX_RETRY_DELAY_SECONDS`, replaced by `Retry-After` when
-the provider sends one, and abandoned when that wait exceeds `MAX_RETRY_AFTER_MS`. The whole
-step, retries included, is bounded by `LLM_TIMEOUT_SECONDS`.
+the provider sends one, and abandoned when that wait exceeds `MAX_RETRY_AFTER_MS`. A streaming
+step has no wall-clock limit: the stream idle timeout ends an attempt that goes silent, so long
+reasoning is never cut off. Each non-streaming request, the streaming executor's fallback
+included, is bounded by `LLM_TIMEOUT_SECONDS`, and the batch executor bounds its whole step,
+retries included, by it.
 
 In the streaming executor, after 3 transient streaming failures
 (`STREAMING_FAILURES_BEFORE_FALLBACK`) the remaining attempts use the non-streaming request.

@@ -1281,52 +1281,75 @@ describe("executeWithStreaming retries", () => {
   });
 });
 
-describe("executeWithStreaming step timeout", () => {
-  /** Longer than half the step limit, so the limit falls during the second attempt. */
-  const ATTEMPT_MS = 500_000;
+describe("executeWithStreaming step time limit", () => {
   /** How far both clocks move per step; the real-time pause after each lets new timers register. */
   const CLOCK_STEP_MS = 10_000;
+  const PAST_THE_LIMIT_MS = LLM_TIMEOUT_SECONDS * 1000 + 300_000;
+  const stalledStream = new LLMRequestError({
+    provider: "vllm",
+    message: "Provider stream produced no additional part for 120s and was abandoned.",
+    streamStalled: true,
+  });
 
-  it("bounds the whole step, retries included, and fails naming the agent and the limit", async () => {
-    let attempts = 0;
-    const harness = makeStreamingHarness({
-      maxRetries: 3,
-      llmService: scriptedLLMService(() =>
-        Effect.sync(() => {
-          attempts += 1;
-          return {
-            stream: Stream.fromEffect(
-              Effect.sleep(ATTEMPT_MS).pipe(
-                Effect.andThen(
-                  Effect.fail(new LLMRequestError({ provider: "openai", message: "overloaded" })),
-                ),
-              ),
-            ),
-            response: Effect.never,
-            cancel: Effect.void,
-          };
-        }),
-      ),
-    });
-    const drive = Effect.gen(function* () {
-      const steps = Math.ceil((LLM_TIMEOUT_SECONDS * 1000 + ATTEMPT_MS) / CLOCK_STEP_MS);
+  const driveClocksFor = (durationMs: number) =>
+    Effect.gen(function* () {
+      const steps = Math.ceil(durationMs / CLOCK_STEP_MS);
       for (let step = 0; step < steps; step += 1) {
         yield* moveClocksTo((yield* Clock.currentTimeMillis) + CLOCK_STEP_MS);
         yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 1)));
       }
     });
 
-    // A timeout inside the retry would let each attempt finish and the retries run out on the
-    // provider error instead.
-    const failure = await runOnTestClock(harness, drive).then(
+  it("lets a streaming step run past LLM_TIMEOUT_SECONDS", async () => {
+    const harness = makeStreamingHarness({
+      maxRetries: 0,
+      llmService: scriptedLLMService(() =>
+        Effect.succeed({
+          stream: Stream.fromEffect(Effect.sleep(PAST_THE_LIMIT_MS)).pipe(Stream.drain),
+          response: Effect.succeed({
+            id: "long",
+            model: "gpt-4",
+            content: "long reasoning, then an answer",
+            finishReason: "stop" as const,
+            usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+          }),
+          cancel: Effect.void,
+        }),
+      ),
+    });
+
+    const { result } = await runOnTestClock(harness, driveClocksFor(PAST_THE_LIMIT_MS + 60_000));
+
+    expect(result.content).toBe("long reasoning, then an answer");
+  });
+
+  it("bounds a non-streaming fallback attempt that never answers, naming the agent and the limit", async () => {
+    let fallbackAttempts = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 1,
+      llmService: scriptedLLMService(
+        () =>
+          Effect.succeed({
+            stream: Stream.fail(stalledStream),
+            response: Effect.fail(stalledStream),
+            cancel: Effect.void,
+          }),
+        () => {
+          fallbackAttempts += 1;
+          return Effect.never;
+        },
+      ),
+    });
+
+    const failure = await runOnTestClock(harness, driveClocksFor(PAST_THE_LIMIT_MS)).then(
       () => undefined,
       (error: unknown) => error,
     );
     if (!(failure instanceof TimeoutError)) {
-      throw new Error(`expected the step to time out, got ${String(failure)}`);
+      throw new Error(`expected the fallback attempt to time out, got ${String(failure)}`);
     }
-    expect(failure.operation).toBe("test-agent's model step (including retries)");
-    expect(attempts).toBe(2);
+    expect(failure.operation).toBe("test-agent's non-streaming model request");
+    expect(fallbackAttempts).toBe(1);
   });
 });
 
