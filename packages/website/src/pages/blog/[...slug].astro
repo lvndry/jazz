@@ -20,7 +20,6 @@ const formatted = post.data.date.toLocaleDateString("en-US", {
   month: "long",
   day: "numeric",
 });
-const site = Astro.site;
 const canonical = absoluteUrl(`/blog/${post.id}`);
 
 const jsonLd = {
@@ -33,7 +32,7 @@ const jsonLd = {
   publisher: {
     "@type": "Organization",
     name: "Jazz",
-    ...(site ? { url: new URL("/", site).href } : {}),
+    url: absoluteUrl("/"),
   },
   mainEntityOfPage: canonical,
   isPartOf: { "@type": "Blog", name: "Jazz blog" },

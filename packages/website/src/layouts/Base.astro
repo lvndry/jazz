@@ -10,9 +10,8 @@ interface Props {
 }
 
 const { title, description, skin, image = "/og/home.png" } = Astro.props;
-const site = Astro.site;
 const cleanPath = Astro.url.pathname.replace(/index\.html$/, "").replace(/\.html$/, "");
-const canonical = site ? new URL(cleanPath, site).href : undefined;
+const canonical = absoluteUrl(cleanPath);
 const imageUrl = absoluteUrl(image);
 
 const organization = {

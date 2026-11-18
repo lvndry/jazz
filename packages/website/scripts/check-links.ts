@@ -9,7 +9,7 @@ import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { SITE_BASE } from "../site";
+import { SITE_BASE, SITE_ORIGIN } from "../site";
 
 const distRoot = join(fileURLToPath(new URL("..", import.meta.url)), "dist");
 
@@ -81,6 +81,19 @@ for (const file of htmlFiles) {
     if (fragment === undefined || fragment.length === 0 || !target.endsWith(".html")) continue;
     if (!(await idsOf(target)).has(decodeURIComponent(fragment))) {
       broken.push(`${relative(distRoot, file)} → ${link} (no element with id "${fragment}")`);
+    }
+  }
+}
+
+// Absolute URLs (canonical links, JSON-LD, feeds, sitemaps, llms.txt, the library indexes) must
+// point inside the deployment too: the origin alone is someone else's site.
+const absolute = new RegExp(`${SITE_ORIGIN.replace(/[.]/g, "\\.")}(/[^"'\\s<>)]*)?`, "g");
+for (const file of files.filter((file) => /\.(html|xml|txt|json)$/.test(file))) {
+  const text = await Bun.file(file).text();
+  for (const match of text.matchAll(absolute)) {
+    const path = match[1] ?? "";
+    if (path !== SITE_BASE && !path.startsWith(`${SITE_BASE}/`)) {
+      broken.push(`${relative(distRoot, file)} → ${match[0]} (absolute URL outside ${SITE_BASE})`);
     }
   }
 }

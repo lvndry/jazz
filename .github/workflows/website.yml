@@ -13,6 +13,7 @@ on:
       - "packages/adapters/src/plugins/**"
       - "packages/plugin-sdk/**"
       - "plugins/**"
+      - "skills/**"
       - "scripts/build-plugin-catalog.ts"
       - ".github/workflows/website.yml"
   push:
@@ -25,6 +26,7 @@ on:
       - "packages/adapters/src/plugins/**"
       - "packages/plugin-sdk/**"
       - "plugins/**"
+      - "skills/**"
       - "scripts/build-plugin-catalog.ts"
       - ".github/workflows/website.yml"
   workflow_dispatch:
@@ -61,17 +63,18 @@ jobs:
         run: bun run check-links
         working-directory: packages/website
       - name: Configure Pages
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/configure-pages@v6
       - name: Upload the site
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
         with:
           path: packages/website/dist
 
   deploy:
     name: Deploy to GitHub Pages
-    if: github.event_name != 'pull_request'
+    # Only main publishes. A manual run on another branch builds and checks it, and stops there.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     permissions:

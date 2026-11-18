@@ -20,15 +20,12 @@ interface Props {
 const { title, description, sidebar, currentRoute, prevNext, rawMdPath, image, sectionLabel, sectionRoute } =
   Astro.props;
 
-const site = Astro.site;
-const canonical = site ? new URL(currentRoute, site).href : undefined;
+const canonical = absoluteUrl(currentRoute);
 const breadcrumbItems = [
   { name: "Home", href: absoluteUrl("/") },
   { name: "Docs", href: absoluteUrl("/docs") },
-  ...(sectionLabel && sectionRoute && site
-    ? [{ name: sectionLabel, href: new URL(sectionRoute, site).href }]
-    : []),
-  ...(canonical ? [{ name: title, href: canonical }] : []),
+  ...(sectionLabel && sectionRoute ? [{ name: sectionLabel, href: absoluteUrl(sectionRoute) }] : []),
+  { name: title, href: canonical },
 ];
 
 const jsonLd = [
@@ -47,10 +44,10 @@ const jsonLd = [
     "@type": "TechArticle",
     headline: title,
     description,
-    ...(canonical ? { url: canonical } : {}),
-    isPartOf: { "@type": "WebSite", name: "Jazz", url: site?.href },
+    url: canonical,
+    isPartOf: { "@type": "WebSite", name: "Jazz", url: absoluteUrl("/") },
     about: "AI agent harness — open-source CLI that runs AI agents on your own machine",
-    ...(image && site ? { image: new URL(image, site).href } : {}),
+    ...(image ? { image: absoluteUrl(image) } : {}),
   },
 ];
 ---
