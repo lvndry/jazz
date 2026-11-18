@@ -1,4 +1,5 @@
 ---
+import { withBase } from "../../../lib/url";
 /** Render a library persona with its source and the matching `jazz persona add` command. */
 import LibraryDefinition from "../../../components/LibraryDefinition.astro";
 import Library from "../../../layouts/Library.astro";
@@ -27,7 +28,7 @@ const meta = [
 
 <Library title={`${name} — Jazz persona`} description={description}>
   <LibraryDefinition
-    back={{ href: "/library#personas", label: "← all personas" }}
+    back={{ href: withBase("/library#personas"), label: "← all personas" }}
     name={name}
     description={description}
     meta={meta}

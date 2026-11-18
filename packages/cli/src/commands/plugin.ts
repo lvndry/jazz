@@ -45,7 +45,7 @@ function resolvePluginSource(source: string): string {
     throw new Error("Plugin source must be a manifest path, HTTPS URL, or valid catalog id.");
   }
   const configured = process.env["JAZZ_PLUGIN_CATALOG_URL"];
-  const base = configured?.trim() || "https://jazz-cli.vercel.app/library/plugins/";
+  const base = configured?.trim() || "https://lvndry.github.io/jazz/library/plugins/";
   return new URL(
     `${encodeURIComponent(source)}.json`,
     base.endsWith("/") ? base : `${base}/`,

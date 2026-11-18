@@ -1,4 +1,5 @@
 ---
+import { withBase } from "../../../lib/url";
 /**
  * Render each marketplace skill's metadata and full instruction source with
  * the CLI install command. Static paths use the catalog id so the displayed
@@ -31,7 +32,7 @@ const source = await readSkillSource(entry);
 
 <Library title={`${entry.name} — Jazz skill`} description={entry.description}>
   <LibraryDefinition
-    back={{ href: "/library#skills", label: "← all skills" }}
+    back={{ href: withBase("/library#skills"), label: "← all skills" }}
     name={entry.name}
     description={entry.description}
     meta={[`source: skills/${entry.id}/SKILL.md`, "instruction-only"]}

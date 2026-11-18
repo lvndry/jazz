@@ -23,7 +23,7 @@ import { isOfflineMode } from "@jazz/core/utils/runtime";
 import { Effect, Option } from "effect";
 
 /** Where the library is published. Overridable with JAZZ_LIBRARY_URL, for staging and tests. */
-const DEFAULT_LIBRARY_URL = "https://jazz-cli.vercel.app/library";
+const DEFAULT_LIBRARY_URL = "https://lvndry.github.io/jazz/library";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10_000;
 const VALID_NAME = /^[a-zA-Z0-9_-]+$/;

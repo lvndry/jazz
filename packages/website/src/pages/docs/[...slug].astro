@@ -1,4 +1,5 @@
 ---
+import { withBase } from "../../lib/url";
 import { getCollection, render } from "astro:content";
 import Docs from "../../layouts/Docs.astro";
 import {
@@ -43,10 +44,10 @@ const { Content } = await render(entry);
   sidebar={sidebar}
   currentRoute={routeFor(entry.id)}
   prevNext={prevNextFor(sidebar, entry.id)}
-  rawMdPath={`/docs/${entry.id}.md`}
+  rawMdPath={withBase(`/docs/${entry.id}.md`)}
   image={`/og/${entry.id}.png`}
   sectionLabel={sectionLabel}
-  sectionRoute={sectionDir === "" || sectionDir === "index" ? undefined : `/docs/${sectionDir}`}
+  sectionRoute={sectionDir === "" || sectionDir === "index" ? undefined : withBase(`/docs/${sectionDir}`)}
 >
   <Content />
 </Docs>

@@ -13,6 +13,7 @@ on:
       - "packages/adapters/src/plugins/**"
       - "packages/plugin-sdk/**"
       - "plugins/**"
+      - "skills/**"
       - "scripts/build-plugin-catalog.ts"
       - ".github/workflows/website.yml"
   push:
@@ -25,7 +26,16 @@ on:
       - "packages/adapters/src/plugins/**"
       - "packages/plugin-sdk/**"
       - "plugins/**"
+      - "skills/**"
       - "scripts/build-plugin-catalog.ts"
+      - ".github/workflows/website.yml"
+  workflow_dispatch:
+
+# One deployment at a time, and one in progress is never cancelled halfway, so
+# lvndry.github.io/jazz is always one whole build.
+concurrency:
+  group: website-${{ github.event_name == 'pull_request' && github.ref || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -52,3 +62,27 @@ jobs:
       - name: Check internal links
         run: bun run check-links
         working-directory: packages/website
+      - name: Configure Pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/configure-pages@v6
+      - name: Upload the site
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: packages/website/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    # Only main publishes. A manual run on another branch builds and checks it, and stops there.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

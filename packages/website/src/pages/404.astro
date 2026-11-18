@@ -1,4 +1,5 @@
 ---
+import { withBase } from "../lib/url";
 import Base from "../layouts/Base.astro";
 ---
 
@@ -10,7 +11,7 @@ import Base from "../layouts/Base.astro";
   <main>
     <div class="lanes mono" id="lanes" aria-hidden="true"></div>
     <h1 class="shout">Nothing playing<br /><span class="live">on this stage.</span></h1>
-    <p class="mono"><a href="/">▞ back to the set</a></p>
+    <p class="mono"><a href={withBase("/")}>▞ back to the set</a></p>
   </main>
 </Base>
 

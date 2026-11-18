@@ -1,4 +1,5 @@
 ---
+import { absoluteUrl, withBase } from "../lib/url";
 /** Render documentation with navigation, search, code blocks, and readable Mermaid diagrams. */
 import Logo from "../components/Logo.astro";
 import Base from "./Base.astro";
@@ -19,15 +20,12 @@ interface Props {
 const { title, description, sidebar, currentRoute, prevNext, rawMdPath, image, sectionLabel, sectionRoute } =
   Astro.props;
 
-const site = Astro.site;
-const canonical = site ? new URL(currentRoute, site).href : undefined;
+const canonical = absoluteUrl(currentRoute);
 const breadcrumbItems = [
-  ...(site ? [{ name: "Home", href: new URL("/", site).href }] : []),
-  ...(site ? [{ name: "Docs", href: new URL("/docs", site).href }] : []),
-  ...(sectionLabel && sectionRoute && site
-    ? [{ name: sectionLabel, href: new URL(sectionRoute, site).href }]
-    : []),
-  ...(canonical ? [{ name: title, href: canonical }] : []),
+  { name: "Home", href: absoluteUrl("/") },
+  { name: "Docs", href: absoluteUrl("/docs") },
+  ...(sectionLabel && sectionRoute ? [{ name: sectionLabel, href: absoluteUrl(sectionRoute) }] : []),
+  { name: title, href: canonical },
 ];
 
 const jsonLd = [
@@ -46,10 +44,10 @@ const jsonLd = [
     "@type": "TechArticle",
     headline: title,
     description,
-    ...(canonical ? { url: canonical } : {}),
-    isPartOf: { "@type": "WebSite", name: "Jazz", url: site?.href },
+    url: canonical,
+    isPartOf: { "@type": "WebSite", name: "Jazz", url: absoluteUrl("/") },
     about: "AI agent harness — open-source CLI that runs AI agents on your own machine",
-    ...(image && site ? { image: new URL(image, site).href } : {}),
+    ...(image ? { image: absoluteUrl(image) } : {}),
   },
 ];
 ---
@@ -62,10 +60,10 @@ const jsonLd = [
     set:html={JSON.stringify(jsonLd)}
   />
   <header class="top">
-    <a class="brand" href="/"><Logo height={20} /></a>
-    <a class="mono docs-home" href="/docs">docs</a>
-    <a class="mono" href="/blog">blog</a>
-    <a class="mono" href="/library">library</a>
+    <a class="brand" href={withBase("/")}><Logo height={20} /></a>
+    <a class="mono docs-home" href={withBase("/docs")}>docs</a>
+    <a class="mono" href={withBase("/blog")}>blog</a>
+    <a class="mono" href={withBase("/library")}>library</a>
     <div class="grow"></div>
     {import.meta.env.PROD && <div id="search" class="search"></div>}
     <a class="mono" href="https://github.com/lvndry/jazz">github</a>
@@ -124,8 +122,8 @@ const jsonLd = [
         }
       </footer>
       <p class="raw mono">
-        machine-readable: <a href={rawMdPath}>{rawMdPath}</a> · <a href="/llms.txt">/llms.txt</a> ·{" "}
-        <a href="/llms-full.txt">/llms-full.txt</a>
+        machine-readable: <a href={rawMdPath}>{rawMdPath}</a> · <a href={withBase("/llms.txt")}>/llms.txt</a> ·{" "}
+        <a href={withBase("/llms-full.txt")}>/llms-full.txt</a>
       </p>
     </main>
   </div>
@@ -438,12 +436,12 @@ const jsonLd = [
         (function () {
           var link = document.createElement("link");
           link.rel = "stylesheet";
-          link.href = "/pagefind/pagefind-ui.css";
+          link.href = "${withBase("/pagefind/pagefind-ui.css")}";
           document.head.appendChild(link);
           var script = document.createElement("script");
-          script.src = "/pagefind/pagefind-ui.js";
+          script.src = "${withBase("/pagefind/pagefind-ui.js")}";
           script.onload = function () {
-            new window.PagefindUI({ element: "#search", showSubResults: true, showImages: false });
+            new window.PagefindUI({ element: "#search", baseUrl: "${withBase("/")}/", showSubResults: true, showImages: false });
           };
           document.head.appendChild(script);
         })();

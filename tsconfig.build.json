@@ -22,7 +22,8 @@
     "packages/cli/src/ui/glyphs.ts",
     "packages/cli/src/ui/themes/*.ts",
     "packages/cli/src/ui/themes/*.json",
-    "packages/cli/src/ui/themes/builtin/*.json"
+    "packages/cli/src/ui/themes/builtin/*.json",
+    "packages/website/site.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

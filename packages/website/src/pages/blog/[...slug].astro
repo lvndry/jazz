@@ -1,4 +1,5 @@
 ---
+import { absoluteUrl, withBase } from "../../lib/url";
 import type { CollectionEntry } from "astro:content";
 import { getCollection, render } from "astro:content";
 import Blog from "../../layouts/Blog.astro";
@@ -19,8 +20,7 @@ const formatted = post.data.date.toLocaleDateString("en-US", {
   month: "long",
   day: "numeric",
 });
-const site = Astro.site;
-const canonical = site ? new URL(`/blog/${post.id}`, site).href : undefined;
+const canonical = absoluteUrl(`/blog/${post.id}`);
 
 const jsonLd = {
   "@context": "https://schema.org",
@@ -32,11 +32,11 @@ const jsonLd = {
   publisher: {
     "@type": "Organization",
     name: "Jazz",
-    ...(site ? { url: new URL("/", site).href } : {}),
+    url: absoluteUrl("/"),
   },
   mainEntityOfPage: canonical,
   isPartOf: { "@type": "Blog", name: "Jazz blog" },
-  ...(site ? { image: new URL(`/og/blog/${post.id}.png`, site).href } : {}),
+  image: absoluteUrl(`/og/blog/${post.id}.png`),
 };
 ---
 
@@ -54,7 +54,7 @@ const jsonLd = {
     </p>
     <Content />
   </article>
-  <p class="backline mono"><a href="/blog">← all posts</a> · <a href="/rss.xml">rss</a></p>
+  <p class="backline mono"><a href={withBase("/blog")}>← all posts</a> · <a href={withBase("/rss.xml")}>rss</a></p>
 </Blog>
 
 <style>
