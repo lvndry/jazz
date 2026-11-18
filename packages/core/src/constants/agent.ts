@@ -110,7 +110,7 @@ export const AI_SDK_MAX_STEPS = 20;
 /** Maximum delay between LLM retry attempts in seconds (caps exponential backoff) */
 export const MAX_RETRY_DELAY_SECONDS = 30;
 
-/** Total timeout for an LLM completion call, including all retries and backoff delays (15 min covers slow reasoning models) */
+/** Limit on a non-streaming LLM request, which sends nothing until it is done. Streaming steps have none: the stream idle timeout ends a silent one. */
 export const LLM_TIMEOUT_SECONDS = 900;
 
 /** Show a slow-model hint if a single LLM attempt stays in flight this long without finishing */

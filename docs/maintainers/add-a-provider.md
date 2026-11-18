@@ -181,7 +181,7 @@ backoff.
 | ----------------------------- | ----- | ---------------------------------------------------- |
 | `DEFAULT_MAX_LLM_RETRIES`     | 10    | Attempts on transient failures (429, 5xx, network)   |
 | `MAX_RETRY_DELAY_SECONDS`     | 30    | Caps exponential backoff between attempts            |
-| `LLM_TIMEOUT_SECONDS`         | 900   | The whole call including every retry and all backoff |
+| `LLM_TIMEOUT_SECONDS`         | 900   | Limit on a non-streaming request; streaming has none |
 | `LLM_SLOW_MODEL_HINT_SECONDS` | 45    | Show a "this model is slow" hint; not a failure      |
 
 A 15-minute ceiling exists because slow reasoning models on a long prompt genuinely take
