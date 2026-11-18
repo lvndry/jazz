@@ -27,7 +27,7 @@ policy hook shapes approval only.
 
 ## Install a plugin for one agent
 
-Browse the [Marketplace](https://jazz-cli.vercel.app/library) for reviewed plugins. For example,
+Browse the [Marketplace](https://lvndry.github.io/jazz/library) for reviewed plugins. For example,
 the [LSP plugin](./lsp-plugin.md) adds code navigation and compiler diagnostics:
 
 ```bash

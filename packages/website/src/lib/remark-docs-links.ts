@@ -13,6 +13,8 @@ interface Options {
   repoUrl: string;
   /** Branch that GitHub links point at. Defaults to "main". */
   branch?: string;
+  /** Path the site is served under, such as "/jazz", prefixed to every site route. Defaults to none. */
+  base?: string;
 }
 
 const EXTERNAL = /^[a-z][a-z0-9+.-]*:/i;
@@ -29,10 +31,15 @@ function walk(node: MarkdownNode, visit: (node: MarkdownNode) => void): void {
  * link an author wrote on GitHub ever 404s here.
  */
 export function remarkDocsLinks(options: Options) {
-  const { docsRoot, repoUrl, branch = "main" } = options;
+  const { docsRoot, repoUrl, branch = "main", base = "" } = options;
+  const route = (url: string): string =>
+    base === "" || url === base || url.startsWith(`${base}/`) || url.startsWith(`${base}#`)
+      ? url
+      : `${base}${url}`;
   const repoRoot = path.dirname(docsRoot);
 
   const rewrite = (url: string, fromDir: string): string => {
+    if (url.startsWith("/") && !url.startsWith("//")) return route(url);
     if (url === "" || url.startsWith("#") || url.startsWith("/") || EXTERNAL.test(url)) {
       return url;
     }
@@ -48,7 +55,7 @@ export function remarkDocsLinks(options: Options) {
         .join("/")
         .replace(/\/index$/, "")
         .replace(/^index$/, "");
-      return slug === "" ? `/docs${suffix}` : `/docs/${slug}${suffix}`;
+      return route(slug === "" ? `/docs${suffix}` : `/docs/${slug}${suffix}`);
     }
 
     const inRepo = path.relative(repoRoot, resolved);

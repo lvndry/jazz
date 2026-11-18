@@ -4,6 +4,7 @@
  * routeFor to link to a collection entry; Concepts contains both capabilities and
  * their underlying building blocks.
  */
+import { withBase } from "./url";
 import type { CollectionEntry } from "astro:content";
 
 /** Section order mirrors the section list in docs/index.md. */
@@ -118,7 +119,7 @@ export function routeSlugFor(id: string): string {
 
 export function routeFor(id: string): string {
   const slug = routeSlugFor(id);
-  return slug === "" ? "/docs" : `/docs/${slug}`;
+  return withBase(slug === "" ? "/docs" : `/docs/${slug}`);
 }
 
 const humanize = (slug: string): string =>

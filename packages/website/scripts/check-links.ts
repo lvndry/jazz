@@ -9,6 +9,8 @@ import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { SITE_BASE } from "../site";
+
 const distRoot = join(fileURLToPath(new URL("..", import.meta.url)), "dist");
 
 async function collectFiles(dir: string): Promise<string[]> {
@@ -62,7 +64,14 @@ for (const file of htmlFiles) {
   );
   for (const link of new Set(links)) {
     const [routeWithQuery = "", fragment] = link.split("#");
-    const route = routeWithQuery.split("?")[0] ?? "";
+    const sitePath = routeWithQuery.split("?")[0] ?? "";
+    if (sitePath !== "" && sitePath !== SITE_BASE && !sitePath.startsWith(`${SITE_BASE}/`)) {
+      broken.push(
+        `${relative(distRoot, file)} → ${link} (outside ${SITE_BASE}, where the site is served)`,
+      );
+      continue;
+    }
+    const route = sitePath === "" ? "" : sitePath.slice(SITE_BASE.length) || "/";
     if (route.startsWith("/pagefind/")) continue;
     const target = route === "" ? ownPath : resolveRoute(decodeURI(route));
     if (target === undefined) {

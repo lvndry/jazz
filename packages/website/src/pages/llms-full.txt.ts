@@ -1,5 +1,5 @@
+import { absoluteUrl } from "../lib/url";
 import { getCollection } from "astro:content";
-import type { APIContext } from "astro";
 
 import { SECTIONS, titleOf } from "../lib/docs";
 
@@ -8,9 +8,8 @@ import { SECTIONS, titleOf } from "../lib/docs";
  * consumption (the llms-full.txt convention). Pages appear in the canonical
  * section order; each page is delimited so models can cite exact sections.
  */
-export async function GET({ site }: APIContext): Promise<Response> {
+export async function GET(): Promise<Response> {
   const entries = await getCollection("docs");
-  const base = new URL(site ?? "https://jazz-cli.vercel.app");
   const order = new Map(SECTIONS.map((section, index) => [section.dir, index]));
   const sorted = [...entries].sort((a, b) => {
     const sectionA = order.get(a.id.split("/")[0] ?? "") ?? 99;
@@ -28,12 +27,12 @@ export async function GET({ site }: APIContext): Promise<Response> {
     "",
     `Install: curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash`,
     "Source: https://github.com/lvndry/jazz",
-    `Table of contents with per-page links: ${new URL("/llms.txt", base).href}`,
+    `Table of contents with per-page links: ${absoluteUrl("/llms.txt")}`,
     "",
   ];
 
   const pages = sorted.map((entry) => {
-    const url = new URL(`/docs/${entry.id}.md`, base).href;
+    const url = absoluteUrl(`/docs/${entry.id}.md`);
     return [
       "---",
       "",

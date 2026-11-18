@@ -1,4 +1,5 @@
 ---
+import { withBase } from "../lib/url";
 /**
  * Security-first presentation of one reviewed or community plugin catalog entry.
  *
@@ -35,7 +36,7 @@ const capabilities = [
 ];
 ---
 
-<a class="back mono" href={entry.sourceType === "reviewed" ? "/library#plugins" : "/library#community-plugins"}>
+<a class="back mono" href={withBase(entry.sourceType === "reviewed" ? "/library#plugins" : "/library#community-plugins")}>
   ← all plugins
 </a>
 <p class="eyebrow mono">{entry.sourceType === "reviewed" ? "reviewed plugin" : "community plugin"}</p>

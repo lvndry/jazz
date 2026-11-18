@@ -1,11 +1,10 @@
+import { absoluteUrl } from "../lib/url";
 import { getCollection } from "astro:content";
-import type { APIContext } from "astro";
 
 import { SECTIONS, titleOf } from "../lib/docs";
 
-export async function GET({ site }: APIContext): Promise<Response> {
+export async function GET(): Promise<Response> {
   const entries = await getCollection("docs");
-  const base = new URL(site ?? "https://jazz-cli.vercel.app");
   const order = new Map(SECTIONS.map((section, index) => [section.dir, index]));
   const sorted = [...entries].sort((a, b) => {
     const sectionA = order.get(a.id.split("/")[0] ?? "") ?? 99;
@@ -24,13 +23,13 @@ export async function GET({ site }: APIContext): Promise<Response> {
     `Install: curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash`,
     "npm package: https://www.npmjs.com/package/jazz-ai",
     "Source: https://github.com/lvndry/jazz",
-    `Full docs in one file: ${new URL("/llms-full.txt", base).href}`,
+    `Full docs in one file: ${absoluteUrl("/llms-full.txt")}`,
     "",
     "## Docs",
     "",
     ...sorted.map(
       (entry) =>
-        `- [${titleOf(entry)}](${new URL(`/docs/${entry.id}.md`, base).href}): ${
+        `- [${titleOf(entry)}](${absoluteUrl(`/docs/${entry.id}.md`)}): ${
           (entry.data.description as string | undefined) ??
           entry.body?.match(/^#\s+(.+)$/m)?.[1] ??
           ""

@@ -6,6 +6,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { packPlugin } from "@jazz/adapters/plugins";
+import { SITE_BASE } from "../packages/website/site";
 
 const OFFICIAL_PLUGINS = ["plugins/jev", "plugins/lsp"] as const;
 const OUTPUT_DIRECTORY = path.resolve(".build/plugin-catalog");
@@ -39,7 +40,7 @@ export async function buildPluginCatalog(): Promise<void> {
       string,
       unknown
     >;
-    const artifactPath = `/library/plugins/${sourceManifest.id}/${sourceManifest.version}/${packed.sha256}.mjs`;
+    const artifactPath = `${SITE_BASE}/library/plugins/${sourceManifest.id}/${sourceManifest.version}/${packed.sha256}.mjs`;
     // Keep the reviewed catalog entry a valid install manifest. Website-only provenance is
     // inferred by the absence of community metadata, so `jazz plugin add <id>` can consume it.
     const publicManifest = { ...manifest, artifact: artifactPath };

@@ -1,4 +1,5 @@
 ---
+import { withBase } from "../../lib/url";
 import { getCollection } from "astro:content";
 import Blog from "../../layouts/Blog.astro";
 
@@ -17,12 +18,12 @@ const formatDate = (date: Date): string =>
   <h1 class="blog-display">Writing that ships<br />with the code.</h1>
   <p class="lede">
     Internals essays, capability launches, and what we learn measuring an agent on everyday work.
-    One post per real thing — no cadence theater. <a href="/rss.xml">RSS</a>.
+    One post per real thing — no cadence theater. <a href={withBase("/rss.xml")}>RSS</a>.
   </p>
   <div class="posts">
     {
       posts.map((post) => (
-        <a class="entry" href={`/blog/${post.id}`}>
+        <a class="entry" href={withBase(`/blog/${post.id}`)}>
           <time class="mono" datetime={post.data.date.toISOString()}>
             {formatDate(post.data.date)}
           </time>

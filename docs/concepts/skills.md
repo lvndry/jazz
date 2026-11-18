@@ -64,7 +64,7 @@ complete catalog instead.
 
 ## The skill marketplace
 
-The Jazz website's [Marketplace](https://jazz-cli.vercel.app/library) publishes reviewed skills
+The Jazz website's [Marketplace](https://lvndry.github.io/jazz/library) publishes reviewed skills
 alongside personas, workflows, and plugins. A marketplace skill is an instruction artifact: it
 does not add tools, credentials, network access, or approval authority. Its instructions can still
 steer an agent, so read the content and its source before installing it.

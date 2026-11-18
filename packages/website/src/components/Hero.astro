@@ -1,4 +1,5 @@
 ---
+import { withBase } from "../lib/url";
 import Logo from "./Logo.astro";
 
 ---
@@ -6,11 +7,11 @@ import Logo from "./Logo.astro";
 <header class="hero">
   <canvas id="eq" aria-hidden="true"></canvas>
   <nav class="topbar mono">
-    <a class="brand" href="/"><Logo height={22} /></a>
+    <a class="brand" href={withBase("/")}><Logo height={22} /></a>
     <div class="links">
-      <a href="/library">library</a>
-      <a href="/docs">docs</a>
-      <a href="/blog">blog</a>
+      <a href={withBase("/library")}>library</a>
+      <a href={withBase("/docs")}>docs</a>
+      <a href={withBase("/blog")}>blog</a>
       <a href="https://github.com/lvndry/jazz">github</a>
       <a href="https://discord.gg/yBDbS2NZju">discord</a>
       <a href="https://open.spotify.com/playlist/14CrPS2gOGaIIRIrAKpUD1">spotify</a>

@@ -1,4 +1,5 @@
 ---
+import { absoluteUrl, withBase } from "../lib/url";
 import "../styles/base.css";
 
 interface Props {
@@ -12,14 +13,14 @@ const { title, description, skin, image = "/og/home.png" } = Astro.props;
 const site = Astro.site;
 const cleanPath = Astro.url.pathname.replace(/index\.html$/, "").replace(/\.html$/, "");
 const canonical = site ? new URL(cleanPath, site).href : undefined;
-const imageUrl = site ? new URL(image, site).href : image;
+const imageUrl = absoluteUrl(image);
 
 const organization = {
   "@context": "https://schema.org",
   "@type": "Organization",
   name: "Jazz",
-  ...(site ? { url: new URL("/", site).href } : {}),
-  ...(site ? { logo: new URL("/logo.png", site).href } : {}),
+  url: absoluteUrl("/"),
+  logo: absoluteUrl("/logo.png"),
   description:
     "Open-source AI agent harness that runs a general-purpose AI agent on your own machine.",
   sameAs: ["https://github.com/lvndry/jazz", "https://www.npmjs.com/package/jazz-ai"],
@@ -44,9 +45,9 @@ const organization = {
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={imageUrl} />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="alternate" type="application/rss+xml" title="Jazz blog" href="/rss.xml" />
+    <link rel="icon" type="image/svg+xml" href={withBase("/favicon.svg")} />
+    <link rel="apple-touch-icon" href={withBase("/apple-touch-icon.png")} />
+    <link rel="alternate" type="application/rss+xml" title="Jazz blog" href={withBase("/rss.xml")} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

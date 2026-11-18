@@ -8,6 +8,7 @@
  * carry metadata only; raw markdown and plugin manifests remain separate
  * routes for callers that need the complete definition.
  */
+import { withBase } from "./url";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, relative, resolve, sep } from "node:path";
 import { describeCronSchedule } from "@jazz/core/utils/cron";
@@ -103,42 +104,42 @@ export interface SkillIndexEntry {
 
 /** Path of the raw markdown for a persona, relative to the site root. */
 export function rawPersonaPath(name: string): string {
-  return `/library/personas/${name}.md`;
+  return withBase(`/library/personas/${name}.md`);
 }
 
 /** Path of a persona's page on the site. */
 export function personaPath(name: string): string {
-  return `/library/personas/${name}`;
+  return withBase(`/library/personas/${name}`);
 }
 
 /** Path of the raw markdown for a workflow, relative to the site root. */
 export function rawWorkflowPath(name: string): string {
-  return `/library/workflows/${name}.md`;
+  return withBase(`/library/workflows/${name}.md`);
 }
 
 /** Path of a workflow's page on the site. */
 export function workflowPath(name: string): string {
-  return `/library/workflows/${name}`;
+  return withBase(`/library/workflows/${name}`);
 }
 
 /** Path of a skill's rendered marketplace page. */
 export function skillPath(id: string): string {
-  return `/library/skills/${encodePath(id)}`;
+  return withBase(`/library/skills/${encodePath(id)}`);
 }
 
 /** Path of a skill's raw, frontmatter-preserving markdown source. */
 export function rawSkillPath(id: string): string {
-  return `/library/skills/${encodePath(id)}.md`;
+  return withBase(`/library/skills/${encodePath(id)}.md`);
 }
 
 /** Path of a reviewed plugin's marketplace page. */
 export function pluginPath(id: string): string {
-  return `/library/plugins/${encodePath(id)}`;
+  return withBase(`/library/plugins/${encodePath(id)}`);
 }
 
 /** Path of a reviewed plugin's generated manifest. */
 export function pluginManifestPath(id: string): string {
-  return `/library/plugins/${encodePath(id)}.json`;
+  return withBase(`/library/plugins/${encodePath(id)}.json`);
 }
 
 function encodePath(value: string): string {

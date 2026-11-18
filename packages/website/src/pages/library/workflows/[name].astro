@@ -1,4 +1,5 @@
 ---
+import { withBase } from "../../../lib/url";
 /** Render a library workflow with its source and the matching `jazz workflow add` command. */
 import LibraryDefinition from "../../../components/LibraryDefinition.astro";
 import Library from "../../../layouts/Library.astro";
@@ -38,7 +39,7 @@ const warning =
 
 <Library title={`${name} — Jazz workflow`} description={description}>
   <LibraryDefinition
-    back={{ href: "/library#workflows", label: "← all workflows" }}
+    back={{ href: withBase("/library#workflows"), label: "← all workflows" }}
     name={name}
     description={description}
     meta={meta}

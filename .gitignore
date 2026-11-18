@@ -84,3 +84,5 @@ undefined/
 
 # jscpd report output
 reports/jscpd/
+
+.vercel/
