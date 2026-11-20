@@ -108,7 +108,9 @@ provider configuration, the system keyring, or narrowly allowlisted environment 
 - `llm` groups every model setting below. `llm.provider` and `llm.model` select the primary reasoning and tool-use model.
 - `llm.summarizerModel` is a `provider/model` used for context compaction, command risk
   classification, and naming new conversations. If it is missing or invalid, Jazz uses the
-  primary model.
+  primary model. To name a saved conversation, Jazz sends that model your first message and
+  the agent's first written answer, each clipped to 2,000 characters, once per conversation;
+  when it is on a different provider than the primary model, that provider receives this text.
 - `llm.reasoning` selects an effort: `disable`, `minimal`, `low`, `medium`, `high`,
   `xhigh`, or `max`. Jazz maps that one user-facing value to the selected
   provider/model control surface before serializing a request. A model runs at `xhigh` or `max`
