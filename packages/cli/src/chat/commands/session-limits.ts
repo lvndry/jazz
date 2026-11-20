@@ -79,7 +79,8 @@ export function estimateSessionCostUSD(
       return (
         (sessionUsage.promptTokens / 1_000_000) * inputPricePerMillion +
         (sessionUsage.completionTokens / 1_000_000) * outputPricePerMillion +
-        (sessionUsage.wastedUSD ?? 0)
+        (sessionUsage.wastedUSD ?? 0) +
+        (sessionUsage.sideCostUSD ?? 0)
       );
     }),
   );

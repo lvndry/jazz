@@ -10,42 +10,57 @@ import {
 } from "@jazz/adapters/history/conversation-history-service";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { nameConversation } from "@jazz/core/agent/conversation-title";
-import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import type { CallSpend } from "@jazz/core/agent/run/run-spend";
+import type { LLMService } from "@jazz/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { spawnDetachedJazz } from "@jazz/core/jobs/spawn-job-worker";
 import { isSpendRecordedByParent } from "@jazz/core/spend/caps";
 import { recordSpend } from "@jazz/core/spend/ledger";
 import type { Agent } from "@jazz/core/types/agent";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 
 /**
- * Whether the turn that just finished should start naming its conversation: a saved
- * conversation's first successful turn that leaves a written answer to name it from, while it
- * has no title and the namer has not already started for it this session.
+ * Whether the turn that just finished may start naming its conversation: a saved conversation's
+ * successful turn, while it has no title and the namer has not started for it this session. The
+ * chat also needs an answered exchange to name it from (`formatExchangeForNamer`), checked after
+ * these because it reads the history.
  */
 export function shouldNameConversation(input: {
   readonly ephemeral: boolean;
   readonly turnErrored: boolean;
-  readonly hasAnsweredExchange: boolean;
   readonly conversationTitle: string | undefined;
   readonly conversationId: string;
-  readonly namerStartedFor: string | undefined;
+  readonly namerStartedFor: ReadonlySet<string>;
 }): boolean {
   return (
     !input.ephemeral &&
     !input.turnErrored &&
-    input.hasAnsweredExchange &&
     input.conversationTitle === undefined &&
-    input.namerStartedFor !== input.conversationId
+    !input.namerStartedFor.has(input.conversationId)
   );
+}
+
+/** What naming a saved conversation wrote and cost. */
+export interface SavedConversationNaming {
+  /** Undefined when the reply held no usable title or a person named it first. */
+  readonly title: string | undefined;
+  readonly spend: CallSpend;
 }
 
 /**
  * Name a saved conversation from its first answered exchange and record the title as Jazz's own.
  * The call's cost goes to the spend ledger as chat spend, so spend caps and `jazz spend` count it.
- * Succeeds with the title written, or undefined when the conversation is not saved, a person
- * already named it, or the reply held no usable title.
+ * Succeeds with undefined when no call was made: the conversation is not saved or a person
+ * already named it.
  */
-export function nameSavedConversation(agent: Agent, conversationId: string) {
+export function nameSavedConversation(
+  agent: Agent,
+  conversationId: string,
+): Effect.Effect<
+  SavedConversationNaming | undefined,
+  Error,
+  FileSystem.FileSystem | LLMService | LoggerService
+> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const conversation = yield* loadConversationOrNull(agent.id, conversationId);
@@ -84,7 +99,7 @@ export function nameSavedConversation(agent: Agent, conversationId: string) {
       yield* logger.debug("Conversation title namer replied with no usable title", {
         conversationId,
       });
-      return undefined;
+      return { title: undefined, spend: naming.spend };
     }
     const recorded = yield* saveGeneratedConversationTitle({
       agentId: agent.id,
@@ -95,10 +110,10 @@ export function nameSavedConversation(agent: Agent, conversationId: string) {
       yield* logger.debug("Conversation named by a person first; kept their title", {
         conversationId,
       });
-      return undefined;
+      return { title: undefined, spend: naming.spend };
     }
     yield* logger.info("Named conversation", { conversationId });
-    return title;
+    return { title, spend: naming.spend };
   });
 }
 

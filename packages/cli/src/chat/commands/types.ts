@@ -140,6 +140,11 @@ export interface SessionUsage {
   wastedUSD?: number;
   /** True when the real waste may be higher than `wastedUSD`. */
   wasteLowerBound?: boolean;
+  /**
+   * What Jazz's own side calls cost this session (naming the conversation), priced on the model
+   * that answered them; not in the token totals above.
+   */
+  sideCostUSD?: number;
 }
 
 /**

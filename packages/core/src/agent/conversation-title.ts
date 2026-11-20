@@ -17,6 +17,12 @@ import { cleanConversationTitle } from "./conversation-title-text";
 /** Characters of each side of the exchange the namer reads; the opening carries the topic. */
 const MAX_NAMER_EXCHANGE_CHARS = 2_000;
 
+/**
+ * Most words a reply line may have and still count as a title. The namer is asked for 3 to 6;
+ * twice that leaves room for long names while turning away a sentence of prose.
+ */
+const MAX_NAMER_TITLE_WORDS = 12;
+
 /** Room for a few words plus a model that adds a stray quote or period. */
 const NAMER_MAX_TOKENS = 32;
 
@@ -37,35 +43,57 @@ function clip(text: string): string {
 }
 
 /**
- * The first thing the user typed and the agent's first written answer, as the namer reads them:
- * the last written reply of the first turn that has one, since a turn can open with tool calls
- * and short preambles. Undefined until both exist.
+ * The first exchange the agent answered in writing, as the namer reads it: a user prompt and the
+ * last written reply of that same turn, since a turn can open with tool calls and short
+ * preambles. A prompt whose turn has no written reply is passed over for the next one, so the
+ * pair always matches. Undefined until such an exchange exists.
  */
 export function formatExchangeForNamer(messages: readonly ChatMessage[]): string | undefined {
-  const firstUserIndex = messages.findIndex(
-    (message) => message.role === "user" && message.kind === undefined,
-  );
-  const firstUser = messages[firstUserIndex];
-  if (firstUser === undefined) {
+  let prompt: ChatMessage | undefined;
+  let answer: ChatMessage | undefined;
+  for (const message of messages) {
+    if (message.role === "user" && message.kind === undefined) {
+      if (prompt !== undefined && answer !== undefined) {
+        break;
+      }
+      prompt = message;
+      answer = undefined;
+    } else if (
+      prompt !== undefined &&
+      message.role === "assistant" &&
+      message.content.trim().length > 0
+    ) {
+      answer = message;
+    }
+  }
+  if (prompt === undefined || answer === undefined) {
     return undefined;
   }
-  const question = clip(typedText(firstUser));
+  const question = clip(typedText(prompt));
   if (question.length === 0) {
     return undefined;
   }
-  let turnAnswer: ChatMessage | undefined;
-  for (const message of messages.slice(firstUserIndex + 1)) {
-    if (message.role === "user" && turnAnswer !== undefined) {
-      break;
-    }
-    if (message.role === "assistant" && message.content.trim().length > 0) {
-      turnAnswer = message;
-    }
-  }
-  if (turnAnswer === undefined) {
+  return `<user>\n${question}\n</user>\n<assistant>\n${clip(answer.content)}\n</assistant>`;
+}
+
+/**
+ * The title in the namer's reply: the first line that is not a preamble introducing it (one
+ * ending in a colon), cleaned. Undefined when no line reads as a title, including one too long to
+ * be the few words asked for.
+ */
+export function titleFromNamerReply(reply: string): string | undefined {
+  const line = reply
+    .split("\n")
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0 && !candidate.endsWith(":"));
+  if (line === undefined) {
     return undefined;
   }
-  return `<user>\n${question}\n</user>\n<assistant>\n${clip(turnAnswer.content)}\n</assistant>`;
+  const title = cleanConversationTitle(line);
+  if (title === undefined || title.split(" ").length > MAX_NAMER_TITLE_WORDS) {
+    return undefined;
+  }
+  return title;
 }
 
 /** What the namer replied, and what asking it cost. */
@@ -124,8 +152,7 @@ export function nameConversation(
       );
     const durationMs = Date.now() - startedAt;
 
-    const firstLine = response.content.split("\n").find((line) => line.trim().length > 0);
-    const title = firstLine === undefined ? undefined : cleanConversationTitle(firstLine);
+    const title = titleFromNamerReply(response.content);
     yield* logger.debug("Conversation title namer replied", {
       provider: modelConfig.provider,
       model: modelConfig.model,

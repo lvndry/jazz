@@ -130,7 +130,12 @@ import {
   findExceededSessionLimits,
   addRetryWasteToSession,
 } from "./chat/commands/session-limits";
-import type { CommandContext, CommandResult, SessionLimits } from "./chat/commands/types";
+import type {
+  CommandContext,
+  CommandResult,
+  SessionLimits,
+  SessionUsage,
+} from "./chat/commands/types";
 import {
   attachConversation,
   awaitOwedDelivery,
@@ -175,6 +180,17 @@ export const MAX_CHAT_HISTORY_MESSAGES = 2000;
 
 /** How often the footer re-reads this conversation's unfinished waits and jobs from disk. */
 const BACKGROUND_WORK_POLL_INTERVAL_MS = 3000;
+
+/** The newest compaction checkpoint in `messages`, scanning back from the end. */
+function latestCheckpoint(messages: readonly ChatMessage[]): ChatMessage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.kind === "summary") {
+      return message;
+    }
+  }
+  return undefined;
+}
 
 /** The newest `limit` messages, still marked as having read external content if any dropped one was. */
 export function capChatHistory(
@@ -256,6 +272,11 @@ export class ChatServiceImpl implements ChatService {
     const configPath = this.configPath;
     /** Leaves the conversation this chat holds; run however the session ends, interrupts too. */
     let releaseConversation: Effect.Effect<void> = Effect.void;
+    /**
+     * Hands every title namer still running to a detached process; run however the session ends,
+     * interrupts and signals too, so a pending title is never lost.
+     */
+    let handOffPendingTitleNamings: Effect.Effect<void> = Effect.void;
     return Effect.gen(function* () {
       const terminal = yield* TerminalServiceTag;
       const logger = yield* LoggerServiceTag;
@@ -454,8 +475,8 @@ export class ChatServiceImpl implements ChatService {
       let conversationTitle = ephemeral
         ? undefined
         : (yield* loadConversationOrNull(agent.id, conversationId))?.title;
-      /** The conversation the title namer last started for, so each one is named once. */
-      let titleNamedConversationId: string | undefined;
+      /** Conversations the title namer started for this session, so each is named once. */
+      const titleNamedConversationIds = new Set<string>();
       /**
        * Namers still running, by conversation; `/new` can start one while another is in flight.
        * Each is handed to a detached process if the chat closes first.
@@ -464,8 +485,40 @@ export class ChatServiceImpl implements ChatService {
         string,
         { readonly agentId: string; readonly fiber: Fiber.Fiber<void> }
       >();
+      handOffPendingTitleNamings = Effect.gen(function* () {
+        const unfinishedNamings = [...pendingTitleNamings.entries()];
+        pendingTitleNamings.clear();
+        for (const [namedConversationId, naming] of unfinishedNamings) {
+          yield* Fiber.interrupt(naming.fiber);
+          yield* nameConversationInDetachedProcess(naming.agentId, namedConversationId, configPath);
+        }
+      }).pipe(Effect.provideService(LoggerServiceTag, logger));
       const showTabTitle = () => terminal.setTitle(chatTabTitle(agent.name, conversationTitle));
       yield* showTabTitle();
+
+      /** The compaction checkpoint the shown title already reflects. */
+      let titledCheckpoint = latestCheckpoint(conversationHistory);
+      /**
+       * A compaction checkpoint renames a conversation nobody named by hand. When one is new since
+       * the title was last read, re-read the saved title, which applies that precedence, and show
+       * it in the tab.
+       */
+      const showTitleAfterCompaction = Effect.gen(function* () {
+        const checkpoint = latestCheckpoint(conversationHistory);
+        if (ephemeral || checkpoint === undefined || checkpoint === titledCheckpoint) {
+          return;
+        }
+        titledCheckpoint = checkpoint;
+        const saved = yield* loadConversationOrNull(agent.id, conversationId).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+        );
+        if (saved?.title === undefined || saved.title === conversationTitle) {
+          return;
+        }
+        conversationTitle = saved.title;
+        yield* logger.debug("Conversation retitled by compaction", { conversationId });
+        yield* showTabTitle();
+      });
 
       /**
        * Name a new conversation from its first answered exchange without holding up the next
@@ -474,13 +527,21 @@ export class ChatServiceImpl implements ChatService {
        */
       const nameConversationInBackground = (namedConversationId: string) =>
         Effect.gen(function* () {
-          titleNamedConversationId = namedConversationId;
+          titleNamedConversationIds.add(namedConversationId);
           const namedAgentId = agent.id;
           yield* logger.debug("Naming conversation", { conversationId: namedConversationId });
           const fiber = yield* Effect.forkDetach(
             nameSavedConversation(agent, namedConversationId).pipe(
               Effect.provideService(FileSystem.FileSystem, fileSystem),
-              Effect.flatMap((title) => {
+              Effect.flatMap((naming) => {
+                const sideCostUSD = naming?.spend?.costUSD;
+                if (sideCostUSD !== undefined) {
+                  sessionUsage = {
+                    ...sessionUsage,
+                    sideCostUSD: (sessionUsage.sideCostUSD ?? 0) + sideCostUSD,
+                  };
+                }
+                const title = naming?.title;
                 if (
                   title === undefined ||
                   conversationId !== namedConversationId ||
@@ -557,7 +618,7 @@ export class ChatServiceImpl implements ChatService {
         yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
       }
       let loggedMessageCount = 0;
-      let sessionUsage = { requests: 0, promptTokens: 0, completionTokens: 0 };
+      let sessionUsage: SessionUsage = { requests: 0, promptTokens: 0, completionTokens: 0 };
       let sessionTurnCount = 0;
       /** Spend caps already warned about this session, by window, so each warns once. */
       const warnedSpendCaps = new Set<string>();
@@ -1269,6 +1330,9 @@ export class ChatServiceImpl implements ChatService {
             if (commandResult.newHistory !== undefined) {
               conversationHistory = commandResult.newHistory;
               historyCompactedSinceLastTurn = commandResult.historyCompacted === true;
+              if (commandResult.historyCompacted === true) {
+                yield* showTitleAfterCompaction;
+              }
               // The transcript is the user's picture of what the agent knows.
               // Most commands that replace the history — /start, /fork, /resume — have to
               // repaint it, or the screen keeps showing turns the agent can no longer see.
@@ -1572,6 +1636,7 @@ export class ChatServiceImpl implements ChatService {
           // A failed turn reports its spend through onRunSpend before the catch restores the loop.
           if ("usage" in response && response.usage) {
             sessionUsage = {
+              ...sessionUsage,
               requests: sessionUsage.requests + (response.usage.requests ?? 0),
               promptTokens: sessionUsage.promptTokens + response.usage.promptTokens,
               completionTokens: sessionUsage.completionTokens + response.usage.completionTokens,
@@ -1637,16 +1702,17 @@ export class ChatServiceImpl implements ChatService {
             yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
           }
           inFlightTranscript = undefined;
+          yield* showTitleAfterCompaction;
 
           if (
             shouldNameConversation({
               ephemeral,
               turnErrored: lastTurnErrored,
-              hasAnsweredExchange: formatExchangeForNamer(conversationHistory) !== undefined,
               conversationTitle,
               conversationId,
-              namerStartedFor: titleNamedConversationId,
-            })
+              namerStartedFor: titleNamedConversationIds,
+            }) &&
+            formatExchangeForNamer(conversationHistory) !== undefined
           ) {
             yield* nameConversationInBackground(conversationId);
           }
@@ -1772,11 +1838,6 @@ export class ChatServiceImpl implements ChatService {
 
       yield* closeOutRunningDetached;
       yield* stopBackgroundWork;
-      const unfinishedNamings = [...pendingTitleNamings.entries()];
-      for (const [namedConversationId, naming] of unfinishedNamings) {
-        yield* Fiber.interrupt(naming.fiber);
-        yield* nameConversationInDetachedProcess(naming.agentId, namedConversationId, configPath);
-      }
       yield* emitLifecycle("session-end");
       yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
       if (!ephemeral && sessionTurnCount > 0) {
@@ -1787,6 +1848,7 @@ export class ChatServiceImpl implements ChatService {
       detachPaneStateReporting();
       return { reason: endReason, messagesReceived } satisfies ChatSessionEnd;
     }).pipe(
+      Effect.ensuring(Effect.suspend(() => handOffPendingTitleNamings)),
       Effect.ensuring(
         Effect.suspend(() => releaseConversation).pipe(
           Effect.andThen(

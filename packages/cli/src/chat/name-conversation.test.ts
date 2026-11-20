@@ -4,10 +4,9 @@ import { shouldNameConversation } from "./name-conversation";
 const firstAnswer = {
   ephemeral: false,
   turnErrored: false,
-  hasAnsweredExchange: true,
   conversationTitle: undefined,
   conversationId: "conv-1",
-  namerStartedFor: undefined,
+  namerStartedFor: new Set<string>(),
 };
 
 describe("shouldNameConversation", () => {
@@ -23,18 +22,21 @@ describe("shouldNameConversation", () => {
     expect(shouldNameConversation({ ...firstAnswer, turnErrored: true })).toBe(false);
   });
 
-  it("waits for a written answer to name the conversation from", () => {
-    expect(shouldNameConversation({ ...firstAnswer, hasAnsweredExchange: false })).toBe(false);
-  });
-
   it("keeps a conversation that already has a title", () => {
     expect(shouldNameConversation({ ...firstAnswer, conversationTitle: "Summer trip" })).toBe(
       false,
     );
   });
 
-  it("starts the namer once per conversation", () => {
-    expect(shouldNameConversation({ ...firstAnswer, namerStartedFor: "conv-1" })).toBe(false);
-    expect(shouldNameConversation({ ...firstAnswer, namerStartedFor: "conv-0" })).toBe(true);
+  it("starts the namer once per conversation, even after switching away and back", () => {
+    const started = new Set(["conv-1", "conv-2"]);
+    expect(shouldNameConversation({ ...firstAnswer, namerStartedFor: started })).toBe(false);
+    expect(
+      shouldNameConversation({
+        ...firstAnswer,
+        conversationId: "conv-3",
+        namerStartedFor: started,
+      }),
+    ).toBe(true);
   });
 });

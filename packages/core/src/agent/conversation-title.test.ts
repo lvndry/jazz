@@ -7,7 +7,11 @@ import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import type { ChatCompletionOptions } from "@/core/types/chat";
 import type { ChatMessage } from "@/core/types/message";
-import { formatExchangeForNamer, nameConversation } from "./conversation-title";
+import {
+  formatExchangeForNamer,
+  nameConversation,
+  titleFromNamerReply,
+} from "./conversation-title";
 import { cleanConversationTitle, MAX_CONVERSATION_TITLE_CHARS } from "./conversation-title-text";
 
 const agent: Agent = {
@@ -80,21 +84,46 @@ describe("formatExchangeForNamer", () => {
     expect(exchange).not.toContain("answer to the second");
   });
 
-  it("falls back to the next answered turn when the first turn wrote nothing", () => {
+  it("passes over a prompt its turn never answered, keeping each pair matched", () => {
     const exchange = formatExchangeForNamer([
-      { role: "user", content: "first question" },
+      { role: "user", content: "plan a trip to Italy" },
       { role: "assistant", content: "", tool_calls: [] },
-      { role: "user", content: "second question" },
-      { role: "assistant", content: "answer to the second" },
+      { role: "user", content: "what's a good sourdough hydration?" },
+      { role: "assistant", content: "Around 75% is a forgiving start." },
     ]);
-    expect(exchange).toContain("first question");
-    expect(exchange).toContain("answer to the second");
+    expect(exchange).toContain("what's a good sourdough hydration?");
+    expect(exchange).toContain("Around 75% is a forgiving start.");
+    expect(exchange).not.toContain("plan a trip to Italy");
+  });
+});
+
+describe("titleFromNamerReply", () => {
+  it("skips a preamble line that introduces the title", () => {
+    expect(titleFromNamerReply("Here is a title:\nSourdough hydration basics")).toBe(
+      "Sourdough hydration basics",
+    );
+  });
+
+  it("has no title when the reply is a sentence rather than a few words", () => {
+    expect(
+      titleFromNamerReply(
+        "Sure, I can help you think about what this conversation is about and name it well",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("has no title when every line is a preamble", () => {
+    expect(titleFromNamerReply("Here are a few suggestions:")).toBeUndefined();
   });
 });
 
 describe("cleanConversationTitle", () => {
   it("drops quotes, a label, and a trailing period", () => {
     expect(cleanConversationTitle('Title: "Italy rail itinerary."')).toBe("Italy rail itinerary");
+  });
+
+  it("removes bidirectional formatting controls", () => {
+    expect(cleanConversationTitle("Invoice\u202Efdp.exe")).toBe("Invoicefdp.exe");
   });
 
   it("caps a long title", () => {
