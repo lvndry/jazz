@@ -4,7 +4,7 @@
  * response is in, so the conversation list shows what it is about instead of its first line.
  */
 
-import { Duration, Effect } from "effect";
+import { Cause, Duration, Effect } from "effect";
 import { selectSummarizerModel } from "@/core/agent/context/summarizer";
 import { priceModelCall, type CallSpend } from "@/core/agent/run/run-spend";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -96,6 +96,20 @@ export function titleFromNamerReply(reply: string): string | undefined {
   return title;
 }
 
+/**
+ * Why naming did not get a reply. It carries a category only: a provider's error text can echo
+ * the request, which holds the user's words, and naming failures are logged.
+ */
+export class ConversationNamingError extends Error {
+  readonly reason: "no-exchange" | "timeout" | "request-failed";
+
+  constructor(reason: ConversationNamingError["reason"]) {
+    super(`Conversation naming failed: ${reason}`);
+    this.name = "ConversationNamingError";
+    this.reason = reason;
+  }
+}
+
 /** What the namer replied, and what asking it cost. */
 export interface ConversationNaming {
   /** Undefined when the reply cleans to nothing; the conversation keeps the title it had. */
@@ -110,13 +124,13 @@ export interface ConversationNaming {
 export function nameConversation(
   agent: Agent,
   messages: readonly ChatMessage[],
-): Effect.Effect<ConversationNaming, Error, LLMService | LoggerService> {
+): Effect.Effect<ConversationNaming, ConversationNamingError, LLMService | LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const exchange = formatExchangeForNamer(messages);
     if (exchange === undefined) {
       yield* logger.debug("Conversation title namer skipped: no answered first message");
-      return yield* Effect.fail(new Error("No answered first message to name"));
+      return yield* Effect.fail(new ConversationNamingError("no-exchange"));
     }
 
     const { config: modelConfig, warning } = selectSummarizerModel(agent);
@@ -145,9 +159,7 @@ export function nameConversation(
         Effect.timeout(NAMER_TIMEOUT),
         Effect.mapError(
           (error) =>
-            new Error(
-              `Conversation title namer failed: ${error instanceof Error ? error.message : String(error)}`,
-            ),
+            new ConversationNamingError(Cause.isTimeoutError(error) ? "timeout" : "request-failed"),
         ),
       );
     const durationMs = Date.now() - startedAt;

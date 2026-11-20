@@ -14,6 +14,7 @@ import { Effect, type FileSystem } from "effect";
 import {
   archiveLegacyHistory,
   ConversationChangedError,
+  conversationAwaitsGeneratedTitle,
   conversationRevision,
   EMPTY_CONVERSATION_REVISION,
   saveConversation,
@@ -754,5 +755,56 @@ describe("saveGeneratedConversationTitle", () => {
       ),
     );
     expect(exit._tag).toBe("Failure");
+  });
+});
+
+describe("generated titles are written once", () => {
+  const exchange = [
+    { role: "user", content: "how do I repot a monstera?" },
+    { role: "assistant", content: "Spring, a slightly bigger pot, chunky mix." },
+  ] as ChatMessage[];
+
+  test("a second namer neither calls the model nor replaces the first title", async () => {
+    await runEffect(
+      saveConversation(makeConversation({ title: "", messages: [...exchange] }), tmpDir),
+    );
+    expect(await runEffect(conversationAwaitsGeneratedTitle("agent-1", "conv-1", tmpDir))).toBe(
+      true,
+    );
+
+    const first = await runEffect(
+      saveGeneratedConversationTitle(
+        { agentId: "agent-1", conversationId: "conv-1", title: "Repotting a monstera" },
+        tmpDir,
+      ),
+    );
+    const second = await runEffect(
+      saveGeneratedConversationTitle(
+        { agentId: "agent-1", conversationId: "conv-1", title: "Monstera care" },
+        tmpDir,
+      ),
+    );
+
+    expect([first, second]).toEqual([true, false]);
+    expect(await runEffect(conversationAwaitsGeneratedTitle("agent-1", "conv-1", tmpDir))).toBe(
+      false,
+    );
+    const loaded = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(loaded?.title).toBe("Repotting a monstera");
+  });
+
+  test("a conversation a person named, or one never saved, awaits no generated title", async () => {
+    await runEffect(
+      saveConversation(
+        makeConversation({ title: "Plants", titleSource: "user", messages: [...exchange] }),
+        tmpDir,
+      ),
+    );
+    expect(await runEffect(conversationAwaitsGeneratedTitle("agent-1", "conv-1", tmpDir))).toBe(
+      false,
+    );
+    expect(await runEffect(conversationAwaitsGeneratedTitle("agent-1", "missing", tmpDir))).toBe(
+      false,
+    );
   });
 });

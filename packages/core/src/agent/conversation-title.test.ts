@@ -1,13 +1,15 @@
 import { describe, expect, it } from "bun:test";
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import { silentLogger } from "@/core/agent/test-logger";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import type { ChatCompletionOptions } from "@/core/types/chat";
+import { LLMRequestError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import {
+  ConversationNamingError,
   formatExchangeForNamer,
   nameConversation,
   titleFromNamerReply,
@@ -151,6 +153,30 @@ describe("nameConversation", () => {
     });
     const result = await exit;
     expect(Exit.isSuccess(result) ? result.value.spend.totalTokens : undefined).toBe(126);
+  });
+
+  it("reports a failed request by category, without the provider's text", async () => {
+    const llm = partialFake<LLMService>({
+      createChatCompletion: () =>
+        Effect.fail(
+          new LLMRequestError({
+            provider: "openai",
+            message: "echo: can you help me plan a train trip through italy",
+          }),
+        ),
+    });
+    const exit = await Effect.runPromiseExit(
+      nameConversation(agent, answered).pipe(
+        Effect.provideService(LLMServiceTag, llm),
+        Effect.provideService(LoggerServiceTag, silentLogger),
+      ),
+    );
+    const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined;
+    expect(error).toBeInstanceOf(ConversationNamingError);
+    expect(error instanceof ConversationNamingError ? error.reason : undefined).toBe(
+      "request-failed",
+    );
+    expect(error instanceof Error ? error.message : "").not.toContain("italy");
   });
 
   it("makes no call before the first message is answered", async () => {

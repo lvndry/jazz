@@ -1047,17 +1047,20 @@ Chat bridges have independent command contracts described in their surface guide
 `/rename <title>` sets the current conversation's title, preserving internal whitespace and
 Unicode without an artificial length limit. Bare `/rename` edits the current title; Escape
 cancels. Naming a conversation before its first message saves it too. Later turns, resumes,
-and compaction preserve the title. Ephemeral sessions keep it only in memory. A conversation you
-never renamed starts out named after your first message. Once the agent answers that message,
-Jazz names the conversation in the background with a short title from the agent's
-`llm.summarizerModel` (else its own model). That one request per conversation sends the first message the
-agent answered in writing and that answer, each clipped to 2,000 characters. Its cost counts
-toward the spend caps, and toward `/cost` and `/limit` when it finishes while the chat is open. The chat never waits on it, and the title still lands
-if you leave right away. The terminal tab shows the conversation's title (`🎷 <title>`) as soon as
-it has one, including after `/rename` and when you resume a conversation; until then it shows the
-agent's name. Each compaction then renames it after what the conversation has become.
-A title you gave with `/rename` is never replaced. Renaming itself never calls the model,
-and a save failure is reported without changing the title.
+and compaction preserve the title. Ephemeral sessions keep it only in memory.
+
+A conversation you never renamed starts out named after your first message. Once the agent
+answers in writing, Jazz names the conversation in the background with a short title from the
+agent's `llm.summarizerModel` (else its own model). That one request per conversation sends the
+first message the agent answered in writing and that answer, each clipped to 2,000 characters.
+It is recorded as chat spend in `jazz spend`, and counts toward `/cost` and `/limit` when it
+finishes while the chat is open; like other chat spend, it does not count against the daemon's
+unattended spend caps. The chat never waits on it, and the title still lands if you leave right
+away. The terminal tab shows the conversation's title (`🎷 <title>`) as soon as it has one,
+including after `/rename` and when you resume a conversation; until then it shows the agent's
+name. Each compaction then renames the conversation after what it has become. A title you gave
+with `/rename` is never replaced. Renaming itself never calls the model, and a save failure is
+reported without changing the title.
 
 Only `/exit` (or `/quit`) ends the chat; `exit` or `quit` typed alone is sent to the agent as a
 message. A message that starts with a file path, which is what dragging a file into the terminal

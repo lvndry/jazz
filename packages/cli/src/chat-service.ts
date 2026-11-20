@@ -155,6 +155,7 @@ import { inlineMentionedTextFiles } from "./chat/mentioned-files";
 import {
   nameConversationInDetachedProcess,
   nameSavedConversation,
+  namingFailureReason,
   shouldNameConversation,
 } from "./chat/name-conversation";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
@@ -534,8 +535,8 @@ export class ChatServiceImpl implements ChatService {
             nameSavedConversation(agent, namedConversationId).pipe(
               Effect.provideService(FileSystem.FileSystem, fileSystem),
               Effect.flatMap((naming) => {
-                const sideCostUSD = naming?.spend?.costUSD;
-                if (sideCostUSD !== undefined) {
+                const sideCostUSD = naming?.spend.costUSD;
+                if (sideCostUSD !== undefined && conversationId === namedConversationId) {
                   sessionUsage = {
                     ...sessionUsage,
                     sideCostUSD: (sessionUsage.sideCostUSD ?? 0) + sideCostUSD,
@@ -555,7 +556,7 @@ export class ChatServiceImpl implements ChatService {
               Effect.catch((error) =>
                 logger.debug("Conversation left unnamed", {
                   conversationId: namedConversationId,
-                  error: error.message,
+                  reason: namingFailureReason(error),
                 }),
               ),
               Effect.ensuring(
@@ -1310,6 +1311,14 @@ export class ChatServiceImpl implements ChatService {
                 });
                 yield* announceAgentSwitch(terminal, agent);
                 yield* showTabTitle();
+                const movedNaming = pendingTitleNamings.get(conversationId);
+                if (movedNaming !== undefined) {
+                  yield* Fiber.interrupt(movedNaming.fiber);
+                  yield* logger.debug("Restarting the title namer under the new agent", {
+                    conversationId,
+                  });
+                  yield* nameConversationInBackground(conversationId);
+                }
               }
             }
             if (agentChanged) {

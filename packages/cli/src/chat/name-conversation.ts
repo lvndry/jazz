@@ -5,11 +5,12 @@
  */
 
 import {
+  conversationAwaitsGeneratedTitle,
   loadConversationOrNull,
   saveGeneratedConversationTitle,
 } from "@jazz/adapters/history/conversation-history-service";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
-import { nameConversation } from "@jazz/core/agent/conversation-title";
+import { ConversationNamingError, nameConversation } from "@jazz/core/agent/conversation-title";
 import type { CallSpend } from "@jazz/core/agent/run/run-spend";
 import type { LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
@@ -49,9 +50,10 @@ export interface SavedConversationNaming {
 
 /**
  * Name a saved conversation from its first answered exchange and record the title as Jazz's own.
- * The call's cost goes to the spend ledger as chat spend, so spend caps and `jazz spend` count it.
- * Succeeds with undefined when no call was made: the conversation is not saved or a person
- * already named it.
+ * The call's cost goes to the spend ledger as attended chat spend: `jazz spend` shows it, and like
+ * other chat spend it does not count against the daemon's unattended spend caps.
+ * Succeeds with undefined when no call was made: the conversation is not saved, a person named
+ * it, or the namer already did (so a namer handed off at exit never pays twice).
  */
 export function nameSavedConversation(
   agent: Agent,
@@ -63,17 +65,14 @@ export function nameSavedConversation(
 > {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const conversation = yield* loadConversationOrNull(agent.id, conversationId);
-    if (conversation === null) {
-      yield* logger.debug("Conversation title namer skipped: conversation not saved", {
+    if (!(yield* conversationAwaitsGeneratedTitle(agent.id, conversationId))) {
+      yield* logger.debug("Conversation title namer skipped: not saved or already named", {
         conversationId,
       });
       return undefined;
     }
-    if (conversation.titleSource === "user") {
-      yield* logger.debug("Conversation title namer skipped: named by a person", {
-        conversationId,
-      });
+    const conversation = yield* loadConversationOrNull(agent.id, conversationId);
+    if (conversation === null) {
       return undefined;
     }
     const naming = yield* nameConversation(agent, conversation.messages);
@@ -115,6 +114,11 @@ export function nameSavedConversation(
     yield* logger.info("Named conversation", { conversationId });
     return { title, spend: naming.spend };
   });
+}
+
+/** Why naming failed, as a category safe to log: never a provider's error text. */
+export function namingFailureReason(error: Error): string {
+  return error instanceof ConversationNamingError ? error.reason : "storage";
 }
 
 /** `jazz agent name-conversation`: the detached hand-off of {@link nameSavedConversation}. */
