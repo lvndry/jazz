@@ -95,7 +95,7 @@ describe("runRefreshChatGPTCommand", () => {
   });
 
   afterEach(() => {
-    process.exitCode = previousExitCode;
+    process.exitCode = previousExitCode ?? 0;
     for (const restore of restoreOutput) {
       restore();
     }
