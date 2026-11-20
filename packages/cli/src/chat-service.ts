@@ -35,6 +35,7 @@ import {
   scheduleToolResultSweep,
 } from "@jazz/adapters/tool-result-retention";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
+import { formatExchangeForNamer } from "@jazz/core/agent/conversation-title";
 import { processDetachedCalls } from "@jazz/core/agent/detach/auto-detach";
 import { carryEgressTaint } from "@jazz/core/agent/execution/egress-taint";
 import type { RunSpendReport } from "@jazz/core/agent/metrics/agent-run-metrics";
@@ -455,14 +456,14 @@ export class ChatServiceImpl implements ChatService {
         : (yield* loadConversationOrNull(agent.id, conversationId))?.title;
       /** The conversation the title namer last started for, so each one is named once. */
       let titleNamedConversationId: string | undefined;
-      /** The namer still running, handed to a detached process if the chat closes first. */
-      let pendingTitleNaming:
-        | {
-            readonly agentId: string;
-            readonly conversationId: string;
-            readonly fiber: Fiber.Fiber<void>;
-          }
-        | undefined;
+      /**
+       * Namers still running, by conversation; `/new` can start one while another is in flight.
+       * Each is handed to a detached process if the chat closes first.
+       */
+      const pendingTitleNamings = new Map<
+        string,
+        { readonly agentId: string; readonly fiber: Fiber.Fiber<void> }
+      >();
       const showTabTitle = () => terminal.setTitle(chatTabTitle(agent.name, conversationTitle));
       yield* showTabTitle();
 
@@ -498,18 +499,12 @@ export class ChatServiceImpl implements ChatService {
               ),
               Effect.ensuring(
                 Effect.sync(() => {
-                  if (pendingTitleNaming?.conversationId === namedConversationId) {
-                    pendingTitleNaming = undefined;
-                  }
+                  pendingTitleNamings.delete(namedConversationId);
                 }),
               ),
             ),
           );
-          pendingTitleNaming = {
-            agentId: namedAgentId,
-            conversationId: namedConversationId,
-            fiber,
-          };
+          pendingTitleNamings.set(namedConversationId, { agentId: namedAgentId, fiber });
         });
 
       // Notify enabled plugins of chat lifecycle events (a Warp-style notifier rides these).
@@ -1647,6 +1642,7 @@ export class ChatServiceImpl implements ChatService {
             shouldNameConversation({
               ephemeral,
               turnErrored: lastTurnErrored,
+              hasAnsweredExchange: formatExchangeForNamer(conversationHistory) !== undefined,
               conversationTitle,
               conversationId,
               namerStartedFor: titleNamedConversationId,
@@ -1776,14 +1772,10 @@ export class ChatServiceImpl implements ChatService {
 
       yield* closeOutRunningDetached;
       yield* stopBackgroundWork;
-      const unfinishedNaming = pendingTitleNaming;
-      if (unfinishedNaming !== undefined) {
-        yield* Fiber.interrupt(unfinishedNaming.fiber);
-        yield* nameConversationInDetachedProcess(
-          unfinishedNaming.agentId,
-          unfinishedNaming.conversationId,
-          configPath,
-        );
+      const unfinishedNamings = [...pendingTitleNamings.entries()];
+      for (const [namedConversationId, naming] of unfinishedNamings) {
+        yield* Fiber.interrupt(naming.fiber);
+        yield* nameConversationInDetachedProcess(naming.agentId, namedConversationId, configPath);
       }
       yield* emitLifecycle("session-end");
       yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });

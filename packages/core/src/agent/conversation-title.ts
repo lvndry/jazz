@@ -37,35 +37,35 @@ function clip(text: string): string {
 }
 
 /**
- * The first thing the user typed and the agent's first written answer to it, as the namer reads
- * them. Undefined until both exist: a turn that only ran tools has nothing to name yet.
+ * The first thing the user typed and the agent's first written answer, as the namer reads them:
+ * the last written reply of the first turn that has one, since a turn can open with tool calls
+ * and short preambles. Undefined until both exist.
  */
 export function formatExchangeForNamer(messages: readonly ChatMessage[]): string | undefined {
   const firstUserIndex = messages.findIndex(
     (message) => message.role === "user" && message.kind === undefined,
   );
-  if (firstUserIndex === -1) {
+  const firstUser = messages[firstUserIndex];
+  if (firstUser === undefined) {
     return undefined;
   }
-  const firstUser = messages[firstUserIndex];
-  const question = firstUser === undefined ? "" : clip(typedText(firstUser));
+  const question = clip(typedText(firstUser));
   if (question.length === 0) {
     return undefined;
   }
-  const nextUserIndex = messages.findIndex(
-    (message, index) => index > firstUserIndex && message.role === "user",
-  );
-  const turn = messages.slice(
-    firstUserIndex + 1,
-    nextUserIndex === -1 ? messages.length : nextUserIndex,
-  );
-  const answer = turn
-    .filter((message) => message.role === "assistant" && message.content.trim().length > 0)
-    .at(-1);
-  if (answer === undefined) {
+  let turnAnswer: ChatMessage | undefined;
+  for (const message of messages.slice(firstUserIndex + 1)) {
+    if (message.role === "user" && turnAnswer !== undefined) {
+      break;
+    }
+    if (message.role === "assistant" && message.content.trim().length > 0) {
+      turnAnswer = message;
+    }
+  }
+  if (turnAnswer === undefined) {
     return undefined;
   }
-  return `<user>\n${question}\n</user>\n<assistant>\n${clip(answer.content)}\n</assistant>`;
+  return `<user>\n${question}\n</user>\n<assistant>\n${clip(turnAnswer.content)}\n</assistant>`;
 }
 
 /** What the namer replied, and what asking it cost. */

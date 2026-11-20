@@ -67,13 +67,28 @@ describe("formatExchangeForNamer", () => {
     expect(formatExchangeForNamer([])).toBeUndefined();
   });
 
-  it("reads the answer to the first message, not a later one", () => {
+  it("reads the first turn's last written reply, not a later turn's", () => {
     const exchange = formatExchangeForNamer([
       { role: "user", content: "first question" },
+      { role: "assistant", content: "Let me check." },
+      { role: "assistant", content: "answer to the first" },
       { role: "user", content: "second question" },
       { role: "assistant", content: "answer to the second" },
     ]);
-    expect(exchange).toBeUndefined();
+    expect(exchange).toContain("answer to the first");
+    expect(exchange).not.toContain("Let me check.");
+    expect(exchange).not.toContain("answer to the second");
+  });
+
+  it("falls back to the next answered turn when the first turn wrote nothing", () => {
+    const exchange = formatExchangeForNamer([
+      { role: "user", content: "first question" },
+      { role: "assistant", content: "", tool_calls: [] },
+      { role: "user", content: "second question" },
+      { role: "assistant", content: "answer to the second" },
+    ]);
+    expect(exchange).toContain("first question");
+    expect(exchange).toContain("answer to the second");
   });
 });
 

@@ -19,12 +19,13 @@ import { Effect } from "effect";
 
 /**
  * Whether the turn that just finished should start naming its conversation: a saved
- * conversation's first successful answer, while it has no title and the namer has not already
- * started for it this session.
+ * conversation's first successful turn that leaves a written answer to name it from, while it
+ * has no title and the namer has not already started for it this session.
  */
 export function shouldNameConversation(input: {
   readonly ephemeral: boolean;
   readonly turnErrored: boolean;
+  readonly hasAnsweredExchange: boolean;
   readonly conversationTitle: string | undefined;
   readonly conversationId: string;
   readonly namerStartedFor: string | undefined;
@@ -32,6 +33,7 @@ export function shouldNameConversation(input: {
   return (
     !input.ephemeral &&
     !input.turnErrored &&
+    input.hasAnsweredExchange &&
     input.conversationTitle === undefined &&
     input.namerStartedFor !== input.conversationId
   );

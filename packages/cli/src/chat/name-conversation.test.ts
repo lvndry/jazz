@@ -4,6 +4,7 @@ import { shouldNameConversation } from "./name-conversation";
 const firstAnswer = {
   ephemeral: false,
   turnErrored: false,
+  hasAnsweredExchange: true,
   conversationTitle: undefined,
   conversationId: "conv-1",
   namerStartedFor: undefined,
@@ -20,6 +21,10 @@ describe("shouldNameConversation", () => {
 
   it("waits for a turn that succeeded", () => {
     expect(shouldNameConversation({ ...firstAnswer, turnErrored: true })).toBe(false);
+  });
+
+  it("waits for a written answer to name the conversation from", () => {
+    expect(shouldNameConversation({ ...firstAnswer, hasAnsweredExchange: false })).toBe(false);
   });
 
   it("keeps a conversation that already has a title", () => {
