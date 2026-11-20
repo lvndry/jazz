@@ -6,6 +6,7 @@
 
 import { Duration, Effect } from "effect";
 import { selectSummarizerModel } from "@/core/agent/context/summarizer";
+import { priceModelCall, type CallSpend } from "@/core/agent/run/run-spend";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { typedText } from "@/core/memory/source-trust";
@@ -67,15 +68,21 @@ export function formatExchangeForNamer(messages: readonly ChatMessage[]): string
   return `<user>\n${question}\n</user>\n<assistant>\n${clip(answer.content)}\n</assistant>`;
 }
 
+/** What the namer replied, and what asking it cost. */
+export interface ConversationNaming {
+  /** Undefined when the reply cleans to nothing; the conversation keeps the title it had. */
+  readonly title: string | undefined;
+  readonly spend: CallSpend;
+}
+
 /**
  * Ask the harness model for a title for this conversation's first exchange. Fails when there is
- * no exchange to name yet, the call fails or times out, or the reply cleans to nothing; the
- * caller keeps the title it had.
+ * no exchange to name yet or the call fails or times out.
  */
 export function nameConversation(
   agent: Agent,
   messages: readonly ChatMessage[],
-): Effect.Effect<string, Error, LLMService | LoggerService> {
+): Effect.Effect<ConversationNaming, Error, LLMService | LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const exchange = formatExchangeForNamer(messages);
@@ -131,9 +138,7 @@ export function nameConversation(
           }
         : {}),
     });
-    if (title === undefined) {
-      return yield* Effect.fail(new Error("Conversation title namer replied with no title"));
-    }
-    return title;
+    const spend = yield* priceModelCall(modelConfig.provider, modelConfig.model, response.usage);
+    return { title, spend };
   });
 }

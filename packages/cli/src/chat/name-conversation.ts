@@ -12,13 +12,36 @@ import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { nameConversation } from "@jazz/core/agent/conversation-title";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { spawnDetachedJazz } from "@jazz/core/jobs/spawn-job-worker";
+import { isSpendRecordedByParent } from "@jazz/core/spend/caps";
+import { recordSpend } from "@jazz/core/spend/ledger";
 import type { Agent } from "@jazz/core/types/agent";
 import { Effect } from "effect";
 
 /**
+ * Whether the turn that just finished should start naming its conversation: a saved
+ * conversation's first successful answer, while it has no title and the namer has not already
+ * started for it this session.
+ */
+export function shouldNameConversation(input: {
+  readonly ephemeral: boolean;
+  readonly turnErrored: boolean;
+  readonly conversationTitle: string | undefined;
+  readonly conversationId: string;
+  readonly namerStartedFor: string | undefined;
+}): boolean {
+  return (
+    !input.ephemeral &&
+    !input.turnErrored &&
+    input.conversationTitle === undefined &&
+    input.namerStartedFor !== input.conversationId
+  );
+}
+
+/**
  * Name a saved conversation from its first answered exchange and record the title as Jazz's own.
- * Succeeds with the title written, or undefined when the conversation is not saved or a person
- * already named it.
+ * The call's cost goes to the spend ledger as chat spend, so spend caps and `jazz spend` count it.
+ * Succeeds with the title written, or undefined when the conversation is not saved, a person
+ * already named it, or the reply held no usable title.
  */
 export function nameSavedConversation(agent: Agent, conversationId: string) {
   return Effect.gen(function* () {
@@ -36,7 +59,31 @@ export function nameSavedConversation(agent: Agent, conversationId: string) {
       });
       return undefined;
     }
-    const title = yield* nameConversation(agent, conversation.messages);
+    const naming = yield* nameConversation(agent, conversation.messages);
+    if (!isSpendRecordedByParent()) {
+      yield* recordSpend({
+        agentId: agent.id,
+        source: "chat",
+        costUSD: naming.spend.costUSD ?? 0,
+        costKnown: naming.spend.costKnown,
+        tokens: naming.spend.totalTokens,
+        unattended: false,
+      }).pipe(
+        Effect.catch((error) =>
+          logger.warn("Could not record the conversation title namer's spend", {
+            conversationId,
+            error: error.message,
+          }),
+        ),
+      );
+    }
+    const title = naming.title;
+    if (title === undefined) {
+      yield* logger.debug("Conversation title namer replied with no usable title", {
+        conversationId,
+      });
+      return undefined;
+    }
     const recorded = yield* saveGeneratedConversationTitle({
       agentId: agent.id,
       conversationId,
@@ -48,7 +95,7 @@ export function nameSavedConversation(agent: Agent, conversationId: string) {
       });
       return undefined;
     }
-    yield* logger.info("Named conversation", { conversationId, title });
+    yield* logger.info("Named conversation", { conversationId });
     return title;
   });
 }

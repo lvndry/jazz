@@ -26,6 +26,9 @@ export function spawnJobWorker(agentId: string): Effect.Effect<SpawnJobWorkerRes
   return spawnDetachedJazz(["--output", "quiet", "job", "run", "--agent", agentId]);
 }
 
+/** A detached child's error after it started belongs to the child, never to this process. */
+function ignoreLaterError(): void {}
+
 /** Start `jazz <args>` detached from this process, so it outlives it. Never fails. */
 export function spawnDetachedJazz(args: readonly string[]): Effect.Effect<SpawnJobWorkerResult> {
   return Effect.gen(function* () {
@@ -34,21 +37,38 @@ export function spawnDetachedJazz(args: readonly string[]): Effect.Effect<SpawnJ
     if (executable === undefined) {
       return { spawned: false, reason: "Could not determine how to invoke jazz on this machine." };
     }
+    return yield* spawnDetachedCommand(executable, [...leadingArgs, ...args]);
+  });
+}
 
-    return yield* Effect.sync(() => {
-      try {
-        const child = spawn(executable, [...leadingArgs, ...args], {
-          detached: true,
-          stdio: "ignore",
-        });
-        child.unref();
-        return { spawned: true } satisfies SpawnJobWorkerResult;
-      } catch (error) {
-        return {
-          spawned: false,
-          reason: toError(error).message,
-        } satisfies SpawnJobWorkerResult;
-      }
-    });
+/**
+ * Start `executable` detached from this process, so it outlives it. Never fails: a launch that
+ * fails, including one `spawn` reports asynchronously (a missing executable), comes back as
+ * `spawned: false` with the reason.
+ */
+export function spawnDetachedCommand(
+  executable: string,
+  args: readonly string[],
+): Effect.Effect<SpawnJobWorkerResult> {
+  return Effect.callback<SpawnJobWorkerResult>((resume) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(executable, [...args], { detached: true, stdio: "ignore" });
+    } catch (error) {
+      resume(Effect.succeed({ spawned: false, reason: toError(error).message }));
+      return;
+    }
+    const onSpawn = () => {
+      child.off("error", onLaunchError);
+      child.on("error", ignoreLaterError);
+      child.unref();
+      resume(Effect.succeed({ spawned: true }));
+    };
+    const onLaunchError = (error: Error) => {
+      child.off("spawn", onSpawn);
+      resume(Effect.succeed({ spawned: false, reason: error.message }));
+    };
+    child.once("spawn", onSpawn);
+    child.once("error", onLaunchError);
   });
 }

@@ -146,7 +146,11 @@ import {
   stoppedDetachedMessage,
 } from "./chat/detached-results";
 import { inlineMentionedTextFiles } from "./chat/mentioned-files";
-import { nameConversationInDetachedProcess, nameSavedConversation } from "./chat/name-conversation";
+import {
+  nameConversationInDetachedProcess,
+  nameSavedConversation,
+  shouldNameConversation,
+} from "./chat/name-conversation";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
 import { reflectInBackground } from "./chat/reflect-in-background";
 import { registerExtensionCommands } from "./chat/register-extension-commands";
@@ -1640,10 +1644,13 @@ export class ChatServiceImpl implements ChatService {
           inFlightTranscript = undefined;
 
           if (
-            !ephemeral &&
-            !lastTurnErrored &&
-            conversationTitle === undefined &&
-            titleNamedConversationId !== conversationId
+            shouldNameConversation({
+              ephemeral,
+              turnErrored: lastTurnErrored,
+              conversationTitle,
+              conversationId,
+              namerStartedFor: titleNamedConversationId,
+            })
           ) {
             yield* nameConversationInBackground(conversationId);
           }

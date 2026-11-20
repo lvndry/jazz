@@ -28,12 +28,21 @@ const answered: ChatMessage[] = [
   { role: "assistant", content: "Sure. Start in Milan, then Florence." },
 ];
 
-function runNamer(messages: readonly ChatMessage[], reply: string) {
+function runNamer(
+  messages: readonly ChatMessage[],
+  reply: string,
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number },
+) {
   const requests: ChatCompletionOptions[] = [];
   const llm = partialFake<LLMService>({
     createChatCompletion: (_provider: string, options: ChatCompletionOptions) => {
       requests.push(options);
-      return Effect.succeed({ id: "1", model: options.model, content: reply });
+      return Effect.succeed({
+        id: "1",
+        model: options.model,
+        content: reply,
+        ...(usage !== undefined ? { usage } : {}),
+      });
     },
   });
   const exit = Effect.runPromiseExit(
@@ -83,10 +92,21 @@ describe("cleanConversationTitle", () => {
 describe("nameConversation", () => {
   it("asks the harness model and cleans its reply", async () => {
     const { exit, requests } = runNamer(answered, '"Italy rail itinerary"\n');
-    expect(await exit).toEqual(Exit.succeed("Italy rail itinerary"));
+    const result = await exit;
+    expect(Exit.isSuccess(result) ? result.value.title : undefined).toBe("Italy rail itinerary");
     expect(requests).toHaveLength(1);
     expect(requests[0]?.model).toBe("gpt-4o-mini");
     expect(requests[0]?.tools).toBeUndefined();
+  });
+
+  it("reports the call's tokens so its spend can be recorded", async () => {
+    const { exit } = runNamer(answered, "Italy rail itinerary", {
+      promptTokens: 120,
+      completionTokens: 6,
+      totalTokens: 126,
+    });
+    const result = await exit;
+    expect(Exit.isSuccess(result) ? result.value.spend.totalTokens : undefined).toBe(126);
   });
 
   it("makes no call before the first message is answered", async () => {
@@ -95,8 +115,9 @@ describe("nameConversation", () => {
     expect(requests).toHaveLength(0);
   });
 
-  it("fails on an empty reply so the conversation keeps its title", async () => {
+  it("has no title for an empty reply, so the conversation keeps its own", async () => {
     const { exit } = runNamer(answered, "  \n");
-    expect(Exit.isFailure(await exit)).toBe(true);
+    const result = await exit;
+    expect(Exit.isSuccess(result) ? result.value.title : "unexpected").toBeUndefined();
   });
 });
