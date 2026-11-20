@@ -1051,7 +1051,9 @@ and compaction preserve the title. Ephemeral sessions keep it only in memory. A 
 never renamed starts out named after your first message. Once the agent answers that message,
 Jazz names the conversation in the background with a short title from the agent's
 `llm.summarizerModel` (else its own model); the chat never waits on it, and the title still lands
-if you leave right away. Each compaction then renames it after what the conversation has become.
+if you leave right away. The terminal tab shows the conversation's title (`🎷 <title>`) as soon as
+it has one, including after `/rename` and when you resume a conversation; until then it shows the
+agent's name. Each compaction then renames it after what the conversation has become.
 A title you gave with `/rename` is never replaced. Renaming itself never calls the model,
 and a save failure is reported without changing the title.
 

@@ -1240,7 +1240,6 @@ export function announceAgentSwitch(
   newAgent: CommandContext["agent"],
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
-    yield* terminal.setTitle(`🎷 Jazz - ${newAgent.name}`);
     yield* terminal.success(
       `Switched to ${newAgent.name} (${newAgent.config.llm.provider}/${newAgent.config.llm.model})`,
     );

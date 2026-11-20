@@ -3,6 +3,7 @@ import { Effect, Exit } from "effect";
 import { silentLogger } from "@/core/agent/test-logger";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
+import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import type { ChatCompletionOptions } from "@/core/types/chat";
 import type { ChatMessage } from "@/core/types/message";
@@ -29,12 +30,12 @@ const answered: ChatMessage[] = [
 
 function runNamer(messages: readonly ChatMessage[], reply: string) {
   const requests: ChatCompletionOptions[] = [];
-  const llm = {
+  const llm = partialFake<LLMService>({
     createChatCompletion: (_provider: string, options: ChatCompletionOptions) => {
       requests.push(options);
       return Effect.succeed({ id: "1", model: options.model, content: reply });
     },
-  } as unknown as LLMService;
+  });
   const exit = Effect.runPromiseExit(
     nameConversation(agent, messages).pipe(
       Effect.provideService(LLMServiceTag, llm),

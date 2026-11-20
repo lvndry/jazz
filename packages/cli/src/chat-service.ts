@@ -91,7 +91,7 @@ import { reportProgramCwd } from "@jazz/core/utils/program-status";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
-import { Effect, FileSystem, Layer, Option } from "effect";
+import { Effect, Fiber, FileSystem, Layer, Option } from "effect";
 import { chatModeForPolicy, policyForChatMode, SAFE_MODE_POLICY } from "@/cli/chat/approval-mode";
 import { reasoningEffortLabel } from "@/cli/helpers/reasoning";
 import {
@@ -146,7 +146,7 @@ import {
   stoppedDetachedMessage,
 } from "./chat/detached-results";
 import { inlineMentionedTextFiles } from "./chat/mentioned-files";
-import { nameConversationInBackground } from "./chat/name-conversation";
+import { nameConversationInDetachedProcess, nameSavedConversation } from "./chat/name-conversation";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
 import { reflectInBackground } from "./chat/reflect-in-background";
 import { registerExtensionCommands } from "./chat/register-extension-commands";
@@ -156,6 +156,7 @@ import {
   setupAgent,
   updateWorkingDirectoryInStore,
 } from "./chat/session";
+import { chatTabTitle } from "./chat/tab-title";
 
 /**
  * Chat service implementation for managing interactive chat sessions with AI agents
@@ -450,6 +451,62 @@ export class ChatServiceImpl implements ChatService {
         : (yield* loadConversationOrNull(agent.id, conversationId))?.title;
       /** The conversation the title namer last started for, so each one is named once. */
       let titleNamedConversationId: string | undefined;
+      /** The namer still running, handed to a detached process if the chat closes first. */
+      let pendingTitleNaming:
+        | {
+            readonly agentId: string;
+            readonly conversationId: string;
+            readonly fiber: Fiber.Fiber<void>;
+          }
+        | undefined;
+      const showTabTitle = () => terminal.setTitle(chatTabTitle(agent.name, conversationTitle));
+      yield* showTabTitle();
+
+      /**
+       * Name a new conversation from its first answered exchange without holding up the next
+       * prompt, then show the title in the terminal tab. A person's `/rename` still wins, and a
+       * later compaction checkpoint's title replaces this one.
+       */
+      const nameConversationInBackground = (namedConversationId: string) =>
+        Effect.gen(function* () {
+          titleNamedConversationId = namedConversationId;
+          const namedAgentId = agent.id;
+          yield* logger.debug("Naming conversation", { conversationId: namedConversationId });
+          const fiber = yield* Effect.forkDetach(
+            nameSavedConversation(agent, namedConversationId).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.flatMap((title) => {
+                if (
+                  title === undefined ||
+                  conversationId !== namedConversationId ||
+                  conversationTitle !== undefined
+                ) {
+                  return Effect.void;
+                }
+                conversationTitle = title;
+                return showTabTitle();
+              }),
+              Effect.catch((error) =>
+                logger.debug("Conversation left unnamed", {
+                  conversationId: namedConversationId,
+                  error: error.message,
+                }),
+              ),
+              Effect.ensuring(
+                Effect.sync(() => {
+                  if (pendingTitleNaming?.conversationId === namedConversationId) {
+                    pendingTitleNaming = undefined;
+                  }
+                }),
+              ),
+            ),
+          );
+          pendingTitleNaming = {
+            agentId: namedAgentId,
+            conversationId: namedConversationId,
+            fiber,
+          };
+        });
 
       // Notify enabled plugins of chat lifecycle events (a Warp-style notifier rides these).
       // Fire-and-forget and fail-open so a plugin can never delay or break the loop.
@@ -1062,6 +1119,7 @@ export class ChatServiceImpl implements ChatService {
             if (commandResult.newConversationId === undefined) {
               if (commandResult.newConversationTitle !== undefined) {
                 conversationTitle = commandResult.newConversationTitle;
+                yield* showTabTitle();
               }
               if (commandResult.conversationRevision !== undefined) {
                 savedRevision = commandResult.conversationRevision;
@@ -1119,6 +1177,7 @@ export class ChatServiceImpl implements ChatService {
               blackboard = createBlackboard();
               yield* attachTo(conversationId);
               conversationTitle = commandResult.newConversationTitle;
+              yield* showTabTitle();
               savedRevision = commandResult.conversationRevision ?? EMPTY_CONVERSATION_REVISION;
               if (!ephemeral) {
                 yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
@@ -1190,6 +1249,7 @@ export class ChatServiceImpl implements ChatService {
                   conversationMoved: handOver.success,
                 });
                 yield* announceAgentSwitch(terminal, agent);
+                yield* showTabTitle();
               }
             }
             if (agentChanged) {
@@ -1585,8 +1645,7 @@ export class ChatServiceImpl implements ChatService {
             conversationTitle === undefined &&
             titleNamedConversationId !== conversationId
           ) {
-            titleNamedConversationId = conversationId;
-            yield* nameConversationInBackground(agent.id, conversationId, configPath);
+            yield* nameConversationInBackground(conversationId);
           }
 
           if (deliveryTurn !== undefined && lastTurnErrored) {
@@ -1710,6 +1769,15 @@ export class ChatServiceImpl implements ChatService {
 
       yield* closeOutRunningDetached;
       yield* stopBackgroundWork;
+      const unfinishedNaming = pendingTitleNaming;
+      if (unfinishedNaming !== undefined) {
+        yield* Fiber.interrupt(unfinishedNaming.fiber);
+        yield* nameConversationInDetachedProcess(
+          unfinishedNaming.agentId,
+          unfinishedNaming.conversationId,
+          configPath,
+        );
+      }
       yield* emitLifecycle("session-end");
       yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
       if (!ephemeral && sessionTurnCount > 0) {
