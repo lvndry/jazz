@@ -51,6 +51,7 @@ import {
   listConversationLogs,
   readConversationLog,
   recordConversationTranscript,
+  recordGeneratedTitle,
   recordLeafMove,
   summarize,
   type Conversation,
@@ -341,6 +342,29 @@ export function moveConversationLeaf(
   dir?: string,
 ): Effect.Effect<Conversation, Error, FileSystem.FileSystem> {
   return withLock(agentConversationLockPath(input.agentId, dir), recordLeafMove(input, dir));
+}
+
+/**
+ * Name a saved conversation with a title Jazz chose (see `recordGeneratedTitle`), under the
+ * same lock as a save. Succeeds with whether the title was written: false when a person
+ * already named the conversation.
+ */
+export function saveGeneratedConversationTitle(
+  input: {
+    readonly agentId: string;
+    readonly conversationId: string;
+    readonly title: string;
+  },
+  dir?: string,
+): Effect.Effect<boolean, Error, FileSystem.FileSystem> {
+  const assertWritable = Effect.tryPromise({
+    try: () => assertConversationWritable(input.agentId, input.conversationId),
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+  });
+  return withLock(
+    agentConversationLockPath(input.agentId, dir),
+    assertWritable.pipe(Effect.andThen(recordGeneratedTitle(input, dir))),
+  );
 }
 
 /**

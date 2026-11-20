@@ -587,6 +587,23 @@ function registerAgentCommands(program: Command): void {
     );
 
   agentCommand
+    .command("name-conversation", { hidden: true })
+    .description(
+      "Internal: name a new conversation from its first answer (started detached by the chat)",
+    )
+    .requiredOption("--agent <agentId>", "Agent the conversation belongs to")
+    .requiredOption("--conversation <conversationId>", "Conversation to name")
+    .action((options: { agent: string; conversation: string }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/chat/name-conversation").then((mod) =>
+            mod.nameConversationCommand(options),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  agentCommand
     .command("chat <agentIdentifier>")
     .description("Start a chat with an AI agent by ID or name")
     .option("--stream", "Force streaming mode (real-time output)")

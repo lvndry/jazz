@@ -146,6 +146,7 @@ import {
   stoppedDetachedMessage,
 } from "./chat/detached-results";
 import { inlineMentionedTextFiles } from "./chat/mentioned-files";
+import { nameConversationInBackground } from "./chat/name-conversation";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
 import { reflectInBackground } from "./chat/reflect-in-background";
 import { registerExtensionCommands } from "./chat/register-extension-commands";
@@ -447,6 +448,8 @@ export class ChatServiceImpl implements ChatService {
       let conversationTitle = ephemeral
         ? undefined
         : (yield* loadConversationOrNull(agent.id, conversationId))?.title;
+      /** The conversation the title namer last started for, so each one is named once. */
+      let titleNamedConversationId: string | undefined;
 
       // Notify enabled plugins of chat lifecycle events (a Warp-style notifier rides these).
       // Fire-and-forget and fail-open so a plugin can never delay or break the loop.
@@ -1575,6 +1578,16 @@ export class ChatServiceImpl implements ChatService {
             yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
           }
           inFlightTranscript = undefined;
+
+          if (
+            !ephemeral &&
+            !lastTurnErrored &&
+            conversationTitle === undefined &&
+            titleNamedConversationId !== conversationId
+          ) {
+            titleNamedConversationId = conversationId;
+            yield* nameConversationInBackground(agent.id, conversationId, configPath);
+          }
 
           if (deliveryTurn !== undefined && lastTurnErrored) {
             deliveriesHeld = true;

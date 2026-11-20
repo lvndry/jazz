@@ -106,8 +106,9 @@ provider configuration, the system keyring, or narrowly allowlisted environment 
 - `persona` names a built-in or installed persona. It defaults to `default` when Jazz creates an
   agent.
 - `llm` groups every model setting below. `llm.provider` and `llm.model` select the primary reasoning and tool-use model.
-- `llm.summarizerModel` is a `provider/model` used for context compaction and command risk
-  classification. If it is missing or invalid, Jazz uses the primary model.
+- `llm.summarizerModel` is a `provider/model` used for context compaction, command risk
+  classification, and naming new conversations. If it is missing or invalid, Jazz uses the
+  primary model.
 - `llm.reasoning` selects an effort: `disable`, `minimal`, `low`, `medium`, `high`,
   `xhigh`, or `max`. Jazz maps that one user-facing value to the selected
   provider/model control surface before serializing a request. A model runs at `xhigh` or `max`

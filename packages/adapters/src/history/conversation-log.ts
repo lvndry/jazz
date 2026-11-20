@@ -1595,6 +1595,42 @@ export function recordLeafMove(
   });
 }
 
+/**
+ * Records a title Jazz chose for a saved conversation, as an `auto` title: it names the
+ * conversation until a person renames it or a compaction checkpoint carries its own. Leaves the
+ * log alone when a person already named it. Succeeds with whether the title was written.
+ */
+export function recordGeneratedTitle(
+  input: {
+    readonly agentId: string;
+    readonly conversationId: string;
+    readonly title: string;
+  },
+  historyDirectory?: string,
+): Effect.Effect<boolean, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const logPath = conversationLogPath(input.agentId, input.conversationId, historyDirectory);
+    const loaded = yield* loadAppendState(fs, logPath);
+    if (loaded.state === null) {
+      return yield* Effect.fail(new Error(`Conversation ${input.conversationId} is not saved.`));
+    }
+    const title = input.title.trim();
+    if (title.length === 0 || loaded.state.userTitle !== undefined) {
+      return false;
+    }
+    const chunks = [
+      ...(loaded.needsLeadingNewline ? ["\n"] : []),
+      serializeEvent({ type: "meta", at: new Date().toISOString(), title }),
+    ];
+    yield* fs
+      .writeFileString(logPath, chunks.join(""), { flag: "a", mode: stateFileMode() })
+      .pipe(Effect.mapError(toError));
+    appendStateCache.delete(logPath);
+    return true;
+  });
+}
+
 export interface ConversationTranscriptInput {
   readonly agentId: string;
   readonly conversationId: string;

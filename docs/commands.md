@@ -1048,8 +1048,11 @@ Chat bridges have independent command contracts described in their surface guide
 Unicode without an artificial length limit. Bare `/rename` edits the current title; Escape
 cancels. Naming a conversation before its first message saves it too. Later turns, resumes,
 and compaction preserve the title. Ephemeral sessions keep it only in memory. A conversation you
-never renamed starts out named after your first message, and each compaction renames it after
-what the conversation has become. Renaming never calls the model,
+never renamed starts out named after your first message. Once the agent answers that message,
+Jazz names the conversation in the background with a short title from the agent's
+`llm.summarizerModel` (else its own model); the chat never waits on it, and the title still lands
+if you leave right away. Each compaction then renames it after what the conversation has become.
+A title you gave with `/rename` is never replaced. Renaming itself never calls the model,
 and a save failure is reported without changing the title.
 
 Only `/exit` (or `/quit`) ends the chat; `exit` or `quit` typed alone is sent to the agent as a
