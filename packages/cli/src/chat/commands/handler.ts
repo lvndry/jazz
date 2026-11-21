@@ -3760,6 +3760,19 @@ function retryRows(sessionUsage: SessionUsage): ReportRow[] {
 }
 
 /**
+ * The `naming` row of /cost: what naming the conversation cost on the summarizer model, shown
+ * once it has finished. Its tokens are not in the agent's token rows above.
+ */
+function sideCallRows(sessionUsage: SessionUsage): ReportRow[] {
+  return sessionUsage.sideCostUSD === undefined
+    ? []
+    : [
+        { kind: "gap" },
+        { kind: "field", key: "naming", value: formatCost(sessionUsage.sideCostUSD) },
+      ];
+}
+
+/**
  * Handle /cost command - Show conversation token usage and estimated cost
  */
 function handleCostCommand(
@@ -3776,7 +3789,11 @@ function handleCostCommand(
       yield* terminal.log(
         report(
           "cost",
-          [{ kind: "field", key: "model", value: model }, ...retryRows(sessionUsage)],
+          [
+            { kind: "field", key: "model", value: model },
+            ...retryRows(sessionUsage),
+            ...sideCallRows(sessionUsage),
+          ],
           "No successful request has reported token usage yet.",
         ),
       );
@@ -3821,6 +3838,7 @@ function handleCostCommand(
           { kind: "gap" },
           ...tokenRows,
           ...retryRows(sessionUsage),
+          ...sideCallRows(sessionUsage),
         ],
         priced
           ? `Priced at $${inputPricePerMillion.toFixed(2)} in and $${outputPricePerMillion.toFixed(2)} out per million tokens.`

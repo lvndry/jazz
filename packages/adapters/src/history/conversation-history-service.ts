@@ -43,7 +43,6 @@ import { FileRunStore } from "../storage/run-store";
 import {
   agentConversationLockPath,
   archiveConversationLog,
-  canGenerateTitle,
   ConversationChangedError,
   conversationRevision,
   countConversationLogs,
@@ -343,15 +342,6 @@ export function moveConversationLeaf(
   dir?: string,
 ): Effect.Effect<Conversation, Error, FileSystem.FileSystem> {
   return withLock(agentConversationLockPath(input.agentId, dir), recordLeafMove(input, dir));
-}
-
-/** Whether Jazz's namer can still name this saved conversation (see `canGenerateTitle`). */
-export function conversationAwaitsGeneratedTitle(
-  agentId: string,
-  conversationId: string,
-  dir?: string,
-): Effect.Effect<boolean, Error, FileSystem.FileSystem> {
-  return canGenerateTitle(agentId, conversationId, dir);
 }
 
 /**

@@ -1875,7 +1875,7 @@ describe("conversation naming through the production chat loop", () => {
 
   async function namingSession(input: {
     readonly conversationId: string;
-    readonly namer: () => ReturnType<typeof conversationNaming.nameSavedConversation>;
+    readonly namer: (call: number) => ReturnType<typeof conversationNaming.nameSavedConversation>;
     readonly commands: (() => Effect.Effect<string>)[];
   }) {
     const setup = spyOn(chatSession, "setupAgent").mockReturnValue(Effect.void);
@@ -1885,9 +1885,11 @@ describe("conversation naming through the production chat loop", () => {
     );
     const goalHandoff = spyOn(chatGoal, "offerGoalHandoffs").mockReturnValue(Effect.void);
     const reflect = spyOn(reflection, "reflectInBackground").mockReturnValue(Effect.void);
-    const namer = spyOn(conversationNaming, "nameSavedConversation").mockImplementation(
-      input.namer,
-    );
+    let namerCall = 0;
+    const namer = spyOn(conversationNaming, "nameSavedConversation").mockImplementation(() => {
+      namerCall += 1;
+      return input.namer(namerCall);
+    });
     const handedOff: string[] = [];
     const handoff = spyOn(
       conversationNaming,
@@ -1909,6 +1911,7 @@ describe("conversation naming through the production chat loop", () => {
       })),
     );
     const titles: string[] = [];
+    const costReports: string[] = [];
     const usageAtCost: CommandContext["sessionUsage"][] = [];
     const original = commandHandlers.handleSpecialCommand;
     const handle = spyOn(commandHandlers, "handleSpecialCommand").mockImplementation(
@@ -1926,6 +1929,13 @@ describe("conversation naming through the production chat loop", () => {
       const layer = chatLoopLayer(
         terminalFixture({
           ask: () => commands.shift()?.() ?? Effect.succeed("/exit"),
+          log: (message) =>
+            Effect.sync(() => {
+              if (isTerminalReport(message)) {
+                costReports.push(outputText(message));
+              }
+              return undefined;
+            }),
           setTitle: (title) =>
             Effect.sync(() => {
               titles.push(title);
@@ -1947,7 +1957,7 @@ describe("conversation naming through the production chat loop", () => {
           })
           .pipe(Effect.provide(layer)),
       );
-      return { handedOff, titles, usageAtCost, namerCalls: namer.mock.calls.length };
+      return { handedOff, titles, usageAtCost, costReports, namerCalls: namerCall };
     } finally {
       handle.mockRestore();
       run.mockRestore();
@@ -1972,14 +1982,30 @@ describe("conversation naming through the production chat loop", () => {
   test("shows a finished title in the tab and counts its cost, without a handoff", async () => {
     const result = await namingSession({
       conversationId: "naming-finished",
-      namer: () => Effect.succeed({ title: "Repotting a monstera", spend: namedSpend }),
+      namer: () =>
+        Effect.succeed({ kind: "asked", title: "Repotting a monstera", spend: namedSpend }),
       commands: [() => afterNamerSettles("/cost")],
     });
 
     expect(result.namerCalls).toBe(1);
     expect(result.titles).toContain("🎷 Repotting a monstera");
     expect(result.usageAtCost.map((usage) => usage.sideCostUSD)).toEqual([0.002]);
+    expect(result.costReports.join("\n")).toMatch(/naming\s+\$0\.00/);
     expect(result.handedOff).toEqual([]);
+  });
+
+  test("tries again on a later turn when the first answer was not saved yet", async () => {
+    const result = await namingSession({
+      conversationId: "naming-retry",
+      namer: (call) =>
+        call === 1
+          ? Effect.succeed({ kind: "skipped", reason: "not-saved" } as const)
+          : Effect.succeed({ kind: "asked", title: "Repotting a monstera", spend: namedSpend }),
+      commands: [() => afterNamerSettles("and a pot size?"), () => afterNamerSettles("/exit")],
+    });
+
+    expect(result.namerCalls).toBe(2);
+    expect(result.titles).toContain("🎷 Repotting a monstera");
   });
 
   test("hands a namer still running at exit to a detached process, once", async () => {
@@ -1999,7 +2025,7 @@ describe("conversation naming through the production chat loop", () => {
       conversationId: "naming-left",
       namer: () =>
         Deferred.await(release).pipe(
-          Effect.as({ title: "Repotting a monstera", spend: namedSpend }),
+          Effect.as({ kind: "asked", title: "Repotting a monstera", spend: namedSpend } as const),
         ),
       commands: [
         () => Effect.succeed("/new"),

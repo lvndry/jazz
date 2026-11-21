@@ -1053,9 +1053,10 @@ A conversation you never renamed starts out named after your first message. Once
 answers in writing, Jazz names the conversation in the background with a short title from the
 agent's `llm.summarizerModel` (else its own model). That one request per conversation sends the
 first message the agent answered in writing and that answer, each clipped to 2,000 characters.
-It is recorded as chat spend in `jazz spend`, and counts toward `/cost` and `/limit` when it
-finishes while the chat is open; like other chat spend, it does not count against the daemon's
-unattended spend caps. The chat never waits on it, and the title still lands if you leave right
+It is recorded as chat spend in `jazz spend`, and when it finishes while the chat is open,
+`/cost` shows it on a `naming` row and `/limit` counts it; like other chat spend, it does not
+count against the daemon's unattended spend caps. A conversation saved before Jazz named
+conversations is named the first time you continue it. The chat never waits on it, and the title still lands if you leave right
 away. The terminal tab shows the conversation's title (`🎷 <title>`) as soon as it has one,
 including after `/rename` and when you resume a conversation; until then it shows the agent's
 name. Each compaction then renames the conversation after what it has become. A title you gave

@@ -349,6 +349,8 @@ export interface Conversation {
    */
   readonly title: string | undefined;
   readonly titleSource: ConversationTitleSource;
+  /** Set once Jazz's namer has written a title for this conversation. */
+  readonly titleGenerated?: true;
   readonly startedAt: string;
   /** When the newest message was recorded, or null before anything was said. */
   readonly lastMessageAt: string | null;
@@ -864,6 +866,9 @@ export function reduceConversationLog(
     conversationId: header.conversationId,
     title: title.title,
     titleSource: title.source,
+    ...(events.some((event) => event.type === "meta" && event.generated === true)
+      ? { titleGenerated: true as const }
+      : {}),
     startedAt: header.startedAt,
     lastMessageAt,
     messages,
@@ -1598,27 +1603,6 @@ export function recordLeafMove(
       );
     }
     return conversation;
-  });
-}
-
-/**
- * Whether Jazz's namer can still name this saved conversation: nobody named it by hand and the
- * namer has not written a title for it yet. False for a conversation that is not saved.
- */
-export function canGenerateTitle(
-  agentId: string,
-  conversationId: string,
-  historyDirectory?: string,
-): Effect.Effect<boolean, Error, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const loaded = yield* loadAppendState(
-      fs,
-      conversationLogPath(agentId, conversationId, historyDirectory),
-    );
-    return (
-      loaded.state !== null && loaded.state.userTitle === undefined && !loaded.state.generatedTitle
-    );
   });
 }
 

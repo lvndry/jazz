@@ -14,7 +14,6 @@ import { Effect, type FileSystem } from "effect";
 import {
   archiveLegacyHistory,
   ConversationChangedError,
-  conversationAwaitsGeneratedTitle,
   conversationRevision,
   EMPTY_CONVERSATION_REVISION,
   saveConversation,
@@ -768,9 +767,8 @@ describe("generated titles are written once", () => {
     await runEffect(
       saveConversation(makeConversation({ title: "", messages: [...exchange] }), tmpDir),
     );
-    expect(await runEffect(conversationAwaitsGeneratedTitle("agent-1", "conv-1", tmpDir))).toBe(
-      true,
-    );
+    const before = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(before?.titleGenerated).toBeUndefined();
 
     const first = await runEffect(
       saveGeneratedConversationTitle(
@@ -786,25 +784,8 @@ describe("generated titles are written once", () => {
     );
 
     expect([first, second]).toEqual([true, false]);
-    expect(await runEffect(conversationAwaitsGeneratedTitle("agent-1", "conv-1", tmpDir))).toBe(
-      false,
-    );
     const loaded = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
     expect(loaded?.title).toBe("Repotting a monstera");
-  });
-
-  test("a conversation a person named, or one never saved, awaits no generated title", async () => {
-    await runEffect(
-      saveConversation(
-        makeConversation({ title: "Plants", titleSource: "user", messages: [...exchange] }),
-        tmpDir,
-      ),
-    );
-    expect(await runEffect(conversationAwaitsGeneratedTitle("agent-1", "conv-1", tmpDir))).toBe(
-      false,
-    );
-    expect(await runEffect(conversationAwaitsGeneratedTitle("agent-1", "missing", tmpDir))).toBe(
-      false,
-    );
+    expect(loaded?.titleGenerated).toBe(true);
   });
 });

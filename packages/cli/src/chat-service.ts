@@ -535,19 +535,21 @@ export class ChatServiceImpl implements ChatService {
             nameSavedConversation(agent, namedConversationId).pipe(
               Effect.provideService(FileSystem.FileSystem, fileSystem),
               Effect.flatMap((naming) => {
-                const sideCostUSD = naming?.spend.costUSD;
+                if (naming.kind === "skipped") {
+                  if (naming.reason === "not-saved") {
+                    titleNamedConversationIds.delete(namedConversationId);
+                  }
+                  return Effect.void;
+                }
+                const sideCostUSD = naming.spend.costUSD;
                 if (sideCostUSD !== undefined && conversationId === namedConversationId) {
                   sessionUsage = {
                     ...sessionUsage,
                     sideCostUSD: (sessionUsage.sideCostUSD ?? 0) + sideCostUSD,
                   };
                 }
-                const title = naming?.title;
-                if (
-                  title === undefined ||
-                  conversationId !== namedConversationId ||
-                  conversationTitle !== undefined
-                ) {
+                const title = naming.title;
+                if (title === undefined || conversationId !== namedConversationId) {
                   return Effect.void;
                 }
                 conversationTitle = title;
@@ -1717,7 +1719,6 @@ export class ChatServiceImpl implements ChatService {
             shouldNameConversation({
               ephemeral,
               turnErrored: lastTurnErrored,
-              conversationTitle,
               conversationId,
               namerStartedFor: titleNamedConversationIds,
             }) &&

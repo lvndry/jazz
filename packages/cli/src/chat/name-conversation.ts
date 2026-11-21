@@ -5,7 +5,6 @@
  */
 
 import {
-  conversationAwaitsGeneratedTitle,
   loadConversationOrNull,
   saveGeneratedConversationTitle,
 } from "@jazz/adapters/history/conversation-history-service";
@@ -22,58 +21,61 @@ import { Effect, type FileSystem } from "effect";
 
 /**
  * Whether the turn that just finished may start naming its conversation: a saved conversation's
- * successful turn, while it has no title and the namer has not started for it this session. The
- * chat also needs an answered exchange to name it from (`formatExchangeForNamer`), checked after
- * these because it reads the history.
+ * successful turn, when the namer has not started for it this session. The chat also needs an
+ * answered exchange to name it from (`formatExchangeForNamer`), checked after these because it
+ * reads the history; whether the conversation already has a title is decided from its saved log
+ * by {@link nameSavedConversation}.
  */
 export function shouldNameConversation(input: {
   readonly ephemeral: boolean;
   readonly turnErrored: boolean;
-  readonly conversationTitle: string | undefined;
   readonly conversationId: string;
   readonly namerStartedFor: ReadonlySet<string>;
 }): boolean {
-  return (
-    !input.ephemeral &&
-    !input.turnErrored &&
-    input.conversationTitle === undefined &&
-    !input.namerStartedFor.has(input.conversationId)
-  );
+  return !input.ephemeral && !input.turnErrored && !input.namerStartedFor.has(input.conversationId);
 }
 
-/** What naming a saved conversation wrote and cost. */
-export interface SavedConversationNaming {
-  /** Undefined when the reply held no usable title or a person named it first. */
-  readonly title: string | undefined;
-  readonly spend: CallSpend;
-}
+/**
+ * What naming a saved conversation did. `skipped` made no model call: the conversation is not
+ * saved yet (a later save can retry) or it already has a better name: one a person gave, one the
+ * namer wrote, or a compaction checkpoint's.
+ * `asked` called the model; `title` is undefined when the reply held no usable title or a person
+ * named the conversation first.
+ */
+export type SavedConversationNaming =
+  | { readonly kind: "skipped"; readonly reason: "not-saved" | "already-named" }
+  | { readonly kind: "asked"; readonly title: string | undefined; readonly spend: CallSpend };
 
 /**
  * Name a saved conversation from its first answered exchange and record the title as Jazz's own.
  * The call's cost goes to the spend ledger as attended chat spend: `jazz spend` shows it, and like
  * other chat spend it does not count against the daemon's unattended spend caps.
- * Succeeds with undefined when no call was made: the conversation is not saved, a person named
- * it, or the namer already did (so a namer handed off at exit never pays twice).
+ * Reads the conversation once and skips the model call when it already has a better name (a
+ * person's, the namer's, or a compaction checkpoint's), so a namer handed off at exit never pays
+ * twice. A conversation saved before naming existed is named the first time it is continued.
  */
 export function nameSavedConversation(
   agent: Agent,
   conversationId: string,
 ): Effect.Effect<
-  SavedConversationNaming | undefined,
+  SavedConversationNaming,
   Error,
   FileSystem.FileSystem | LLMService | LoggerService
 > {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    if (!(yield* conversationAwaitsGeneratedTitle(agent.id, conversationId))) {
-      yield* logger.debug("Conversation title namer skipped: not saved or already named", {
-        conversationId,
-      });
-      return undefined;
-    }
     const conversation = yield* loadConversationOrNull(agent.id, conversationId);
     if (conversation === null) {
-      return undefined;
+      yield* logger.debug("Conversation title namer skipped: not saved yet", { conversationId });
+      return { kind: "skipped", reason: "not-saved" } as const;
+    }
+    if (
+      conversation.titleSource === "user" ||
+      conversation.titleGenerated === true ||
+      conversation.messages.some((message) => message.kind === "summary")
+    ) {
+      yield* logger.debug("Conversation title namer skipped: already named", { conversationId });
+      return { kind: "skipped", reason: "already-named" } as const;
     }
     const naming = yield* nameConversation(agent, conversation.messages);
     if (!isSpendRecordedByParent()) {
@@ -98,7 +100,7 @@ export function nameSavedConversation(
       yield* logger.debug("Conversation title namer replied with no usable title", {
         conversationId,
       });
-      return { title: undefined, spend: naming.spend };
+      return { kind: "asked", title: undefined, spend: naming.spend } as const;
     }
     const recorded = yield* saveGeneratedConversationTitle({
       agentId: agent.id,
@@ -109,10 +111,10 @@ export function nameSavedConversation(
       yield* logger.debug("Conversation named by a person first; kept their title", {
         conversationId,
       });
-      return { title: undefined, spend: naming.spend };
+      return { kind: "asked", title: undefined, spend: naming.spend } as const;
     }
     yield* logger.info("Named conversation", { conversationId });
-    return { title, spend: naming.spend };
+    return { kind: "asked", title, spend: naming.spend } as const;
   });
 }
 
