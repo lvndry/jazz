@@ -35,6 +35,7 @@ import {
   scheduleToolResultSweep,
 } from "@jazz/adapters/tool-result-retention";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
+import { formatExchangeForNamer } from "@jazz/core/agent/conversation-title";
 import { processDetachedCalls } from "@jazz/core/agent/detach/auto-detach";
 import { carryEgressTaint } from "@jazz/core/agent/execution/egress-taint";
 import type { RunSpendReport } from "@jazz/core/agent/metrics/agent-run-metrics";
@@ -91,7 +92,7 @@ import { reportProgramCwd } from "@jazz/core/utils/program-status";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
-import { Effect, FileSystem, Layer, Option } from "effect";
+import { Effect, Fiber, FileSystem, Layer, Option } from "effect";
 import { chatModeForPolicy, policyForChatMode, SAFE_MODE_POLICY } from "@/cli/chat/approval-mode";
 import { reasoningEffortLabel } from "@/cli/helpers/reasoning";
 import {
@@ -129,7 +130,12 @@ import {
   findExceededSessionLimits,
   addRetryWasteToSession,
 } from "./chat/commands/session-limits";
-import type { CommandContext, CommandResult, SessionLimits } from "./chat/commands/types";
+import type {
+  CommandContext,
+  CommandResult,
+  SessionLimits,
+  SessionUsage,
+} from "./chat/commands/types";
 import {
   attachConversation,
   awaitOwedDelivery,
@@ -146,6 +152,12 @@ import {
   stoppedDetachedMessage,
 } from "./chat/detached-results";
 import { inlineMentionedTextFiles } from "./chat/mentioned-files";
+import {
+  nameConversationInDetachedProcess,
+  nameSavedConversation,
+  namingFailureReason,
+  shouldNameConversation,
+} from "./chat/name-conversation";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
 import { reflectInBackground } from "./chat/reflect-in-background";
 import { registerExtensionCommands } from "./chat/register-extension-commands";
@@ -155,6 +167,7 @@ import {
   setupAgent,
   updateWorkingDirectoryInStore,
 } from "./chat/session";
+import { chatTabTitle } from "./chat/tab-title";
 
 /**
  * Chat service implementation for managing interactive chat sessions with AI agents
@@ -168,6 +181,17 @@ export const MAX_CHAT_HISTORY_MESSAGES = 2000;
 
 /** How often the footer re-reads this conversation's unfinished waits and jobs from disk. */
 const BACKGROUND_WORK_POLL_INTERVAL_MS = 3000;
+
+/** The newest compaction checkpoint in `messages`, scanning back from the end. */
+function latestCheckpoint(messages: readonly ChatMessage[]): ChatMessage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.kind === "summary") {
+      return message;
+    }
+  }
+  return undefined;
+}
 
 /** The newest `limit` messages, still marked as having read external content if any dropped one was. */
 export function capChatHistory(
@@ -249,6 +273,11 @@ export class ChatServiceImpl implements ChatService {
     const configPath = this.configPath;
     /** Leaves the conversation this chat holds; run however the session ends, interrupts too. */
     let releaseConversation: Effect.Effect<void> = Effect.void;
+    /**
+     * Hands every title namer still running to a detached process; run however the session ends,
+     * interrupts and signals too, so a pending title is never lost.
+     */
+    let handOffPendingTitleNamings: Effect.Effect<void> = Effect.void;
     return Effect.gen(function* () {
       const terminal = yield* TerminalServiceTag;
       const logger = yield* LoggerServiceTag;
@@ -447,6 +476,100 @@ export class ChatServiceImpl implements ChatService {
       let conversationTitle = ephemeral
         ? undefined
         : (yield* loadConversationOrNull(agent.id, conversationId))?.title;
+      /** Conversations the title namer started for this session, so each is named once. */
+      const titleNamedConversationIds = new Set<string>();
+      /**
+       * Namers still running, by conversation; `/new` can start one while another is in flight.
+       * Each is handed to a detached process if the chat closes first.
+       */
+      const pendingTitleNamings = new Map<
+        string,
+        { readonly agentId: string; readonly fiber: Fiber.Fiber<void> }
+      >();
+      handOffPendingTitleNamings = Effect.gen(function* () {
+        const unfinishedNamings = [...pendingTitleNamings.entries()];
+        pendingTitleNamings.clear();
+        for (const [namedConversationId, naming] of unfinishedNamings) {
+          yield* Fiber.interrupt(naming.fiber);
+          yield* nameConversationInDetachedProcess(naming.agentId, namedConversationId, configPath);
+        }
+      }).pipe(Effect.provideService(LoggerServiceTag, logger));
+      const showTabTitle = () => terminal.setTitle(chatTabTitle(agent.name, conversationTitle));
+      yield* showTabTitle();
+
+      /** The compaction checkpoint the shown title already reflects. */
+      let titledCheckpoint = latestCheckpoint(conversationHistory);
+      /**
+       * A compaction checkpoint renames a conversation nobody named by hand. When one is new since
+       * the title was last read, re-read the saved title, which applies that precedence, and show
+       * it in the tab.
+       */
+      const showTitleAfterCompaction = Effect.gen(function* () {
+        const checkpoint = latestCheckpoint(conversationHistory);
+        if (ephemeral || checkpoint === undefined || checkpoint === titledCheckpoint) {
+          return;
+        }
+        titledCheckpoint = checkpoint;
+        const saved = yield* loadConversationOrNull(agent.id, conversationId).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+        );
+        if (saved?.title === undefined || saved.title === conversationTitle) {
+          return;
+        }
+        conversationTitle = saved.title;
+        yield* logger.debug("Conversation retitled by compaction", { conversationId });
+        yield* showTabTitle();
+      });
+
+      /**
+       * Name a new conversation from its first answered exchange without holding up the next
+       * prompt, then show the title in the terminal tab. A person's `/rename` still wins, and a
+       * later compaction checkpoint's title replaces this one.
+       */
+      const nameConversationInBackground = (namedConversationId: string) =>
+        Effect.gen(function* () {
+          titleNamedConversationIds.add(namedConversationId);
+          const namedAgentId = agent.id;
+          yield* logger.debug("Naming conversation", { conversationId: namedConversationId });
+          const fiber = yield* Effect.forkDetach(
+            nameSavedConversation(agent, namedConversationId).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.flatMap((naming) => {
+                if (naming.kind === "skipped") {
+                  if (naming.reason === "not-saved") {
+                    titleNamedConversationIds.delete(namedConversationId);
+                  }
+                  return Effect.void;
+                }
+                const sideCostUSD = naming.spend.costUSD;
+                if (sideCostUSD !== undefined && conversationId === namedConversationId) {
+                  sessionUsage = {
+                    ...sessionUsage,
+                    sideCostUSD: (sessionUsage.sideCostUSD ?? 0) + sideCostUSD,
+                  };
+                }
+                const title = naming.title;
+                if (title === undefined || conversationId !== namedConversationId) {
+                  return Effect.void;
+                }
+                conversationTitle = title;
+                return showTabTitle();
+              }),
+              Effect.catch((error) =>
+                logger.debug("Conversation left unnamed", {
+                  conversationId: namedConversationId,
+                  reason: namingFailureReason(error),
+                }),
+              ),
+              Effect.ensuring(
+                Effect.sync(() => {
+                  pendingTitleNamings.delete(namedConversationId);
+                }),
+              ),
+            ),
+          );
+          pendingTitleNamings.set(namedConversationId, { agentId: namedAgentId, fiber });
+        });
 
       // Notify enabled plugins of chat lifecycle events (a Warp-style notifier rides these).
       // Fire-and-forget and fail-open so a plugin can never delay or break the loop.
@@ -498,7 +621,7 @@ export class ChatServiceImpl implements ChatService {
         yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
       }
       let loggedMessageCount = 0;
-      let sessionUsage = { requests: 0, promptTokens: 0, completionTokens: 0 };
+      let sessionUsage: SessionUsage = { requests: 0, promptTokens: 0, completionTokens: 0 };
       let sessionTurnCount = 0;
       /** Spend caps already warned about this session, by window, so each warns once. */
       const warnedSpendCaps = new Set<string>();
@@ -1059,6 +1182,7 @@ export class ChatServiceImpl implements ChatService {
             if (commandResult.newConversationId === undefined) {
               if (commandResult.newConversationTitle !== undefined) {
                 conversationTitle = commandResult.newConversationTitle;
+                yield* showTabTitle();
               }
               if (commandResult.conversationRevision !== undefined) {
                 savedRevision = commandResult.conversationRevision;
@@ -1116,6 +1240,7 @@ export class ChatServiceImpl implements ChatService {
               blackboard = createBlackboard();
               yield* attachTo(conversationId);
               conversationTitle = commandResult.newConversationTitle;
+              yield* showTabTitle();
               savedRevision = commandResult.conversationRevision ?? EMPTY_CONVERSATION_REVISION;
               if (!ephemeral) {
                 yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
@@ -1187,6 +1312,15 @@ export class ChatServiceImpl implements ChatService {
                   conversationMoved: handOver.success,
                 });
                 yield* announceAgentSwitch(terminal, agent);
+                yield* showTabTitle();
+                const movedNaming = pendingTitleNamings.get(conversationId);
+                if (movedNaming !== undefined) {
+                  yield* Fiber.interrupt(movedNaming.fiber);
+                  yield* logger.debug("Restarting the title namer under the new agent", {
+                    conversationId,
+                  });
+                  yield* nameConversationInBackground(conversationId);
+                }
               }
             }
             if (agentChanged) {
@@ -1207,6 +1341,9 @@ export class ChatServiceImpl implements ChatService {
             if (commandResult.newHistory !== undefined) {
               conversationHistory = commandResult.newHistory;
               historyCompactedSinceLastTurn = commandResult.historyCompacted === true;
+              if (commandResult.historyCompacted === true) {
+                yield* showTitleAfterCompaction;
+              }
               // The transcript is the user's picture of what the agent knows.
               // Most commands that replace the history — /start, /fork, /resume — have to
               // repaint it, or the screen keeps showing turns the agent can no longer see.
@@ -1510,6 +1647,7 @@ export class ChatServiceImpl implements ChatService {
           // A failed turn reports its spend through onRunSpend before the catch restores the loop.
           if ("usage" in response && response.usage) {
             sessionUsage = {
+              ...sessionUsage,
               requests: sessionUsage.requests + (response.usage.requests ?? 0),
               promptTokens: sessionUsage.promptTokens + response.usage.promptTokens,
               completionTokens: sessionUsage.completionTokens + response.usage.completionTokens,
@@ -1575,6 +1713,19 @@ export class ChatServiceImpl implements ChatService {
             yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
           }
           inFlightTranscript = undefined;
+          yield* showTitleAfterCompaction;
+
+          if (
+            shouldNameConversation({
+              ephemeral,
+              turnErrored: lastTurnErrored,
+              conversationId,
+              namerStartedFor: titleNamedConversationIds,
+            }) &&
+            formatExchangeForNamer(conversationHistory) !== undefined
+          ) {
+            yield* nameConversationInBackground(conversationId);
+          }
 
           if (deliveryTurn !== undefined && lastTurnErrored) {
             deliveriesHeld = true;
@@ -1707,6 +1858,7 @@ export class ChatServiceImpl implements ChatService {
       detachPaneStateReporting();
       return { reason: endReason, messagesReceived } satisfies ChatSessionEnd;
     }).pipe(
+      Effect.ensuring(Effect.suspend(() => handOffPendingTitleNamings)),
       Effect.ensuring(
         Effect.suspend(() => releaseConversation).pipe(
           Effect.andThen(

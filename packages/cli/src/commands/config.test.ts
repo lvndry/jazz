@@ -354,7 +354,7 @@ describe("jazz config get", () => {
       expect(errors).toHaveLength(1);
       expect(process.exitCode).toBe(1);
     } finally {
-      process.exitCode = previousExitCode;
+      process.exitCode = previousExitCode ?? 0;
     }
   });
 });

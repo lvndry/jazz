@@ -4,15 +4,14 @@
  * after its latest checkpoint.
  */
 
-export const CHECKPOINT_TITLE_HEADING = "## Title";
+import { cleanConversationTitle } from "../conversation-title-text";
 
-/** Longest title taken from a checkpoint; the summarizer is asked for a few words. */
-const MAX_CHECKPOINT_TITLE_CHARS = 80;
+export const CHECKPOINT_TITLE_HEADING = "## Title";
 
 /**
  * The title under the checkpoint's {@link CHECKPOINT_TITLE_HEADING}: its first non-empty line,
- * without Markdown emphasis or wrapping quotes. Undefined when the section is missing, empty,
- * or `(none)`.
+ * cleaned by {@link cleanConversationTitle}. Undefined when the section is missing, empty, or
+ * `(none)`.
  */
 export function checkpointTitle(content: string): string | undefined {
   const lines = content.split("\n");
@@ -25,25 +24,13 @@ export function checkpointTitle(content: string): string | undefined {
     if (trimmed.startsWith("#")) {
       return undefined;
     }
-    const title = trimmed
-      .replace(/^[-*]\s+/, "")
-      .replace(/^[*_`"'“]+|[*_`"'”.]+$/g, "")
-      .replace(/\p{Cc}/gu, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (title.length === 0) {
-      continue;
-    }
-    if (title.toLowerCase() === "(none)") {
+    if (trimmed.toLowerCase() === "(none)") {
       return undefined;
     }
-    const characters = Array.from(title);
-    return characters.length > MAX_CHECKPOINT_TITLE_CHARS
-      ? `${characters
-          .slice(0, MAX_CHECKPOINT_TITLE_CHARS - 1)
-          .join("")
-          .trimEnd()}…`
-      : title;
+    const title = cleanConversationTitle(trimmed);
+    if (title !== undefined) {
+      return title;
+    }
   }
   return undefined;
 }

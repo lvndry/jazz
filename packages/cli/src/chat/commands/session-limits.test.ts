@@ -87,6 +87,17 @@ describe("estimateSessionCostUSD", () => {
     expect(cost).toBe(0);
   });
 
+  it("adds what side calls such as conversation naming cost", async () => {
+    metadata = undefined;
+    const cost = await Effect.runPromise(
+      estimateSessionCostUSD(
+        { requests: 1, promptTokens: 1_000, completionTokens: 100, sideCostUSD: 0.002 },
+        testAgent,
+      ),
+    );
+    expect(cost).toBeCloseTo(0.002);
+  });
+
   it("prices accumulated tokens against input/output rates", async () => {
     metadata = { inputPricePerMillion: 3, outputPricePerMillion: 15 } as ModelsDevMetadata;
     const cost = await Effect.runPromise(

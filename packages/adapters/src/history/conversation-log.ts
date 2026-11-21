@@ -279,6 +279,8 @@ export interface ConversationLogMeta {
   readonly at: string;
   readonly title?: string;
   readonly titleSource?: "user";
+  /** Set on the title Jazz's namer wrote, so the conversation is never named twice. */
+  readonly generated?: true;
 }
 
 /** Version 3 and older: compaction replaced the transcript, and what follows starts over. */
@@ -347,6 +349,8 @@ export interface Conversation {
    */
   readonly title: string | undefined;
   readonly titleSource: ConversationTitleSource;
+  /** Set once Jazz's namer has written a title for this conversation. */
+  readonly titleGenerated?: true;
   readonly startedAt: string;
   /** When the newest message was recorded, or null before anything was said. */
   readonly lastMessageAt: string | null;
@@ -535,6 +539,7 @@ export function parseConversationLogLine(
         at,
         title,
         ...(parsed["titleSource"] === "user" ? { titleSource: "user" as const } : {}),
+        ...(parsed["generated"] === true ? { generated: true as const } : {}),
       };
     }
     case "rewrite":
@@ -861,6 +866,9 @@ export function reduceConversationLog(
     conversationId: header.conversationId,
     title: title.title,
     titleSource: title.source,
+    ...(events.some((event) => event.type === "meta" && event.generated === true)
+      ? { titleGenerated: true as const }
+      : {}),
     startedAt: header.startedAt,
     lastMessageAt,
     messages,
@@ -1169,6 +1177,8 @@ interface AppendState {
   readonly tree: TreeAppendState;
   /** The title a person gave the conversation, which a save marks again only when it changes. */
   readonly userTitle: string | undefined;
+  /** Whether Jazz's namer already wrote a title for this conversation. */
+  readonly generatedTitle: boolean;
   readonly uiEntryIds: readonly string[];
   readonly uiEntryFingerprints: readonly string[];
 }
@@ -1451,6 +1461,7 @@ function appendStateFromContent(content: string): AppendState | null {
       messageFingerprint,
     ),
     userTitle: conversation.titleSource === "user" ? conversation.title : undefined,
+    generatedTitle: events.some((event) => event.type === "meta" && event.generated === true),
     uiEntryIds: uiTranscript.map((entry) => entry.id),
     uiEntryFingerprints: uiTranscript.map(uiEntryFingerprint),
   };
@@ -1595,6 +1606,43 @@ export function recordLeafMove(
   });
 }
 
+/**
+ * Records a title Jazz chose for a saved conversation, as an `auto` title marked `generated`: it
+ * names the conversation until a person renames it or a compaction checkpoint carries its own.
+ * Leaves the log alone when a person already named it or the namer already did. Succeeds with
+ * whether the title was written.
+ */
+export function recordGeneratedTitle(
+  input: {
+    readonly agentId: string;
+    readonly conversationId: string;
+    readonly title: string;
+  },
+  historyDirectory?: string,
+): Effect.Effect<boolean, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const logPath = conversationLogPath(input.agentId, input.conversationId, historyDirectory);
+    const loaded = yield* loadAppendState(fs, logPath);
+    if (loaded.state === null) {
+      return yield* Effect.fail(new Error(`Conversation ${input.conversationId} is not saved.`));
+    }
+    const title = input.title.trim();
+    if (title.length === 0 || loaded.state.userTitle !== undefined || loaded.state.generatedTitle) {
+      return false;
+    }
+    const chunks = [
+      ...(loaded.needsLeadingNewline ? ["\n"] : []),
+      serializeEvent({ type: "meta", at: new Date().toISOString(), title, generated: true }),
+    ];
+    yield* fs
+      .writeFileString(logPath, chunks.join(""), { flag: "a", mode: stateFileMode() })
+      .pipe(Effect.mapError(toError));
+    appendStateCache.delete(logPath);
+    return true;
+  });
+}
+
 export interface ConversationTranscriptInput {
   readonly agentId: string;
   readonly conversationId: string;
@@ -1694,6 +1742,7 @@ export function recordConversationTranscript(
       state = {
         tree: { leafId: null, path: [], afterContext: 0, contextId: null, parents: new Map() },
         userTitle,
+        generatedTitle: false,
         uiEntryIds: [],
         uiEntryFingerprints: [],
       };
@@ -1768,6 +1817,7 @@ export function recordConversationTranscript(
         state: {
           tree: plan.state,
           userTitle: userTitle ?? state.userTitle,
+          generatedTitle: state.generatedTitle,
           uiEntryIds: nextUiEntryIds,
           uiEntryFingerprints: nextUiEntryFingerprints,
         },

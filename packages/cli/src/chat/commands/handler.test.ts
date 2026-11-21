@@ -59,6 +59,8 @@ import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
 import { describe, test, expect, afterAll, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { Clock, Deferred, Effect, Fiber, type FileSystem, Layer } from "effect";
 import { TestClock } from "effect/testing";
+import * as conversationNaming from "@/cli/chat/name-conversation";
+import * as reflection from "@/cli/chat/reflect-in-background";
 import * as chatSession from "@/cli/chat/session";
 import { ChatServiceImpl } from "@/cli/chat-service";
 import * as agentCreation from "@/cli/commands/create-agent";
@@ -1864,5 +1866,175 @@ describe("handleSpecialCommand /mode", () => {
 
   test("/mode yolo approves everything", async () => {
     expect((await run(["yolo"])).newAutoApprovePolicy).toBe(true);
+  });
+});
+
+describe("conversation naming through the production chat loop", () => {
+  const answer = "Spring, a pot one size up, and a chunky mix.";
+  const namedSpend = { totalTokens: 120, costUSD: 0.002, costKnown: true };
+
+  async function namingSession(input: {
+    readonly conversationId: string;
+    readonly namer: (call: number) => ReturnType<typeof conversationNaming.nameSavedConversation>;
+    readonly commands: (() => Effect.Effect<string>)[];
+  }) {
+    const setup = spyOn(chatSession, "setupAgent").mockReturnValue(Effect.void);
+    const initialize = spyOn(chatSession, "initializeSession").mockReturnValue(Effect.void);
+    const directory = spyOn(chatSession, "updateWorkingDirectoryInStore").mockImplementation(
+      () => {},
+    );
+    const goalHandoff = spyOn(chatGoal, "offerGoalHandoffs").mockReturnValue(Effect.void);
+    const reflect = spyOn(reflection, "reflectInBackground").mockReturnValue(Effect.void);
+    let namerCall = 0;
+    const namer = spyOn(conversationNaming, "nameSavedConversation").mockImplementation(() => {
+      namerCall += 1;
+      return input.namer(namerCall);
+    });
+    const handedOff: string[] = [];
+    const handoff = spyOn(
+      conversationNaming,
+      "nameConversationInDetachedProcess",
+    ).mockImplementation((_agentId, conversationId) =>
+      Effect.sync(() => {
+        handedOff.push(conversationId);
+      }),
+    );
+    const run = spyOn(AgentRunner, "run").mockImplementation((options) =>
+      Effect.sync(() => ({
+        conversationId: options.conversationId ?? input.conversationId,
+        content: answer,
+        messages: [
+          ...(options.conversationHistory ?? []),
+          { role: "user" as const, content: options.userInput },
+          { role: "assistant" as const, content: answer },
+        ],
+      })),
+    );
+    const titles: string[] = [];
+    const costReports: string[] = [];
+    const usageAtCost: CommandContext["sessionUsage"][] = [];
+    const original = commandHandlers.handleSpecialCommand;
+    const handle = spyOn(commandHandlers, "handleSpecialCommand").mockImplementation(
+      (command, context) => {
+        if (command.type === "cost") {
+          usageAtCost.push({ ...context.sessionUsage });
+        }
+        return original(command, context);
+      },
+    );
+    const commands = [...input.commands];
+    store.clearQueue();
+    store.consumeFlushQueue();
+    try {
+      const layer = chatLoopLayer(
+        terminalFixture({
+          ask: () => commands.shift()?.() ?? Effect.succeed("/exit"),
+          log: (message) =>
+            Effect.sync(() => {
+              if (isTerminalReport(message)) {
+                costReports.push(outputText(message));
+              }
+              return undefined;
+            }),
+          setTitle: (title) =>
+            Effect.sync(() => {
+              titles.push(title);
+            }),
+        }),
+        partialFake<AgentConfigService>({ appConfig: Effect.succeed({}) }),
+        {
+          get: () => Effect.succeed(undefined),
+          set: () => Effect.void,
+          load: () => Effect.succeed({}),
+        },
+        partialFake<FileSystemContextService>({ getCwd: () => Effect.succeed(tmpDir) }),
+      );
+      await Effect.runPromise(
+        new ChatServiceImpl()
+          .startChatSession(testAgent, {
+            conversationId: input.conversationId,
+            initialMessage: "how do I repot a monstera?",
+          })
+          .pipe(Effect.provide(layer)),
+      );
+      return { handedOff, titles, usageAtCost, costReports, namerCalls: namerCall };
+    } finally {
+      handle.mockRestore();
+      run.mockRestore();
+      handoff.mockRestore();
+      namer.mockRestore();
+      reflect.mockRestore();
+      goalHandoff.mockRestore();
+      directory.mockRestore();
+      initialize.mockRestore();
+      setup.mockRestore();
+      store.clearQueue();
+      store.consumeFlushQueue();
+      store.registerModeSwitchHandler(null);
+    }
+  }
+
+  const afterNamerSettles = (command: string) =>
+    Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 20))).pipe(
+      Effect.as(command),
+    );
+
+  test("shows a finished title in the tab and counts its cost, without a handoff", async () => {
+    const result = await namingSession({
+      conversationId: "naming-finished",
+      namer: () =>
+        Effect.succeed({ kind: "asked", title: "Repotting a monstera", spend: namedSpend }),
+      commands: [() => afterNamerSettles("/cost")],
+    });
+
+    expect(result.namerCalls).toBe(1);
+    expect(result.titles).toContain("🎷 Repotting a monstera");
+    expect(result.usageAtCost.map((usage) => usage.sideCostUSD)).toEqual([0.002]);
+    expect(result.costReports.join("\n")).toMatch(/naming\s+\$0\.00/);
+    expect(result.handedOff).toEqual([]);
+  });
+
+  test("tries again on a later turn when the first answer was not saved yet", async () => {
+    const result = await namingSession({
+      conversationId: "naming-retry",
+      namer: (call) =>
+        call === 1
+          ? Effect.succeed({ kind: "skipped", reason: "not-saved" } as const)
+          : Effect.succeed({ kind: "asked", title: "Repotting a monstera", spend: namedSpend }),
+      commands: [() => afterNamerSettles("and a pot size?"), () => afterNamerSettles("/exit")],
+    });
+
+    expect(result.namerCalls).toBe(2);
+    expect(result.titles).toContain("🎷 Repotting a monstera");
+  });
+
+  test("hands a namer still running at exit to a detached process, once", async () => {
+    const result = await namingSession({
+      conversationId: "naming-pending",
+      namer: () => Effect.never,
+      commands: [],
+    });
+
+    expect(result.namerCalls).toBe(1);
+    expect(result.handedOff).toEqual(["naming-pending"]);
+  });
+
+  test("a namer finishing after /new charges and titles only its own conversation", async () => {
+    const release = Effect.runSync(Deferred.make<void>());
+    const result = await namingSession({
+      conversationId: "naming-left",
+      namer: () =>
+        Deferred.await(release).pipe(
+          Effect.as({ kind: "asked", title: "Repotting a monstera", spend: namedSpend } as const),
+        ),
+      commands: [
+        () => Effect.succeed("/new"),
+        () => Deferred.succeed(release, undefined).pipe(Effect.andThen(afterNamerSettles("/cost"))),
+      ],
+    });
+
+    expect(result.usageAtCost.map((usage) => usage.sideCostUSD)).toEqual([undefined]);
+    expect(result.titles.at(-1)).toBe(`🎷 Jazz - ${testAgent.name}`);
+    expect(result.handedOff).toEqual([]);
   });
 });

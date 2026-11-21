@@ -18,6 +18,7 @@ import {
   EMPTY_CONVERSATION_REVISION,
   saveConversation,
   saveConversationOrFork,
+  saveGeneratedConversationTitle,
   saveRunTranscript,
   loadConversation,
   loadHistory,
@@ -650,5 +651,141 @@ describe("saving a run's transcript", () => {
     );
 
     expect(savedId).toBe("conv-1");
+  });
+});
+
+describe("saveGeneratedConversationTitle", () => {
+  const firstExchange = [
+    { role: "user", content: "can you help me plan a train trip through italy" },
+    { role: "assistant", content: "Sure. Start in Milan." },
+  ] as ChatMessage[];
+
+  test("names a saved conversation that had only its first message as a title", async () => {
+    const revision = await runEffect(
+      saveConversation(makeConversation({ title: "", messages: [...firstExchange] }), tmpDir),
+    );
+
+    const recorded = await runEffect(
+      saveGeneratedConversationTitle(
+        { agentId: "agent-1", conversationId: "conv-1", title: "Italy rail itinerary" },
+        tmpDir,
+      ),
+    );
+
+    expect(recorded).toBe(true);
+    const loaded = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(loaded?.title).toBe("Italy rail itinerary");
+    expect(loaded?.titleSource).toBe("auto");
+    const history = await runEffect(loadHistory("agent-1", tmpDir));
+    expect(history.conversations[0]?.title).toBe("Italy rail itinerary");
+
+    const nextRevision = await runEffect(
+      saveConversation(
+        makeConversation({
+          title: "",
+          messages: [...firstExchange, { role: "user", content: "and then Rome" } as ChatMessage],
+          basedOn: revision,
+        }),
+        tmpDir,
+      ),
+    );
+    expect(nextRevision.messageCount).toBe(3);
+    const reloaded = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(reloaded?.title).toBe("Italy rail itinerary");
+  });
+
+  test("keeps a title a person gave the conversation", async () => {
+    await runEffect(
+      saveConversation(
+        makeConversation({
+          title: "Summer trip",
+          titleSource: "user",
+          messages: [...firstExchange],
+        }),
+        tmpDir,
+      ),
+    );
+
+    const recorded = await runEffect(
+      saveGeneratedConversationTitle(
+        { agentId: "agent-1", conversationId: "conv-1", title: "Italy rail itinerary" },
+        tmpDir,
+      ),
+    );
+
+    expect(recorded).toBe(false);
+    const loaded = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(loaded?.title).toBe("Summer trip");
+  });
+
+  test("a person's later rename replaces the generated title", async () => {
+    const revision = await runEffect(
+      saveConversation(makeConversation({ title: "", messages: [...firstExchange] }), tmpDir),
+    );
+    await runEffect(
+      saveGeneratedConversationTitle(
+        { agentId: "agent-1", conversationId: "conv-1", title: "Italy rail itinerary" },
+        tmpDir,
+      ),
+    );
+
+    await runEffect(
+      saveConversation(
+        makeConversation({
+          title: "Summer trip",
+          titleSource: "user",
+          messages: [...firstExchange],
+          basedOn: revision,
+        }),
+        tmpDir,
+      ),
+    );
+
+    const loaded = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(loaded?.title).toBe("Summer trip");
+    expect(loaded?.titleSource).toBe("user");
+  });
+
+  test("fails for a conversation that was never saved", async () => {
+    const exit = await runEffectExit(
+      saveGeneratedConversationTitle(
+        { agentId: "agent-1", conversationId: "missing", title: "Italy rail itinerary" },
+        tmpDir,
+      ),
+    );
+    expect(exit._tag).toBe("Failure");
+  });
+});
+
+describe("generated titles are written once", () => {
+  const exchange = [
+    { role: "user", content: "how do I repot a monstera?" },
+    { role: "assistant", content: "Spring, a slightly bigger pot, chunky mix." },
+  ] as ChatMessage[];
+
+  test("a second namer neither calls the model nor replaces the first title", async () => {
+    await runEffect(
+      saveConversation(makeConversation({ title: "", messages: [...exchange] }), tmpDir),
+    );
+    const before = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(before?.titleGenerated).toBeUndefined();
+
+    const first = await runEffect(
+      saveGeneratedConversationTitle(
+        { agentId: "agent-1", conversationId: "conv-1", title: "Repotting a monstera" },
+        tmpDir,
+      ),
+    );
+    const second = await runEffect(
+      saveGeneratedConversationTitle(
+        { agentId: "agent-1", conversationId: "conv-1", title: "Monstera care" },
+        tmpDir,
+      ),
+    );
+
+    expect([first, second]).toEqual([true, false]);
+    const loaded = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(loaded?.title).toBe("Repotting a monstera");
+    expect(loaded?.titleGenerated).toBe(true);
   });
 });
