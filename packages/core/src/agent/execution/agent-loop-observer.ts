@@ -135,10 +135,10 @@ export function makeDefaultObserver(presentation: PresentationService): AgentLoo
         agentName,
         `output token cap reached (${completionTokens.toLocaleString()} tokens written, limit ${maxOutputTokens.toLocaleString()}) - run stopped`,
       ),
-    onDurationCapReached: (agentName, maxDurationMs, elapsedMs) =>
+    onDurationCapReached: (agentName, maxDurationMs) =>
       presentation.presentWarning(
         agentName,
-        `time budget reached (${formatDuration(elapsedMs)} elapsed, limit ${formatDuration(maxDurationMs)}) - run stopped`,
+        `reached time limit (${formatDuration(maxDurationMs)}), wrapping up...`,
       ),
     onEmptyResponse: (agentName) =>
       presentation.presentWarning(agentName, "model returned an empty response"),
