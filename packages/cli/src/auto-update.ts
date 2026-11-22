@@ -13,7 +13,7 @@ import { Effect, FileSystem } from "effect";
 import { checkForUpdate } from "./commands/update";
 import { getGlyphs } from "./ui/glyphs";
 
-const UPDATE_CHECK_INTERVAL_DAYS = 3;
+const UPDATE_CHECK_INTERVAL_DAYS = 1;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const UPDATE_CHECK_FILE = "update_check";
 /** Content width of the boxed update notice, between its vertical borders. */
