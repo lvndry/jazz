@@ -15,14 +15,10 @@ import { installBinaryUpdate } from "./update-binary";
  */
 
 /**
- * Version information from npm registry
+ * Latest-version document from the npm registry
  */
-export interface NpmPackageInfo {
-  "dist-tags": {
-    latest: string;
-    [key: string]: string;
-  };
-  versions: Record<string, unknown>;
+export interface NpmLatestPackageInfo {
+  version: string;
 }
 
 /**
@@ -61,7 +57,7 @@ export function checkForUpdate(): Effect.Effect<
     // Fetch the latest version from npm registry
     const response = yield* Effect.tryPromise({
       try: () =>
-        fetch(`https://registry.npmjs.org/${packageJson.name}`, {
+        fetch(`https://registry.npmjs.org/${packageJson.name}/latest`, {
           headers: {
             Accept: "application/json",
           },
@@ -88,9 +84,9 @@ export function checkForUpdate(): Effect.Effect<
           message: "Failed to parse npm registry response",
           cause: unknownError,
         }),
-    })) as NpmPackageInfo;
+    })) as NpmLatestPackageInfo;
 
-    const latestVersion = data["dist-tags"].latest;
+    const latestVersion = data.version;
 
     if (!latestVersion) {
       return yield* Effect.fail(
