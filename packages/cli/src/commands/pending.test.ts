@@ -57,6 +57,7 @@ describe("listing pending work", () => {
       reason: "resize photos",
       createdAt: new Date(NOW).toISOString(),
       completedAt: null,
+      deliveredAt: null,
       jobs: { succeeded: 2, running: 1 },
     };
     const text = formatBatches([batch]);
@@ -70,6 +71,7 @@ describe("listing pending work", () => {
       agentName: "assistant",
       reason: "wait",
       createdAt: new Date(NOW).toISOString(),
+      deliveredAt: null,
       jobs: { succeeded: 1 },
     };
     const text = formatBatches([
@@ -82,6 +84,23 @@ describe("listing pending work", () => {
     expect(formatBatches([{ ...base, id: "done1", completedAt: base.createdAt }])).toContain(
       "Nothing is running.",
     );
+  });
+
+  it("flags a finished batch whose report is not delivered yet", () => {
+    const base = {
+      agentId: "a1",
+      agentName: "assistant",
+      reason: "wait",
+      createdAt: new Date(NOW).toISOString(),
+      completedAt: new Date(NOW).toISOString(),
+      jobs: { succeeded: 1 },
+    };
+    expect(formatBatches([{ ...base, id: "undelivered", deliveredAt: null }])).toContain(
+      "undelivered  finished, report not yet delivered",
+    );
+    expect(
+      formatBatches([{ ...base, id: "settled", deliveredAt: new Date(NOW).toISOString() }]),
+    ).toContain("settled  finished");
   });
 
   it("says so when nothing is waiting", () => {

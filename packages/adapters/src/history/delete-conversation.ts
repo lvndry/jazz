@@ -111,7 +111,7 @@ export function conversationUse(
     const holdingBatches = activeBatches.filter(
       (batch) =>
         batch.conversationId === conversationId &&
-        batch.deliveredAt === null &&
+        !(batch.completedAt !== null && batch.deliveredAt !== null) &&
         !(options.carriesUndeliveredBatches === true && isCarriableBatch(batch)),
     );
     const undelivered =
