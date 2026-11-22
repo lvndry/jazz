@@ -58,7 +58,7 @@ describe("makeDefaultObserver", () => {
     await Effect.runPromise(
       makeDefaultObserver(service).onDurationCapReached("Agent", 30 * 60_000, 31 * 60_000),
     );
-    expect(calls[0]).toContain("time budget reached (31m elapsed, limit 30m)");
+    expect(calls[0]).toContain("reached time limit (30m), wrapping up...");
   });
 
   it("names a sub-minute time budget in seconds rather than 0 min", async () => {
@@ -66,7 +66,7 @@ describe("makeDefaultObserver", () => {
     await Effect.runPromise(
       makeDefaultObserver(service).onDurationCapReached("Agent", 20_000, 21_000),
     );
-    expect(calls[0]).toContain("time budget reached (21s elapsed, limit 20s)");
+    expect(calls[0]).toContain("reached time limit (20s), wrapping up...");
   });
 
   it("warns with the percentage and budget on context pressure", async () => {
