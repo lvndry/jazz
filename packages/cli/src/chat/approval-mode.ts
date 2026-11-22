@@ -13,6 +13,10 @@ export type ChatApprovalMode = "safe" | "yolo";
 
 export const SAFE_MODE_POLICY = "low-risk" as const satisfies AutoApprovePolicy;
 export const YOLO_MODE_POLICY = true as const satisfies AutoApprovePolicy;
+export const APPROVE_AND_SWITCH_TO_YOLO = {
+  label: "Accept and switch to yolo mode",
+  value: "switch_to_yolo",
+} as const;
 
 export function policyForChatMode(mode: ChatApprovalMode): AutoApprovePolicy {
   return mode === "yolo" ? YOLO_MODE_POLICY : SAFE_MODE_POLICY;

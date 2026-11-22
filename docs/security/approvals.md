@@ -55,17 +55,21 @@ Shift+Tab and the fullscreen toggle all return to it. **Yolo** mode is `high-ris
 ## Running fully unattended (yolo)
 
 `high-risk` (also written `true`) approves every tool call without asking, shell included.
-Nothing turns it on for you. Each surface has one explicit switch:
+Nothing turns it on for you. Use the switch for your surface.
 
 | Surface                | How to opt in                                                                             |
 | ---------------------- | ----------------------------------------------------------------------------------------- |
 | A workflow             | `autoApprove: high-risk` (or `true`) in its `WORKFLOW.md` frontmatter                     |
 | `jazz run`             | `jazz run --agent <id> --approval-policy high-risk "…"`                                   |
 | `jazz workflow run`    | the workflow's `autoApprove`; `--auto-approve` runs it headless at that tier              |
-| Interactive terminal   | Shift+Tab to yolo mode for this session                                                   |
+| Interactive terminal   | Choose **Accept and switch to yolo mode** on an approval, or press Shift+Tab              |
 | A chat bot, one chat   | send `/mode yolo` in that conversation (`/mode safe` turns it back off)                   |
 | A chat bot, every chat | start the bridge with `JAZZ_APPROVAL_POLICY=high-risk` (default `low-risk`)               |
 | A goal or loop         | grant `high-risk` when accepting it (`jazz goal accept <id> --approval-policy high-risk`) |
+
+**Accept and switch to yolo mode** approves the pending action and raises the policy for
+the rest of the terminal session. `/mode safe` restores ordinary approval prompts. The
+shell denylist and tool-specific approval requirements still apply in yolo mode.
 
 `--auto-approve` on `jazz workflow run` does not raise the tier by itself: a workflow with no
 `autoApprove` still runs at `false`. Before opting in, trim the agent's tools, set a spend cap

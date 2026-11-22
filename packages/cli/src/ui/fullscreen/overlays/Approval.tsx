@@ -22,13 +22,14 @@
  *   - It holds perfectly still. No spinner, no pulse, no countdown: motion
  *     here would be pressure applied to an irreversible choice.
  *   - The controls sit outside the band. The card is what *will happen*; the
- *     lines below it are what *you can do*: accept, always allow and reject
- *     as three choices that left and right walk and enter confirms. Focus
- *     starts on accept, so a standing grant is never one stray enter away.
+ *     lines below it are what *you can do*. Left and right walk the choices
+ *     and Enter confirms. Focus starts on accept so a standing grant takes
+ *     an explicit selection.
  */
 
 import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
+import { APPROVE_AND_SWITCH_TO_YOLO } from "@jazz/cli/chat/approval-mode";
 import { getGlyphs } from "../../glyphs";
 import {
   approvalAccount,
@@ -70,8 +71,6 @@ const PADDED_FIXED_CARD_ROWS = 5;
 
 /** Compact cards drop the padding and put the account in the scrollable body. */
 const COMPACT_FIXED_CARD_ROWS = 1;
-/** The three answers on one row, then their keys: enter starts on accept, so a standing grant is never a default. */
-const CONTROL_ROWS = 2;
 
 /**
  * Collapsed field preview, in terminal cells. Long enough to recognise the
@@ -314,6 +313,34 @@ function consequenceInline(title: string, consequence: string, inner: number): b
   return displayWidth(title) + TITLE_GAP + displayWidth(consequence) + 2 <= inner;
 }
 
+type ApprovalControl = readonly [ApprovalChoiceName, string];
+type ApprovalControlRow = readonly [ApprovalControl, ...ApprovalControl[]];
+
+/** Keep the ordinary decisions together and give the mode switch its own row when needed. */
+function approvalChoiceRows(model: ApprovalOverlay, width: number): readonly ApprovalControlRow[] {
+  const accept = model.acceptLabel ?? "accept";
+  const reject = model.rejectLabel ?? "reject";
+  const alwaysRoom = width - displayWidth(accept) - displayWidth(reject) - 12;
+  const always = displayWidth(model.alwaysLabel) <= alwaysRoom ? model.alwaysLabel : "always";
+  const choices: [ApprovalControl, ...ApprovalControl[]] = [["accept", accept]];
+  if (model.allowAlways !== false) {
+    choices.push(["always", always]);
+  }
+  choices.push(["reject", reject]);
+  if (model.offerYolo !== true) {
+    return [choices];
+  }
+
+  const yoloLabel = APPROVE_AND_SWITCH_TO_YOLO.label;
+  const yolo: ApprovalControl = [
+    "yolo",
+    displayWidth(yoloLabel) + 2 <= width ? yoloLabel : "Accept and switch to yolo",
+  ];
+  const allChoices: ApprovalControlRow = [...choices, yolo];
+  const joined = allChoices.map(([, label]) => ` ${label} `).join("  ");
+  return displayWidth(joined) <= width ? [allChoices] : [choices, [yolo]];
+}
+
 /** The card's size, placement, and visible body rows; `height` is what the layout reserves. */
 export function approvalLayout(model: ApprovalOverlay, viewport: Viewport) {
   const compact = viewport.width < COMPACT_WIDTH || viewport.height < COMPACT_HEIGHT;
@@ -322,6 +349,8 @@ export function approvalLayout(model: ApprovalOverlay, viewport: Viewport) {
   const { fullscreen, width } = frame;
   const inner = Math.max(8, width - BAND_CHROME_COLUMNS);
   const valueWidth = Math.max(4, inner - LABEL_COLUMN);
+  const choiceRows = approvalChoiceRows(model, width - LEGEND_INDENT * 2);
+  const controlRows = choiceRows.length + 1;
 
   const title = approvalTitle(model.action);
   // A headline replaces the tool's prose: it says the same thing in the card's own words,
@@ -389,10 +418,10 @@ export function approvalLayout(model: ApprovalOverlay, viewport: Viewport) {
   // into the scrolling body.
   const padded = !compact;
   const fixedCardRows = padded ? PADDED_FIXED_CARD_ROWS : COMPACT_FIXED_CARD_ROWS;
-  const windowedHeight = fixedCardRows + bodyRows.length + CONTROL_ROWS;
+  const windowedHeight = fixedCardRows + bodyRows.length + controlRows;
   const placement = placeOverlay(viewport, frame, windowedHeight);
   const { height, left, top } = placement;
-  const cardHeight = Math.max(1, height - CONTROL_ROWS);
+  const cardHeight = Math.max(1, height - controlRows);
 
   // Every resulting field is on screen before you commit — so when the viewport
   // cannot hold it all the region scrolls rather than being cut short.
@@ -418,6 +447,8 @@ export function approvalLayout(model: ApprovalOverlay, viewport: Viewport) {
     expandable,
     height,
     cardHeight,
+    choiceRows,
+    controlRows,
     bodyCapacity,
     bodyScrolls,
     visibleBody,
@@ -457,6 +488,8 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
     expandable,
     height,
     cardHeight,
+    choiceRows,
+    controlRows,
     bodyCapacity,
     bodyScrolls,
     visibleBody,
@@ -539,24 +572,18 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
   const rightHint = [scrollHint, expandHint, editHint]
     .filter((part) => part.length > 0)
     .join(" · ");
-  const acceptLabel = model.acceptLabel ?? "accept";
-  const rejectLabel = model.rejectLabel ?? "reject";
   const legendWidth = Math.max(0, width - LEGEND_INDENT * 2);
   const choice = model.choice ?? "accept";
   const keysHint = `left/right choose${model.allowAlways === false ? "" : " · a always"} · esc`;
   const rightBudget = Math.max(0, legendWidth - displayWidth(keysHint) - TITLE_GAP);
-  const alwaysRoom = legendWidth - displayWidth(acceptLabel) - displayWidth(rejectLabel) - 12;
-  const alwaysText = displayWidth(model.alwaysLabel) <= alwaysRoom ? model.alwaysLabel : "always";
-  const choiceLabels: readonly (readonly [ApprovalChoiceName, string])[] = [
-    ["accept", acceptLabel],
-    ...(model.allowAlways === false ? [] : ([["always", alwaysText]] as const)),
-    ["reject", rejectLabel],
-  ];
-  const choiceRow = (
-    <text style={{ height: 1, flexShrink: 0, wrapMode: "none", truncate: true }}>
+  const choiceControls = choiceRows.map((choiceLabels) => (
+    <text
+      key={choiceLabels[0][0]}
+      style={{ height: 1, flexShrink: 0, wrapMode: "none", truncate: true }}
+    >
       {choiceLabels.map(([name, label], index) => {
         const focused = name === choice;
-        const inert = name === "accept" && !model.armed;
+        const inert = (name === "accept" || name === "yolo") && !model.armed;
         const style = focused
           ? { fg: onAccent(THEME.primary), bg: THEME.primary }
           : { fg: THEME.secondary, bg: THEME.surfaceStrong };
@@ -575,7 +602,7 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
         );
       })}
     </text>
-  );
+  ));
 
   const titleRight =
     (inlineConsequence === undefined ? 0 : displayWidth(inlineConsequence) + TITLE_GAP) +
@@ -649,7 +676,7 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
 
       <box
         style={{
-          height: CONTROL_ROWS,
+          height: controlRows,
           flexShrink: 0,
           flexDirection: "column",
           backgroundColor: THEME.canvas,
@@ -657,7 +684,7 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
           paddingRight: LEGEND_INDENT,
         }}
       >
-        {choiceRow}
+        {choiceControls}
         <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
           <text style={{ fg: THEME.muted, wrapMode: "none", truncate: true }}>
             {compact ? clip(`${bodyScrolls ? "up/down · " : ""}${keysHint}`, inner) : keysHint}

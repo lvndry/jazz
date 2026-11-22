@@ -66,9 +66,10 @@ Chat starts in **safe** mode: read-only and low-risk actions proceed, while high
 actions ask for approval. Review the proposed tool and arguments before accepting.
 Reject a step when it is wrong; the agent receives the refusal and can revise its plan.
 
-`/mode yolo` allows tools to run without asking, including shell commands. `/mode safe`
-restores approvals. Shift+Tab switches modes. See [Approvals](../security/approvals.md)
-for the policy and command-classification details.
+Choose **Accept and switch to yolo mode** on an approval to run the pending action and
+skip ordinary approval prompts for the rest of the session, including for shell commands.
+`/mode yolo` also enables it. Use `/mode safe` or Shift+Tab to switch back. See
+[Approvals](../security/approvals.md) for the policy and command-classification details.
 
 While a run is active, type and submit a correction, such as:
 

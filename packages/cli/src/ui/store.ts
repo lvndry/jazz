@@ -1119,6 +1119,8 @@ export class UIStore {
     this.modeSwitchHandler = handler;
   };
 
+  canSwitchToYolo = (): boolean => this.modeSwitchHandler !== null && !this.getModeIsYolo();
+
   requestModeSwitch = (mode: "safe" | "yolo"): void => {
     if (this.modeSwitchHandler) {
       this.modeSwitchHandler(mode);

@@ -16,6 +16,7 @@ import { isDiffReceiptTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
 import type { Effect } from "effect";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { APPROVE_AND_SWITCH_TO_YOLO } from "@jazz/cli/chat/approval-mode";
 import { filterCommandsByPrefix, slashCommandQuery } from "@jazz/cli/chat/commands";
 import packageJson from "../../../../../package.json";
 import type { ActivityState, TodoSnapshotItem } from "../activity-state";
@@ -857,19 +858,25 @@ function stepFrom(activity: ActivityState): StepLine | undefined {
   return { index: index + 1, total: todos.length, label: todo.content };
 }
 
-/**
- * A pending approval becomes the card.
- *
- * Fields come from the arguments the tool will actually be called with, because
- * the promise the card makes is that nothing is discoverable only after
- * pressing enter. The account is whichever argument names one — that is the
- * single most important string on the screen, so it is looked for explicitly
- * rather than left to land somewhere in a list.
- */
+/** The presentation service advertises the session switch on eligible prompts. */
+function offersYolo(prompt: PromptState | null): boolean {
+  return (
+    prompt?.options?.choices?.some(
+      (choice) => choice.value === APPROVE_AND_SWITCH_TO_YOLO.value,
+    ) === true
+  );
+}
+
 /** The choices the card offers, in the order left and right walk them. */
-function approvalChoicesFor(pending: PendingApproval): readonly ApprovalChoice[] {
-  return isHttpApprovalTool(pending.executeToolName)
-    ? ["accept", "reject"]
+function approvalChoicesFor(
+  pending: PendingApproval,
+  prompt: PromptState,
+): readonly ApprovalChoice[] {
+  if (isHttpApprovalTool(pending.executeToolName)) {
+    return ["accept", "reject"];
+  }
+  return offersYolo(prompt)
+    ? ["accept", "always", "reject", "yolo"]
     : ["accept", "always", "reject"];
 }
 
@@ -883,8 +890,10 @@ function alwaysApprovalValue(prompt: {
   return alwaysCommand ? "always_command" : "always_tool";
 }
 
+/** Project the pending approval's actual arguments and available controls into the card. */
 function approvalFrom(
   pending: PendingApproval,
+  prompt: PromptState | null,
   armed: boolean,
   fieldOffset: number,
   expanded: boolean,
@@ -892,6 +901,7 @@ function approvalFrom(
 ): ApprovalOverlay {
   const facts = approvalFacts(pending);
   const { intent } = facts;
+  const allowAlways = !isHttpApprovalTool(pending.executeToolName);
   return {
     kind: "approval",
     app: facts.app,
@@ -902,7 +912,8 @@ function approvalFrom(
     fieldOffset,
     expanded,
     alwaysLabel: facts.alwaysLabel,
-    allowAlways: approvalChoicesFor(pending).includes("always"),
+    allowAlways,
+    offerYolo: allowAlways && offersYolo(prompt),
     choice,
     armed,
     ...(intent.headline === undefined ? {} : { headline: intent.headline }),
@@ -1990,7 +2001,7 @@ export function FullscreenBridge(): React.ReactNode {
           return true;
         }
         if (name === "left" || name === "right") {
-          const choices = approvalChoicesFor(approvalRef.current);
+          const choices = approvalChoicesFor(approvalRef.current, active);
           setApprovalChoice((current) => {
             const index = choices.indexOf(current) + (name === "left" ? -1 : 1);
             return choices[Math.max(0, Math.min(choices.length - 1, index))] ?? current;
@@ -1999,13 +2010,23 @@ export function FullscreenBridge(): React.ReactNode {
         }
         if (name === "return" || name === "enter") {
           const chosen = approvalChoiceRef.current;
-          active.resolve(
-            chosen === "reject"
-              ? "no"
-              : chosen === "always" && approvalChoicesFor(approvalRef.current).includes("always")
-                ? alwaysApprovalValue(active)
-                : "yes",
-          );
+          if (!approvalChoicesFor(approvalRef.current, active).includes(chosen)) {
+            return true;
+          }
+          switch (chosen) {
+            case "accept":
+              active.resolve("yes");
+              break;
+            case "always":
+              active.resolve(alwaysApprovalValue(active));
+              break;
+            case "reject":
+              active.resolve("no");
+              break;
+            case "yolo":
+              active.resolve(APPROVE_AND_SWITCH_TO_YOLO.value);
+              break;
+          }
           return true;
         }
         // `e` rewrites the tool's editable argument first. Like accept, it waits for the
@@ -2030,7 +2051,7 @@ export function FullscreenBridge(): React.ReactNode {
           !superKey &&
           !meta &&
           !option &&
-          approvalChoicesFor(approvalRef.current).includes("always")
+          !isHttpApprovalTool(approvalRef.current.executeToolName)
         ) {
           active.resolve(alwaysApprovalValue(active));
           return true;
@@ -3100,6 +3121,7 @@ export function FullscreenBridge(): React.ReactNode {
     if (approval !== null) {
       next = approvalFrom(
         approval,
+        prompt,
         approvalArmed,
         approvalFieldOffset,
         approvalExpanded,

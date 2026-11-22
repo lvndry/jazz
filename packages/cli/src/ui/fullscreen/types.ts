@@ -359,8 +359,8 @@ export interface ApprovalField {
  * message has no undo. It names the real account, shows every field that will
  * exist afterwards, states irreversibility in prose, and holds perfectly still.
  */
-/** The three answers the approval card offers, in the order ← → walk them. */
-export type ApprovalChoice = "accept" | "always" | "reject";
+/** Decisions the approval card offers, in the order ← → walk them. */
+export type ApprovalChoice = "accept" | "always" | "reject" | "yolo";
 
 export interface ApprovalOverlay {
   readonly kind: "approval";
@@ -375,7 +375,9 @@ export interface ApprovalOverlay {
   readonly alwaysLabel: string;
   /** Restricted HTTP calls can only be approved individually. */
   readonly allowAlways?: boolean;
-  /** Which of the three controls enter confirms; accept until ← → move it. */
+  /** An active safe-mode chat offers to accept and switch its policy. */
+  readonly offerYolo?: boolean;
+  /** Which control Enter confirms. Defaults to accept. */
   readonly choice?: ApprovalChoice;
   /** True once the arming delay has passed; before that only deny is accepted. */
   readonly armed: boolean;
