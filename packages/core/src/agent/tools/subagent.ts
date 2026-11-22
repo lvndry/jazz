@@ -440,6 +440,7 @@ Rules:
 - If the task is ambiguous, state your assumptions briefly and proceed
 - If you cannot complete the task fully, return what you found and explain why
 - Stay within the scope of the task — do not take unrequested side actions
+- Sub-agents you start stop the moment you answer; call wait_subagents for each one whose result your answer needs
 - Be concise; the parent agent needs the output, not background narration
 - Your response will be returned directly to the parent agent
 ${sharesBlackboard(context) ? BLACKBOARD_BRIEF_RULE : ""}${describeChildBudget(budget)}
