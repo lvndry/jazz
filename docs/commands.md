@@ -434,17 +434,21 @@ and `jazz job run` are the same kind of plumbing for reminders and job batches.
 What agents have scheduled to happen later, across every agent unless `--agent <id-or-name>`
 narrows it.
 
-| Command                      | Purpose                                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------------------ |
-| `jazz reminders list`        | Reminders set with `remind_me`, soonest first. `--agent`, `--json`                         |
-| `jazz reminders cancel <id>` | Cancel one, and its host scheduler job. `--agent`                                          |
-| `jazz triggers list`         | Wake triggers that will resume a conversation, soonest first. `--agent`, `--json`          |
-| `jazz triggers cancel <id>`  | Cancel one, and its host scheduler job. `--agent`                                          |
-| `jazz jobs list`             | Background job batches still active, with each batch's jobs by status. `--agent`, `--json` |
-| `jazz jobs cancel <id>`      | Cancel a batch's jobs that have not started; running jobs finish. `--agent`                |
+| Command                      | Purpose                                                                                                                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz reminders list`        | Reminders set with `remind_me`, soonest first. `--agent`, `--json`                                                                                                                |
+| `jazz reminders cancel <id>` | Cancel one, and its host scheduler job. `--agent`                                                                                                                                 |
+| `jazz triggers list`         | Wake triggers that will resume a conversation, soonest first. `--agent`, `--json`                                                                                                 |
+| `jazz triggers cancel <id>`  | Cancel one, and its host scheduler job. `--agent`                                                                                                                                 |
+| `jazz jobs list`             | Job batches, grouped: In progress (jobs still running), then Done (finished, with each batch's jobs by status and its report flagged when not yet delivered). `--agent`, `--json` |
+| `jazz jobs cancel <id>`      | Cancel a batch's jobs that have not started; running jobs finish. `--agent`                                                                                                       |
 
 `--json` prints one envelope: `{"ok":true,"reminders":[…]}`, `{"ok":true,"triggers":[…]}`, or
 `{"ok":true,"batches":[…]}`.
+
+A finished batch stays in the Done section until Jazz archives it after delivering its report
+back to the conversation, so it can appear as `finished, report not yet delivered` before it
+disappears.
 
 ---
 

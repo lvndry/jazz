@@ -84,6 +84,7 @@ export interface PendingBatch {
   readonly reason: string;
   readonly createdAt: string;
   readonly completedAt: string | null;
+  readonly deliveredAt: string | null;
   readonly jobs: Readonly<Record<string, number>>;
 }
 
@@ -126,6 +127,7 @@ function toPendingBatch(agent: AgentRef, batch: JobBatchRecord): PendingBatch {
     reason: batch.reason,
     createdAt: new Date(batch.createdAt).toISOString(),
     completedAt: batch.completedAt === null ? null : new Date(batch.completedAt).toISOString(),
+    deliveredAt: batch.deliveredAt === null ? null : new Date(batch.deliveredAt).toISOString(),
     jobs: countJobs(batch),
   };
 }
@@ -202,7 +204,12 @@ function formatBatch(batch: PendingBatch): string {
   const counts = Object.entries(batch.jobs)
     .map(([status, count]) => `${String(count)} ${status}`)
     .join(", ");
-  const state = batch.completedAt === null ? "active" : "finished";
+  const state =
+    batch.completedAt === null
+      ? "active"
+      : batch.deliveredAt === null
+        ? "finished, report not yet delivered"
+        : "finished";
   return (
     `${batch.id}  ${state}  [${batch.agentName}]  started ${new Date(batch.createdAt).toLocaleString()}\n` +
     `    ${batch.reason}  (${counts})`

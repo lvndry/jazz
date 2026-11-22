@@ -10,6 +10,7 @@ import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect, FileSystem } from "effect";
+import { JobQueueServiceImpl } from "../job-queue-service";
 import { getLogsDirectory } from "../logger";
 import { FileGoalStore } from "../storage/goal-store";
 import { saveConversation } from "./conversation-history-service";
@@ -134,6 +135,86 @@ describe("deleteConversation", () => {
     );
     expect(refused).toBeInstanceOf(ConversationInUseError);
     expect(refused.message).toContain("turn");
+  });
+
+  it("deletes a conversation whose job batch was already delivered but not yet archived", async () => {
+    const conversationId = nextConversationId();
+    await saveTranscript(conversationId);
+    const batchFile = await writeDeliveredBatch(conversationId);
+
+    await run(deleteConversation(AGENT_ID, conversationId));
+    expect(existsSync(conversationLogPath(AGENT_ID, conversationId))).toBe(false);
+    await nodeFs.rm(batchFile, { force: true });
+  });
+
+  it("refuses to delete while a job batch's report is still undelivered", async () => {
+    const conversationId = nextConversationId();
+    await saveTranscript(conversationId);
+    const batchFile = await writeFinishedBatch(conversationId);
+
+    const refused = await run(deleteConversation(AGENT_ID, conversationId).pipe(Effect.flip));
+    expect(refused).toBeInstanceOf(ConversationInUseError);
+    expect(refused.message).toContain("Background work");
     expect(existsSync(conversationLogPath(AGENT_ID, conversationId))).toBe(true);
+    await nodeFs.rm(batchFile, { force: true });
   });
 });
+
+/**
+ * A batch whose jobs are all terminal, with or without the fan-in report already delivered.
+ * Returns the batch file path so the test can clean it up.
+ */
+async function writeBatch(
+  conversationId: string,
+  batchId: string,
+  stage: "finished" | "delivered",
+): Promise<string> {
+  const now = Date.now();
+  const batchFile = path.join(
+    new JobQueueServiceImpl().baseJobBatchDirectory,
+    AGENT_ID,
+    `${batchId}.json`,
+  );
+  await nodeFs.mkdir(path.dirname(batchFile), { recursive: true });
+  await nodeFs.writeFile(
+    batchFile,
+    JSON.stringify({
+      schemaVersion: 2,
+      id: batchId,
+      agentId: AGENT_ID,
+      conversationId,
+      workingDir: "/tmp",
+      concurrencyCap: 1,
+      backoff: { initialMs: 2000, maxMs: 300_000 },
+      reason: "Wait for the deploy to finish",
+      createdAt: now,
+      completedAt: now,
+      deliveredAt: stage === "delivered" ? now : null,
+      jobs: [
+        {
+          id: "job-1",
+          command: "true",
+          status: "succeeded",
+          attempt: 1,
+          maxAttempts: 1,
+          nextAttemptAt: now,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          result: { stdout: "", stderr: "", exitCode: 0 },
+          lastError: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    }),
+  );
+  return batchFile;
+}
+
+function writeDeliveredBatch(conversationId: string) {
+  return writeBatch(conversationId, `delivered-${conversationId}`, "delivered");
+}
+
+function writeFinishedBatch(conversationId: string) {
+  return writeBatch(conversationId, `finished-${conversationId}`, "finished");
+}
