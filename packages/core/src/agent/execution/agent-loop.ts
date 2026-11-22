@@ -2755,6 +2755,7 @@ export function executeAgentLoop(
             if (Option.isNone(outcome)) {
               closeStoppedBatch(state, options, "the run reached its time budget");
               durationCapped = true;
+              deps.durationExtension?.close();
               state.iterationsUsed = iterationIndex + 1;
               const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
               yield* observer.onDurationCapReached(
@@ -2842,6 +2843,7 @@ export function executeAgentLoop(
           if (workTimeLeftMs(deps) === 0) {
             const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
             durationCapped = true;
+            deps.durationExtension?.close();
             state.iterationsUsed = iterationIndex + 1;
             yield* observer.onDurationCapReached(
               agent.name,

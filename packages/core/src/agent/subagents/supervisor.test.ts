@@ -2,6 +2,8 @@
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "bun:test";
 import { Deferred, Duration, Effect, Fiber, Option } from "effect";
+import { silentLogger } from "@/core/agent/test-logger";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { createSubagentSupervisor, type SubagentSupervisor } from "./supervisor";
 
@@ -923,6 +925,44 @@ describe("SubagentSupervisor.extendTime", () => {
       }),
     );
     expect(extended.ok ? "" : extended.error).toContain("reached its time limit");
+  });
+
+  it("refuses a child that has stopped working for time, even with time left on the clock", async () => {
+    const extended = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { supervisor, hooks } = yield* runningChild(10 * MINUTE);
+        hooks.durationExtension.close();
+        return yield* supervisor.extendTime(hooks.id, MINUTE, undefined);
+      }),
+    );
+    expect(extended.ok ? "" : extended.error).toContain("writing its answer");
+  });
+
+  it("logs every refusal with its reason", async () => {
+    const logged: string[] = [];
+    const recordingLogger: LoggerService = {
+      ...silentLogger,
+      info: (message, metadata) =>
+        Effect.sync(() => void logged.push(`${message}:${String(metadata?.["reason"])}`)),
+    };
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const { supervisor, hooks } = yield* runningChild(10 * MINUTE);
+        const noLimit = yield* runningChild(undefined);
+        const expired = yield* runningChild(10 * MINUTE);
+        expired.hooks.durationExtension.close();
+        yield* supervisor.extendTime(hooks.id, 15 * MINUTE, 11 * MINUTE);
+        yield* supervisor.extendTime("sa-missing", MINUTE, undefined);
+        yield* noLimit.supervisor.extendTime(noLimit.hooks.id, MINUTE, undefined);
+        yield* expired.supervisor.extendTime(expired.hooks.id, MINUTE, undefined);
+      }).pipe(Effect.provideService(LoggerServiceTag, recordingLogger)),
+    );
+    expect(logged).toEqual([
+      "Sub-agent time extension refused:parent time",
+      "Sub-agent time extension refused:not steerable",
+      "Sub-agent time extension refused:no time limit",
+      "Sub-agent time extension refused:out of time",
+    ]);
   });
 
   it("refuses a child that has finished and an id it does not know", async () => {

@@ -788,40 +788,37 @@ export function createSubagentSupervisor(
 
       extendTime: (id, extraMs, parentWorkTimeLeftMs) =>
         Effect.gen(function* () {
+          const refuse = (reason: string, error: string) =>
+            logInfo("Sub-agent time extension refused", { id, reason, extraMs }).pipe(
+              Effect.as({ ok: false, error } as const),
+            );
           const found = findSteerable(id);
           if ("error" in found) {
-            return { ok: false, error: found.error } as const;
+            return yield* refuse("not steerable", found.error);
           }
           const { entry } = found;
           if (entry.timeLimitMs === undefined) {
-            return {
-              ok: false,
-              error: `${entry.name} (${id}) has no time limit, so there is nothing to extend.`,
-            } as const;
+            return yield* refuse(
+              "no time limit",
+              `${entry.name} (${id}) has no time limit, so there is nothing to extend.`,
+            );
           }
           const limitMs = entry.timeLimitMs + entry.durationExtension.extraMs();
           const leftMs = limitMs - (Date.now() - entry.startedAt);
-          if (leftMs <= 0) {
-            return {
-              ok: false,
-              error: `${entry.name} (${id}) has reached its time limit and is writing its answer; extend a sub-agent before its time runs out.`,
-            } as const;
+          if (leftMs <= 0 || entry.durationExtension.closed()) {
+            return yield* refuse(
+              "out of time",
+              `${entry.name} (${id}) has reached its time limit and is writing its answer; extend a sub-agent before its time runs out.`,
+            );
           }
           if (parentWorkTimeLeftMs !== undefined && leftMs + extraMs > parentWorkTimeLeftMs) {
             const fitsMs = Math.max(0, parentWorkTimeLeftMs - leftMs);
-            yield* logInfo("Sub-agent time extension refused by the parent's own time", {
-              id,
-              extraMs,
-              leftMs,
-              parentWorkTimeLeftMs,
-            });
-            return {
-              ok: false,
-              error:
-                fitsMs < MS_PER_MINUTE
-                  ? `This run has ${formatMinutes(parentWorkTimeLeftMs)} left and ${entry.name} (${id}) already has ${formatMinutes(leftMs)}, so there is no time to add.`
-                  : `This run has ${formatMinutes(parentWorkTimeLeftMs)} left and ${entry.name} (${id}) already has ${formatMinutes(leftMs)}, so it can take at most ${formatMinutes(fitsMs)} more.`,
-            } as const;
+            return yield* refuse(
+              "parent time",
+              fitsMs < MS_PER_MINUTE
+                ? `This run has ${formatMinutes(parentWorkTimeLeftMs)} left and ${entry.name} (${id}) already has ${formatMinutes(leftMs)}, so there is no time to add.`
+                : `This run has ${formatMinutes(parentWorkTimeLeftMs)} left and ${entry.name} (${id}) already has ${formatMinutes(leftMs)}, so it can take at most ${formatMinutes(fitsMs)} more.`,
+            );
           }
           entry.durationExtension.add(extraMs);
           const newLeftMs = leftMs + extraMs;

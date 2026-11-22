@@ -3474,6 +3474,76 @@ describe("executeAgentLoop cost and token caps", () => {
     expect(result.durationCapped).toBeUndefined();
   });
 
+  it("marks the extension closed once time stops the run, so a later grant is refused", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+    const durationExtension = createDurationExtension();
+    const { strategy } = toolLoopStrategy({ promptTokens: 10, completionTokens: 10 });
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: 10 }),
+        makeRunContext({ maxIterations: 10, maxDurationMs: 0, durationExtension }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    expect(result.durationCapped).toBe(true);
+    expect(durationExtension.closed()).toBe(true);
+  });
+
+  it("honors time granted while the run is working, before its work time runs out", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+    const durationExtension = createDurationExtension();
+    const slowStrategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.gen(function* () {
+          durationExtension.add(30 * 60_000);
+          yield* Effect.sleep(Duration.millis(200));
+          return {
+            completion: {
+              id: "c1",
+              model: "gpt-4",
+              content: "done",
+              usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 },
+            },
+            interrupted: false,
+          };
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext({ maxDurationMs: 100, durationExtension }),
+        displayConfig,
+        slowStrategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    expect(result.content).toBe("done");
+    expect(result.durationCapped).toBeUndefined();
+    expect(durationExtension.closed()).toBe(false);
+  });
+
   it("runs normally when elapsed time stays under maxDurationMs", async () => {
     const originalExecute = ToolExecutor.executeToolCalls;
     ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>

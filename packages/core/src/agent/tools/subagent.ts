@@ -46,6 +46,9 @@ import { childRunAuthority } from "./child-run-authority";
 
 // ─── Constants ───────────────────────────────────────────────────────
 
+/** Most minutes one `extend` may add; a parent that needs more extends again. */
+const MAX_EXTENSION_MINUTES = 24 * 60;
+
 /** Largest `maxMinutes` whose duration in milliseconds is still an exact integer. */
 const MAX_REQUESTED_MINUTES = Math.floor(Number.MAX_SAFE_INTEGER / 60_000);
 
@@ -906,15 +909,15 @@ const steerSubagentSchema = z.object({
   action: z
     .enum(["message", "pause", "resume", "cancel", "extend"])
     .describe(
-      "message adds guidance before its next step; pause holds it before its next model call; resume releases it; cancel stops it now; extend gives it more time before its limit runs out.",
+      "message adds guidance; pause holds it before its next model call; resume releases it; cancel stops it; extend adds minutes to its time limit.",
     ),
   message: z.string().optional().describe("The guidance, for action message."),
   minutes: z
     .number()
     .positive()
-    .max(MAX_REQUESTED_MINUTES)
+    .max(MAX_EXTENSION_MINUTES)
     .optional()
-    .describe("The minutes to add to its time limit, for action extend."),
+    .describe("Minutes to add, for action extend."),
 });
 
 type WaitSubagentsArgs = z.infer<typeof waitSubagentsSchema>;
@@ -1155,7 +1158,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "steer_subagent",
       disclosure: "private",
       description:
-        "Steer a running sub-agent by its agentId: message it new guidance, pause it, resume it, cancel it, or extend its time limit by a number of minutes. Messages and pauses take effect before its next model call; cancel stops it and its tools now. Extend before its time runs out, within the time this run has left.",
+        "Steer a running sub-agent by its agentId: message, pause, resume, cancel it, or extend its time limit while it still has time, within the time this run has left. Cancel stops it and its tools now.",
       parameters: steerSubagentSchema,
       hidden: false,
       peerGrantRequired: true,
