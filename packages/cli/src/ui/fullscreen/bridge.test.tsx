@@ -8,10 +8,12 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { shouldAutoApprove } from "@jazz/core/types/tools";
 import { RGBA } from "@opentui/core";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import chalk from "chalk";
 import { Effect } from "effect";
+import { policyForChatMode, type ChatApprovalMode } from "@/cli/chat/approval-mode";
 import { createAccumulator, reduceEvent } from "@/cli/presentation/activity-reducer";
 import { InkPresentationService } from "@/cli/presentation/ink-presentation-service";
 import { InkTerminalService } from "@jazz/cli/terminal";
@@ -31,7 +33,7 @@ import {
   keyedPromptHints,
 } from "./bridge";
 import { frameWhen, renderForTest, updateForTest } from "./test-helpers";
-import { LIVE_ZONE_MAX_ROWS } from "./types";
+import { LIVE_ZONE_MAX_ROWS, MIN_HEIGHT, MIN_WIDTH } from "./types";
 
 /**
  * Paints the frame after a simulated key.
@@ -2583,6 +2585,59 @@ describe("fullscreen bridge", () => {
     always.rendered.renderer.destroy();
   });
 
+  it("accepts the current command and switches queued approvals to the live yolo policy", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, {
+      width: MIN_WIDTH,
+      height: MIN_HEIGHT,
+    });
+    await rendered.renderOnce();
+    let mode: ChatApprovalMode = "safe";
+    store.registerModeSwitchHandler((next) => {
+      mode = next;
+      store.setModeIsYolo(next === "yolo");
+    });
+    const presentation = presentationProducer();
+    const request = (toolCallId: string, command: string) =>
+      presentation.requestApproval({
+        toolCallId,
+        toolName: "execute_command",
+        executeToolName: "execute_execute_command",
+        message: `Run ${command}`,
+        executeArgs: { command },
+        isAutoApproved: () => shouldAutoApprove("high-risk", policyForChatMode(mode)),
+      });
+
+    try {
+      const current = Effect.runPromise(request("first", "git add src/app.ts"));
+      const queued = Effect.runPromise(request("second", "git commit -m example"));
+      await rendered.flush();
+      expect(store.getPromptSnapshot()?.options?.choices?.map((choice) => choice.label)).toContain(
+        "Accept and switch to yolo mode",
+      );
+      expect(rendered.captureCharFrame()).toMatch(/Accept and switch to yolo *\n/);
+      rendered.mockInput.pressKey("RETURN");
+      await settleKeypress(rendered.flush);
+      expect(store.getApprovalRequestSnapshot()).not.toBeNull();
+      expect(store.getModeIsYolo()).toBe(false);
+
+      await afterArming(rendered.flush);
+      for (let index = 0; index < 3; index += 1) {
+        rendered.mockInput.pressKey("ARROW_RIGHT");
+        await settleKeypress(rendered.flush);
+      }
+      rendered.mockInput.pressKey("RETURN");
+      await settleKeypress(rendered.flush);
+      expect(await current).toEqual({ approved: true });
+      expect(store.getModeIsYolo()).toBe(true);
+      await Effect.runPromise(presentation.signalToolExecutionStarted());
+      expect(await queued).toEqual({ approved: true });
+      expect(store.getApprovalRequestSnapshot()).toBeNull();
+    } finally {
+      store.registerModeSwitchHandler(null);
+      rendered.renderer.destroy();
+    }
+  });
+
   it("walking right to the end and pressing enter rejects, asking what to do instead", async () => {
     const reject = await armedApproval();
     for (const key of ["ARROW_RIGHT", "ARROW_RIGHT", "ARROW_RIGHT"]) {
@@ -2609,6 +2664,24 @@ describe("fullscreen bridge", () => {
     await settleKeypress(trust.rendered.flush);
     expect(await trust.outcome).toEqual({ approved: true });
     trust.rendered.renderer.destroy();
+  });
+
+  it("offers only individual decisions on HTTP approvals even in a safe-mode chat", async () => {
+    store.registerModeSwitchHandler(() => undefined);
+    const approval = await armedApproval();
+    try {
+      expect(approval.rendered.captureCharFrame()).not.toContain("switch to yolo");
+      expect(store.getPromptSnapshot()?.options?.choices?.map((choice) => choice.value)).toEqual([
+        "yes",
+        "no",
+      ]);
+      approval.rendered.mockInput.pressKey("RETURN");
+      await settleKeypress(approval.rendered.flush);
+      expect(await approval.outcome).toEqual({ approved: true });
+    } finally {
+      store.registerModeSwitchHandler(null);
+      approval.rendered.renderer.destroy();
+    }
   });
 
   it("navigates directly from HTTP accept to reject", async () => {

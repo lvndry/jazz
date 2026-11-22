@@ -834,14 +834,15 @@ export class ChatServiceImpl implements ChatService {
         Effect.catch(() => Effect.succeed(null)),
       );
 
-      // Register mode switch handler for Shift+Tab toggle
+      store.setModeIsYolo(chatModeForPolicy(autoApprovePolicy) === "yolo");
+      // The keyboard toggle and approval menu both change this session's live policy.
       store.registerModeSwitchHandler((mode) => {
         if (chatModeForPolicy(autoApprovePolicy) !== mode) {
           autoApprovePolicy = policyForChatMode(mode);
           store.setModeIsYolo(mode === "yolo");
           const message =
             mode === "yolo"
-              ? "🚀 Switched to yolo mode: all tool calls auto-approved"
+              ? "🚀 Switched to yolo mode for this session"
               : "🛡️ Switched to safe mode: high-risk tool calls require approval";
           store.showModeToast(message);
         }
@@ -1863,6 +1864,7 @@ export class ChatServiceImpl implements ChatService {
         Effect.suspend(() => releaseConversation).pipe(
           Effect.andThen(
             Effect.sync(() => {
+              store.registerModeSwitchHandler(null);
               store.registerImmediateCommandRunner(null);
               store.closeCommandPanel();
             }),

@@ -62,6 +62,7 @@ import {
 } from "@/cli/ui/models/interrupt";
 import { retryLine, retryRecoveredLine } from "@/cli/ui/models/retry";
 import { terminalCellWidth } from "@/cli/ui/text/terminal-cells";
+import { APPROVE_AND_SWITCH_TO_YOLO } from "../chat/approval-mode";
 import { contentFromOutput } from "../ui/document";
 import { getGlyphs } from "../ui/glyphs";
 import { markdownToAnsi } from "../ui/markdown/ansi";
@@ -1826,6 +1827,10 @@ export class InkPresentationService implements PresentationService {
     }
 
     choices.push({ label: `No, ${facts.intent.reject}`, value: "no" });
+    const offerYolo = allowAlways && store.canSwitchToYolo();
+    if (offerYolo) {
+      choices.push(APPROVE_AND_SWITCH_TO_YOLO);
+    }
 
     // Publish the request itself alongside the menu. The fullscreen approval
     // card needs the account, the resulting fields and the consequence, none of
@@ -1855,7 +1860,11 @@ export class InkPresentationService implements PresentationService {
           // The fullscreen transcript states the outcome on the tool's own receipt.
         });
 
-        if (choice === "yes") {
+        const switchToYolo = choice === APPROVE_AND_SWITCH_TO_YOLO.value && offerYolo;
+        if (choice === "yes" || switchToYolo) {
+          if (switchToYolo) {
+            store.requestModeSwitch("yolo");
+          }
           store.setPrompt(null);
           store.setApprovalRequest(null);
           this.completeApproval(resume, { approved: true });
