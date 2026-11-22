@@ -198,22 +198,36 @@ export function formatTriggers(triggers: readonly PendingTrigger[], now = Date.n
     .join("\n");
 }
 
+function formatBatch(batch: PendingBatch): string {
+  const counts = Object.entries(batch.jobs)
+    .map(([status, count]) => `${String(count)} ${status}`)
+    .join(", ");
+  const state = batch.completedAt === null ? "active" : "finished";
+  return (
+    `${batch.id}  ${state}  [${batch.agentName}]  started ${new Date(batch.createdAt).toLocaleString()}\n` +
+    `    ${batch.reason}  (${counts})`
+  );
+}
+
+/** Batches still running come first under "In progress", finished ones follow under "Done". */
 export function formatBatches(batches: readonly PendingBatch[]): string {
   if (batches.length === 0) {
     return "No job batches are active.";
   }
-  return batches
-    .map((batch) => {
-      const counts = Object.entries(batch.jobs)
-        .map(([status, count]) => `${String(count)} ${status}`)
-        .join(", ");
-      const state = batch.completedAt === null ? "active" : "finished";
-      return (
-        `${batch.id}  ${state}  [${batch.agentName}]  started ${new Date(batch.createdAt).toLocaleString()}\n` +
-        `    ${batch.reason}  (${counts})`
-      );
-    })
-    .join("\n");
+  const inProgress = batches.filter((batch) => batch.completedAt === null);
+  const done = batches.filter((batch) => batch.completedAt !== null);
+  const sections: string[] = [];
+  if (inProgress.length > 0) {
+    sections.push(
+      `In progress (${String(inProgress.length)})\n\n${inProgress.map(formatBatch).join("\n")}`,
+    );
+  } else {
+    sections.push("In progress (0)\n\nNothing is running.");
+  }
+  if (done.length > 0) {
+    sections.push(`Done (${String(done.length)})\n\n${done.map(formatBatch).join("\n")}`);
+  }
+  return sections.join("\n\n");
 }
 
 function listCommand<Item, Requirements>(

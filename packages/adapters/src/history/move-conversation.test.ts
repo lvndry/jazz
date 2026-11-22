@@ -96,7 +96,7 @@ async function parkRun(conversationId: string, expiresAt: Date): Promise<string>
 
 const DAY_MS = 24 * 60 * 60_000;
 
-type BatchStage = "running" | "finished";
+type BatchStage = "running" | "finished" | "delivered";
 
 async function writeBatch(
   conversationId: string,
@@ -122,19 +122,19 @@ async function writeBatch(
       backoff: { initialMs: 2000, maxMs: 300_000 },
       reason: "Wait for the deploy to finish",
       createdAt: now,
-      completedAt: stage === "finished" ? now : null,
-      deliveredAt: null,
+      completedAt: stage === "running" ? null : now,
+      deliveredAt: stage === "delivered" ? now : null,
       jobs: [
         {
           id: "job-1",
           command: "true",
-          status: stage === "finished" ? "succeeded" : "running",
+          status: stage === "running" ? "running" : "succeeded",
           attempt: 1,
           maxAttempts: 1,
           nextAttemptAt: now,
           leaseOwner: null,
           leaseExpiresAt: null,
-          result: stage === "finished" ? { stdout: "", stderr: "", exitCode: 0 } : null,
+          result: stage === "running" ? null : { stdout: "", stderr: "", exitCode: 0 },
           lastError: null,
           createdAt: now,
           updatedAt: now,
@@ -337,6 +337,19 @@ describe("moveConversationToAgent", () => {
     );
     expect(refused).toBeInstanceOf(ConversationInUseError);
     expect(existsSync(sourceFile)).toBe(true);
+    await nodeFs.rm(sourceFile, { force: true });
+  });
+
+  it("moves a conversation whose job batch was already delivered but not yet archived", async () => {
+    const conversationId = nextConversationId();
+    await saveTranscript(FROM_AGENT_ID, conversationId);
+    const sourceFile = await writeBatch(
+      conversationId,
+      `delivered${String(conversationCounter)}`,
+      "delivered",
+    );
+
+    await run(moveConversationToAgent(FROM_AGENT_ID, TO_AGENT_ID, conversationId));
     await nodeFs.rm(sourceFile, { force: true });
   });
 

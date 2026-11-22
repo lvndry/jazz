@@ -64,6 +64,26 @@ describe("listing pending work", () => {
     expect(text).toContain("2 succeeded, 1 running");
   });
 
+  it("separates batches in progress from finished ones", () => {
+    const base = {
+      agentId: "a1",
+      agentName: "assistant",
+      reason: "wait",
+      createdAt: new Date(NOW).toISOString(),
+      jobs: { succeeded: 1 },
+    };
+    const text = formatBatches([
+      { ...base, id: "done1", completedAt: new Date(NOW).toISOString() },
+      { ...base, id: "live1", completedAt: null },
+    ]);
+    expect(text.indexOf("In progress (1)")).toBeLessThan(text.indexOf("live1"));
+    expect(text.indexOf("live1")).toBeLessThan(text.indexOf("Done (1)"));
+    expect(text.indexOf("Done (1)")).toBeLessThan(text.indexOf("done1"));
+    expect(formatBatches([{ ...base, id: "done1", completedAt: base.createdAt }])).toContain(
+      "Nothing is running.",
+    );
+  });
+
   it("says so when nothing is waiting", () => {
     expect(formatReminders([], NOW)).toBe("No reminders are waiting.");
     expect(formatTriggers([], NOW)).toBe("No wake triggers are waiting.");
