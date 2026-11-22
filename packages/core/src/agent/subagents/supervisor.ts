@@ -30,6 +30,10 @@
 import { Deferred, Effect, Exit, Fiber, Option, Scope } from "effect";
 import type { RunCost } from "@/core/agent/metrics/agent-run-metrics";
 import type { CancelCause } from "@/core/agent/run/cancel-cause";
+import {
+  createDurationExtension,
+  type DurationExtension,
+} from "@/core/agent/run/duration-extension";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type {
   ToolExecutionResult,
@@ -80,6 +84,10 @@ export type WaitOutcome = "settled" | "interrupted";
 /** The hooks a child's run uses to take steering and report on itself. */
 export interface SubagentHooks {
   readonly id: string;
+  /** Time the parent has granted the child beyond its limit; the child's run adds it to the limit. */
+  readonly durationExtension: DurationExtension;
+  /** Records the time limit the child runs under, so the parent can be told what extending it means. */
+  readonly bindTimeLimit: (maxDurationMs: number | undefined) => void;
   /** A message from the parent waiting for the child's next step. */
   readonly takeParentMessage: () => string | undefined;
   /** Holds the child at its step boundary while it is paused. */
@@ -133,6 +141,9 @@ interface Entry {
   lastActivity: string | undefined;
   liveCostUSD: number;
   readonly mailbox: string[];
+  /** The limit it runs under, before any extension; undefined until bound or when it has none. */
+  timeLimitMs: number | undefined;
+  readonly durationExtension: DurationExtension;
   pauseRequested: boolean;
   resumeGate: Deferred.Deferred<void> | undefined;
   fiber: Fiber.Fiber<void> | undefined;
@@ -202,6 +213,16 @@ export interface SubagentSupervisor {
     action: SteerAction,
     message?: string,
   ) => Effect.Effect<SteerOutcome>;
+  /**
+   * Gives a running child `extraMs` more time and tells it so. The child keeps at most what the
+   * parent has left: when `parentWorkTimeLeftMs` is set, the child's own time left after the
+   * grant may not exceed it, and a grant that would is refused with what fits.
+   */
+  readonly extendTime: (
+    id: string,
+    extraMs: number,
+    parentWorkTimeLeftMs: number | undefined,
+  ) => Effect.Effect<SteerOutcome>;
   /** One-line notices for the parent's next step: children that finished since it last looked. */
   readonly takeNotices: () => readonly string[];
   /** The children `takeNotices` would announce, without their answers; marks them announced. */
@@ -229,6 +250,16 @@ export interface SubagentSupervisor {
 }
 
 let subagentSequence = 0;
+
+const MS_PER_MINUTE = 60_000;
+
+/** Whole minutes rounded down, or whole seconds under a minute: never more time than there is. */
+function formatMinutes(durationMs: number): string {
+  const minutes = Math.floor(durationMs / MS_PER_MINUTE);
+  return minutes >= 1
+    ? `${String(minutes)} minute${minutes === 1 ? "" : "s"}`
+    : `${String(Math.max(0, Math.floor(durationMs / 1000)))} seconds`;
+}
 
 export interface SubagentSupervisorOptions {
   /** Children keep working after the run that started them ends; see the module comment. */
@@ -479,6 +510,31 @@ export function createSubagentSupervisor(
         finish(entry.id, { success: false, result: null, error: reason }, true);
       });
 
+    const logInfo = (message: string, metadata: Record<string, unknown>): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const logger = yield* Effect.serviceOption(LoggerServiceTag);
+        if (Option.isSome(logger)) {
+          yield* logger.value.info(message, metadata);
+        }
+      });
+
+    /** The child a steering action addresses, or why none can be steered. */
+    const findSteerable = (id: string): { entry: Entry } | { error: string } => {
+      const entry = entries.get(id);
+      if (entry === undefined) {
+        return { error: `No sub-agent ${id} here. ${unknownSubagentNote(outlivesRuns)}` };
+      }
+      if (FINISHED.has(entry.status)) {
+        return {
+          error:
+            entry.retrieveId !== undefined
+              ? `${entry.name} (${id}) already ${entry.status}. ${retrieveInstruction(entry.retrieveId)}`
+              : `${entry.name} (${id}) already ${entry.status}. Read its answer with wait_subagents.`,
+        };
+      }
+      return { entry };
+    };
+
     const supervisor: SubagentSupervisor = {
       outlivesRuns,
 
@@ -522,6 +578,8 @@ export function createSubagentSupervisor(
           lastActivity: undefined,
           liveCostUSD: 0,
           mailbox: [],
+          timeLimitMs: undefined,
+          durationExtension: createDurationExtension(),
           pauseRequested: false,
           resumeGate: undefined,
           fiber: undefined,
@@ -536,6 +594,10 @@ export function createSubagentSupervisor(
         entries.set(id, entry);
         return {
           id,
+          durationExtension: entry.durationExtension,
+          bindTimeLimit: (maxDurationMs) => {
+            entry.timeLimitMs = maxDurationMs;
+          },
           takeParentMessage: () => entry.mailbox.shift(),
           pauseRequested: () => entry.pauseRequested,
           beforeStep: () =>
@@ -672,22 +734,11 @@ export function createSubagentSupervisor(
 
       steer: (id, action, message) =>
         Effect.gen(function* () {
-          const entry = entries.get(id);
-          if (entry === undefined) {
-            return {
-              ok: false,
-              error: `No sub-agent ${id} here. ${unknownSubagentNote(outlivesRuns)}`,
-            } as const;
+          const found = findSteerable(id);
+          if ("error" in found) {
+            return { ok: false, error: found.error } as const;
           }
-          if (FINISHED.has(entry.status)) {
-            return {
-              ok: false,
-              error:
-                entry.retrieveId !== undefined
-                  ? `${entry.name} (${id}) already ${entry.status}. ${retrieveInstruction(entry.retrieveId)}`
-                  : `${entry.name} (${id}) already ${entry.status}. Read its answer with wait_subagents.`,
-            } as const;
-          }
+          const { entry } = found;
           switch (action) {
             case "message": {
               const text = message?.trim() ?? "";
@@ -733,6 +784,58 @@ export function createSubagentSupervisor(
               return { ok: true, status: "cancelled", note: "Cancelled." } as const;
             }
           }
+        }),
+
+      extendTime: (id, extraMs, parentWorkTimeLeftMs) =>
+        Effect.gen(function* () {
+          const refuse = (reason: string, error: string) =>
+            logInfo("Sub-agent time extension refused", { id, reason, extraMs }).pipe(
+              Effect.as({ ok: false, error } as const),
+            );
+          const found = findSteerable(id);
+          if ("error" in found) {
+            return yield* refuse("not steerable", found.error);
+          }
+          const { entry } = found;
+          if (entry.timeLimitMs === undefined) {
+            return yield* refuse(
+              "no time limit",
+              `${entry.name} (${id}) has no time limit, so there is nothing to extend.`,
+            );
+          }
+          const limitMs = entry.timeLimitMs + entry.durationExtension.extraMs();
+          const leftMs = limitMs - (Date.now() - entry.startedAt);
+          if (leftMs <= 0 || entry.durationExtension.closed()) {
+            return yield* refuse(
+              "out of time",
+              `${entry.name} (${id}) has reached its time limit and is writing its answer; extend a sub-agent before its time runs out.`,
+            );
+          }
+          if (parentWorkTimeLeftMs !== undefined && leftMs + extraMs > parentWorkTimeLeftMs) {
+            const fitsMs = Math.max(0, parentWorkTimeLeftMs - leftMs);
+            return yield* refuse(
+              "parent time",
+              fitsMs < MS_PER_MINUTE
+                ? `This run has ${formatMinutes(parentWorkTimeLeftMs)} left and ${entry.name} (${id}) already has ${formatMinutes(leftMs)}, so there is no time to add.`
+                : `This run has ${formatMinutes(parentWorkTimeLeftMs)} left and ${entry.name} (${id}) already has ${formatMinutes(leftMs)}, so it can take at most ${formatMinutes(fitsMs)} more.`,
+            );
+          }
+          entry.durationExtension.add(extraMs);
+          const newLeftMs = leftMs + extraMs;
+          entry.mailbox.push(
+            `Your time limit was extended by ${formatMinutes(extraMs)}; you now have ${formatMinutes(newLeftMs)} left.`,
+          );
+          yield* logInfo("Sub-agent time extended", {
+            id,
+            extraMs,
+            leftMs: newLeftMs,
+            parentWorkTimeLeftMs,
+          });
+          return {
+            ok: true,
+            status: entry.status,
+            note: `Extended by ${formatMinutes(extraMs)}; it has ${formatMinutes(newLeftMs)} left and is told so before its next model call.`,
+          } as const;
         }),
 
       takeNotices: () => supervisor.takeFinished().map(finishedNotice),

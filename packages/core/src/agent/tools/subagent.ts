@@ -46,6 +46,9 @@ import { childRunAuthority } from "./child-run-authority";
 
 // ─── Constants ───────────────────────────────────────────────────────
 
+/** Most minutes one `extend` may add; a parent that needs more extends again. */
+const MAX_EXTENSION_MINUTES = 24 * 60;
+
 /** Largest `maxMinutes` whose duration in milliseconds is still an exact integer. */
 const MAX_REQUESTED_MINUTES = Math.floor(Number.MAX_SAFE_INTEGER / 60_000);
 
@@ -462,6 +465,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
         ? { untrusted: { kind: "external", source: `sub-agent ${subagentLabel}` } }
         : {};
     let childSpend: RunSpendReport | undefined;
+    hooks?.bindTimeLimit(budget.maxDurationMs);
     const response = yield* AgentRunner.runRecursive({
       agent: subAgent,
       userInput: wrappedTask,
@@ -479,6 +483,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
         ? { maxSubagentIterations: context.maxSubagentIterations }
         : {}),
       ...(budget.maxDurationMs !== undefined ? { maxDurationMs: budget.maxDurationMs } : {}),
+      ...(hooks !== undefined ? { durationExtension: hooks.durationExtension } : {}),
       ...(budget.maxCostUSD !== undefined ? { maxCostUSD: budget.maxCostUSD } : {}),
       ...(budget.maxTokens !== undefined ? { maxTokens: budget.maxTokens } : {}),
       ...(budget.maxOutputTokens !== undefined ? { maxOutputTokens: budget.maxOutputTokens } : {}),
@@ -903,11 +908,17 @@ const waitSubagentsSchema = z
 const steerSubagentSchema = z.object({
   id: z.string().describe("The agentId spawn_subagent or map_subagents returned."),
   action: z
-    .enum(["message", "pause", "resume", "cancel"])
+    .enum(["message", "pause", "resume", "cancel", "extend"])
     .describe(
-      "message adds guidance before its next step; pause holds it before its next model call; resume releases it; cancel stops it now.",
+      "message adds guidance; pause holds it before its next model call; resume releases it; cancel stops it; extend adds minutes to its time limit.",
     ),
   message: z.string().optional().describe("The guidance, for action message."),
+  minutes: z
+    .number()
+    .positive()
+    .max(MAX_EXTENSION_MINUTES)
+    .optional()
+    .describe("Minutes to add, for action extend."),
 });
 
 type WaitSubagentsArgs = z.infer<typeof waitSubagentsSchema>;
@@ -1148,7 +1159,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "steer_subagent",
       disclosure: "private",
       description:
-        "Steer a running sub-agent by its agentId: message it new guidance, pause it, resume it or cancel it. Messages and pauses take effect before its next model call; cancel stops it and its tools now.",
+        "Steer a running sub-agent by its agentId: message, pause, resume, cancel it, or extend its time limit while it still has time, within the time this run has left. Cancel stops it and its tools now.",
       parameters: steerSubagentSchema,
       hidden: false,
       peerGrantRequired: true,
@@ -1159,6 +1170,26 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           const supervisor = context.subagents;
           if (supervisor === undefined) {
             return { success: false, result: null, error: NO_SUPERVISOR_ERROR };
+          }
+          if (args.action === "extend") {
+            if (args.minutes === undefined) {
+              return {
+                success: false,
+                result: null,
+                error: "An extend action needs minutes, the time to add.",
+              };
+            }
+            const extended = yield* supervisor.extendTime(
+              args.id,
+              args.minutes * 60_000,
+              context.remainingRunBudget?.().maxDurationMs,
+            );
+            return extended.ok
+              ? {
+                  success: true,
+                  result: { id: args.id, status: extended.status, note: extended.note },
+                }
+              : { success: false, result: null, error: extended.error };
           }
           const outcome = yield* supervisor.steer(args.id, args.action, args.message);
           return outcome.ok

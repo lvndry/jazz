@@ -203,7 +203,7 @@ While children work, the parent can manage them:
 | `wait_subagents`     | Waits until any or all of them finish, and returns their answers in one call                    |
 | `map_subagents`      | Starts one child per input from a single brief, queueing past the live limit                    |
 | `list_subagents`     | Each child's status (queued, running, paused, waiting on an approval, done), activity and spend |
-| `steer_subagent`     | Sends a child new guidance, pauses it, resumes it or cancels it                                 |
+| `steer_subagent`     | Sends a child new guidance, pauses it, resumes it, cancels it or extends its time limit         |
 | `post_to_blackboard` | Posts a finding to the board the parent and every child share                                   |
 | `read_blackboard`    | Reads that board, oldest first, by topic or only posts newer than the last read                 |
 

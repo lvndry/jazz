@@ -2,6 +2,8 @@
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "bun:test";
 import { Deferred, Duration, Effect, Fiber, Option } from "effect";
+import { silentLogger } from "@/core/agent/test-logger";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { createSubagentSupervisor, type SubagentSupervisor } from "./supervisor";
 
@@ -829,5 +831,152 @@ describe("SubagentSupervisor queue", () => {
     );
     expect(outcome.outcome).toBe("settled");
     expect(outcome.statuses).toEqual(Array(CHILDREN).fill("completed"));
+  });
+});
+
+describe("SubagentSupervisor.extendTime", () => {
+  const MINUTE = 60_000;
+
+  /** A running child bound to `limitMs`, and the supervisor that holds it. */
+  function runningChild(limitMs: number | undefined) {
+    return Effect.gen(function* () {
+      const supervisor = yield* createSubagentSupervisor();
+      const release = yield* Deferred.make<string>();
+      const hooks = yield* startChild(supervisor, "worker", release);
+      hooks.bindTimeLimit(limitMs);
+      return { supervisor, hooks, release };
+    });
+  }
+
+  it("grants the time and tells the child its new limit", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { supervisor, hooks } = yield* runningChild(10 * MINUTE);
+        const extended = yield* supervisor.extendTime(hooks.id, 15 * MINUTE, undefined);
+        return {
+          extended,
+          granted: hooks.durationExtension.extraMs(),
+          told: hooks.takeParentMessage(),
+        };
+      }),
+    );
+    expect(outcome.extended).toMatchObject({ ok: true });
+    expect(outcome.granted).toBe(15 * MINUTE);
+    expect(outcome.told).toContain("extended by 15 minutes");
+    expect(outcome.told).toMatch(/you now have (24|25) minutes left/);
+  });
+
+  it("stacks successive extensions", async () => {
+    const granted = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { supervisor, hooks } = yield* runningChild(10 * MINUTE);
+        yield* supervisor.extendTime(hooks.id, 15 * MINUTE, undefined);
+        yield* supervisor.extendTime(hooks.id, 30 * MINUTE, undefined);
+        return hooks.durationExtension.extraMs();
+      }),
+    );
+    expect(granted).toBe(45 * MINUTE);
+  });
+
+  it("refuses a grant that outlasts the parent's own time, naming what fits", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { supervisor, hooks } = yield* runningChild(10 * MINUTE);
+        const extended = yield* supervisor.extendTime(hooks.id, 15 * MINUTE, 20 * MINUTE);
+        return {
+          extended,
+          granted: hooks.durationExtension.extraMs(),
+          told: hooks.takeParentMessage(),
+        };
+      }),
+    );
+    expect(outcome.extended.ok).toBe(false);
+    expect(outcome.extended.ok ? "" : outcome.extended.error).toContain("at most 10 minutes more");
+    expect(outcome.granted).toBe(0);
+    expect(outcome.told).toBeUndefined();
+  });
+
+  it("says there is no time to add when the child already has all the parent has left", async () => {
+    const extended = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { supervisor, hooks } = yield* runningChild(10 * MINUTE);
+        return yield* supervisor.extendTime(hooks.id, MINUTE, 5 * MINUTE);
+      }),
+    );
+    expect(extended.ok ? "" : extended.error).toContain("no time to add");
+  });
+
+  it("refuses a child that has no time limit", async () => {
+    const extended = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { supervisor, hooks } = yield* runningChild(undefined);
+        return yield* supervisor.extendTime(hooks.id, MINUTE, undefined);
+      }),
+    );
+    expect(extended.ok ? "" : extended.error).toContain("no time limit");
+  });
+
+  it("refuses a child whose time has already run out", async () => {
+    const extended = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { supervisor, hooks } = yield* runningChild(1);
+        yield* Effect.sleep(Duration.millis(10));
+        return yield* supervisor.extendTime(hooks.id, MINUTE, undefined);
+      }),
+    );
+    expect(extended.ok ? "" : extended.error).toContain("reached its time limit");
+  });
+
+  it("refuses a child that has stopped working for time, even with time left on the clock", async () => {
+    const extended = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { supervisor, hooks } = yield* runningChild(10 * MINUTE);
+        hooks.durationExtension.close();
+        return yield* supervisor.extendTime(hooks.id, MINUTE, undefined);
+      }),
+    );
+    expect(extended.ok ? "" : extended.error).toContain("writing its answer");
+  });
+
+  it("logs every refusal with its reason", async () => {
+    const logged: string[] = [];
+    const recordingLogger: LoggerService = {
+      ...silentLogger,
+      info: (message, metadata) =>
+        Effect.sync(() => void logged.push(`${message}:${String(metadata?.["reason"])}`)),
+    };
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const { supervisor, hooks } = yield* runningChild(10 * MINUTE);
+        const noLimit = yield* runningChild(undefined);
+        const expired = yield* runningChild(10 * MINUTE);
+        expired.hooks.durationExtension.close();
+        yield* supervisor.extendTime(hooks.id, 15 * MINUTE, 11 * MINUTE);
+        yield* supervisor.extendTime("sa-missing", MINUTE, undefined);
+        yield* noLimit.supervisor.extendTime(noLimit.hooks.id, MINUTE, undefined);
+        yield* expired.supervisor.extendTime(expired.hooks.id, MINUTE, undefined);
+      }).pipe(Effect.provideService(LoggerServiceTag, recordingLogger)),
+    );
+    expect(logged).toEqual([
+      "Sub-agent time extension refused:parent time",
+      "Sub-agent time extension refused:not steerable",
+      "Sub-agent time extension refused:no time limit",
+      "Sub-agent time extension refused:out of time",
+    ]);
+  });
+
+  it("refuses a child that has finished and an id it does not know", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor();
+        const hooks = yield* finishedChild(supervisor, "worker", done("ok"));
+        return {
+          finished: yield* supervisor.extendTime(hooks.id, MINUTE, undefined),
+          unknown: yield* supervisor.extendTime("sa-missing", MINUTE, undefined),
+        };
+      }),
+    );
+    expect(outcome.finished.ok ? "" : outcome.finished.error).toContain("already completed");
+    expect(outcome.unknown.ok).toBe(false);
   });
 });
