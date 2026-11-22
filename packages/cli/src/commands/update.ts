@@ -422,6 +422,53 @@ function installUpdate(
 }
 
 /**
+ * Installs the latest version without any output, for the detached process the startup
+ * check launches. The running session keeps its loaded code; the next launch runs the new one.
+ */
+export function backgroundUpdateCommand(): Effect.Effect<
+  void,
+  never,
+  LoggerService | TerminalService
+> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+    const terminal = yield* TerminalServiceTag;
+
+    const checkOutcome = yield* checkForUpdate().pipe(Effect.result);
+    if (checkOutcome._tag === "Failure") {
+      yield* logger.debug("Background update check failed", { errorType: "update_check_failed" });
+      return;
+    }
+    const versionInfo = checkOutcome.success;
+    if (!versionInfo.hasUpdate) {
+      yield* logger.debug("Background update skipped, already on latest", {
+        version: versionInfo.currentVersion,
+      });
+      return;
+    }
+
+    yield* logger.debug("Background update installing", {
+      from: versionInfo.currentVersion,
+      to: versionInfo.latestVersion,
+    });
+    const installOutcome = yield* installUpdate(
+      packageJson.name,
+      versionInfo.latestVersion,
+      terminal,
+    ).pipe(Effect.result);
+    if (installOutcome._tag === "Failure") {
+      yield* logger.warn("Background update failed", {
+        errorType: "update_install_failed",
+        to: versionInfo.latestVersion,
+        reason: installOutcome.failure.message,
+      });
+      return;
+    }
+    yield* logger.info("Background update installed", { to: versionInfo.latestVersion });
+  });
+}
+
+/**
  * Update command - checks for updates and installs if available
  */
 export function updateCommand(options?: {

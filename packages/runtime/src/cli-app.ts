@@ -1812,9 +1812,17 @@ function registerUpdateCommand(program: Command): void {
     .alias("upgrade")
     .description("Update Jazz to the latest version")
     .option("--check", "Check for updates without installing")
-    .action((options: { check?: boolean }) =>
+    .addOption(
+      new Option("--background", "Install silently for the startup auto-update").hideHelp(),
+    )
+    .action((options: { check?: boolean; background?: boolean }) =>
       runCliAction(
-        () => import("@jazz/cli/commands/update").then((mod) => mod.updateCommand(options)),
+        () =>
+          import("@jazz/cli/commands/update").then((mod) =>
+            options.background === true
+              ? mod.backgroundUpdateCommand()
+              : mod.updateCommand(options),
+          ),
         cliRuntimeOptions(program),
         { services: "console" },
       ),

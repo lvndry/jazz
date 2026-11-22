@@ -1,12 +1,14 @@
 /**
  * Startup update check: throttled to once per UPDATE_CHECK_INTERVAL_DAYS via a
- * timestamp file, so it doesn't hit the registry on every invocation.
+ * timestamp file, so it doesn't hit the registry on every invocation. A newer
+ * version is installed by a detached process, so the next launch runs it.
  */
 
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
+import { getJazzSchedulerInvocation, isRunningInDevelopmentMode } from "@jazz/core/utils/runtime";
 import { Effect, FileSystem } from "effect";
 import { checkForUpdate } from "./commands/update";
 import { getGlyphs } from "./ui/glyphs";
@@ -84,11 +86,21 @@ export function autoCheckForUpdate(): Effect.Effect<
     if (!result.hasUpdate) {
       return;
     }
+    const installingInBackground = shouldInstallInBackground(
+      process.env,
+      isRunningInDevelopmentMode(),
+    )
+      ? yield* launchBackgroundUpdate(logger)
+      : false;
     const destination = updateBannerDestination(terminal.isInteractive, process.stderr.isTTY);
     if (destination === "none") {
       return;
     }
-    const lines = formatUpdateBanner(result.currentVersion, result.latestVersion);
+    const lines = formatUpdateBanner(
+      result.currentVersion,
+      result.latestVersion,
+      installingInBackground,
+    );
     if (destination === "stderr") {
       process.stderr.write(`${lines.join("\n")}\n`);
       return;
@@ -96,6 +108,56 @@ export function autoCheckForUpdate(): Effect.Effect<
     for (const line of lines) {
       yield* terminal.log(line);
     }
+  });
+}
+
+/**
+ * Whether a newer version installs itself. A source checkout updates through git, and
+ * `JAZZ_DISABLE_AUTO_UPDATE=1` opts out; both keep the banner that asks for `jazz update`.
+ */
+export function shouldInstallInBackground(
+  env: Readonly<Record<string, string | undefined>>,
+  isDevelopmentMode: boolean,
+): boolean {
+  return env["JAZZ_DISABLE_AUTO_UPDATE"] !== "1" && !isDevelopmentMode;
+}
+
+/**
+ * Starts `jazz update --background` as a detached process that outlives this one.
+ *
+ * @returns Whether the process was started.
+ */
+function launchBackgroundUpdate(logger: LoggerService): Effect.Effect<boolean> {
+  return Effect.gen(function* () {
+    const invocation = yield* getJazzSchedulerInvocation();
+    const [command, ...baseArguments] = invocation;
+    if (!command) {
+      return false;
+    }
+    const { spawn } = yield* Effect.promise(() => import("node:child_process"));
+    return yield* Effect.try({
+      try: () => {
+        const child = spawn(command, [...baseArguments, "update", "--background"], {
+          detached: true,
+          stdio: "ignore",
+          env: { ...process.env, JAZZ_DISABLE_UPDATE_CHECK: "1" },
+        });
+        child.on("error", () => {});
+        child.unref();
+        return true;
+      },
+      catch: (cause) => cause,
+    }).pipe(
+      Effect.tap(() => logger.debug("Background update launched", { command })),
+      Effect.catch((cause) =>
+        logger
+          .warn("Failed to launch background update", {
+            errorType: "spawn_failed",
+            reason: String(cause),
+          })
+          .pipe(Effect.as(false)),
+      ),
+    );
   });
 }
 
@@ -115,13 +177,19 @@ export function updateBannerDestination(
 }
 
 /** The boxed "update available" notice, one entry per line. */
-function formatUpdateBanner(currentVersion: string, latestVersion: string): readonly string[] {
+function formatUpdateBanner(
+  currentVersion: string,
+  latestVersion: string,
+  installingInBackground: boolean,
+): readonly string[] {
   const glyphs = getGlyphs();
   const innerWidth = UPDATE_BANNER_INNER_WIDTH;
   const horizontal = glyphs.boxH.repeat(innerWidth);
   const blank = " ".repeat(innerWidth);
   const versions = `Update available! ${currentVersion} ${glyphs.arrow} ${latestVersion}`;
-  const upgrade = "Run `jazz update` to upgrade to the latest version.";
+  const upgrade = installingInBackground
+    ? "Installing in the background; ready on your next launch."
+    : "Run `jazz update` to upgrade to the latest version.";
   const padLine = (message: string): string => {
     const pad = innerWidth - message.length - 3; // 3 = leading "  "+1 trailing space
     return `${glyphs.boxV}  ${message}${" ".repeat(Math.max(0, pad))} ${glyphs.boxV}`;
