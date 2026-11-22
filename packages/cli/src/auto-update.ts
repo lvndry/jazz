@@ -10,12 +10,15 @@ import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import { getJazzSchedulerInvocation, isRunningInDevelopmentMode } from "@jazz/core/utils/runtime";
 import { Effect, FileSystem } from "effect";
-import { checkForUpdate } from "./commands/update";
+import { checkForUpdate, isPatchUpdate } from "./commands/update";
 import { getGlyphs } from "./ui/glyphs";
+import { releaseUpdateInstallClaim, tryClaimUpdateInstall } from "./update-claim";
 
 const UPDATE_CHECK_INTERVAL_DAYS = 1;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const UPDATE_CHECK_FILE = "update_check";
+/** How long after a failed launch the next startup tries again. */
+const LAUNCH_RETRY_DELAY_MS = 60 * 60 * 1000;
 /** Content width of the boxed update notice, between its vertical borders. */
 const UPDATE_BANNER_INNER_WIDTH = 67;
 
@@ -68,16 +71,19 @@ export function autoCheckForUpdate(): Effect.Effect<
       }),
     );
 
+    const writeCheckTimestamp = (timestamp: number): Effect.Effect<void> =>
+      fs.writeFileString(checkFilePath, timestamp.toString(), { mode: stateFileMode() }).pipe(
+        Effect.catch(() =>
+          Effect.gen(function* () {
+            yield* logger.warn("Failed to write update check timestamp", {
+              errorType: "state_write_failed",
+            });
+          }),
+        ),
+      );
+
     // Update the last check timestamp regardless of result to avoid blocking startup repeatedly on failures
-    yield* fs.writeFileString(checkFilePath, now.toString(), { mode: stateFileMode() }).pipe(
-      Effect.catch(() =>
-        Effect.gen(function* () {
-          yield* logger.warn("Failed to write update check timestamp", {
-            errorType: "state_write_failed",
-          });
-        }),
-      ),
-    );
+    yield* writeCheckTimestamp(now);
 
     if (!result) {
       // Check failed or timed out
@@ -86,12 +92,28 @@ export function autoCheckForUpdate(): Effect.Effect<
     if (!result.hasUpdate) {
       return;
     }
-    const installingInBackground = shouldInstallInBackground(
-      process.env,
-      isRunningInDevelopmentMode(),
-    )
-      ? yield* launchBackgroundUpdate(logger)
-      : false;
+    let installingInBackground = false;
+    if (
+      shouldInstallInBackground(
+        process.env,
+        isRunningInDevelopmentMode(),
+        result.currentVersion,
+        result.latestVersion,
+      )
+    ) {
+      if (!tryClaimUpdateInstall(dataDir)) {
+        yield* logger.debug("Background update already claimed by another process");
+        installingInBackground = true;
+      } else {
+        installingInBackground = yield* launchBackgroundUpdate(logger);
+        if (!installingInBackground) {
+          releaseUpdateInstallClaim(dataDir);
+          yield* writeCheckTimestamp(
+            now - (UPDATE_CHECK_INTERVAL_DAYS * MS_PER_DAY - LAUNCH_RETRY_DELAY_MS),
+          );
+        }
+      }
+    }
     const destination = updateBannerDestination(terminal.isInteractive, process.stderr.isTTY);
     if (destination === "none") {
       return;
@@ -112,52 +134,116 @@ export function autoCheckForUpdate(): Effect.Effect<
 }
 
 /**
- * Whether a newer version installs itself. A source checkout updates through git, and
- * `JAZZ_DISABLE_AUTO_UPDATE=1` opts out; both keep the banner that asks for `jazz update`.
+ * Whether a newer version installs itself. Only patch releases do: a minor release may carry
+ * breaking changes the user should read first. A source checkout updates through git, and
+ * `JAZZ_DISABLE_AUTO_UPDATE=1` opts out; all three keep the banner that asks for `jazz update`.
  */
 export function shouldInstallInBackground(
   env: Readonly<Record<string, string | undefined>>,
   isDevelopmentMode: boolean,
+  currentVersion: string,
+  latestVersion: string,
 ): boolean {
-  return env["JAZZ_DISABLE_AUTO_UPDATE"] !== "1" && !isDevelopmentMode;
+  return (
+    env["JAZZ_DISABLE_AUTO_UPDATE"] !== "1" &&
+    !isDevelopmentMode &&
+    isPatchUpdate(currentVersion, latestVersion)
+  );
+}
+
+const UPDATER_ENVIRONMENT_NAMES: ReadonlySet<string> = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "TERM",
+  "BUN_INSTALL",
+  "PNPM_HOME",
+  "NVM_DIR",
+  "VOLTA_HOME",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "NODE_EXTRA_CA_CERTS",
+  "JAZZ_HOME",
+  "JAZZ_CONFIG_PATH",
+]);
+
+const UPDATER_ENVIRONMENT_PREFIXES: readonly string[] = ["LC_", "XDG_"];
+
+/**
+ * The environment of the detached updater. The package manager it runs executes install
+ * scripts, so it receives only what locating and fetching the package needs; API keys and
+ * other credentials in the caller's environment stay behind.
+ */
+export function buildUpdaterEnvironment(
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string> {
+  const updaterEnvironment: Record<string, string> = { JAZZ_DISABLE_UPDATE_CHECK: "1" };
+  for (const [name, value] of Object.entries(env)) {
+    if (value === undefined) {
+      continue;
+    }
+    if (
+      UPDATER_ENVIRONMENT_NAMES.has(name) ||
+      UPDATER_ENVIRONMENT_PREFIXES.some((prefix) => name.startsWith(prefix))
+    ) {
+      updaterEnvironment[name] = value;
+    }
+  }
+  return updaterEnvironment;
 }
 
 /**
  * Starts `jazz update --background` as a detached process that outlives this one.
  *
- * @returns Whether the process was started.
+ * @returns Whether the operating system started the process.
  */
 function launchBackgroundUpdate(logger: LoggerService): Effect.Effect<boolean> {
   return Effect.gen(function* () {
     const invocation = yield* getJazzSchedulerInvocation();
     const [command, ...baseArguments] = invocation;
     if (!command) {
+      yield* logger.warn("Failed to launch background update", { errorType: "no_invocation" });
       return false;
     }
     const { spawn } = yield* Effect.promise(() => import("node:child_process"));
-    return yield* Effect.try({
-      try: () => {
+    return yield* Effect.callback<boolean>((resume) => {
+      const reportFailure = (cause: unknown): void => {
+        resume(
+          logger
+            .warn("Failed to launch background update", {
+              errorType: "spawn_failed",
+              reason: String(cause),
+            })
+            .pipe(Effect.as(false)),
+        );
+      };
+      try {
         const child = spawn(command, [...baseArguments, "update", "--background"], {
           detached: true,
           stdio: "ignore",
-          env: { ...process.env, JAZZ_DISABLE_UPDATE_CHECK: "1" },
+          env: buildUpdaterEnvironment(process.env),
         });
-        child.on("error", () => {});
-        child.unref();
-        return true;
-      },
-      catch: (cause) => cause,
-    }).pipe(
-      Effect.tap(() => logger.debug("Background update launched", { command })),
-      Effect.catch((cause) =>
-        logger
-          .warn("Failed to launch background update", {
-            errorType: "spawn_failed",
-            reason: String(cause),
-          })
-          .pipe(Effect.as(false)),
-      ),
-    );
+        child.once("error", reportFailure);
+        child.once("spawn", () => {
+          child.unref();
+          resume(logger.debug("Background update launched", { command }).pipe(Effect.as(true)));
+        });
+      } catch (cause) {
+        reportFailure(cause);
+      }
+    });
   });
 }
 

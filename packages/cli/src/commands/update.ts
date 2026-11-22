@@ -1,6 +1,7 @@
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { UpdateCheckError, UpdateInstallError } from "@jazz/core/types/errors";
+import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import {
   detectPackageManagerFromPath,
   findExecutablePathViaShell,
@@ -8,6 +9,7 @@ import {
 } from "@jazz/core/utils/runtime";
 import { Effect } from "effect";
 import packageJson from "../../../../package.json";
+import { releaseUpdateInstallClaim } from "../update-claim";
 import { installBinaryUpdate } from "./update-binary";
 
 /**
@@ -42,6 +44,16 @@ function compareVersions(v1: string, v2: string): number {
   }
 
   return 0;
+}
+
+/**
+ * Whether `latest` differs from `current` only in its patch number. While Jazz is 0.x a
+ * minor bump may carry breaking changes, so only a patch update installs itself.
+ */
+export function isPatchUpdate(current: string, latest: string): boolean {
+  const [currentMajor, currentMinor] = current.split(".");
+  const [latestMajor, latestMinor] = latest.split(".");
+  return currentMajor === latestMajor && currentMinor === latestMinor;
 }
 
 /**
@@ -347,7 +359,7 @@ export function buildInstallArgs(packageManager: string, packageName: string): s
  * Binary installations replace themselves from the GitHub release; package
  * installations hand the job to whichever package manager put Jazz there.
  */
-function installUpdate(
+export function installUpdate(
   packageName: string,
   latestVersion: string,
   terminal: TerminalService,
@@ -417,20 +429,29 @@ function installUpdate(
   });
 }
 
+export interface BackgroundUpdateDependencies {
+  readonly checkForUpdate: typeof checkForUpdate;
+  readonly installUpdate: typeof installUpdate;
+  readonly releaseInstallClaim: () => void;
+}
+
 /**
- * Installs the latest version without any output, for the detached process the startup
+ * Installs the latest patch release without any output, for the detached process the startup
  * check launches. The running session keeps its loaded code; the next launch runs the new one.
+ * Each outcome is recorded in the debug log.
  */
-export function backgroundUpdateCommand(): Effect.Effect<
-  void,
-  never,
-  LoggerService | TerminalService
-> {
+export function backgroundUpdateCommand(
+  dependencies: BackgroundUpdateDependencies = {
+    checkForUpdate,
+    installUpdate,
+    releaseInstallClaim: () => releaseUpdateInstallClaim(getUserDataDirectory()),
+  },
+): Effect.Effect<void, never, LoggerService | TerminalService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const terminal = yield* TerminalServiceTag;
 
-    const checkOutcome = yield* checkForUpdate().pipe(Effect.result);
+    const checkOutcome = yield* dependencies.checkForUpdate().pipe(Effect.result);
     if (checkOutcome._tag === "Failure") {
       yield* logger.debug("Background update check failed", { errorType: "update_check_failed" });
       return;
@@ -442,16 +463,21 @@ export function backgroundUpdateCommand(): Effect.Effect<
       });
       return;
     }
+    if (!isPatchUpdate(versionInfo.currentVersion, versionInfo.latestVersion)) {
+      yield* logger.debug("Background update skipped, release is not a patch", {
+        from: versionInfo.currentVersion,
+        to: versionInfo.latestVersion,
+      });
+      return;
+    }
 
     yield* logger.debug("Background update installing", {
       from: versionInfo.currentVersion,
       to: versionInfo.latestVersion,
     });
-    const installOutcome = yield* installUpdate(
-      packageJson.name,
-      versionInfo.latestVersion,
-      terminal,
-    ).pipe(Effect.result);
+    const installOutcome = yield* dependencies
+      .installUpdate(packageJson.name, versionInfo.latestVersion, terminal)
+      .pipe(Effect.result);
     if (installOutcome._tag === "Failure") {
       yield* logger.warn("Background update failed", {
         errorType: "update_install_failed",
@@ -461,7 +487,7 @@ export function backgroundUpdateCommand(): Effect.Effect<
       return;
     }
     yield* logger.info("Background update installed", { to: versionInfo.latestVersion });
-  });
+  }).pipe(Effect.ensuring(Effect.sync(dependencies.releaseInstallClaim)));
 }
 
 /**
