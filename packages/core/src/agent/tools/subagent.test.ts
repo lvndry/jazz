@@ -1,6 +1,6 @@
 import { file as bunFile } from "bun";
 import { describe, expect, it, spyOn } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Duration, Effect, Layer } from "effect";
 import { silentLogger } from "@/core/agent/test-logger";
 import { DEFAULT_MAX_ITERATIONS, DEFAULT_MAX_SUBAGENT_ITERATIONS } from "@/core/constants/agent";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
@@ -403,6 +403,73 @@ describe("spawn_subagent time budget", () => {
       await runSpawn(presentation, { remainingRunBudget: () => ({ maxDurationMs: 42_000 }) });
 
       expect(captured?.maxDurationMs).toBe(42_000);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("lets the parent extend a running child's time limit with steer_subagent", async () => {
+    let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured = options;
+      return Effect.never as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+    try {
+      const { presentation } = createPresentationHarness();
+      const testLayer = Layer.mergeAll(
+        Layer.succeed(LoggerServiceTag, silentLogger),
+        Layer.succeed(PresentationServiceTag, presentation),
+      );
+      const steer = createSubagentTools().find((candidate) => candidate.name === "steer_subagent")!;
+      const outcome = await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const supervisor = yield* createSubagentSupervisor();
+            supervisor.attachRun({ chargeSpend: () => {} });
+            const context = {
+              agentId: parentAgent.id,
+              parentAgent,
+              subagents: supervisor,
+              remainingRunBudget: () => ({ maxDurationMs: 60 * 60_000 }),
+            };
+            const spawned = (yield* getSpawnTool().execute(
+              { task: "do a thing", persona: "default", maxMinutes: 20 },
+              context,
+            )) as ToolExecutionResult;
+            const agentId = (spawned.result as { agentId: string }).agentId;
+            yield* Effect.sleep(Duration.millis(20));
+            const extended = (yield* steer.execute(
+              { id: agentId, action: "extend", minutes: 15 },
+              context,
+            )) as ToolExecutionResult;
+            const withoutMinutes = (yield* steer.execute(
+              { id: agentId, action: "extend" },
+              context,
+            )) as ToolExecutionResult;
+            const tooLong = (yield* steer.execute(
+              { id: agentId, action: "extend", minutes: 50 },
+              context,
+            )) as ToolExecutionResult;
+            yield* supervisor.close();
+            return { extended, withoutMinutes, tooLong };
+          }),
+        ).pipe(Effect.provide(testLayer)) as Effect.Effect<
+          {
+            extended: ToolExecutionResult;
+            withoutMinutes: ToolExecutionResult;
+            tooLong: ToolExecutionResult;
+          },
+          unknown,
+          never
+        >,
+      );
+
+      expect(captured?.maxDurationMs).toBe(20 * 60_000);
+      expect(captured?.durationExtension?.extraMs()).toBe(15 * 60_000);
+      expect(outcome.extended.success).toBe(true);
+      expect(outcome.withoutMinutes.success).toBe(false);
+      expect(outcome.tooLong.success).toBe(false);
+      expect(outcome.tooLong.error).toContain("at most");
     } finally {
       spy.mockRestore();
     }

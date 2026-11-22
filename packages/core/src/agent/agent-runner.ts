@@ -1200,6 +1200,9 @@ function initializeAgentRun(
       maxTokens: resolvedMaxTokens,
       maxOutputTokens: resolvedMaxOutputTokens,
       maxDurationMs: resolvedMaxDurationMs,
+      ...(options.durationExtension !== undefined
+        ? { durationExtension: options.durationExtension }
+        : {}),
       deadline: options.deadline,
       knownSkills: relevantSkills,
     };

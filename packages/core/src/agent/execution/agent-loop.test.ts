@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Duration, Effect, Fiber, FileSystem, Layer } from "effect";
+import { createDurationExtension } from "@/core/agent/run/duration-extension";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { formatMemorySourceTag } from "@/core/memory/source-trust";
@@ -3446,6 +3447,31 @@ describe("executeAgentLoop cost and token caps", () => {
 
     expect(calls()).toBe(1);
     expect(result.durationCapped).toBe(true);
+  });
+
+  it("keeps running when time granted after the start covers the elapsed time", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+    const durationExtension = createDurationExtension();
+    durationExtension.add(30 * 60_000);
+    const { strategy } = toolLoopStrategy({ promptTokens: 10, completionTokens: 10 });
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: 3 }),
+        makeRunContext({ maxIterations: 3, maxDurationMs: 0, durationExtension }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    expect(result.durationCapped).toBeUndefined();
   });
 
   it("runs normally when elapsed time stays under maxDurationMs", async () => {

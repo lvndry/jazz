@@ -4,6 +4,7 @@
  * tools, model gates and services that batch and streaming execution use for that turn.
  */
 import type { Effect } from "effect";
+import type { DurationExtension } from "@/core/agent/run/duration-extension";
 import type { BrowserSessions } from "@/core/agent/tools/browser/session";
 import type { ComputerSessions } from "@/core/agent/tools/computer/session";
 import type { ProviderName } from "@/core/constants/models";
@@ -213,6 +214,8 @@ export interface AgentRunnerOptions {
    * If not specified, falls back to `maxDurationMs` in app config; unset at both means uncapped.
    */
   readonly maxDurationMs?: number;
+  /** Time granted to the run after it started, added to `maxDurationMs` wherever the loop reads it. */
+  readonly durationExtension?: DurationExtension;
   /**
    * A wall-clock deadline enforced outside the run (`jazz run --timeout`), which kills the
    * process when it passes. The run treats it as a time budget that can move: it stops working
@@ -707,6 +710,8 @@ export interface AgentRunContext {
   readonly maxOutputTokens: number | undefined;
   /** Wall-clock budget in ms, already resolved from the call site and config. Undefined = uncapped. */
   readonly maxDurationMs: number | undefined;
+  /** The extension from `AgentRunnerOptions.durationExtension`. Undefined = none. */
+  readonly durationExtension?: DurationExtension;
   /** The external deadline from `AgentRunnerOptions.deadline`. Undefined = none. */
   readonly deadline: Pick<RunDeadline, "remainingMs" | "budgetMs"> | undefined;
   readonly knownSkills: readonly {

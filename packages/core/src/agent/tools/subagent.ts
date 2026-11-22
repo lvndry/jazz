@@ -461,6 +461,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
         ? { untrusted: { kind: "external", source: `sub-agent ${subagentLabel}` } }
         : {};
     let childSpend: RunSpendReport | undefined;
+    hooks?.bindTimeLimit(budget.maxDurationMs);
     const response = yield* AgentRunner.runRecursive({
       agent: subAgent,
       userInput: wrappedTask,
@@ -478,6 +479,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
         ? { maxSubagentIterations: context.maxSubagentIterations }
         : {}),
       ...(budget.maxDurationMs !== undefined ? { maxDurationMs: budget.maxDurationMs } : {}),
+      ...(hooks !== undefined ? { durationExtension: hooks.durationExtension } : {}),
       ...(budget.maxCostUSD !== undefined ? { maxCostUSD: budget.maxCostUSD } : {}),
       ...(budget.maxTokens !== undefined ? { maxTokens: budget.maxTokens } : {}),
       ...(budget.maxOutputTokens !== undefined ? { maxOutputTokens: budget.maxOutputTokens } : {}),
@@ -902,11 +904,17 @@ const waitSubagentsSchema = z
 const steerSubagentSchema = z.object({
   id: z.string().describe("The agentId spawn_subagent or map_subagents returned."),
   action: z
-    .enum(["message", "pause", "resume", "cancel"])
+    .enum(["message", "pause", "resume", "cancel", "extend"])
     .describe(
-      "message adds guidance before its next step; pause holds it before its next model call; resume releases it; cancel stops it now.",
+      "message adds guidance before its next step; pause holds it before its next model call; resume releases it; cancel stops it now; extend gives it more time before its limit runs out.",
     ),
   message: z.string().optional().describe("The guidance, for action message."),
+  minutes: z
+    .number()
+    .positive()
+    .max(MAX_REQUESTED_MINUTES)
+    .optional()
+    .describe("The minutes to add to its time limit, for action extend."),
 });
 
 type WaitSubagentsArgs = z.infer<typeof waitSubagentsSchema>;
@@ -1147,7 +1155,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "steer_subagent",
       disclosure: "private",
       description:
-        "Steer a running sub-agent by its agentId: message it new guidance, pause it, resume it or cancel it. Messages and pauses take effect before its next model call; cancel stops it and its tools now.",
+        "Steer a running sub-agent by its agentId: message it new guidance, pause it, resume it, cancel it, or extend its time limit by a number of minutes. Messages and pauses take effect before its next model call; cancel stops it and its tools now. Extend before its time runs out, within the time this run has left.",
       parameters: steerSubagentSchema,
       hidden: false,
       peerGrantRequired: true,
@@ -1158,6 +1166,26 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           const supervisor = context.subagents;
           if (supervisor === undefined) {
             return { success: false, result: null, error: NO_SUPERVISOR_ERROR };
+          }
+          if (args.action === "extend") {
+            if (args.minutes === undefined) {
+              return {
+                success: false,
+                result: null,
+                error: "An extend action needs minutes, the time to add.",
+              };
+            }
+            const extended = yield* supervisor.extendTime(
+              args.id,
+              args.minutes * 60_000,
+              context.remainingRunBudget?.().maxDurationMs,
+            );
+            return extended.ok
+              ? {
+                  success: true,
+                  result: { id: args.id, status: extended.status, note: extended.note },
+                }
+              : { success: false, result: null, error: extended.error };
           }
           const outcome = yield* supervisor.steer(args.id, args.action, args.message);
           return outcome.ok

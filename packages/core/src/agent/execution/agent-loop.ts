@@ -427,6 +427,7 @@ interface LoopDeps {
   maxTokens: number | undefined;
   maxOutputTokens: number | undefined;
   maxDurationMs: number | undefined;
+  durationExtension: AgentRunContext["durationExtension"];
   deadline: AgentRunContext["deadline"];
   /** Provider-only routing hint for iteration zero; never part of canonical messages. */
   initialProviderAdvisory: string | undefined;
@@ -957,7 +958,19 @@ function answerReserveMs(limitMs: number): number {
 /** How often a time watcher re-reads a deadline that a human approval wait may have moved. */
 const TIME_LIMIT_POLL_MS = 1000;
 
-type TimeLimitDeps = Pick<LoopDeps, "runMetrics" | "maxDurationMs" | "deadline">;
+type TimeLimitDeps = Pick<
+  LoopDeps,
+  "runMetrics" | "maxDurationMs" | "durationExtension" | "deadline"
+>;
+
+/** The run's time limit as it stands now: the one it started with plus any time granted since. */
+function effectiveMaxDurationMs(
+  deps: Pick<LoopDeps, "maxDurationMs" | "durationExtension">,
+): number | undefined {
+  return deps.maxDurationMs === undefined
+    ? undefined
+    : deps.maxDurationMs + (deps.durationExtension?.extraMs() ?? 0);
+}
 
 /** Which part of the time limits to measure: up to the answer reserve, or up to the limits themselves. */
 type TimeSpan = "work" | "answer";
@@ -969,7 +982,8 @@ type TimeSpan = "work" | "answer";
  * limit is set.
  */
 function timeLeftMs(deps: TimeLimitDeps, span: TimeSpan): number | undefined {
-  const { runMetrics, maxDurationMs, deadline } = deps;
+  const { runMetrics, deadline } = deps;
+  const maxDurationMs = effectiveMaxDurationMs(deps);
   const reserve = (limitMs: number) => (span === "work" ? answerReserveMs(limitMs) : 0);
   const limits: number[] = [];
   if (maxDurationMs !== undefined) {
@@ -1014,6 +1028,7 @@ function remainingRunBudget(
     LoopDeps,
     | "runMetrics"
     | "maxDurationMs"
+    | "durationExtension"
     | "deadline"
     | "maxCostUSD"
     | "maxTokens"
@@ -2520,6 +2535,7 @@ export function executeAgentLoop(
           maxTokens,
           maxOutputTokens,
           maxDurationMs,
+          durationExtension,
           deadline,
           initialProviderAdvisory,
           workspaceContext,
@@ -2654,6 +2670,7 @@ export function executeAgentLoop(
           maxTokens,
           maxOutputTokens,
           maxDurationMs,
+          durationExtension,
           deadline,
           initialProviderAdvisory,
           workspaceContext,
@@ -2742,7 +2759,7 @@ export function executeAgentLoop(
               const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
               yield* observer.onDurationCapReached(
                 agent.name,
-                maxDurationMs ?? elapsedMs,
+                effectiveMaxDurationMs(deps) ?? elapsedMs,
                 elapsedMs,
               );
               break;
@@ -2826,7 +2843,11 @@ export function executeAgentLoop(
             const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
             durationCapped = true;
             state.iterationsUsed = iterationIndex + 1;
-            yield* observer.onDurationCapReached(agent.name, maxDurationMs ?? elapsedMs, elapsedMs);
+            yield* observer.onDurationCapReached(
+              agent.name,
+              effectiveMaxDurationMs(deps) ?? elapsedMs,
+              elapsedMs,
+            );
             break;
           }
         }
