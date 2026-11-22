@@ -36,7 +36,13 @@ jazz update
 bun, pnpm or yarn for a package install. Chat bots deployed from a checkout follow release
 tags on their own; see [Keeping it updated](./guides/deploy-a-chat-agent.md#keeping-it-updated).
 
-To stay on a version, install it explicitly and skip `jazz update`:
+Once a day, when you start Jazz, it checks for a newer release. A patch release (`0.17.6`
+to `0.17.7`) installs in a background process, so the next launch runs it. A minor release
+(`0.17.x` to `0.18.0`) only shows a notice, so you can read its release notes first, then run
+`jazz update`. Set `JAZZ_DISABLE_AUTO_UPDATE=1` to keep the notice for patch releases too, or
+`JAZZ_DISABLE_UPDATE_CHECK=1` to skip the check. Source checkouts never update themselves.
+
+To stay on a version, set `JAZZ_DISABLE_AUTO_UPDATE=1`, install it explicitly and skip `jazz update`:
 
 ```bash
 curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh |

@@ -63,7 +63,9 @@ describe(DOCS_PATH, () => {
   it("mentions every public long option", () => {
     const missing = [
       ...new Set(
-        publicCommands().flatMap((command) => command.options.map((option) => option.long)),
+        publicCommands().flatMap((command) =>
+          command.options.filter((option) => !option.hidden).map((option) => option.long),
+        ),
       ),
     ].filter((flag) => flag !== undefined && !markdown.includes(flag));
 
