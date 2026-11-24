@@ -635,7 +635,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("ticks turn elapsed time while a run remains active", async () => {
-    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 130, height: HEIGHT });
     await rendered.renderOnce();
     store.setChatBusy(true);
     await rendered.flush();
