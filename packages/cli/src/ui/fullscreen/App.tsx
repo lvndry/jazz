@@ -45,6 +45,7 @@ import { Input } from "./Input";
 import {
   consumeKeyEvent,
   hintsFor,
+  modeSwitchHints,
   isCopyChord,
   isCtrlLetter,
   isInterruptChord,
@@ -711,7 +712,10 @@ function AppView({
     const notice = copyNotice ?? peerNotice;
     return {
       ...view.footer,
-      hints: view.footer.hints.length > 0 ? view.footer.hints : footerHints,
+      hints:
+        view.footer.hints.length > 0
+          ? [...view.footer.hints, ...modeSwitchHints(view.footer.mode)]
+          : footerHints,
       ...(notice === undefined ? {} : { notice }),
     };
   }, [view.footer, footerHints, copyNotice, peerNotice]);

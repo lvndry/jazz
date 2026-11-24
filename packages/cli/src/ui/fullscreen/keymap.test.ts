@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   hintsFor,
+  modeSwitchHints,
   INTERRUPT_WINDOW_MS,
   isBackgroundChord,
   isForceSendChord,
@@ -412,6 +413,15 @@ describe("footer hints", () => {
       "shift+tab for safe",
     );
     expect(hintsFor("input", false).join(" ")).not.toContain("shift+tab");
+    for (const hasQueued of [false, true]) {
+      expect(hintsFor("input", true, true, undefined, false, hasQueued, "safe")).toContain(
+        "shift+tab for yolo",
+      );
+      expect(hintsFor("input", true, true, undefined, false, hasQueued, "yolo")).toContain(
+        "shift+tab for safe",
+      );
+    }
+    expect(modeSwitchHints("chat")).toEqual([]);
   });
 
   it("never advertises actions that do not exist", () => {

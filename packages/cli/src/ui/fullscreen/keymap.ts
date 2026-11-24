@@ -576,6 +576,14 @@ export function isPrintableSequence(sequence: string, ctrl = false, superKey = f
   });
 }
 
+/** The Shift+Tab hint naming the mode it switches to; empty for modes the toggle does not cover. */
+export function modeSwitchHints(mode: Mode | undefined): readonly string[] {
+  if (mode === "yolo") {
+    return ["shift+tab for safe"];
+  }
+  return mode === "safe" ? ["shift+tab for yolo"] : [];
+}
+
 /**
  * Hints for the footer, resolved from focus so the footer only ever advertises
  * what is actually pressable right now. Ctrl+B is offered on the running tool's row
@@ -593,8 +601,7 @@ export function hintsFor(
   hasQueued = false,
   mode?: Mode,
 ): readonly string[] {
-  const modeSwitch =
-    mode === "yolo" ? ["shift+tab for safe"] : mode === "safe" ? ["shift+tab for yolo"] : [];
+  const modeSwitch = modeSwitchHints(mode);
   // A card that waits on a person carries its own legend under it; the footer says what
   // state the session is in rather than repeating the card's keys a second time.
   if (overlay === "approval") {
@@ -633,6 +640,7 @@ export function hintsFor(
           "tab to queue after turn",
           "up to recall",
           "ctrl+x to clear",
+          ...modeSwitch,
         ];
       }
       return [
@@ -640,6 +648,7 @@ export function hintsFor(
         "tab to queue after turn",
         "esc esc to interrupt",
         "ctrl+r for reasoning",
+        ...modeSwitch,
       ];
     }
     return ["esc esc to interrupt", "ctrl+r for reasoning", "ctrl+o to expand", ...modeSwitch];

@@ -65,15 +65,6 @@ function StatusFooter({
   /** Waits and jobs still running in the background, e.g. `watching 2`. */
   background?: string | null;
 }) {
-  const hasRunStats =
-    runStats.model !== undefined ||
-    runStats.tokensInContext !== undefined ||
-    runStats.costUSD !== undefined;
-  const hasContent = status || hint || background || workingDirectory || hasRunStats;
-  if (!hasContent) {
-    return null;
-  }
-
   const homeDir = process.env["HOME"];
   const wd = workingDirectory ? shortenPath(workingDirectory, homeDir, 40) : null;
 
@@ -97,6 +88,26 @@ function StatusFooter({
   // ASCII separator survives any font.
   const statLine = statParts.join(" · ");
 
+  const leftSegments: {
+    text: string;
+    color?: string;
+    bold?: boolean;
+    dim?: boolean;
+  }[] = [];
+  if (modeIsYolo) {
+    leftSegments.push({ text: "yolo", color: THEME.warning, bold: true });
+  }
+  leftSegments.push({ text: `shift+tab for ${modeIsYolo ? "safe" : "yolo"}`, dim: true });
+  if (background) {
+    leftSegments.push({ text: background, color: THEME.primary });
+  }
+  if (hint) {
+    leftSegments.push({ text: hint, color: THEME.primary });
+  }
+  if (statLine.length > 0) {
+    leftSegments.push({ text: statLine, color: THEME.secondary });
+  }
+
   return (
     <Box
       marginTop={1}
@@ -118,35 +129,17 @@ function StatusFooter({
           <Box>
             {/* Yolo mode auto-approves every tool call — keep it loudly and
                 persistently visible, not just in the 2s toast. */}
-            {modeIsYolo ? (
+            {leftSegments.map((segment, index) => (
               <Text
-                color={THEME.warning}
-                bold
+                key={segment.text}
+                {...(segment.color === undefined ? {} : { color: segment.color })}
+                {...(segment.bold === true ? { bold: true } : {})}
+                {...(segment.dim === true ? { dimColor: true } : {})}
               >
-                yolo{statLine.length > 0 ? " · " : ""}
+                {index > 0 ? " · " : ""}
+                {segment.text}
               </Text>
-            ) : null}
-            <Text dimColor>
-              shift+tab for {modeIsYolo ? "safe" : "yolo"}
-              {statLine.length > 0 || hint || background ? " · " : ""}
-            </Text>
-            {background ? (
-              <Text color={THEME.primary}>
-                {background}
-                {statLine.length > 0 || hint ? " · " : ""}
-              </Text>
-            ) : null}
-            {hint ? (
-              <Text color={THEME.primary}>
-                {hint}
-                {statLine.length > 0 ? " · " : ""}
-              </Text>
-            ) : null}
-            {statLine.length > 0 ? (
-              <Text color={THEME.secondary}>{statLine}</Text>
-            ) : hint || background ? null : (
-              <Text dimColor> </Text>
-            )}
+            ))}
           </Box>
         )}
       </Box>
