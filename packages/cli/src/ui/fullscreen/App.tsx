@@ -693,6 +693,7 @@ function AppView({
         overlayKind,
         view.input.commands !== undefined,
         view.input.queued.length > 0,
+        view.footer.mode,
       ),
     [
       focus,
@@ -701,6 +702,7 @@ function AppView({
       overlayKind,
       view.input.commands,
       view.input.queued.length,
+      view.footer.mode,
     ],
   );
   const footer = useMemo(() => {

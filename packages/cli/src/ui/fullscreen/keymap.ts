@@ -8,7 +8,7 @@
  * discovered in use.
  */
 
-import type { Focus } from "./types";
+import type { Focus, Mode } from "./types";
 
 export type ScrollUnit = "line" | "page" | "end";
 
@@ -591,7 +591,10 @@ export function hintsFor(
   overlay?: "panel" | "approval" | "search" | "question" | "text" | "filepicker" | "theme",
   commandsOpen = false,
   hasQueued = false,
+  mode?: Mode,
 ): readonly string[] {
+  const modeSwitch =
+    mode === "yolo" ? ["shift+tab for safe"] : mode === "safe" ? ["shift+tab for yolo"] : [];
   // A card that waits on a person carries its own legend under it; the footer says what
   // state the session is in rather than repeating the card's keys a second time.
   if (overlay === "approval") {
@@ -639,7 +642,7 @@ export function hintsFor(
         "ctrl+r for reasoning",
       ];
     }
-    return ["esc esc to interrupt", "ctrl+r for reasoning", "ctrl+o to expand"];
+    return ["esc esc to interrupt", "ctrl+r for reasoning", "ctrl+o to expand", ...modeSwitch];
   }
-  return ["up for history", "ctrl+f to search", "ctrl+r for reasoning"];
+  return ["up for history", "ctrl+f to search", "ctrl+r for reasoning", ...modeSwitch];
 }

@@ -126,6 +126,10 @@ function StatusFooter({
                 yolo{statLine.length > 0 ? " · " : ""}
               </Text>
             ) : null}
+            <Text dimColor>
+              shift+tab for {modeIsYolo ? "safe" : "yolo"}
+              {statLine.length > 0 || hint || background ? " · " : ""}
+            </Text>
             {background ? (
               <Text color={THEME.primary}>
                 {background}

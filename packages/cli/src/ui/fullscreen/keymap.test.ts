@@ -404,6 +404,16 @@ describe("footer hints", () => {
     );
   });
 
+  it("offers the opposite approval mode on shift+tab", () => {
+    expect(hintsFor("input", false, false, undefined, false, false, "safe")).toContain(
+      "shift+tab for yolo",
+    );
+    expect(hintsFor("input", true, false, undefined, false, false, "yolo")).toContain(
+      "shift+tab for safe",
+    );
+    expect(hintsFor("input", false).join(" ")).not.toContain("shift+tab");
+  });
+
   it("never advertises actions that do not exist", () => {
     const advertised = [
       ...hintsFor("input", false),
